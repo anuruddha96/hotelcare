@@ -24,6 +24,8 @@ import { todayBudapest } from '@/lib/budapestTime';
 import { floatingState, needsAction, nightlyOccupancy, reservationAttention, topSeverity, type AttentionFlag } from '@/lib/receptionAttention';
 import { columnWidthFor, groupRoomsByType, loadCalendarOptions, saveCalendarOptions, type CalendarOptions } from '@/lib/receptionCalendarOptions';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
+import { bookingSourceLabel, reservationStatusLabel, roomStatusLabel } from '@/lib/i18n/receptionLabels';
 import { nightsBetween as stayNights, reservationChannel, reservationGuestLabel } from '@/lib/reservations';
 import { getRoomLaneCount, layoutRoomStays } from '@/lib/receptionPlanner';
 import { displayRoomType } from '@/lib/roomTypeDisplay';
@@ -125,6 +127,7 @@ const nightsBetween = (from: string, to: string) =>
 /** Read-only snapshot bookings are displayed separately from editable HotelCare records. */
 export function ReservationCalendar({ rooms, reservations, basePath, showUnassigned = true, editable = false, onChanged, onQuickAction, pmsName = null, onRoomStatusChange, onRoomPeriodManage }: ReservationCalendarProps) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const navigate = useNavigate();
   // A phone shows a week by default; everything wider shows two.
   const [days, setDays] = useState<WindowDays>(() => (typeof window !== 'undefined' && window.innerWidth > 0 && window.innerWidth < 640 ? 7 : 14));
@@ -174,8 +177,8 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
 
   const endDate = useMemo(() => addDays(startDate, days), [startDate, days]);
   const dates = useMemo(() => Array.from({ length: days }, (_, i) => addDays(startDate, i)), [startDate, days]);
-  const currentStart = format(startDate, 'yyyy-MM-dd');
-  const currentEnd = format(endDate, 'yyyy-MM-dd');
+  const currentStart = format(startDate, 'yyyy-MM-dd', { locale: locale.dateFnsLocale });
+  const currentEnd = format(endDate, 'yyyy-MM-dd', { locale: locale.dateFnsLocale });
   const active = useMemo(() => reservations.filter((reservation) =>
     ACTIVE_STATUSES.has(reservation.status)
     && !(options.hideCheckedOut && reservation.status === 'checked_out')
@@ -237,7 +240,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
     [attentionById],
   );
   const occupancy = useMemo(
-    () => nightlyOccupancy(reservations, dates.map((date) => format(date, 'yyyy-MM-dd')), rooms.length),
+    () => nightlyOccupancy(reservations, dates.map((date) => format(date, 'yyyy-MM-dd', { locale: locale.dateFnsLocale })), rooms.length),
     [reservations, dates, rooms.length],
   );
   const conflictRooms = useMemo(() => {
@@ -341,14 +344,14 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
     let toIn = fromIn;
     let toOut = fromOut;
     if (mode === 'move') {
-      toIn = format(addDays(parseISO(fromIn), dayDelta), 'yyyy-MM-dd');
-      toOut = format(addDays(parseISO(fromOut), dayDelta), 'yyyy-MM-dd');
+      toIn = format(addDays(parseISO(fromIn), dayDelta), 'yyyy-MM-dd', { locale: locale.dateFnsLocale });
+      toOut = format(addDays(parseISO(fromOut), dayDelta), 'yyyy-MM-dd', { locale: locale.dateFnsLocale });
     } else if (mode === 'start') {
-      toIn = format(addDays(parseISO(fromIn), dayDelta), 'yyyy-MM-dd');
-      if (toIn >= fromOut) toIn = format(addDays(parseISO(fromOut), -1), 'yyyy-MM-dd');
+      toIn = format(addDays(parseISO(fromIn), dayDelta), 'yyyy-MM-dd', { locale: locale.dateFnsLocale });
+      if (toIn >= fromOut) toIn = format(addDays(parseISO(fromOut), -1), 'yyyy-MM-dd', { locale: locale.dateFnsLocale });
     } else {
-      toOut = format(addDays(parseISO(fromOut), dayDelta), 'yyyy-MM-dd');
-      if (toOut <= fromIn) toOut = format(addDays(parseISO(fromIn), 1), 'yyyy-MM-dd');
+      toOut = format(addDays(parseISO(fromOut), dayDelta), 'yyyy-MM-dd', { locale: locale.dateFnsLocale });
+      if (toOut <= fromIn) toOut = format(addDays(parseISO(fromIn), 1), 'yyyy-MM-dd', { locale: locale.dateFnsLocale });
     }
     const fromRoom = reservation.room_id ? roomById.get(reservation.room_id) ?? null : null;
     const toRoom = mode === 'move' && targetRoomId ? roomById.get(targetRoomId) ?? fromRoom : fromRoom;
@@ -381,13 +384,13 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   const monthGroups = useMemo(() => {
     const groups: { key: string; label: string; count: number }[] = [];
     for (const date of dates) {
-      const key = format(date, 'yyyy-MM');
+      const key = format(date, 'yyyy-MM', { locale: locale.dateFnsLocale });
       const latest = groups[groups.length - 1];
       if (latest?.key === key) latest.count += 1;
-      else groups.push({ key, label: format(date, 'MMMM yyyy'), count: 1 });
+      else groups.push({ key, label: locale.formatMonthYear(date), count: 1 });
     }
     return groups;
-  }, [dates]);
+  }, [dates, locale]);
 
   const stickyLeft = 'sticky left-0 z-20 bg-card border-r border-border shrink-0';
   const todayCol = (date: Date) => isSameDay(date, new Date());
@@ -422,7 +425,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
     // One word for where the booking stands; a confirmed booking without a room reads "Floating".
     const statusWord = floating && ['pending', 'confirmed'].includes(reservation.status)
       ? t('pms.cal.statusFloating')
-      : ACTIVE_STATUSES.has(reservation.status) ? t(`pms.cal.status_${reservation.status}`) : String(reservation.status ?? '').replace('_', ' ');
+      : reservationStatusLabel(reservation.status, t);
     const nightsLabel = nights > 0 ? `${nights} ${t(nights === 1 ? 'pms.cal.night' : 'pms.cal.nights')}` : '';
     const detail = [statusWord, options.showNights ? nightsLabel : ''].filter(Boolean).join(' · ');
     const canCheckIn = !!onQuickAction && !snapshot && ['pending', 'confirmed'].includes(reservation.status) && reservation.check_in_date <= today;
@@ -439,7 +442,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
         // Read-only plans (Previo hotels) and bookings that cannot be dragged never start a drag: a plain click opens them.
         onClick={() => { if (pointerHandled.current) { pointerHandled.current = false; return; } openReservation(reservation); }}
         onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openReservation(reservation); } }}
-        aria-label={`${label}, ${statusWord}${nightsLabel ? `, ${nightsLabel}` : ''}, ${reservation.check_in_date} to ${reservation.check_out_date}${snapshot ? ', read-only snapshot' : ''}${overlaps ? ', room conflict' : ''}${reasons ? `, ${reasons}` : ''}`}
+        aria-label={`${label}, ${statusWord}${nightsLabel ? `, ${nightsLabel}` : ''}, ${locale.formatDate(reservation.check_in_date)} – ${locale.formatDate(reservation.check_out_date)}${snapshot ? ', ' + t('pms.workspace.readOnlySnapshot') : ''}${overlaps ? ', ' + t('pms.workspace.roomConflict') : ''}${reasons ? `, ${reasons}` : ''}`}
         className={`absolute flex items-center gap-1 rounded border font-semibold text-left px-1 overflow-hidden transition-opacity select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${options.compact ? 'text-[10px]' : 'text-[11px]'} ${RESERVATION_COLORS[reservation.status] || 'bg-muted border-border'} ${snapshot ? 'border-dashed opacity-75 cursor-not-allowed' : draggable ? 'hover:brightness-95 cursor-grab active:cursor-grabbing' : 'hover:brightness-95 cursor-pointer'} ${floating ? 'border-dashed' : ''} ${overlaps ? 'ring-2 ring-destructive ring-inset' : ''} ${dimmed ? 'opacity-25' : ''} ${dragging ? 'z-30 opacity-80 shadow-lg ring-2 ring-primary' : ''} ${highlighted ? 'z-20 ring-4 ring-primary animate-pulse' : ''}`}
         style={{
           left: start * columnWidth + 2 + dragShift + (dragging && drag?.mode === 'start' ? drag.dayDelta * columnWidth : 0),
@@ -483,7 +486,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
       <ContextMenu key={reservation.id}>
         <ContextMenuTrigger asChild><div className="contents">{hover}</div></ContextMenuTrigger>
         <ContextMenuContent className="w-56">
-          <ContextMenuLabel className="truncate text-xs">{label}<span className="block font-normal text-muted-foreground">{channel.label} · {reservation.check_in_date} → {reservation.check_out_date}</span></ContextMenuLabel>
+          <ContextMenuLabel className="truncate text-xs">{label}<span className="block font-normal text-muted-foreground">{bookingSourceLabel(channel.label, t)} · {locale.formatDate(reservation.check_in_date)} → {locale.formatDate(reservation.check_out_date)}</span></ContextMenuLabel>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => openReservation(reservation)}>{t('pms.cal.ctxOpen')}</ContextMenuItem>
           {canCheckIn && <ContextMenuItem onSelect={() => onQuickAction?.(reservation, 'checkin')}>{t('pms.checkIn')}</ContextMenuItem>}
@@ -496,15 +499,14 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   };
 
   const dayStripes = (
-    <div className="absolute inset-0 flex" aria-hidden="true">{dates.map((date) => <div key={format(date, 'yyyy-MM-dd')} className={`shrink-0 border-r ${todayCol(date) ? 'border-x border-primary/30 bg-primary/5' : `border-border ${[0, 6].includes(date.getDay()) ? 'bg-muted/20' : ''}`}`} style={{ width: columnWidth }} />)}</div>
+    <div className="absolute inset-0 flex" aria-hidden="true">{dates.map((date) => <div key={format(date, 'yyyy-MM-dd', { locale: locale.dateFnsLocale })} className={`shrink-0 border-r ${todayCol(date) ? 'border-x border-primary/30 bg-primary/5' : `border-border ${[0, 6].includes(date.getDay()) ? 'bg-muted/20' : ''}`}`} style={{ width: columnWidth }} />)}</div>
   );
 
   // Room status lives next to the room number: readable at a glance, one tap to change.
   const renderRoomStatus = (room: PlannerRoom) => {
     const status = String(room.status ?? '');
     const style = ROOM_STATUS_STYLE[status] ?? ROOM_STATUS_FALLBACK;
-    const known = (ROOM_STATUSES as string[]).includes(status);
-    const text = known ? t(`pms.room.status_${status}`) : status.replace(/_/g, ' ') || '—';
+    const text = roomStatusLabel(status, t);
     const face = roomsCollapsed
       ? <span className={`h-2.5 w-2.5 rounded-full ${style.dot}`} />
       : <><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} aria-hidden="true" /><span className="truncate">{text}</span></>;
@@ -605,12 +607,12 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => setStartDate((current) => addDays(current, -7))} aria-label="Previous week"><ChevronLeft className="h-4 w-4" /></Button>
-            <Input type="date" aria-label="Planner focus date" className="h-8 w-[143px] text-xs" value={format(addDays(startDate, 2), 'yyyy-MM-dd')} onChange={(event) => setAnchor(event.target.value)} />
+            <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => setStartDate((current) => addDays(current, -7))} aria-label={t('pms.workspace.previousWeek')}><ChevronLeft className="h-4 w-4" /></Button>
+            <Input type="date" aria-label={t('pms.workspace.focusDate')} className="h-8 w-[143px] text-xs" value={format(addDays(startDate, 2), 'yyyy-MM-dd', { locale: locale.dateFnsLocale })} onChange={(event) => setAnchor(event.target.value)} />
             <Button type="button" size="sm" variant="secondary" className="h-8 px-2.5 font-semibold" onClick={() => setStartDate(startNearToday())}>📍 {t('pms.planner.today')}</Button>
-            <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => setStartDate((current) => addDays(current, 7))} aria-label="Next week"><ChevronRight className="h-4 w-4" /></Button>
-            <div className="flex overflow-hidden rounded-md border border-border" role="group" aria-label="Planner date range">
-              {([7, 14, 21, 31] as WindowDays[]).map((count) => <Button key={count} type="button" size="sm" variant={count === days ? 'default' : 'ghost'} className="rounded-none h-8 px-2 text-xs" aria-pressed={count === days} onClick={() => setDays(count)}>{count}d</Button>)}
+            <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => setStartDate((current) => addDays(current, 7))} aria-label={t('pms.workspace.nextWeek')}><ChevronRight className="h-4 w-4" /></Button>
+            <div className="flex overflow-hidden rounded-md border border-border" role="group" aria-label={t('pms.workspace.dateRange')}>
+              {([7, 14, 21, 31] as WindowDays[]).map((count) => <Button key={count} type="button" size="sm" variant={count === days ? 'default' : 'ghost'} className="rounded-none h-8 px-2 text-xs" aria-pressed={count === days} onClick={() => setDays(count)}>{t('pms.workspace.rangeDays').replace('{count}', String(count))}</Button>)}
             </div>
             <Popover>
               <PopoverTrigger asChild>
@@ -650,7 +652,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
                     <button key={r.id} type="button" onClick={() => jumpToReservation(r)}
                       className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center gap-2">
                       <span className="font-semibold truncate">{reservationGuestLabel(r)}</span>
-                      <span className="text-muted-foreground truncate">{r.check_in_date} → {r.check_out_date}</span>
+                      <span className="text-muted-foreground truncate">{locale.formatDate(r.check_in_date)} → {locale.formatDate(r.check_out_date)}</span>
                       <span className="ml-auto text-[10px] text-muted-foreground shrink-0">{r.room_id ? roomById.get(r.room_id)?.room_number ?? '' : t('pms.cal.floating')}</span>
                     </button>
                   ))}
@@ -666,7 +668,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
             {t('pms.cal.onlyFree')}
           </label>
         </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-1 items-center text-[11px] text-muted-foreground" aria-label="Planner legend">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 items-center text-[11px] text-muted-foreground" aria-label={t('pms.workspace.legend')}>
           {(['confirmed', 'checked_in', 'pending', 'checked_out'] as const).map((status) => (
             <span key={status} className="inline-flex items-center gap-1"><span className={`inline-block w-4 h-2.5 rounded-sm border ${RESERVATION_COLORS[status]}`} /> {t(`pms.planner.legend_${status}`)}</span>
           ))}
@@ -678,7 +680,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
       <CardContent className="p-0">
         {/* One scroll area for both axes so the three header rows and the room
             column stay frozen until the last room has scrolled past. */}
-        <div ref={scrollRef} className="w-full overflow-auto overscroll-x-contain max-h-[72vh]" data-training="res-planner-scroll" tabIndex={0} role="region" aria-label="Reservation calendar; scroll for more rooms and dates">
+        <div ref={scrollRef} className="w-full overflow-auto overscroll-x-contain max-h-[72vh]" data-training="res-planner-scroll" tabIndex={0} role="region" aria-label={t('pms.workspace.calendarRegion')}>
           <div style={{ minWidth: roomWidth + gridWidth }}>
             <div className="flex border-b border-border bg-card sticky top-0 z-30" style={{ height: HEAD_MONTH_H }}>
               <div className={`${stickyLeft} z-40 px-2 flex items-center justify-between gap-1 text-xs font-semibold`} style={{ width: roomWidth }}>
@@ -695,11 +697,11 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
               <div className={`${stickyLeft} z-40 px-3 flex items-center text-[10px] text-muted-foreground`} style={{ width: roomWidth }}>{visibleRooms.length} {!roomsCollapsed && t('pms.cal.rooms')}</div>
               <div className="flex bg-card" style={{ width: gridWidth }}>
                 {dates.map((date) => {
-                  const iso = format(date, 'yyyy-MM-dd');
+                  const iso = format(date, 'yyyy-MM-dd', { locale: locale.dateFnsLocale });
                   const moves = dayMoves.get(iso);
                   return <div key={iso} className={`shrink-0 text-center border-r py-1 ${todayCol(date) ? 'border-x-2 border-primary bg-primary/15 text-primary' : `border-border ${[0, 6].includes(date.getDay()) ? 'bg-muted/50' : ''}`}`} style={{ width: columnWidth }}>
-                    <div className={`text-[10px] uppercase truncate ${todayCol(date) ? 'font-bold' : 'text-muted-foreground'}`}>{todayCol(date) ? t('pms.planner.today') : format(date, 'EEE')}</div>
-                    <div className="text-sm font-semibold leading-tight">{format(date, 'd')}</div>
+                    <div className={`text-[10px] uppercase truncate ${todayCol(date) ? 'font-bold' : 'text-muted-foreground'}`}>{todayCol(date) ? t('pms.planner.today') : locale.formatWeekdayShort(date)}</div>
+                    <div className="text-sm font-semibold leading-tight">{format(date, 'd', { locale: locale.dateFnsLocale })}</div>
                     <div className="h-3 text-[9px] leading-3 text-muted-foreground whitespace-nowrap" title={moves ? `${moves.arrivals} ${t('pms.cal.arrivals')} · ${moves.departures} ${t('pms.cal.departures')}` : undefined}>
                       {moves && <><span className="text-emerald-700 dark:text-emerald-400">↓{moves.arrivals}</span> <span className="text-sky-700 dark:text-sky-400">↑{moves.departures}</span></>}
                     </div>

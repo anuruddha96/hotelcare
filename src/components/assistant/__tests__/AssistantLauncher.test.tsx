@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { TranslationProvider } from "@/hooks/useTranslation";
 
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({ user: { id: "u1" }, profile: { organization_slug: "rd", role: "top_management" } }),
@@ -29,14 +30,17 @@ function stubMatchMedia(matches: (query: string) => boolean) {
   })) as typeof window.matchMedia;
 }
 
-function renderLauncher() {
+function renderLauncher(language: "en" | "hu" = "en") {
+  localStorage.setItem("preferred_language", language);
   render(
+    <TranslationProvider>
     <MemoryRouter initialEntries={["/rd/revenue"]}>
       <Routes>
         <Route path="/rd/assistant" element={<p>Mira chat</p>} />
         <Route path="*" element={<AssistantLauncher />} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </TranslationProvider>,
   );
 }
 
@@ -63,5 +67,12 @@ describe("Mira launcher", () => {
     const button = screen.getByRole("button", { name: "Open Mira AI Operator" });
     expect(button).not.toHaveAttribute("data-side");
     expect(button).toHaveTextContent("Mira Operator");
+  });
+  it("localizes the desktop launcher and its accessible name in Hungarian", () => {
+    stubMatchMedia(() => false);
+    renderLauncher("hu");
+    const button = screen.getByRole("button", { name: "Mira MI-asszisztens megnyitása" });
+    expect(button).toHaveTextContent("Mira asszisztens");
+    expect(button).toHaveTextContent("Próbáld ki");
   });
 });

@@ -35,7 +35,7 @@ export function LanguageSwitcher() {
   return (
     <div className="flex shrink-0 items-center" data-training="language-switch">
     <Select value={language} onValueChange={handleLanguageChange}>
-      <SelectTrigger aria-label={`Language: ${current.name}`} className="h-11 w-[68px] shrink-0 gap-1.5 rounded-lg border-border/60 bg-background px-2.5 transition-colors hover:bg-secondary/60 sm:h-9 sm:w-auto sm:gap-2 sm:px-3 [&>span]:flex [&>span]:items-center [&>span]:gap-2 [&>span]:whitespace-nowrap">
+      <SelectTrigger aria-label={`${t('reception.shell.language')} ${current.name}`} className="h-11 w-[68px] shrink-0 gap-1.5 rounded-lg border-border/60 bg-background px-2.5 transition-colors hover:bg-secondary/60 sm:h-9 sm:w-auto sm:gap-2 sm:px-3 [&>span]:flex [&>span]:items-center [&>span]:gap-2 [&>span]:whitespace-nowrap">
         <SelectValue>
           <span className="text-base leading-none">{current.flag}</span>
           <span className="font-medium hidden sm:inline whitespace-nowrap">{current.name}</span>

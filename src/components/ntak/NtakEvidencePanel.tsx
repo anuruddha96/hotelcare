@@ -1,3 +1,6 @@
+import { useTranslation } from '@/hooks/useTranslation';
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
+import { reportingStateLabel } from '@/lib/i18n/receptionLabels';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,17 +48,25 @@ function logLine(d: Detail): string {
     ...d.verifications.map(v => 'Verification ' + (v.query_id ?? '—') + ' / ' + stamp(v.sent_at) + ' / ' + v.status)].join(' | ');
 }
 function XmlRow({ name, xml, onError }: { name: string; xml: string | null; onError: (s: string) => void }) {
+  const { t } = useTranslation();
   return <div className="flex flex-wrap items-center gap-2 border-t py-2">
     <span className="break-all flex-1">{name}</span>
     {xml ? <>
-      <Button type="button" variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(xml).catch(() => onError('Clipboard unavailable; use Download.')); }}>Copy</Button>
-      <Button type="button" variant="outline" size="sm" onClick={() => xmlFile(xml, name)}>Download</Button>
-      <details className="w-full"><summary className="cursor-pointer">View raw XML / response</summary><pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all bg-muted p-2">{xml}</pre></details>
-    </> : <span className="text-muted-foreground">Not available / not received</span>}
+      <Button type="button" variant="outline" size="sm" onClick={() => { void navigator.clipboard.writeText(xml).catch(() => onError(t('ntak.evidence.clipboard'))); }}>{t('ntak.evidence.copy')}</Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => xmlFile(xml, name)}>{t('ntak.evidence.download')}</Button>
+      <details className="w-full"><summary className="cursor-pointer">{t('ntak.evidence.rawXml')}</summary><pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all bg-muted p-2">{xml}</pre></details>
+    </> : <span className="text-muted-foreground">{t('ntak.evidence.unavailable')}</span>}
   </div>;
 }
 
 export function NtakEvidencePanel({ hotelId, today }: { hotelId: string; today: string }) {
+  const { t } = useTranslation();
+  const locale = useLocaleFormat('Europe/Budapest');
+  const displayEventTime = (a: Exchange) => {
+    if (a.kind === 'closure') return locale.formatDate(a.ref);
+    const dates = [...new Set([...(a.request_xml ?? '').matchAll(/<(?:v9:)?(?:idopont|foglalasIdopont)>([^<]+)<\/(?:v9:)?(?:idopont|foglalasIdopont)>/g)].map(m => m[1]))];
+    return dates.map(date => locale.formatDateTime(date)).join('; ') || (a.kind === 'start_date' ? locale.formatDateTime(a.sent_at) : t('ntak.evidence.notRecorded'));
+  };
   const [from, setFrom] = useState(today), [to, setTo] = useState(today);
   const [kind, setKind] = useState('all'), [environment, setEnvironment] = useState('test');
   const [rows, setRows] = useState<Attempt[]>([]), [loaded, setLoaded] = useState(false);
@@ -79,10 +90,10 @@ export function NtakEvidencePanel({ hotelId, today }: { hotelId: string; today: 
     const details: Detail[] = [];
     let size = 0;
     for (const row of rows) {
-      if (!mounted.current) throw new Error('Export cancelled');
+      if (!mounted.current) throw new Error(t('ntak.evidence.exportCancelled'));
       const d = await request(row.id);
       size += [d.attempt, ...d.verifications].reduce((sum, v) => sum + (v.request_xml?.length ?? 0) + (v.response_xml?.length ?? 0), 0);
-      if (size > 64 * 1024 * 1024) throw new Error('Evidence exceeds 64 MB; narrow your dates.');
+      if (size > 64 * 1024 * 1024) throw new Error(t('ntak.evidence.tooLarge'));
       details.push(d);
     }
     return details;
@@ -102,15 +113,15 @@ export function NtakEvidencePanel({ hotelId, today }: { hotelId: string; today: 
   const printLog = () => {
     // Open from direct user interaction to avoid browser popup blocking.
     const win = window.open('', '_blank');
-    if (!win) { setError('Allow popups to print the validation log.'); return; }
+    if (!win) { setError(t('ntak.evidence.popup')); return; }
     win.opener = null;
     void run(async () => {
       try {
         const details = await allDetails();
         if (!mounted.current || win.closed) { win.close(); return; }
-        win.document.title = 'NTAK Validation log';
-        const heading = win.document.createElement('h1'); heading.textContent = 'NTAK Validation log — ' + environment;
-        const summary = win.document.createElement('p'); summary.textContent = hotelId + ' | ' + from + ' – ' + to + ' | Europe/Budapest';
+        win.document.title = t('ntak.evidence.printTitle');
+        const heading = win.document.createElement('h1'); heading.textContent = t('ntak.evidence.printTitle') + ' — ' + t(environment === 'test' ? 'ntak.evidence.test' : 'ntak.evidence.production');
+        const summary = win.document.createElement('p'); summary.textContent = hotelId + ' | ' + locale.formatDate(from) + ' – ' + locale.formatDate(to) + ' | Europe/Budapest';
         const table = win.document.createElement('table');
         table.style.cssText = 'border-collapse:collapse;width:100%;font:12px sans-serif;overflow-wrap:anywhere';
         const addRow = (values: string[], header = false) => {
@@ -120,46 +131,46 @@ export function NtakEvidencePanel({ hotelId, today }: { hotelId: string; today: 
             cell.style.cssText = 'border:1px solid #888;padding:5px;text-align:left'; cell.textContent = value; row.appendChild(cell);
           }
         };
-        addRow(['Kind / ref', 'Message ID', 'Event time', 'Sent (Budapest)', 'Processing ID', 'Status', 'Verification / evidence'], true);
+        addRow([t('ntak.evidence.kindRef'), t('ntak.evidence.messageId'), t('ntak.evidence.eventTimeHeader'), t('ntak.evidence.sent'), t('ntak.evidence.processingId'), t('common.status'), t('ntak.evidence.verification')], true);
         for (const d of details) {
           const a = d.attempt;
-          addRow([prefix[a.kind] + ' ' + a.ref, a.uzenet_id, eventTime(a), stamp(a.sent_at), a.processing_id ?? '—', a.status,
-            (a.request_xml ? 'Signed request stored' : 'Signed request unavailable') + '; ' + (a.response_xml ? 'Response stored' : 'Response unavailable') + '; ' +
-            d.verifications.map(v => (v.query_id ?? '—') + ' · ' + stamp(v.sent_at) + ' · ' + v.status).join('; ')]);
+          addRow([prefix[a.kind] + ' ' + a.ref, a.uzenet_id, displayEventTime(a), locale.formatDateTime(a.sent_at), a.processing_id ?? '—', reportingStateLabel(a.status, t),
+            (a.request_xml ? t('ntak.evidence.signedStored') : t('ntak.evidence.signedUnavailable')) + '; ' + (a.response_xml ? t('ntak.evidence.responseStored') : t('ntak.evidence.responseUnavailable')) + '; ' +
+            d.verifications.map(v => (v.query_id ?? '—') + ' · ' + locale.formatDateTime(v.sent_at) + ' · ' + reportingStateLabel(v.status, t)).join('; ')]);
         }
         win.document.body.append(heading, summary, table); win.focus(); win.print();
       } catch (e) { win.close(); throw e; }
     });
   };
   return <section className="space-y-3 rounded-md border p-3 text-sm">
-    <h3 className="font-semibold">Certification evidence / Validációs napló</h3>
-    <p className="text-xs text-muted-foreground">Signed SOAP evidence is captured for new attempts only. Historical XML cannot be recreated. Dates are submission days in Budapest. XML may contain personal data; share only with authorized recipients.</p>
+    <h3 className="font-semibold">{t('ntak.evidence.title')}</h3>
+    <p className="text-xs text-muted-foreground">{t('ntak.evidence.hint')}</p>
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-      <label>From<Input type="date" value={from} disabled={busy} onChange={e => { setFrom(e.target.value); reset(); }} /></label>
-      <label>To<Input type="date" value={to} disabled={busy} onChange={e => { setTo(e.target.value); reset(); }} /></label>
-      <label>Kind<select className="block w-full h-10 rounded border bg-background" value={kind} disabled={busy} onChange={e => { setKind(e.target.value); reset(); }}><option value="all">All</option><option value="booking">ELO — Booking</option><option value="event">ES — Stay event</option><option value="closure">NZ — Closure</option><option value="start_date">AD_01 — Start date</option></select></label>
-      <label>Environment<select className="block w-full h-10 rounded border bg-background" value={environment} disabled={busy} onChange={e => { setEnvironment(e.target.value); reset(); }}><option value="test">Test</option><option value="production">Production</option></select></label>
+      <label>{t('ntak.evidence.from')}<Input type="date" value={from} disabled={busy} onChange={e => { setFrom(e.target.value); reset(); }} /></label>
+      <label>{t('ntak.evidence.to')}<Input type="date" value={to} disabled={busy} onChange={e => { setTo(e.target.value); reset(); }} /></label>
+      <label>{t('ntak.evidence.kind')}<select className="block w-full h-10 rounded border bg-background" value={kind} disabled={busy} onChange={e => { setKind(e.target.value); reset(); }}><option value="all">{t('ntak.evidence.all')}</option><option value="booking">{t('ntak.evidence.booking')}</option><option value="event">{t('ntak.evidence.event')}</option><option value="closure">{t('ntak.evidence.closure')}</option><option value="start_date">{t('ntak.evidence.startDate')}</option></select></label>
+      <label>{t('ntak.evidence.environment')}<select className="block w-full h-10 rounded border bg-background" value={environment} disabled={busy} onChange={e => { setEnvironment(e.target.value); reset(); }}><option value="test">{t('ntak.evidence.test')}</option><option value="production">{t('ntak.evidence.production')}</option></select></label>
     </div>
     <div className="flex flex-wrap gap-2">
-      <Button type="button" size="sm" disabled={busy || !from || !to || from > to} onClick={load}>Load evidence</Button>
-      <Button type="button" size="sm" variant="outline" disabled={busy || !rows.length} onClick={exportZip}>Download all as ZIP</Button>
-      <Button type="button" size="sm" variant="outline" disabled={busy || !rows.length} onClick={printLog}>Print validation log</Button>
+      <Button type="button" size="sm" disabled={busy || !from || !to || from > to} onClick={load}>{t('ntak.evidence.load')}</Button>
+      <Button type="button" size="sm" variant="outline" disabled={busy || !rows.length} onClick={exportZip}>{t('ntak.evidence.zip')}</Button>
+      <Button type="button" size="sm" variant="outline" disabled={busy || !rows.length} onClick={printLog}>{t('ntak.evidence.print')}</Button>
     </div>
-    {busy && <p role="status">Loading evidence…</p>}
+    {busy && <p role="status">{t('ntak.evidence.loading')}</p>}
     {error && <p role="alert" className="text-destructive">{error}</p>}
-    {loaded && !rows.length && <p>No recorded attempts in this date range.</p>}
+    {loaded && !rows.length && <p>{t('ntak.evidence.empty')}</p>}
     {rows.map(a => <div key={a.id} className="border rounded p-2 space-y-1">
       <button type="button" className="text-left w-full" disabled={busy} onClick={() => detail?.attempt.id === a.id ? setDetail(null) : void run(async () => { setDetail(null); const d = await request(a.id); if (mounted.current) setDetail(d); })}>
-        <strong>{prefix[a.kind]} · {a.ref}</strong> · {stamp(a.sent_at)} · {a.status}
-        <span className="block break-all text-xs text-muted-foreground">Message: {a.uzenet_id} | Processing: {a.processing_id ?? '—'}</span>
+        <strong>{prefix[a.kind]} · {a.ref}</strong> · {locale.formatDateTime(a.sent_at)} · {reportingStateLabel(a.status, t)}
+        <span className="block break-all text-xs text-muted-foreground">{t('ntak.evidence.message')} {a.uzenet_id} | {t('ntak.evidence.processing')} {a.processing_id ?? '—'}</span>
       </button>
       {detail?.attempt.id === a.id && <div className="text-xs">
-        <p>Event time: {eventTime(detail.attempt)}</p>
+        <p>{t('ntak.evidence.eventTime')} {displayEventTime(detail.attempt)}</p>
         <XmlRow name={baseName(a) + '_request.xml'} xml={detail.attempt.request_xml} onError={setError} />
         <XmlRow name={baseName(a) + '_response.xml'} xml={detail.attempt.response_xml} onError={setError} />
-        {detail.verifications.length === 0 && <p>No result-query evidence yet.</p>}
+        {detail.verifications.length === 0 && <p>{t('ntak.evidence.noResult')}</p>}
         {detail.verifications.map((v, i) => <div key={v.id} className="mt-2">
-          <p className="break-all font-medium">Result query {i + 1}: {v.query_id} · {stamp(v.sent_at)} · {v.status}</p>
+          <p className="break-all font-medium">{t('ntak.evidence.resultQuery')} {i + 1}: {v.query_id} · {locale.formatDateTime(v.sent_at)} · {reportingStateLabel(v.status, t)}</p>
           <XmlRow name={baseName(a) + '_verify_' + (i + 1) + '_request.xml'} xml={v.request_xml} onError={setError} />
           <XmlRow name={baseName(a) + '_verify_' + (i + 1) + '_response.xml'} xml={v.response_xml} onError={setError} />
         </div>)}

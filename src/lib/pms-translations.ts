@@ -339,8 +339,8 @@ export const pmsTranslations: Record<string, Record<string, string>> = {
     'pms.viza.queueReservation': 'Foglalás',
     'pms.viza.retryQueue': 'Adatszolgáltatás újrapróbálása',
     'pms.viza.queueRetrySuccess': 'A VIZA adatszolgáltatás újra sorba került.',
-    'pms.account.title': 'Foglalási egyenleg',
-    'pms.account.externalReadOnly': 'Ezt a foglalást külső szállodai rendszer kezeli. Az onnan átvett egyenleg itt csak megtekinthető. A terheléseket, fizetéseket és helyesbítéseket a külső rendszerben rögzítse.',
+    'pms.account.title': 'Vendégszámla',
+    'pms.account.externalReadOnly': 'Ezt a foglalást külső szállodai rendszer kezeli. Az onnan átvett egyenleg itt csak megtekinthető. A terheléseket, fizetéseket és helyesbítéseket a külső rendszerben rögzítsd.',
     'pms.account.importedBalance': 'Külső rendszerből átvett egyenleg',
     'pms.account.stayAmount': 'Foglalás összege',
     // Auth

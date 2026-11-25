@@ -175,7 +175,7 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
   const [scrollLeftLabel, scrollRightLabel] = scrollLabels[language as keyof typeof scrollLabels] || scrollLabels.en;
   return (
     <TooltipProvider delayDuration={350}>
-      <nav aria-label="Hotel modules" className={cn('flex w-full min-w-0 items-center gap-1 rounded-xl border border-sky-200/70 bg-sky-50/80 p-1 shadow-sm dark:border-border dark:bg-card', className)}>
+      <nav aria-label={t('reception.shell.hotelModules')} className={cn('flex w-full min-w-0 items-center gap-1 rounded-xl border border-sky-200/70 bg-sky-50/80 p-1 shadow-sm dark:border-border dark:bg-card', className)}>
         {(overflow.left || overflow.right) && <button type="button" disabled={!overflow.left} onClick={() => scrollModules(-1)}
           className="grid size-9 shrink-0 place-items-center rounded-lg text-foreground hover:bg-background focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-30"
           aria-label={scrollLeftLabel}><ChevronLeft className="size-4" aria-hidden="true" /></button>}

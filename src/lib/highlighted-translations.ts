@@ -108,7 +108,7 @@ export const highlightedTranslations: { [lang: string]: { [key: string]: string 
     'approvals.flagged': 'Megjelölt',
     'approvals.oldest': 'Legrégebbi',
 
-    'dashboard.managementSystem': '{hotel} Menedzsment Rendszer',
+    'dashboard.managementSystem': '{hotel} szállodairányítási rendszer',
 
     'team.hotelRoomOverview': 'Szoba Áttekintés',
     'team.total': 'Összesen',

@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { Download, Loader2, Printer } from 'lucide-react';
@@ -35,6 +36,7 @@ function download(name: string, csv: string) {
 export default function ReceptionReports() {
   const { user, profile, loading } = useAuth();
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
   const { hotelId, hotelKeys, isPortfolio, ready } = useOperationalHotel();
@@ -78,7 +80,7 @@ export default function ReceptionReports() {
   }, [ready, hotelId, isPortfolio, keysKey, loadFrom, loadTo, authority]);
 
   const currency = useMemo(() => rows.find((r) => r.currency)?.currency ?? '', [rows]);
-  const money = (value: number | null) => value == null ? '—' : `${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`.trim();
+  const money = (value: number | null) => value == null ? '—' : `${value.toLocaleString(locale.intlLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`.trim();
   const daily = useMemo(() => dailyOverview(rows, day, roomCount), [rows, day, roomCount]);
   const rangeOk = to >= from && daysBetween(from, to) <= 366;
   const performance = useMemo(() => rangeOk ? performanceReport(rows, from, to, roomCount) : null, [rows, from, to, roomCount, rangeOk]);
@@ -139,9 +141,9 @@ export default function ReceptionReports() {
       <div className="print:hidden"><Header /></div>
       <main className="container mx-auto px-4 py-6">
         <div className="print:hidden">
-          <OperationalPageHeading section="Reception" />
+          <OperationalPageHeading section={t('reception.home.section')} />
           <div className="mt-4 mb-6"><OperationsNavigation current="reception" /></div>
-          <div className="mb-3 flex items-center gap-1.5 overflow-x-auto scrollbar-hide" aria-label="Reception tools">
+          <div className="mb-3 flex items-center gap-1.5 overflow-x-auto scrollbar-hide" aria-label={t('reception.home.tools')}>
             <Link to={`${basePath}/reception`}><Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground">🛎️ {t('pms.rep.navCalendar')}</Button></Link>
             <Link to={`${basePath}/guests`}><Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground">👥 {t('pms.rep.navGuests')}</Button></Link>
             <Button type="button" size="sm" className="h-8 shrink-0 gap-1.5">📊 {t('pms.rep.title')}</Button>

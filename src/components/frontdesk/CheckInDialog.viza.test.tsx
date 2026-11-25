@@ -119,7 +119,7 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       expect(confirm()).toBeDisabled();
       expect(screen.getByText('pms.stayGuest.registrationMissing')).toBeInTheDocument();
       expect(screen.queryByRole('checkbox', { name: /pms.stayGuest.arrivingNow/ })).not.toBeInTheDocument();
-      await screen.findByPlaceholderText('HU / DE / USA…');
+      await waitFor(() => expect(document.querySelector('[data-viza-field="nationality"]')).toBeInTheDocument());
       // Adding an existing guest automatically opens the document scanner.
       // Close it before editing the underlying guest registration form, as in the real UI.
       fireEvent.click(await screen.findByRole('button', { name: 'Close synthetic scanner' }));
@@ -138,7 +138,7 @@ describe('VIZA-only whole-reservation check-in screen', () => {
     }else{
       fireEvent.click(screen.getByRole('button',{name:'pms.express.scanDocument'}));
       fireEvent.click(await screen.findByRole('button',{name:'Use synthetic passport'}));
-      await screen.findByPlaceholderText('HU / DE / USA…');
+      await waitFor(() => expect(document.querySelector('[data-viza-field="nationality"]')).toBeInTheDocument());
       expect(screen.getByDisplayValue('Synthetic')).toBeInTheDocument();
       expect(screen.getByDisplayValue('Foreign')).toBeInTheDocument();
       expect(screen.getByRole('button',{name:'pms.express.confirmGuest'})).toBeDisabled();

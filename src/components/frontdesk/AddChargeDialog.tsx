@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
@@ -14,7 +15,7 @@ import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
 import { budapestToday } from '@/lib/businessMoment';
 import { useTranslation } from '@/hooks/useTranslation';
 import { addFolioItem, LifecycleError } from '@/lib/pmsLifecycle';
-import { formatMoney, reservationGuestLabel, lifecycleErrorKey } from '@/lib/reservations';
+import { reservationGuestLabel, lifecycleErrorKey } from '@/lib/reservations';
 
 /**
  * Post an extra to the guest folio in two taps: pick what it is, confirm the
@@ -68,6 +69,7 @@ interface AddChargeDialogProps {
 
 export function AddChargeDialog({ reservation, open, onOpenChange, onAdded, catalogueOnly = false }: AddChargeDialogProps) {
   const { t } = useTranslation();
+  const { formatReceptionMoney: formatMoney } = useLocaleFormat();
   const { profile } = useAuth();
   const manager = canManagePmsServiceCatalogue(profile?.role);
   const departed = reservation.status === 'checked_out';
@@ -139,7 +141,7 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded, cata
       try {
         const {data,error} = await (supabase as any).rpc('pms_finance_post_catalogue', {_reservation_id:reservation.id,_item_ids:selected,_service_date:businessDay});
         if (error) throw new Error(error.message);
-        toast.success(`${data.posted} charges posted · ${formatMoney(manyTotal,reservation.currency)}`);
+        toast.success(`${t('pms.charge.posted').replace('{count}', String(data.posted))} · ${formatMoney(manyTotal,reservation.currency)}`);
         onAdded?.(Number(data.balance_due ?? 0)); reset(); onOpenChange(false);
       } catch (err) { const key = lifecycleErrorKey(err); toast.error(key ? t(key) : (err as Error).message); }
       finally { setSaving(false); }
@@ -177,12 +179,12 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded, cata
         </DialogHeader>
 
         {departed && <p className="text-xs font-medium text-amber-700">{t('pms.err.postDepartureRequiresManager')}</p>}
-        {native && !catalogueOnly && <Button type="button" variant="outline" disabled={saving || blocked} onClick={() => { setMany(v=>!v); setChoice(null); }}>{many ? 'Single charge' : 'Post many charges'}</Button>}
+        {native && !catalogueOnly && <Button type="button" variant="outline" disabled={saving || blocked} onClick={() => { setMany(v=>!v); setChoice(null); }}>{many ? t('pms.charge.single') : t('pms.account.postMany')}</Button>}
         {many && <div className="space-y-2">
-          {catalogueLoading ? <p className="text-sm">Loading catalogue…</p> : catalogueError ? <p className="text-sm text-muted-foreground">Catalogue posting unavailable until the Phase 8 migration is applied.</p> : <>
-            <div className="flex items-center justify-between"><span className="text-sm">{selected.length} selected</span><Button type="button" size="sm" variant="ghost" disabled={saving} onClick={() => setSelected(selected.length === catalogue.length ? [] : catalogue.slice(0,100).map(i=>i.id))}>{selected.length === catalogue.length ? 'Clear' : 'Select all (up to 100)'}</Button></div>
-            <div className="max-h-64 overflow-y-auto border rounded-md divide-y">{catalogue.map(item => <label key={item.id} className="flex gap-2 items-center p-2 text-sm cursor-pointer"><input type="checkbox" disabled={saving || (!selected.includes(item.id) && selected.length>=100)} checked={selected.includes(item.id)} onChange={e=>setSelected(v=>e.target.checked?[...v,item.id]:v.filter(id=>id!==item.id))}/><span className="flex-1">{item.name}{item.in_package && <span className="text-xs text-muted-foreground"> · In package</span>}</span><span>{formatMoney(Number(item.default_gross_price),item.currency)}</span></label>)}{!catalogue.length && <p className="p-3 text-sm text-muted-foreground">No available services.</p>}</div>
-            <p className="text-xs text-muted-foreground">Accommodation is included in the reservation base rate.</p>
+          {catalogueLoading ? <p className="text-sm">{t('pms.charge.loadingCatalogue')}</p> : catalogueError ? <p className="text-sm text-muted-foreground">{t('pms.charge.catalogueUnavailable')}</p> : <>
+            <div className="flex items-center justify-between"><span className="text-sm">{t('pms.charge.selected').replace('{count}', String(selected.length))}</span><Button type="button" size="sm" variant="ghost" disabled={saving} onClick={() => setSelected(selected.length === catalogue.length ? [] : catalogue.slice(0,100).map(i=>i.id))}>{selected.length === catalogue.length ? t('pms.charge.clear') : t('pms.charge.selectHundred')}</Button></div>
+            <div className="max-h-64 overflow-y-auto border rounded-md divide-y">{catalogue.map(item => <label key={item.id} className="flex gap-2 items-center p-2 text-sm cursor-pointer"><input type="checkbox" disabled={saving || (!selected.includes(item.id) && selected.length>=100)} checked={selected.includes(item.id)} onChange={e=>setSelected(v=>e.target.checked?[...v,item.id]:v.filter(id=>id!==item.id))}/><span className="flex-1">{item.name}{item.in_package && <span className="text-xs text-muted-foreground"> · {t('pms.charge.inPackage')}</span>}</span><span>{formatMoney(Number(item.default_gross_price),item.currency)}</span></label>)}{!catalogue.length && <p className="p-3 text-sm text-muted-foreground">{t('pms.charge.noServices')}</p>}</div>
+            <p className="text-xs text-muted-foreground">{t('pms.charge.baseRate')}</p>
             <BusinessDayField hotelId={reservation.hotel_id} value={businessDay} onChange={setBusinessDay}/>
             <p className="text-right font-semibold">{formatMoney(manyTotal,reservation.currency)}</p>
           </>}
@@ -227,7 +229,7 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded, cata
         <DialogFooter>
           <Button type="button" variant="outline" disabled={saving} onClick={() => { reset(); onOpenChange(false); }}>{t('common.cancel')}</Button>
           <Button type="button" disabled={saving || blocked || (many ? !selected.length || catalogueLoading || catalogueError : !choice || !(total > 0))} onClick={save} className="gap-1.5">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}{many ? 'Post selected charges' : t('pms.charge.add')}
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}{many ? t('pms.charge.postSelected') : t('pms.charge.add')}
           </Button>
         </DialogFooter>
       </DialogContent>

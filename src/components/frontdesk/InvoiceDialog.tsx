@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -14,7 +15,7 @@ import {
 import { toast } from 'sonner';
 import { FileText, Loader2, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
-import { formatMoney, reservationGuestLabel } from '@/lib/reservations';
+import { reservationGuestLabel } from '@/lib/reservations';
 import { todayBudapest } from '@/lib/budapestTime';
 
 /**
@@ -63,6 +64,7 @@ async function callInvoiceFn(body: Record<string, unknown>) {
 
 export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: InvoiceDialogProps) {
   const { t } = useTranslation();
+  const { formatReceptionMoney: formatMoney } = useLocaleFormat();
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
@@ -175,18 +177,18 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
           </div>
         ) : configured === false ? (
           <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200 space-y-2">
-            <p className="font-semibold">Invoice issuing is not enabled for this hotel.</p>
-            <p>{issuer ? issuer.legal_name + ' is assigned but disabled or missing provider credentials.' : 'No legal invoicing company has been assigned to this property.'}</p>
-            <p>Ask your organization administrator to configure Számlázz.hu under Account → Legal companies & invoicing.</p>
+            <p className="font-semibold">{t('pms.invoice.disabled')}</p>
+            <p>{issuer ? t('pms.invoice.issuerDisabled').replace('{name}', issuer.legal_name) : t('pms.invoice.noIssuer')}</p>
+            <p>{t('pms.invoice.configure')}</p>
           </div>
         ) : (
           <div className="space-y-4">
             {issuer && <div className="rounded-lg border bg-muted/30 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 text-sm" data-training="fd-invoice-issuer">
-              <div><p className="text-xs text-muted-foreground">Invoice issued by</p>
+              <div><p className="text-xs text-muted-foreground">{t('pms.invoice.issuedBy')}</p>
                 <p className="font-semibold">{issuer.legal_name}</p></div>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={issuer.environment === 'test' ? 'secondary' : 'default'}>{issuer.environment === 'test' ? 'TEST — verify provider Tesztüzem' : 'LIVE — legal invoice'}</Badge>
-                {issuer.invoice_prefix && <Badge variant="outline">Prefix: {issuer.invoice_prefix}</Badge>}
+                <Badge variant={issuer.environment === 'test' ? 'secondary' : 'default'}>{issuer.environment === 'test' ? t('pms.invoice.test') : t('pms.invoice.live')}</Badge>
+                {issuer.invoice_prefix && <Badge variant="outline">{t('pms.invoice.prefix')} {issuer.invoice_prefix}</Badge>}
               </div>
             </div>}
             {invoices.length > 0 && (
@@ -239,7 +241,7 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
                   <Input className="h-8" value={buyer.address} onChange={(e) => setBuyer({ ...buyer, address: e.target.value })} />
                 </div>
                 <div>
-                  <Label className="text-xs">Email</Label>
+                  <Label className="text-xs">{t('pms.guests.email')}</Label>
                   <Input className="h-8" type="email" value={buyer.email} onChange={(e) => setBuyer({ ...buyer, email: e.target.value })} />
                 </div>
                 <div>
@@ -253,7 +255,7 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('pms.inv.lines')} · {currency}</p>
               <div className="space-y-1.5 overflow-x-auto">
                 <div className="grid min-w-[610px] grid-cols-[1fr_64px_72px_96px_88px_28px] gap-1.5 text-[11px] text-muted-foreground px-0.5">
-                  <span>{t('pms.inv.description')}</span><span>{t('pms.inv.qty')}</span><span>Unit</span><span>{t('pms.inv.unitPrice')}</span><span>{t('pms.inv.vat')}</span><span />
+                  <span>{t('pms.inv.description')}</span><span>{t('pms.inv.qty')}</span><span>{t('pms.account.unit')}</span><span>{t('pms.inv.unitPrice')}</span><span>{t('pms.inv.vat')}</span><span />
                 </div>
                 {lines.map((l, i) => (
                   <div key={i} className="grid min-w-[610px] grid-cols-[1fr_64px_72px_96px_88px_28px] gap-1.5 items-center">
@@ -280,18 +282,18 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <div className="min-w-[130px]"><Label className="text-xs">Invoice language</Label>
+              <div className="min-w-[130px]"><Label className="text-xs">{t('pms.invoice.language')}</Label>
                 <Select value={invoiceLanguage} onValueChange={setInvoiceLanguage}>
                   <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
                   <SelectContent>{[['hu','Magyar'],['en','English'],['de','Deutsch'],['fr','Français'],['it','Italiano'],['es','Español']].map(([code,name]) =>
                     <SelectItem key={code} value={code}>{name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div><Label className="text-xs">Payment due date</Label>
+              <div><Label className="text-xs">{t('pms.invoice.dueDate')}</Label>
                 <Input className="h-8 w-40" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
               </div>
               <label className="flex items-center gap-2 text-xs mt-4 cursor-pointer">
-                <Checkbox checked={eInvoice} onCheckedChange={c => setEInvoice(!!c)} /> Electronic invoice (e-számla)
+                <Checkbox checked={eInvoice} onCheckedChange={c => setEInvoice(!!c)} /> {t('pms.invoice.electronic')}
               </label>
               <div>
                 <Label className="text-xs">{t('pms.pay.method')}</Label>

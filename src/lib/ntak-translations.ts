@@ -42,7 +42,6 @@ const rows: Record<string, readonly [string, string]> = {
   'ntak.overrideProduction': ['Production: enter an explicit reason before overriding validation.', 'Éles környezet: a felülbíráláshoz adjon meg indokot.'],
   'ntak.sendAnyway': ['Send anyway', 'Küldés ennek ellenére'],
   'ntak.resendOf': ['Resend of message', 'Eredeti üzenet azonosítója'],
-  'ntak.sendCorrection': ['Send correction', 'Módosító küldése'],
   'ntak.fixSend': ['Fix and send again', 'Javítás és újraküldés'],
   'ntak.actionRequired': ['NTAK messages need attention', 'NTAK üzenetek intézkedést igényelnek'],
   'ntak.phase4.title': ['Room availability periods', 'Szoba rendelkezésre állási időszakai'],

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import MiraFloatingButton from "../MiraFloatingButton";
+import { TranslationProvider } from "@/hooks/useTranslation";
 
 // jsdom has no PointerEvent: without this, clientX/clientY are dropped.
 if (typeof window.PointerEvent === "undefined") {
@@ -61,13 +62,14 @@ function installHeader(height: number) {
 }
 
 function renderButton(onOpen = vi.fn()) {
-  render(<MiraFloatingButton storageKey={KEY} unread={false} onOpen={onOpen} />);
+  render(<TranslationProvider><MiraFloatingButton storageKey={KEY} unread={false} onOpen={onOpen} /></TranslationProvider>);
   return { button: screen.getByRole("button", { name: "Open Mira AI Operator" }), onOpen };
 }
 
 describe("Mira floating button", () => {
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem("preferred_language", "en");
     setViewport(390, 844);
     now = 1000;
     vi.spyOn(performance, "now").mockImplementation(() => now);
@@ -217,7 +219,12 @@ describe("Mira floating button", () => {
   });
 
   it("announces an unread reply", () => {
-    render(<MiraFloatingButton storageKey={KEY} unread onOpen={vi.fn()} />);
+    render(<TranslationProvider><MiraFloatingButton storageKey={KEY} unread onOpen={vi.fn()} /></TranslationProvider>);
     expect(screen.getByRole("button", { name: "Open Mira AI Operator, unread reply" })).toBeInTheDocument();
+  });
+  it("announces an unread reply in Hungarian", () => {
+    localStorage.setItem("preferred_language", "hu");
+    render(<TranslationProvider><MiraFloatingButton storageKey={KEY} unread onOpen={vi.fn()} /></TranslationProvider>);
+    expect(screen.getByRole("button", { name: "Mira MI-asszisztens megnyitása, olvasatlan válasz" })).toBeInTheDocument();
   });
 });

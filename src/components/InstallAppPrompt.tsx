@@ -1,3 +1,4 @@
+import { useTranslation } from '@/hooks/useTranslation';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
@@ -9,6 +10,7 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export function InstallAppPrompt() {
+  const { t } = useTranslation();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
 
@@ -41,7 +43,7 @@ export function InstallAppPrompt() {
     const installedHandler = () => {
       setIsInstalled(true);
       setDeferredPrompt(null);
-      toast.success('App installed! Open it from your home screen.');
+      toast.success(t('reception.shell.installSuccess'));
     };
 
     window.addEventListener('beforeinstallprompt', handler);
@@ -76,10 +78,10 @@ export function InstallAppPrompt() {
       size="sm"
       onClick={handleInstall}
       className="hidden sm:inline-flex shrink-0"
-      title="Install app to home screen"
+      title={t('reception.shell.installTitle')}
     >
       <Download className="h-4 w-4 sm:mr-2" />
-      <span className="hidden md:inline">Install App</span>
+      <span className="hidden md:inline">{t('reception.shell.install')}</span>
     </Button>
   );
 }

@@ -1,3 +1,7 @@
+import { useTranslation } from '@/hooks/useTranslation';
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
+import { reportingStateLabel } from '@/lib/i18n/receptionLabels';
+import { formatDistanceToNow } from 'date-fns';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight, Loader2, Search, FilterX, Sparkles, Settings2 } from 'lucide-react';
@@ -18,7 +22,6 @@ import { cn } from '@/lib/utils';
 import {
   useCanSeeAutomationNotifications,
   useRevenueAutomationNotifications,
-  relativeTime,
   type AutomationNotification,
   type AutomationDecision,
 } from '@/hooks/useRevenueAutomationNotifications';
@@ -36,32 +39,30 @@ import { reasonInfo } from '@/lib/revenue/reasonSettings';
 import { hasBlockingDialog } from '@/lib/notificationPresentation';
 
 
-const money = (value: number | null | undefined, currency: string | null | undefined) =>
-  value === null || value === undefined
-    ? '—'
-    : `${Math.round(Number(value))} ${currency ?? ''}`.trim();
-
-const nights = (value: number | null | undefined) => {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return '—';
-  return `${n} night${n === 1 ? '' : 's'}`;
-};
-
-const SOURCE_LABEL = { all: 'All', ai: 'AI', automation: 'Automation', manual: 'Manual' } as const;
+const SOURCE_LABEL = { all: 'revenue.notif.all', ai: 'revenue.notif.ai', automation: 'revenue.notif.automation', manual: 'revenue.notif.manual' } as const;
 
 const CATCH_UP_DELAY_MS = 12_000;
 
 type DirectionFilter = 'all' | 'increase' | 'decrease' | 'hold';
 
 const DIRECTION_FILTERS: Array<{ value: DirectionFilter; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'increase', label: 'Raised' },
-  { value: 'decrease', label: 'Lowered' },
-  { value: 'hold', label: 'Unchanged' },
+  { value: 'all', label: 'revenue.notif.all' },
+  { value: 'increase', label: 'revenue.notif.raised' },
+  { value: 'decrease', label: 'revenue.notif.lowered' },
+  { value: 'hold', label: 'revenue.notif.unchanged' },
 ];
 
 /** Bell + inbox for revenue automation activity: prices and stay restrictions. */
 export function RevenueAutomationNotifications() {
+  const { t } = useTranslation();
+  const locale = useLocaleFormat();
+  const money = (value: number | null | undefined, currency: string | null | undefined) =>
+    value == null ? '—' : locale.formatMoney(value, currency);
+  const nights = (value: number | null | undefined) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? t(n === 1 ? 'revenue.notif.night' : 'revenue.notif.nights').replace('{count}', locale.formatNumber(n)) : '—';
+  };
+  const relativeTime = (value: string) => formatDistanceToNow(new Date(value), { locale: locale.dateFnsLocale, addSuffix: true });
   const canSee = useCanSeeAutomationNotifications();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -111,9 +112,9 @@ export function RevenueAutomationNotifications() {
       observer?.disconnect();
       const changes = unread.reduce((sum, notification) =>
         sum + (notification.actions_count || notification.changes.length), 0);
-      catchUpToast.current = toast.message('Revenue automation activity', {
-        description: `${changes} update${changes === 1 ? '' : 's'} since your last visit`,
-        action: { label: 'View updates', onClick: () => setOpen(true) },
+      catchUpToast.current = toast.message(t('revenue.notif.activity'), {
+        description: t(changes === 1 ? 'revenue.notif.updateSince' : 'revenue.notif.updatesSince').replace('{count}', String(changes)),
+        action: { label: t('revenue.notif.viewUpdates'), onClick: () => setOpen(true) },
         duration: 8_000,
       });
     };
@@ -176,7 +177,7 @@ export function RevenueAutomationNotifications() {
       setDecisionsLoading(true);
       void loadDecisions(item.automation_run_id)
         .then(setDecisions)
-        .catch(() => setDecisionsError('The date-by-date breakdown could not be loaded.'))
+        .catch(() => setDecisionsError(t('revenue.notif.loadFailed')))
         .finally(() => setDecisionsLoading(false));
     }
   };
@@ -193,7 +194,7 @@ export function RevenueAutomationNotifications() {
     if (directionFilter !== 'all' && row.direction !== directionFilter) return false;
     if (reasonFilter && row.decision_reason !== reasonFilter) return false;
     if (!term) return true;
-    return `${row.stay_date} ${row.decision_reason} ${reasonInfo(row.decision_reason).title} ${row.reason_detail ?? ''}`
+    return `${locale.formatDate(row.stay_date)} ${row.decision_reason} ${reasonInfo(row.decision_reason).title} ${row.reason_detail ?? ''}`
       .toLowerCase()
       .includes(term);
   });
@@ -202,7 +203,7 @@ export function RevenueAutomationNotifications() {
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button variant="ghost" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9 shrink-0" aria-label="Revenue automation notifications">
+          <Button variant="ghost" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9 shrink-0" aria-label={t('revenue.notif.notifications')}>
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-semibold flex items-center justify-center">
@@ -213,10 +214,10 @@ export function RevenueAutomationNotifications() {
         </PopoverTrigger>
         <PopoverContent align="end" className="w-[340px] sm:w-[400px] p-0">
           <div className="flex items-center justify-between px-3 py-2 border-b">
-            <span className="text-sm font-semibold">Revenue automation</span>
+            <span className="text-sm font-semibold">{t('revenue.notif.title')}</span>
             {unreadCount > 0 && (
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => void markAllRead()}>
-                Mark all read
+                {t('revenue.notif.markAll')}
               </Button>
             )}
           </div>
@@ -231,13 +232,13 @@ export function RevenueAutomationNotifications() {
                   sourceFilter === f ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground',
                 )}
               >
-                {SOURCE_LABEL[f]}
+                {t(SOURCE_LABEL[f])}
               </button>
             ))}
           </div>
           <div className="max-h-[380px] overflow-y-auto">
             {shownItems.length === 0 && (
-              <p className="p-4 text-sm text-muted-foreground">No automation activity yet.</p>
+              <p className="p-4 text-sm text-muted-foreground">{t('revenue.notif.empty')}</p>
             )}
             {shownItems.map((item) => {
               const failed = item.failed_count > 0;
@@ -267,7 +268,7 @@ export function RevenueAutomationNotifications() {
                       variant={item.source === 'ai' ? 'default' : item.source === 'automation' ? 'secondary' : 'outline'}
                       className="text-[10px] px-1.5 py-0 shrink-0"
                     >
-                      {SOURCE_LABEL[item.source]}{minStay ? ' · Min stay' : ''}
+                      {t(SOURCE_LABEL[item.source])}{minStay ? t('revenue.notif.minStayShort') : ''}
                     </Badge>
                     <span className="ml-auto text-[11px] text-muted-foreground shrink-0">
                       {relativeTime(item.created_at)}
@@ -277,7 +278,7 @@ export function RevenueAutomationNotifications() {
                     {runPreview(item)}
                   </p>
                   {item.source === 'manual' && (
-                    <p className="mt-0.5 text-[11px] text-muted-foreground truncate">By {item.actor_name}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{t('revenue.notif.by')} {item.actor_name}</p>
                   )}
                 </button>
               );
@@ -291,11 +292,11 @@ export function RevenueAutomationNotifications() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {detail?.failed_count ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <Bell className="h-4 w-4" />}
-              {detail?.hotel_name} — {detail && isAiReviewFailure(detail) ? 'AI review unavailable' : detail?.notification_type === 'peak_review' ? 'dates to review' : detail?.notification_type === 'min_stay_automation' ? 'minimum stay update' : 'price update'}
+              {detail?.hotel_name} — {detail && isAiReviewFailure(detail) ? t('revenue.notif.aiUnavailable') : detail?.notification_type === 'peak_review' ? t('revenue.notif.datesReview') : detail?.notification_type === 'min_stay_automation' ? t('revenue.notif.minStayUpdate') : t('revenue.notif.priceUpdate')}
             </DialogTitle>
             <DialogDescription>
               {detail
-                ? `${detail.source === 'ai' ? 'HotelCare AI supervisor' : detail.run_source === 'automatic' ? (detail.notification_type === 'min_stay_automation' ? 'Minimum-stay automation' : 'Run automatically') : `Started by ${detail.actor_name}`} · ${relativeTime(detail.created_at)}`
+                ? `${detail.source === 'ai' ? t('revenue.notif.supervisor') : detail.run_source === 'automatic' ? (detail.notification_type === 'min_stay_automation' ? t('revenue.notif.minStayAutomation') : t('revenue.notif.automatic')) : t('revenue.notif.startedBy').replace('{name}', detail.actor_name ?? '')} · ${relativeTime(detail.created_at)}`
                 : ''}
             </DialogDescription>
           </DialogHeader>
@@ -319,7 +320,7 @@ export function RevenueAutomationNotifications() {
                     rel="noopener noreferrer"
                     className="mt-2 inline-block text-xs font-medium text-primary underline underline-offset-2"
                   >
-                    Open OpenAI API billing to add credits
+                    {t('revenue.notif.credits')}
                   </a>
                 )}
                 {runReasons(detail).length > 0 && (
@@ -344,18 +345,18 @@ export function RevenueAutomationNotifications() {
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {(detail.run ? [
-                  { label: 'Dates checked', value: detail.run.dates_evaluated },
-                  { label: 'Increased', value: detail.run.dates_increased },
-                  { label: 'Decreased', value: detail.run.dates_decreased },
+                  { label: t('revenue.notif.datesChecked'), value: detail.run.dates_evaluated },
+                  { label: t('revenue.notif.increased'), value: detail.run.dates_increased },
+                  { label: t('revenue.notif.decreased'), value: detail.run.dates_decreased },
                   detail.run.mode === 'shadow'
-                    ? { label: 'Cells simulated', value: decisions.reduce((sum, row) => sum + row.cells_simulated, 0) }
+                    ? { label: t('revenue.notif.simulated'), value: decisions.reduce((sum, row) => sum + row.cells_simulated, 0) }
                     : detail.run.cells_failed > 0
-                      ? { label: 'Failed', value: detail.run.cells_failed, danger: true }
+                      ? { label: t('revenue.notif.failed'), value: detail.run.cells_failed, danger: true }
                       : detail.run.cells_verified > 0
-                        ? { label: 'Confirmed', value: detail.run.cells_verified }
+                        ? { label: t('revenue.notif.confirmed'), value: detail.run.cells_verified }
                         : detail.run.cells_published > 0
-                          ? { label: 'Accepted', value: detail.run.cells_published }
-                          : { label: 'Cells queued', value: detail.run.cells_queued },
+                          ? { label: t('revenue.notif.accepted'), value: detail.run.cells_published }
+                          : { label: t('revenue.notif.queued'), value: detail.run.cells_queued },
                 ] : runStats(detail)).map((kpi) => (
                   <div
                     key={kpi.label}
@@ -364,7 +365,7 @@ export function RevenueAutomationNotifications() {
                       'danger' in kpi && kpi.danger && 'border-destructive/50 bg-destructive/5',
                     )}
                   >
-                    <div className="text-lg font-semibold">{kpi.value.toLocaleString()}</div>
+                    <div className="text-lg font-semibold">{locale.formatNumber(kpi.value)}</div>
                     <div className="text-[11px] text-muted-foreground">{kpi.label}</div>
                   </div>
                 ))}
@@ -374,10 +375,10 @@ export function RevenueAutomationNotifications() {
                 <div className={cn('rounded-lg border px-3 py-2 text-xs', detail.run.mode === 'shadow' ? 'border-primary/30 bg-primary/5' : 'bg-muted/30')}>
                   <p className="font-medium">
                     {detail.run.mode === 'shadow'
-                      ? 'Review only — no prices were sent to Previo.'
+                      ? t('revenue.notif.reviewOnly')
                       : detail.run.status === 'completed'
                         ? runStatus(detail).text
-                        : `Run status: ${detail.run.status.replace(/_/g, ' ')}`}
+                        : `${t('revenue.notif.runStatus')} ${reportingStateLabel(detail.run.status, t)}`}
                   </p>
                   {detail.run.failure_reason && <p className="mt-1 text-destructive">{detail.run.failure_reason}</p>}
                 </div>
@@ -391,7 +392,7 @@ export function RevenueAutomationNotifications() {
                       <Input
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search a date or reason"
+                        placeholder={t('revenue.notif.search')}
                         className="h-8 pl-7 text-xs"
                       />
                     </div>
@@ -404,7 +405,7 @@ export function RevenueAutomationNotifications() {
                         className="h-8 px-2.5 text-xs"
                         onClick={() => setDirectionFilter(option.value)}
                       >
-                        {option.label}
+                        {t(option.label)}
                         {option.value !== 'all' && (
                           <span className="ml-1 opacity-70">
                             {decisions.filter((d) => d.direction === option.value).length}
@@ -420,7 +421,7 @@ export function RevenueAutomationNotifications() {
                         className="h-8 px-2 text-xs"
                         onClick={() => { setReasonFilter(null); setDirectionFilter('all'); setSearch(''); }}
                       >
-                        <FilterX className="mr-1 h-3.5 w-3.5" /> Clear
+                        <FilterX className="mr-1 h-3.5 w-3.5" /> {t('revenue.notif.clear')}
                       </Button>
                     )}
                   </div>
@@ -457,7 +458,7 @@ export function RevenueAutomationNotifications() {
 
               {decisionsLoading ? (
                 <div className="flex min-h-28 items-center justify-center rounded-lg border text-sm text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading run breakdown…
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t('revenue.notif.loadBreakdown')}
                 </div>
               ) : decisionsError ? (
                 <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{decisionsError}</div>
@@ -466,23 +467,23 @@ export function RevenueAutomationNotifications() {
                   <table className="w-full text-[13px]">
                     <thead className="sticky top-0 z-10 bg-muted text-foreground shadow-sm">
                       <tr className="text-left">
-                        <th className="px-2.5 py-2 font-semibold">Stay date</th>
-                        <th className="px-2.5 py-2 font-semibold">Decision</th>
-                        <th className="px-2.5 py-2 font-semibold">Price</th>
-                        <th className="px-2.5 py-2 font-semibold">Why</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.stayDate')}</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.decision')}</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.price')}</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.why')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {visibleDecisions.length === 0 && (
                         <tr>
                           <td colSpan={4} className="px-3 py-6 text-center text-sm text-muted-foreground">
-                            No dates match these filters.
+                            {t('revenue.notif.noDates')}
                           </td>
                         </tr>
                       )}
                       {visibleDecisions.map((row) => (
                         <tr key={row.id} className="border-t align-top odd:bg-muted/30 hover:bg-muted/60">
-                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{row.stay_date}</td>
+                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{locale.formatDate(row.stay_date)}</td>
                           <td className="px-2.5 py-2">
                             <Badge
                               variant={row.direction === 'hold' ? 'secondary' : 'outline'}
@@ -492,7 +493,7 @@ export function RevenueAutomationNotifications() {
                                 row.direction === 'decrease' && 'border-amber-500/60 text-amber-600',
                               )}
                             >
-                              {row.direction === 'hold' ? 'No change' : row.direction}
+                              {row.direction === 'hold' ? t('revenue.notif.noChange') : t(row.direction === 'increase' ? 'revenue.notif.increase' : 'revenue.notif.decrease')}
                             </Badge>
                           </td>
                           <td className="px-2.5 py-2 whitespace-nowrap tabular-nums">
@@ -506,10 +507,10 @@ export function RevenueAutomationNotifications() {
                             <p className="mt-0.5 text-xs text-muted-foreground">{reasonInfo(row.decision_reason).explain}</p>
                             {row.movement !== 0 && row.cells_simulated > 0 && (
                               <p className="mt-0.5 text-xs">
-                                All {row.cells_simulated} price{row.cells_simulated === 1 ? '' : 's'} moved by the same {row.movement > 0 ? '+' : '−'}
+                                {t(row.cells_simulated === 1 ? 'revenue.notif.movedOne' : 'revenue.notif.moved').replace('{count}', String(row.cells_simulated))} {row.movement > 0 ? '+' : '−'}
                                 {money(Math.abs(row.movement), detail.currency)}
                                 {row.limited_by_room_type
-                                  ? ` (reduced from ${money(Math.abs(row.movement_requested ?? row.movement), detail.currency)} so ${row.limited_by_room_type} stays inside its limits)`
+                                  ? t('revenue.notif.limited').replace('{amount}', money(Math.abs(row.movement_requested ?? row.movement), detail.currency)).replace('{room}', row.limited_by_room_type)
                                   : ''}
                               </p>
                             )}
@@ -519,7 +520,7 @@ export function RevenueAutomationNotifications() {
                                 hotelId={detail.hotel_id}
                                 hotelName={detail.hotel_name}
                                 reason={row.decision_reason}
-                                stayDate={row.stay_date}
+                                stayDate={locale.formatDate(row.stay_date)}
                                 currency={detail.currency}
                                 compact
                               />
@@ -535,18 +536,18 @@ export function RevenueAutomationNotifications() {
                   <table className="w-full text-[13px]">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                       <tr className="text-left">
-                        <th className="px-2.5 py-2 font-semibold">Stay date</th>
-                        <th className="px-2.5 py-2 font-semibold">Why it may be a Peak date</th>
-                        <th className="px-2.5 py-2 font-semibold">Status</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.stayDate')}</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.peakReason')}</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.status')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {detail.changes.map((row, index) => (
-                        <tr key={`${row.stay_date}-${index}`} className="border-t align-top odd:bg-muted/30">
-                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{row.stay_date}</td>
-                          <td className="px-2.5 py-2 min-w-[240px]">{row.reason_detail ?? row.event_title ?? 'Unusually strong demand expected'}</td>
+                        <tr key={`${locale.formatDate(row.stay_date)}-${index}`} className="border-t align-top odd:bg-muted/30">
+                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{locale.formatDate(row.stay_date)}</td>
+                          <td className="px-2.5 py-2 min-w-[240px]">{row.reason_detail ?? row.event_title ?? t('revenue.notif.highDemand')}</td>
                           <td className="px-2.5 py-2">
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Awaiting review</Badge>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{t('revenue.notif.awaiting')}</Badge>
                           </td>
                         </tr>
                       ))}
@@ -558,36 +559,36 @@ export function RevenueAutomationNotifications() {
                   <table className="w-full text-[13px]">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                       <tr className="text-left">
-                        <th className="px-2.5 py-2 font-semibold">Stay date</th>
-                        <th className="px-2.5 py-2 font-semibold">Minimum stay</th>
-                        <th className="px-2.5 py-2 font-semibold">Demand</th>
-                        <th className="px-2.5 py-2 font-semibold">Why</th>
-                        <th className="px-2.5 py-2 font-semibold">Status</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.stayDate')}</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.minStay')}</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.demand')}</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.why')}</th>
+                        <th className="px-2.5 py-2 font-semibold">{t('revenue.notif.status')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {detail.changes.map((row, index) => (
-                        <tr key={`${row.stay_date}-${index}`} className="border-t align-top odd:bg-muted/30">
-                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{row.stay_date}</td>
+                        <tr key={`${locale.formatDate(row.stay_date)}-${index}`} className="border-t align-top odd:bg-muted/30">
+                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{locale.formatDate(row.stay_date)}</td>
                           <td className="px-2.5 py-2 whitespace-nowrap tabular-nums">
                             <span className="text-muted-foreground">{nights(row.old_min_stay)}</span>
                             <ArrowRight className="inline h-3 w-3 mx-1" />
                             <span className="font-semibold">{nights(row.new_min_stay)}</span>
                           </td>
                           <td className="px-2.5 py-2 whitespace-nowrap">
-                            {row.occupancy_pct != null ? `${Math.round(Number(row.occupancy_pct))}% sold` : 'Occupancy —'}
-                            {row.rooms_left != null ? <span className="block text-xs text-muted-foreground">{row.rooms_left} room{Number(row.rooms_left) === 1 ? '' : 's'} left</span> : null}
+                            {row.occupancy_pct != null ? t('revenue.notif.sold').replace('{percent}', String(Math.round(Number(row.occupancy_pct)))) : t('revenue.notif.occupancy')}
+                            {row.rooms_left != null ? <span className="block text-xs text-muted-foreground">{t(Number(row.rooms_left) === 1 ? 'revenue.notif.roomLeft' : 'revenue.notif.roomsLeft').replace('{count}', String(row.rooms_left))}</span> : null}
                           </td>
                           <td className="px-2.5 py-2 min-w-[240px]">
-                            <p>{row.reason_detail ?? row.reason?.replace(/_/g, ' ') ?? 'Automatic minimum-stay rule'}</p>
-                            {row.event_title && <p className="mt-0.5 text-xs text-muted-foreground">Event: {row.event_title}</p>}
+                            <p>{row.reason_detail ?? row.reason?.replace(/_/g, ' ') ?? t('revenue.notif.automaticRule')}</p>
+                            {row.event_title && <p className="mt-0.5 text-xs text-muted-foreground">{t('revenue.notif.event')} {row.event_title}</p>}
                           </td>
                           <td className="px-2.5 py-2">
                             <Badge
                               variant={row.status === 'failed' ? 'destructive' : 'secondary'}
                               className="text-[10px] px-1.5 py-0"
                             >
-                              {row.status === 'failed' ? 'Failed' : 'Live in Previo'}
+                              {row.status === 'failed' ? t('revenue.notif.failed') : t('revenue.notif.live')}
                             </Badge>
                           </td>
                         </tr>
@@ -598,8 +599,7 @@ export function RevenueAutomationNotifications() {
               ) : detail.changes.some((row) => row.date && row.reference_before != null) ? (
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground">
-                    AI price changes are shown by stay date. These are reference rates, not individual room/guest prices.
-                    The publishing status below comes from the linked Previo price-push runs.
+                    {t('revenue.notif.referenceHint')}
                   </p>
                   {detail.changes.map((row, index) => {
                     const before = row.reference_before ?? row.old_price;
@@ -607,16 +607,16 @@ export function RevenueAutomationNotifications() {
                     const delta = row.delta ?? (before != null && after != null ? after - before : null);
                     const status = row.status ?? 'queued';
                     const statusLabel = status === 'accepted'
-                      ? 'Accepted by Previo'
+                      ? t('revenue.notif.acceptedPrevio')
                       : status === 'confirmed'
-                        ? 'Confirmed'
+                        ? t('revenue.notif.confirmed')
                         : status === 'partially_accepted'
-                          ? 'Partly accepted'
-                          : status === 'failed' ? 'Needs attention' : 'Queued at last check';
+                          ? t('revenue.notif.partlyAccepted')
+                          : status === 'failed' ? t('revenue.notif.attention') : t('revenue.notif.queuedLast');
                     return (
                       <div key={`${row.date ?? row.stay_date ?? 'date'}-${index}`} className="rounded-lg border p-3 space-y-2">
                         <div className="flex flex-wrap items-start justify-between gap-2">
-                          <span className="font-semibold text-sm tabular-nums">{row.date ?? row.stay_date ?? 'Date unavailable'}</span>
+                          <span className="font-semibold text-sm tabular-nums">{row.date ?? row.stay_date ?? t('revenue.notif.dateUnavailable')}</span>
                           <Badge
                             variant={status === 'failed' ? 'destructive' : status === 'accepted' || status === 'confirmed' ? 'default' : 'secondary'}
                             className="text-[10px]"
@@ -633,17 +633,17 @@ export function RevenueAutomationNotifications() {
                               {delta > 0 ? '+' : ''}{money(delta, row.currency ?? detail.currency)}
                             </span>
                           )}
-                          <span className="text-[11px] text-muted-foreground">(reference rate)</span>
+                          <span className="text-[11px] text-muted-foreground">{t('revenue.notif.reference')}</span>
                         </div>
                         {row.push_requested_count != null && (
                           <p className="text-xs text-muted-foreground">
-                            {row.push_accepted_count ?? 0} of {row.push_requested_count} room/guest prices accepted by Previo
-                            {(row.push_failed_count ?? 0) > 0 ? ` · ${row.push_failed_count} failed` : ''}
+                            {t('revenue.notif.acceptedCount').replace('{accepted}', String(row.push_accepted_count ?? 0)).replace('{requested}', String(row.push_requested_count))}
+                            {(row.push_failed_count ?? 0) > 0 ? t('revenue.notif.failedCount').replace('{count}', String(row.push_failed_count)) : ''}
                           </p>
                         )}
                         {(row.reason || row.reason_detail) && (
                           <p className="text-xs leading-relaxed text-muted-foreground">
-                            <span className="font-medium text-foreground">Why: </span>
+                            <span className="font-medium text-foreground">{t('revenue.notif.whyColon')} </span>
                             {row.reason_detail ?? row.reason}
                           </p>
                         )}
@@ -656,17 +656,17 @@ export function RevenueAutomationNotifications() {
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                       <tr className="text-left">
-                        <th className="px-2 py-1.5 font-medium">Stay date</th>
-                        <th className="px-2 py-1.5 font-medium">Room type</th>
-                        <th className="px-2 py-1.5 font-medium">Guests</th>
-                        <th className="px-2 py-1.5 font-medium">Price</th>
-                        <th className="px-2 py-1.5 font-medium">Status</th>
+                        <th className="px-2 py-1.5 font-medium">{t('revenue.notif.stayDate')}</th>
+                        <th className="px-2 py-1.5 font-medium">{t('revenue.notif.roomType')}</th>
+                        <th className="px-2 py-1.5 font-medium">{t('revenue.notif.guests')}</th>
+                        <th className="px-2 py-1.5 font-medium">{t('revenue.notif.price')}</th>
+                        <th className="px-2 py-1.5 font-medium">{t('revenue.notif.status')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {detail.changes.map((row, index) => (
-                        <tr key={`${row.stay_date}-${index}`} className="border-t">
-                          <td className="px-2 py-1.5 whitespace-nowrap">{row.stay_date}</td>
+                        <tr key={`${locale.formatDate(row.stay_date)}-${index}`} className="border-t">
+                          <td className="px-2 py-1.5 whitespace-nowrap">{locale.formatDate(row.stay_date)}</td>
                           <td className="px-2 py-1.5">{row.room_type_name ?? '—'}</td>
                           <td className="px-2 py-1.5">{row.occupancy ?? '—'}</td>
                           <td className="px-2 py-1.5 whitespace-nowrap">
@@ -679,7 +679,7 @@ export function RevenueAutomationNotifications() {
                               variant={row.status === 'failed' ? 'destructive' : row.status === 'pushed' ? 'default' : 'secondary'}
                               className="text-[10px] px-1.5 py-0"
                             >
-                              {row.status ?? 'pending'}
+                              {reportingStateLabel(row.status ?? 'pending', t)}
                             </Badge>
                           </td>
                         </tr>
@@ -690,7 +690,7 @@ export function RevenueAutomationNotifications() {
               ) : (
                 <div className="rounded-lg border p-4 text-center">
                   <p className="text-sm text-muted-foreground">
-                    This run applied a revenue rule across the calendar, so the result is summarised here rather than listed one by one.
+                    {t('revenue.notif.summary')}
                   </p>
                   <Button
                     size="sm"
@@ -703,7 +703,7 @@ export function RevenueAutomationNotifications() {
                       navigate(slug ? `/${slug}/revenue/${detail.hotel_id}` : `/revenue/${detail.hotel_id}`);
                     }}
                   >
-                    Open the rate calendar
+                    {t('revenue.notif.openCalendar')}
                     <ArrowUpRight className="h-3.5 w-3.5" />
                   </Button>
                 </div>

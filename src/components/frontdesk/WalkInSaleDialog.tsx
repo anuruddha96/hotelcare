@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,7 +25,7 @@ const newPayment = (): Payment => ({ method: 'card_terminal', amount: '' });
 const validAmount = (value: string) => /^\d+(\.\d{1,2})?$/.test(value) &&
   Number.isFinite(Number(value)) && Number(value)>0 && Number(value)<=999999999999.99;
 const minor = (value: string) => validAmount(value) ? Math.round(Number(value)*100) : 0;
-const money = (cents: number) => (cents/100).toLocaleString(undefined,{maximumFractionDigits:2})+' HUF';
+
 const excluded = new Set(['room','accommodation','legacy_room','room_night','szallasdij','city_tax','tourist_tax','tourism_tax','ifa','payment','adjustment']);
 const options = Object.entries(CATEGORIES).flatMap(([main, subs]) =>
   subs.filter(sub=>!categoryProblem('other',main,sub)).map(sub=>({main,sub,value:main+'/'+sub})));
@@ -38,6 +39,8 @@ export function WalkInSaleDialog({ open,onOpenChange,hotelId,organizationSlug }:
   open:boolean; onOpenChange:(value:boolean)=>void; hotelId:string; organizationSlug:string;
 }) {
   const {t}=useTranslation();
+  const locale = useLocaleFormat();
+  const money = (cents: number) => locale.formatMoney(cents / 100, 'HUF');
   const [items,setItems]=useState<Item[]>([]);
   const [lines,setLines]=useState<Line[]>([newLine()]);
   const [payments,setPayments]=useState<Payment[]>([newPayment()]);
@@ -132,7 +135,7 @@ export function WalkInSaleDialog({ open,onOpenChange,hotelId,organizationSlug }:
                   <select aria-label={t('ntak.phase5.item')} value={line.itemId} onChange={e=>pick(index,e.target.value)}
                     className="min-w-0 flex-1 h-10 rounded-md border bg-background px-2 text-sm">
                     <option value="">{t('ntak.phase5.pick')}</option>
-                    {items.map(i=><option value={i.id} key={i.id}>{i.name} · {i.vat_rate}% VAT{i.requires_manager_approval?' · manager':''}</option>)}
+                    {items.map(i=><option value={i.id} key={i.id}>{i.name} · {i.vat_rate}% VAT{i.requires_manager_approval?' · ' + t('reception.shell.manager'):''}</option>)}
                   </select>
                   <Button type="button" variant="ghost" size="icon" aria-label={t('ntak.phase5.remove')} disabled={lines.length===1} onClick={()=>setLines(rows=>rows.filter((_,i)=>i!==index))}><Trash2 className="h-4 w-4"/></Button>
                 </div>

@@ -1,3 +1,4 @@
+import { useTranslation } from '@/hooks/useTranslation';
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -62,6 +63,7 @@ interface MiraFloatingButtonProps {
  * the nearest side of the screen when let go.
  */
 export default function MiraFloatingButton({ storageKey, unread, onOpen }: MiraFloatingButtonProps) {
+  const { t } = useTranslation();
   const [bounds, setBounds] = useState<DockBounds>(() => measureDockBounds());
   const [dock, setDock] = useState<LauncherDock>(() => loadDock(storageKey, measureDockBounds()));
   const [dragPoint, setDragPoint] = useState<Point | null>(null);
@@ -185,8 +187,8 @@ export default function MiraFloatingButton({ storageKey, unread, onOpen }: MiraF
         WebkitTapHighlightColor: "transparent",
       }}
       className="fixed left-0 top-0 z-40 h-14 w-14 touch-none select-none rounded-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-      aria-label={unread ? "Open Mira AI Operator, unread reply" : "Open Mira AI Operator"}
-      title="Mira AI Operator — tap to chat, drag to move"
+      aria-label={unread ? t('reception.shell.miraUnread') : t('reception.shell.miraOpen')}
+      title={t('reception.shell.miraDrag')}
     >
       <span
         aria-hidden="true"
