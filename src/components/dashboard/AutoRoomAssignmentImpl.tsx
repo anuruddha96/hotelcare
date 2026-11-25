@@ -1,3 +1,4 @@
+import { swapAssignmentOwnerId, swapAssignmentPreviewOwners } from '@/lib/autoAssignmentHousekeeperSwap';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -290,6 +291,12 @@ export function AutoRoomAssignment({
   const [planningExplanation, setPlanningExplanation] = useState('');
   const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(new Set());
   const [lockHistory, setLockHistory] = useState<Set<string>[]>([]);
+  const [workloadHistory, setWorkloadHistory] = useState<Array<{
+    sectionOwners: Map<string, string>;
+    publicOwners: Map<string, string>;
+  }>>([]);
+  const [swapFrom, setSwapFrom] = useState('');
+  const [swapTo, setSwapTo] = useState('');
   const [historicalSampleCount, setHistoricalSampleCount] = useState(0);
   const [historicalPreferences, setHistoricalPreferences] = useState<Record<string, string[]>>({});
   const [roomProgressById, setRoomProgressById] = useState<Map<string, LiveRoomProgress>>(new Map());
@@ -1074,11 +1081,14 @@ export function AutoRoomAssignment({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [step, previewHistory, lockHistory]);
+  }, [step, previewHistory, lockHistory, workloadHistory]);
 
   const pushHistory = (previews: AssignmentPreview[]) => {
     setPreviewHistory(history => [...history.slice(-19), previews]);
     setLockHistory(history => [...history.slice(-19), new Set(lockedRoomIds)]);
+    setWorkloadHistory(history => [...history.slice(-19), {
+      sectionOwners: sectionTaskOwners, publicOwners: publicAreaAssignments,
+    }]);
   };
 
   const handleUndo = () => {
@@ -1088,6 +1098,12 @@ export function AutoRoomAssignment({
     setPreviewHistory(history => history.slice(0, -1));
     setLockedRoomIds(lockHistory[lockHistory.length - 1] || new Set());
     setLockHistory(history => history.slice(0, -1));
+    const workload = workloadHistory.at(-1);
+    if (workload && isHotelMemoriesBudapest(managerHotelRef.current || profile?.assigned_hotel || '')) {
+      setSectionTaskOwners(workload.sectionOwners);
+      setPublicAreaAssignments(workload.publicOwners);
+    }
+    setWorkloadHistory(history => history.slice(0, -1));
     setAssignmentPreviews(previous);
     setFairnessMetrics(computeFairnessMetrics(previous));
     setMaintenanceHoldRoomIds(ids => new Set(Array.from(ids).filter(id => !restoredRoomIds.has(id))));
@@ -1489,6 +1505,40 @@ export function AutoRoomAssignment({
     }
     setSectionTaskOwners(next);
     toast.success(`Shuffled ${movable.length} public area${movable.length === 1 ? '' : 's'}.`);
+  };
+
+  const showWorkloadSwap = !isNextDayPlanning && hasManagerPowers(profile?.role)
+    && isHotelMemoriesBudapest(managerHotelRef.current || profile?.assigned_hotel || '');
+  const swappableStaff = showWorkloadSwap ? assignmentPreviews.filter(person =>
+    cleaningStaffIds.has(person.staffId)
+    && person.rooms.every(room => !lockedRoomIds.has(room.id) &&
+      !isProtectedLiveAssignment(roomProgressById.get(room.id)?.status))
+    && !sectionTasks.some(task => task.staff_id === person.staffId && task.lockedStatus),
+  ) : [];
+  const swapLabels = language === 'hu'
+    ? { title: 'Munkacsomagok felcserélése', from: 'Első takarító', to: 'Második takarító', action: 'Csere az előnézetben' }
+    : { title: 'Swap workloads', from: 'First housekeeper', to: 'Second housekeeper', action: 'Swap in preview' };
+  const canSwapWorkloads = swapFrom !== swapTo &&
+    [swapFrom, swapTo].every(id => swappableStaff.some(person => person.staffId === id));
+
+  const swapWorkloads = () => {
+    if (!canSwapWorkloads) return;
+    const next = swapAssignmentPreviewOwners(assignmentPreviews, swapFrom, swapTo);
+    if (next === assignmentPreviews) return;
+    pushHistory(assignmentPreviews);
+    setAssignmentPreviews(next);
+    setSectionTaskOwners(new Map(sectionTasks.map(task => [
+      task.id, task.lockedStatus ? task.staff_id : swapAssignmentOwnerId(task.staff_id, swapFrom, swapTo),
+    ])));
+    setPublicAreaAssignments(new Map([...publicAreaAssignments].map(([area, owner]) => [
+      area, swapAssignmentOwnerId(owner, swapFrom, swapTo),
+    ])));
+    setFairnessMetrics(computeFairnessMetrics(next));
+    setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
+    setSwapFrom('');
+    setSwapTo('');
   };
 
   const handleProceedToConfirm = () => {
@@ -2413,6 +2463,24 @@ export function AutoRoomAssignment({
                     </Button>
                   </div>
                 )}
+
+                  {swappableStaff.length > 1 && (
+                    <fieldset className="flex flex-wrap items-end gap-2 rounded-lg border px-3 py-2">
+                      <legend className="px-1 text-xs font-medium">{swapLabels.title}</legend>
+                      {([{ label: swapLabels.from, value: swapFrom, change: setSwapFrom },
+                        { label: swapLabels.to, value: swapTo, change: setSwapTo }]).map(({ label, value, change }) => (
+                        <label key={label} className="flex min-w-32 grow flex-col gap-1 text-xs">
+                          {label}
+                          <select value={value} onChange={(event) => change(event.target.value)}
+                            className="h-10 rounded border bg-background px-2 text-sm">
+                            <option value="">—</option>
+                            {swappableStaff.map(person => <option key={person.staffId} value={person.staffId}>{person.staffName}</option>)}
+                          </select>
+                        </label>
+                      ))}
+                      <Button type="button" variant="outline" disabled={!canSwapWorkloads} onClick={swapWorkloads}>{swapLabels.action}</Button>
+                    </fieldset>
+                  )}
 
                 {selectedRoomContext ? (
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 shadow-sm">

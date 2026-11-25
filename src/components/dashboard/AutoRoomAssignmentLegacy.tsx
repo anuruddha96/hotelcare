@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { MotionConfig } from 'framer-motion';
-import { MapPin, Users } from 'lucide-react';
+import { Loader2, MapPin, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
 import {
@@ -50,6 +52,7 @@ function isHotelMemoriesKey(value?: string | null) {
 
 export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
+  const { language } = useTranslation();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
   const isFuturePlanner = props.selectedDate > todayBudapest();
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
@@ -182,6 +185,23 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
         </MotionConfig>
         <NextDayPublicAreaPlanner visible={props.open} selectedDate={props.selectedDate} />
       </>
+    );
+  }
+
+  if (isMemories && props.open && !liveAssignmentStateReady) {
+    const hu = language === 'hu';
+    return (
+      <Dialog open onOpenChange={props.onOpenChange}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              {hu ? 'Szobakiosztás előkészítése' : 'Preparing Auto Assign'}
+            </DialogTitle>
+            <DialogDescription>{hu ? 'A mai kiosztások betöltése.' : 'Loading today’s assignments.'}</DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
     );
   }
 
