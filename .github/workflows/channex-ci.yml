@@ -1,0 +1,93 @@
+name: Channex channel manager CI
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/channex/**'
+      - 'supabase/functions/channex-*/**'
+      - 'supabase/migrations/20261113150000_channex_channel_manager.sql'
+      - 'supabase/migrations/20261113160000_channex_sandbox_org_test_property.sql'
+      - 'supabase/migrations/20261113161000_channex_native_ari.sql'
+      - 'src/pages/RatesAvailability.tsx'
+      - 'src/components/rates/**'
+      - 'supabase/tests/channex_*.sql'
+      - 'src/integrations/channex/**'
+      - 'src/components/channel-manager/**'
+      - 'src/pages/ChannelManager.tsx'
+      - '.github/workflows/channex-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sql:
+    name: Migration safety gates, booking apply, RLS
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Run Channex SQL checks
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/channex_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/channex_native_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261113150000_channex_channel_manager.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261113160000_channex_sandbox_org_test_property.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261113161000_channex_native_ari.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/channex_integration.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/channex_native.sql
+
+  edge:
+    name: Edge Function type check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check Channex Edge Functions
+        run: |
+          deno check --node-modules-dir=auto \
+            supabase/functions/channex-admin/index.ts \
+            supabase/functions/channex-webhook/index.ts \
+            supabase/functions/channex-booking-worker/index.ts \
+            supabase/functions/channex-ari-worker/index.ts
+
+  unit:
+    name: Unit tests and UI build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Channex unit tests
+        run: bunx vitest run src/integrations/channex
+      - name: Production UI build
+        run: bun run build

@@ -1,3 +1,4 @@
+import { fetchGeminiFirstResponse } from "../_shared/geminiFirstResponses.ts";
 // Competitor rate watch — reads publicly published nightly rates.
 //
 // Uses the hotel's own OpenAI key with web search. Each competitor is asked in
@@ -14,6 +15,8 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { aiFeatureEnabled, checkAiBudget, logAiUsage } from "../_shared/aiBudget.ts";
+import { CRON_HORIZON_DAYS, CRON_SAMPLE_DATES, isoAdd, prioritySampleDates } from "./sampling.ts";
+import { ignoreRpcFailure, staleScanCutoffIso } from "./cleanup.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,15 +63,8 @@ function extractJson(text: string): unknown {
 // expensive one.
 const CHUNK_DAYS = 20;
 const LEASE_ID = "competitor-rate-scan";
-/** Scheduled sweep: near horizon every week, the full 60 nights fortnightly. */
-const CRON_NEAR_DAYS = 30;
-const CRON_FULL_DAYS = 60;
 /** A competitor scanned this recently is skipped by the scheduled sweep. */
 const CRON_FRESH_HOURS = 120;
-
-function isoAdd(base: Date, days: number) {
-  return new Date(base.getTime() + days * 86_400_000).toISOString().slice(0, 10);
-}
 
 /** One web-search question covering a short date range for one competitor. */
 async function askDates(
@@ -117,7 +113,7 @@ async function askDates(
   const usage = { model: null as string | null, inputTokens: 0, outputTokens: 0, searchContext };
   for (const model of models) {
     try {
-      const attempt = await fetch("https://api.openai.com/v1/responses", {
+      const attempt = await fetchGeminiFirstResponse("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         // A single hung web-search question must never stall the sweep.
@@ -225,21 +221,20 @@ Deno.serve(async (req) => {
       hotelIds = [...new Set(((all ?? []) as { hotel_id: string }[]).map((r) => r.hotel_id))];
     }
 
-    // Horizon: the manual button keeps whatever the panel asks for. The
-    // scheduled sweep looks 14 nights ahead most weeks and stretches to 60
-    // every second week — far-out competitor rates barely move, so paying for
-    // them weekly is waste.
-    const weekOfYear = Math.floor(Date.now() / (7 * 86_400_000));
-    const cronDays = weekOfYear % 2 === 0 ? CRON_FULL_DAYS : CRON_NEAR_DAYS;
-    const days = Math.min(Math.max(Number(body.days ?? (isCron ? cronDays : 60)), 1), 90);
+    // The scheduled sweep samples 60 priority dates across 120 days. Manual
+    // scans retain contiguous caller-selected coverage.
+    const manualDays = Math.min(Math.max(Number(body.days ?? 60), 1), 120);
+    const days = isCron ? CRON_SAMPLE_DATES : manualDays;
     const tier: "cheap" | "rich" = isCron ? "cheap" : "rich";
     const apiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured for this project." }, 500);
+    if (!apiKey && !Deno.env.get("GEMINI_API_KEY")) return json({ error: "No AI provider configured" }, 500);
 
     const start = new Date();
     const startIso = start.toISOString().slice(0, 10);
-    const endIso = isoAdd(start, days);
-    const allDates = Array.from({ length: days }, (_, i) => isoAdd(start, i));
+    const endIso = isoAdd(start, isCron ? CRON_HORIZON_DAYS - 1 : days - 1);
+    const allDates = isCron
+      ? prioritySampleDates(start)
+      : Array.from({ length: days }, (_, i) => isoAdd(start, i));
 
     let captured = 0;
     const results: Array<{ competitor: string; prices: number; observations?: number; error: string | null }> = [];
@@ -248,7 +243,20 @@ Deno.serve(async (req) => {
     // HTTP call only starts the work; results land in the tables the panel
     // reads. Nothing is awaited by the browser.
     const scanAll = async () => {
-    for (const hotelId of hotelIds) {
+      // Ottofiori-only repair: a worker is bounded to 90 seconds, so an old
+      // `running` row is abandoned state, not evidence that paid work is still
+      // active. Close it before recording the next result. This deliberately
+      // does not touch any other property's scan history.
+      await admin.from("competitor_scan_runs").update({
+        status: "failed",
+        error: "Stale scan exceeded the deployed 90-second worker timeout; no prices were stored.",
+        finished_at: new Date().toISOString(),
+      }).eq("hotel_id", "ottofiori")
+        .eq("organization_slug", "rdhotels")
+        .eq("status", "running")
+        .is("finished_at", null)
+        .lt("started_at", staleScanCutoffIso(new Date()));
+      for (const hotelId of hotelIds) {
 
       const { data: competitorRows } = await admin
         .from("competitor_properties")
@@ -292,10 +300,11 @@ Deno.serve(async (req) => {
         let usedModel: string | null = null;
         const filled = new Set<string>();
 
-        // The daily core scan concentrates on the next 30 nights — those are the
-        // dates the pricing engine is allowed to act on with market evidence.
-        const compDays = isCron && tierOf(c) === 1 ? Math.min(days, 30) : days;
-        const compDates = allDates.slice(0, compDays);
+        // Every scheduled competitor receives the same explicit 60-date sample.
+        // This avoids falsely treating the first 30/60 nights as full-horizon
+        // coverage while keeping paid search volume bounded.
+        const compDates = allDates;
+        const compDays = compDates.length;
         const compEndIso = compDates[compDates.length - 1] ?? endIso;
 
         const { data: runRow } = await admin.from("competitor_scan_runs").insert({
@@ -375,11 +384,11 @@ Deno.serve(async (req) => {
               error: u.error,
             });
 
-          let chunk = await askDates(apiKey, c, window, false, tier);
+          let chunk = await askDates(apiKey ?? '', c, window, false, tier);
           await bill(chunk);
           const unreadable = Boolean(chunk.error);
           if (unreadable || (!isCron && !chunk.rates.length)) {
-            chunk = await askDates(apiKey, c, window, true, tier);
+            chunk = await askDates(apiKey ?? '', c, window, true, tier);
             await bill(chunk);
           }
           usedModel = chunk.model ?? usedModel;
@@ -447,9 +456,9 @@ Deno.serve(async (req) => {
         if (e instanceof ScanBlocked) {
           // Park the sweep rather than burn the key on questions that cannot work.
           const minutes = e.status === 429 ? 60 : 12 * 60;
-          await admin.rpc("pause_competitor_scan", {
+          await ignoreRpcFailure(admin, "pause_competitor_scan", {
             _id: LEASE_ID, _minutes: minutes, _reason: e.message.slice(0, 300),
-          }).catch(() => {});
+          });
           leaseHeld = false;
           console.error("competitor-rate-scan blocked", e.message);
           return;
@@ -460,7 +469,7 @@ Deno.serve(async (req) => {
         console.log("competitor-rate-scan finished", { captured, hotels: hotelIds.length, results });
         if (leaseHeld) {
           leaseHeld = false;
-          await admin.rpc("release_competitor_scan_lease", { _id: LEASE_ID }).catch(() => {});
+          await ignoreRpcFailure(admin, "release_competitor_scan_lease", { _id: LEASE_ID });
         }
       });
 
@@ -471,7 +480,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     console.error("competitor-rate-scan error", e);
     if (leaseHeld) {
-      await admin.rpc("release_competitor_scan_lease", { _id: LEASE_ID }).catch(() => {});
+      await ignoreRpcFailure(admin, "release_competitor_scan_lease", { _id: LEASE_ID });
     }
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }

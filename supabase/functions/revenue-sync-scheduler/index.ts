@@ -25,7 +25,29 @@ serve(async (req) => {
   const started = Date.now();
   let hotelId: string | null = null;
 
+  // Best-effort complimentary upgrade review. Its own Edge Function enforces
+  // service-role authentication, dedupes reservations and emails ADMIN ONLY.
+  // This must never interrupt or invalidate the normal PMS revenue sync.
+  const checkUpgradeAlerts = async () => {
+    try {
+      const result = await fetch(`${SUPABASE_URL}/functions/v1/room-sale-upgrade-monitor`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}` },
+        body: "{}",
+        signal: AbortSignal.timeout(75_000),
+      });
+      if (!result.ok) console.warn("upgrade monitor responded", result.status);
+    } catch (error) {
+      console.warn("upgrade monitor unavailable", error instanceof Error ? error.message : String(error));
+    }
+  };
+
   try {
+    // Run the overnight shared-room safety check immediately, before a potentially
+    // long full-property revenue refresh. This is a best-effort post-booking
+    // check, not an atomic OTA oversell guarantee.
+    await checkUpgradeAlerts();
+
     // Global single-flight claim — returns nothing when another property is
     // already refreshing, or when everything is fresh.
     const { data: claim, error: claimErr } = await service.rpc("claim_next_revenue_sync", {});

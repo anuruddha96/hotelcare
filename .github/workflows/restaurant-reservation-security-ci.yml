@@ -1,0 +1,83 @@
+name: Restaurant reservation staff security CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/restaurantStaffAuth*'
+      - 'supabase/functions/restaurant-reservations-list/**'
+      - 'supabase/functions/restaurant-reservation-status/**'
+      - 'supabase/functions/restaurant-reservation-seen/**'
+      - 'supabase/functions/restaurant-reservations-sync/**'
+      - 'supabase/functions/restaurant-reservation-create/**'
+      - 'supabase/migrations/*restaurant_reservation_staff_security.sql'
+      - 'supabase/tests/restaurant_reservation_staff_*.sql'
+      - '.github/workflows/restaurant-reservation-security-ci.yml'
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/restaurantStaffAuth*'
+      - 'supabase/functions/restaurant-reservations-list/**'
+      - 'supabase/functions/restaurant-reservation-status/**'
+      - 'supabase/functions/restaurant-reservation-seen/**'
+      - 'supabase/functions/restaurant-reservations-sync/**'
+      - 'supabase/functions/restaurant-reservation-create/**'
+      - 'supabase/migrations/*restaurant_reservation_staff_security.sql'
+      - 'supabase/tests/restaurant_reservation_staff_*.sql'
+      - '.github/workflows/restaurant-reservation-security-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  restaurant-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test verified staff and hotel scope
+        run: deno test supabase/functions/_shared/restaurantStaffAuth_test.ts
+      - name: Type-check restaurant reservation endpoints
+        run: |
+          deno check --node-modules-dir=none supabase/functions/restaurant-reservations-list/index.ts
+          deno check --node-modules-dir=none supabase/functions/restaurant-reservation-status/index.ts
+          deno check --node-modules-dir=none supabase/functions/restaurant-reservation-seen/index.ts
+          deno check --node-modules-dir=none supabase/functions/restaurant-reservations-sync/index.ts
+          deno check --node-modules-dir=none supabase/functions/restaurant-reservation-create/index.ts
+
+  database-policy:
+    name: Restaurant guest privacy and audit SQL integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Verify migration is idempotent and protects identities/guest data
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/restaurant_reservation_staff_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261122083500_restaurant_reservation_staff_security.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261122083500_restaurant_reservation_staff_security.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/restaurant_reservation_staff_integration.sql

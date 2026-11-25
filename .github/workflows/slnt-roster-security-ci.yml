@@ -1,0 +1,47 @@
+name: SLNT roster SQL tenant security
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20260922160000_slnt_staff_schedule_scoped_atomic.sql'
+      - 'supabase/migrations/20260922160100_slnt_staff_schedule_copy_integrity.sql'
+      - 'supabase/migrations/20260923101000_slnt_housekeeping_published_roster.sql'
+      - 'supabase/tests/slnt-schedule/**'
+      - '.github/workflows/slnt-roster-security-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sql-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: schedule_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d schedule_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: schedule_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bootstrap isolated synthetic SLNT and RD fixtures
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/slnt-schedule/fixture.sql
+      - name: Apply actual SLNT security migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260922160000_slnt_staff_schedule_scoped_atomic.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260922160100_slnt_staff_schedule_copy_integrity.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260923101000_slnt_housekeeping_published_roster.sql
+      - name: Test authenticated role and venue separation
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/slnt-schedule/assertions.sql

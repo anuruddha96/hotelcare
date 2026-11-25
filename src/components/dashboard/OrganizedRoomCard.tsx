@@ -1,13 +1,14 @@
 import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { 
-  MapPin, 
-  Calendar, 
-  User, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Wrench, 
+import { ReopenSameHousekeeperButton } from './ReopenSameHousekeeperButton';
+import {
+  MapPin,
+  Calendar,
+  User,
+  CheckCircle2,
+  AlertTriangle,
+  Wrench,
   XCircle,
   Clock,
   Users,
@@ -80,17 +81,17 @@ export function OrganizedRoomCard({ room, onClick }: OrganizedRoomCardProps) {
 
   const getMinibarValue = () => {
     if (!room.minibar_usage?.length) return 0;
-    return room.minibar_usage.reduce((total, usage) => 
+    return room.minibar_usage.reduce((total, usage) =>
       total + (usage.quantity_used * usage.minibar_item.price), 0
     );
   };
 
-  const hasActiveIssues = room.recent_tickets?.some(ticket => 
+  const hasActiveIssues = room.recent_tickets?.some(ticket =>
     ['open', 'in_progress'].includes(ticket.status)
   ) || room.status === 'out_of_order';
 
   return (
-    <Card 
+    <Card
       className={`group cursor-pointer transition-all duration-300 hover:shadow-lg hover:scale-[1.02] ${
         hasActiveIssues ? 'ring-2 ring-red-200 bg-red-50/30' : 'hover:bg-muted/20'
       }`}
@@ -136,7 +137,7 @@ export function OrganizedRoomCard({ room, onClick }: OrganizedRoomCardProps) {
             <MapPin className="h-3 w-3 flex-shrink-0" />
             <span className="truncate">{room.hotel}</span>
           </div>
-          
+
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <Coffee className="h-3 w-3 flex-shrink-0" />
             <span>{getRoomTypeDisplay()}</span>
@@ -164,7 +165,7 @@ export function OrganizedRoomCard({ room, onClick }: OrganizedRoomCardProps) {
               Checkout
             </Badge>
           )}
-          
+
           {room.guest_count && room.guest_count > 0 && (
             <Badge variant="outline" className="text-xs px-1.5 py-0.5">
               <Users className="h-2.5 w-2.5 mr-1" />
@@ -212,6 +213,11 @@ export function OrganizedRoomCard({ room, onClick }: OrganizedRoomCardProps) {
             )}
           </div>
         )}
+
+        {/* A separate action on the room chip, never an accidental card click. */}
+        <div onClick={(event) => event.stopPropagation()}>
+          <ReopenSameHousekeeperButton roomId={room.id} roomNumber={room.room_number} />
+        </div>
       </CardContent>
     </Card>
   );

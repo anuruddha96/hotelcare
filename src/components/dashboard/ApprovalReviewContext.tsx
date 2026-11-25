@@ -33,9 +33,9 @@ interface ApprovalMessage {
 
 function assignmentTypeLabel(type: string): string {
   switch (type) {
-    case 'checkout_cleaning': return 'Checkout Clean';
-    case 'daily_cleaning': return 'Daily Room';
-    case 'deep_cleaning': return 'Deep Clean';
+    case 'checkout_cleaning': return 'Checkout clean';
+    case 'daily_cleaning': return 'Stayover clean';
+    case 'deep_cleaning': return 'Deep clean';
     case 'maintenance': return 'Maintenance';
     default: return type || 'Housekeeping';
   }
@@ -158,22 +158,22 @@ export function ApprovalReviewContext({ assignment, guestDeclined = false }: App
   );
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 approval-review-context">
       <div className="rounded-lg border border-blue-200 bg-blue-50/60 dark:border-blue-900 dark:bg-blue-950/20 p-2.5 space-y-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <FileText className="h-3.5 w-3.5 text-blue-700 dark:text-blue-300 shrink-0" />
-            <span className="text-xs font-bold text-blue-950 dark:text-blue-100">Original Cleaning Brief</span>
+            <span className="text-xs font-bold text-blue-950 dark:text-blue-100">Cleaning instructions</span>
           </div>
-          <div className="text-[9px] text-blue-700/70 dark:text-blue-300/70 shrink-0">
-            {context.snapshotAvailable ? 'Captured for this assignment' : 'Legacy live fallback'}
+          <div className="text-[9px] text-blue-700/70 dark:text-blue-300/70 shrink-0 text-right">
+            {context.snapshotAvailable ? 'Saved with this task' : 'Current room instructions'}
           </div>
         </div>
 
         {guestDeclined && (
           <div className="flex items-center gap-1.5 text-[10px] text-amber-800 dark:text-amber-200">
             <AlertTriangle className="h-3 w-3" />
-            Original request shown for review — cleaning was not performed.
+            Room was not cleaned. Review the request and any evidence before approving.
           </div>
         )}
 
@@ -182,22 +182,22 @@ export function ApprovalReviewContext({ assignment, guestDeclined = false }: App
             {assignmentTypeLabel(context.assignmentType)}
           </Badge>
           {context.priority >= 3 && (
-            <Badge className="text-[10px] bg-red-600 text-white px-1.5 py-0.5">High Priority</Badge>
+            <Badge className="text-[10px] bg-red-600 text-white px-1.5 py-0.5">High priority</Badge>
           )}
           {context.towelChangeRequired && (
-            <Badge className="text-[10px] bg-blue-600 text-white px-1.5 py-0.5">🧺 Towel Change</Badge>
+            <Badge className="text-[10px] bg-blue-600 text-white px-1.5 py-0.5">🧺 Towel change</Badge>
           )}
           {context.linenChangeRequired && (
-            <Badge className="text-[10px] bg-purple-600 text-white px-1.5 py-0.5">🛏️ Linen Change</Badge>
+            <Badge className="text-[10px] bg-purple-600 text-white px-1.5 py-0.5">🛏️ Linen change</Badge>
           )}
           {context.roomCleaningRequested && (
-            <Badge className="text-[10px] bg-green-600 text-white px-1.5 py-0.5">✓ Clean Room Request</Badge>
+            <Badge className="text-[10px] bg-green-600 text-white px-1.5 py-0.5">✓ Cleaning requested</Badge>
           )}
           {context.greenBoardRequested && (
-            <Badge className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.5">🟢 Green Board</Badge>
+            <Badge className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.5">🟢 Make up room</Badge>
           )}
           {context.collectExtraTowels && (
-            <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-800 dark:text-blue-200 px-1.5 py-0">Collect Extra Towels</Badge>
+            <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-800 dark:text-blue-200 px-1.5 py-0">Collect extra towels</Badge>
           )}
           {context.isDnd && (
             <Badge variant="outline" className="text-[10px] border-orange-300 text-orange-800 dark:text-orange-200 px-1.5 py-0">
@@ -215,13 +215,13 @@ export function ApprovalReviewContext({ assignment, guestDeclined = false }: App
         </div>
 
         {!hasSpecialRequirements && (
-          <div className="text-[10px] text-blue-800/70 dark:text-blue-200/70">No additional special request was recorded.</div>
+          <div className="text-[10px] text-blue-800/70 dark:text-blue-200/70">No extra instructions.</div>
         )}
 
         {context.managerInstruction && (
           <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20 p-2">
             <div className="flex items-center gap-1 text-[10px] font-semibold text-amber-900 dark:text-amber-100 uppercase tracking-wide">
-              <Sparkles className="h-3 w-3" /> Manager Instructions
+              <Sparkles className="h-3 w-3" /> Manager note
             </div>
             <p className="mt-0.5 text-xs text-amber-950 dark:text-amber-50 whitespace-pre-wrap break-words">
               {context.managerInstruction}
@@ -231,7 +231,7 @@ export function ApprovalReviewContext({ assignment, guestDeclined = false }: App
 
         {context.assignmentInstruction && context.assignmentInstruction !== context.managerInstruction && (
           <div className="rounded-md border border-blue-200 bg-white/70 dark:bg-background/50 p-2">
-            <div className="text-[10px] font-semibold text-blue-900 dark:text-blue-100 uppercase tracking-wide">Assignment Instruction</div>
+            <div className="text-[10px] font-semibold text-blue-900 dark:text-blue-100 uppercase tracking-wide">Cleaning note</div>
             <p className="mt-0.5 text-xs text-foreground whitespace-pre-wrap break-words">
               {context.assignmentInstruction}
             </p>
@@ -242,7 +242,7 @@ export function ApprovalReviewContext({ assignment, guestDeclined = false }: App
       {messages.length > 0 && (
         <div className="rounded-lg border border-border bg-muted/20 p-2.5 space-y-1.5">
           <div className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wide">
-            <MessageSquare className="h-3.5 w-3.5" /> Conversation
+            <MessageSquare className="h-3.5 w-3.5" /> Team messages
             <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[9px]">{messages.length}</Badge>
           </div>
           {messages.map(message => (

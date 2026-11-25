@@ -1,0 +1,1156 @@
+// Polls Previo every few minutes for reception-confirmed departures and
+// room state changes, emits a row into `pms_change_events` for every
+// meaningful diff, places a `pms_hold` on assignments that conflict with
+// an incoming change, and auto-releases checkout rooms for cleaning.
+//
+// Auth modes
+// ----------
+//  - Bearer = SUPABASE_SERVICE_ROLE_KEY  -> server-to-server (used by pg_cron)
+//  - Bearer = user JWT                   -> authenticated user (managers / admins)
+//
+// Hotel scope
+// -----------
+//  - body.hotelId provided  -> only that hotel
+//  - body.hotelId omitted   -> fan-out across every active Previo config
+//                              whose pms_configurations.settings does NOT
+//                              contain { disable_checkout_poll: true }
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
+import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { budapestBusinessDate } from "../_shared/budapestBusinessDate.ts";
+import { verifiedGozsduCheckouts } from "../_shared/previoExplicitCheckoutEvidence.ts";
+import { verifiedGozsduRestCheckouts } from "../_shared/previoRestCheckoutEvidence.ts";
+import { shouldHealSlntCheckoutRtc } from "../_shared/slntRtcInvariant.ts";
+import { needsCheckoutRoomWrite, checkoutAssignmentsNeedingRelease, xmlInHouseDepartureRoomId, hasXmlInHouseConflict, clearedCheckoutMetadata } from "../_shared/checkoutPollIdempotency.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+interface PrevioRoom {
+  roomId: number;
+  name: string;
+  roomCleanStatusId?: number;
+  cleanStatusId?: number;
+  roomCleanStatus?: number | string | { id?: number | string; name?: string };
+  cleanStatus?: number | string | { id?: number | string; name?: string };
+  reservation?: {
+    arrivalDate?: string;
+    departureDate?: string;
+    arrival?: string;
+    departure?: string;
+    from?: string;
+    to?: string;
+    statusId?: number | string;
+    reservationStatusId?: number | string;
+    cosId?: number | string;
+    commissionStatusId?: number | string;
+    roomReservationStatusId?: number | string;
+    status?: number | string | { id?: number | string; name?: string };
+    state?: string;
+  } | null;
+}
+
+const nowIso = () => new Date().toISOString();
+const addDays = (base: string, n: number) => {
+  const d = new Date(`${base}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const extractNum = (raw: string) => {
+  const m = String(raw ?? "").match(/\d+/);
+  return m ? m[0] : String(raw ?? "").trim();
+};
+const cleanDate = (raw: unknown) => {
+  const s = String(raw ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : "";
+};
+const statusToken = (raw: unknown): string => {
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    return statusToken(obj.id ?? obj.name ?? obj.status ?? obj.value);
+  }
+  return String(raw ?? "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+};
+const isCheckedOutStatus = (raw: unknown) => {
+  // Previo commission/reservation states (official codebook):
+  // 3=checked in, 6=waiting list, 7=cancelled, 8=no-show, 9=checked out.
+  // Only 9 is authoritative physical-departure evidence. Never treat 6 as
+  // checkout: it is Waiting list and can incorrectly release an occupied room.
+  const n = Number(raw);
+  if (Number.isFinite(n) && n === 9) return true;
+  const t = statusToken(raw);
+  return ["9", "checkedout", "checkedouttoday", "departed", "left", "leaved"].includes(t);
+};
+const isExplicitlyInHouseStatus = (raw: unknown) => {
+  const n = Number(raw);
+  if (Number.isFinite(n) && n === 3) return true;
+  const t = statusToken(raw);
+  return ["3", "checkedin", "inhouse", "inhouseguest", "arrived", "occupied"].includes(t);
+};
+const reservationLooksCheckedOut = (res: any) => {
+  if (!res || typeof res !== "object") return false;
+  return isCheckedOutStatus(res.statusId)
+    || isCheckedOutStatus(res.reservationStatusId)
+    || isCheckedOutStatus(res.cosId)
+    || isCheckedOutStatus(res.commissionStatusId)
+    || isCheckedOutStatus(res.roomReservationStatusId)
+    || isCheckedOutStatus(res.status)
+    || isCheckedOutStatus(res.state)
+    || res.checkedOut === true
+    || res.isCheckedOut === true
+    || res.departed === true
+    || res.isDeparted === true;
+};
+
+const reservationLooksStillInHouse = (res: any) => {
+  if (!res || typeof res !== "object") return false;
+  return isExplicitlyInHouseStatus(res.statusId)
+    || isExplicitlyInHouseStatus(res.reservationStatusId)
+    || isExplicitlyInHouseStatus(res.cosId)
+    || isExplicitlyInHouseStatus(res.commissionStatusId)
+    || isExplicitlyInHouseStatus(res.roomReservationStatusId)
+    || isExplicitlyInHouseStatus(res.status)
+    || isExplicitlyInHouseStatus(res.state)
+    || res.checkedOut === false
+    || res.isCheckedOut === false
+    || res.departed === false
+    || res.isDeparted === false;
+};
+
+interface PollResult {
+  hotel_id: string;
+  checked: number;
+  marked: number;
+  cleared: number;
+  events: number;
+  conflicts: number;
+  errors: string[];
+  unmatched: string[];
+  reservationFetchError: string | null;
+  departed: number;
+  diagnostics: Array<Record<string, unknown>>;
+  revertedCheckedOut: number;
+  heldAssignments: number;
+}
+
+async function pollOneHotel(
+  service: any,
+  hotelId: string,
+  cfg: { credentials_secret_name: string; pms_hotel_id: any },
+  dryRun = false,
+): Promise<PollResult> {
+  const result: PollResult = {
+    hotel_id: hotelId,
+    checked: 0, marked: 0, cleared: 0, events: 0, conflicts: 0,
+    errors: [], unmatched: [], reservationFetchError: null, departed: 0, diagnostics: [],
+    revertedCheckedOut: 0, heldAssignments: 0,
+  };
+
+  const { data: hotelCfg } = await service
+    .from("hotel_configurations")
+    .select("hotel_name")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  const hotelKeys = Array.from(new Set([hotelId, (hotelCfg as any)?.hotel_name].filter(Boolean)));
+
+  // Load all pending checkout_cleaning assignments for today (waiting for RTC).
+  // Used both for early-exit and as the guard for signal (c) below.
+  const today0 = budapestBusinessDate();
+  const { data: pendingAsg } = await service
+    .from("room_assignments")
+    .select("id, room_id, rooms!inner(hotel)")
+    .eq("assignment_date", today0)
+    .eq("assignment_type", "checkout_cleaning")
+    .eq("ready_to_clean", false)
+    .in("status", ["assigned", "in_progress"])
+    .in("rooms.hotel", hotelKeys);
+  const pendingCheckoutRoomIds = new Set<string>(
+    (pendingAsg ?? []).map((a: any) => a.room_id).filter(Boolean),
+  );
+  if (!dryRun && pendingCheckoutRoomIds.size === 0) {
+    result.diagnostics.push({ source: "poll-continues", reason: "no pending checkout_cleaning assignments waiting for RTC; still reconciling current RTC state" });
+  }
+
+  // Load every locally mapped room for this hotel so we can recognise
+  // checkouts even when the room was not pre-flagged as scheduledDeparture
+  // (e.g. early check-outs Previo processes mid-day).
+  const { data: localScheduled } = await service
+    .from("rooms")
+    .select("id, room_number, is_checkout_room, pms_metadata")
+    .in("hotel", hotelKeys)
+    .not("pms_metadata->>roomId", "is", null)
+    .limit(500);
+  const localScheduledRooms = (localScheduled ?? []) as any[];
+  const localScheduledByName = new Map<string, any>();
+  const localScheduledByObjId = new Map<number, any>();
+  for (const local of localScheduledRooms) {
+    const name = String(local.room_number ?? "").trim();
+    const num = extractNum(name);
+    if (name) localScheduledByName.set(name, local);
+    if (num && num !== name) localScheduledByName.set(num, local);
+    const objId = Number(local.pms_metadata?.roomId);
+    if (Number.isFinite(objId) && objId > 0) localScheduledByObjId.set(objId, local);
+  }
+
+  // 1. Fetch roster + reservation state from Previo REST. This endpoint works
+  // for every tenant (REST username/password AND single-key ApiKey tenants like
+  // Ottofiori), which is why it powers the manual PMS Refresh. We use it here
+  // to identify statusId=5 (departed) rooms for today WITHOUT touching the XML
+  // endpoint — the XML endpoint rejects REST ApiKeys with 401 and was blocking
+  // the auto-checkout flow.
+  let rooms: PrevioRoom[] = [];
+  try {
+    const { response: resp } = await fetchPrevioWithAuth({
+      credentialsSecretName: cfg.credentials_secret_name,
+      path: "/rest/rooms",
+      pmsHotelId: String(cfg.pms_hotel_id || ""),
+    });
+    if (!resp.ok) {
+      const t = await resp.text();
+      result.errors.push(`Previo /rest/rooms ${resp.status}: ${t.slice(0, 200)}`);
+      return result;
+    }
+    rooms = await safePrevioJson<PrevioRoom[]>(resp, { path: "/rest/rooms" });
+  } catch (e: any) {
+    result.errors.push(`Previo /rest/rooms fetch: ${e?.message || e}`);
+    return result;
+  }
+  result.checked = rooms.length;
+
+
+
+  // 2. Identify today's departures. REST is the primary source, but Previo's
+  // REST reservation payload is not perfectly consistent across tenants/test
+  // accounts: statusId may arrive as a string, a nested status object, or the
+  // reservation may disappear from the room after checkout. For REST-credential
+  // hotels we therefore add the same XML searchReservations evidence used by
+  // manual PMS Refresh. ApiKey/XML-only tenants like Ottofiori keep using REST
+  // only, so the previously working clean-status push is untouched.
+  const today = budapestBusinessDate();
+  const checkedOutByName = new Map<string, string>(); // name -> reservationId ("" — REST /rest/rooms does not expose one)
+  const checkedOutByObjId = new Map<number, string>();
+  const stillInHouseByName = new Set<string>();
+  const stillInHouseByObjId = new Set<number>();
+  const xmlInHouseIds = new Set<number>();
+  const checkoutSignals: Array<{ name: string; objId: number | null; reservationId: string; source: string }> = [];
+  const addCheckoutSignal = (nameRaw: unknown, objIdRaw: unknown, reservationId: unknown, source: string) => {
+    const name = String(nameRaw ?? "").trim();
+    const objId = Number(objIdRaw);
+    const safeObjId = Number.isFinite(objId) && objId > 0 ? objId : null;
+    const safeReservationId = String(reservationId ?? "").trim();
+    if (!name && !safeObjId) return;
+    checkoutSignals.push({ name, objId: safeObjId, reservationId: safeReservationId, source });
+    if (name) {
+      checkedOutByName.set(name, safeReservationId);
+      const num = extractNum(name);
+      if (num && num !== name) checkedOutByName.set(num, safeReservationId);
+    }
+    if (safeObjId != null) checkedOutByObjId.set(safeObjId, safeReservationId);
+  };
+
+  for (const r of rooms) {
+    const res: any = r.reservation;
+    const cleanStatusRaw = r.roomCleanStatusId ?? r.cleanStatusId ?? r.roomCleanStatus ?? r.cleanStatus ?? null;
+    const exactLocalMatch = localScheduledByObjId.get(Number(r.roomId));
+    const localMatch = exactLocalMatch
+      ?? localScheduledByName.get(String(r.name ?? "").trim())
+      ?? localScheduledByName.get(extractNum(String(r.name ?? "")));
+    const localScheduledDepartureToday = localMatch?.pms_metadata?.scheduledDepartureToday === true;
+    if (!res) {
+      if (localMatch) {
+        // Missing reservation data is not a checkout signal. Some Previo REST
+        // tenants omit embedded reservation objects for in-house departures,
+        // so treating "scheduled departure + reservation missing" as RTC
+        // re-flags every checkout room prematurely.
+        const pendingHere = pendingCheckoutRoomIds.has(localMatch.id);
+        result.diagnostics.push({
+          source: "rest-room",
+          room: r.name,
+          roomId: r.roomId,
+          localRoom: localMatch.room_number,
+          localScheduledDepartureToday,
+          localIsCheckoutRoom: localMatch.is_checkout_room === true,
+          roomCleanStatus: cleanStatusRaw,
+          reservationPresent: false,
+          pendingCheckoutAssignment: pendingHere,
+          accepted: false,
+          reason: "no reservation payload from Previo REST; waiting for explicit checked-out status",
+        });
+      }
+      continue;
+    }
+
+    const departure = cleanDate(res.departureDate ?? res.departure ?? res.to);
+    const checkedOut = reservationLooksCheckedOut(res);
+    const stillInHouse = reservationLooksStillInHouse(res);
+    if (departure === today || checkedOut || localMatch) {
+      result.diagnostics.push({
+        source: "rest-room",
+        room: r.name,
+        roomId: r.roomId,
+        localRoom: localMatch?.room_number ?? null,
+        localScheduledDepartureToday,
+        localIsCheckoutRoom: localMatch?.is_checkout_room === true,
+        reservationPresent: true,
+        departure,
+        statusId: res.statusId ?? null,
+        reservationStatusId: res.reservationStatusId ?? null,
+        cosId: res.cosId ?? null,
+        commissionStatusId: res.commissionStatusId ?? null,
+        roomReservationStatusId: res.roomReservationStatusId ?? null,
+        status: typeof res.status === "object" ? JSON.stringify(res.status).slice(0, 120) : res.status ?? null,
+        roomCleanStatus: cleanStatusRaw,
+        checkedOut,
+        stillInHouse,
+        accepted: checkedOut && departure === today,
+      });
+    }
+    if (departure === today && !checkedOut && stillInHouse) {
+      const name = String(r.name ?? "").trim();
+      const num = extractNum(name);
+      if (name) stillInHouseByName.add(name);
+      if (num && num !== name) stillInHouseByName.add(num);
+      const objId = Number(r.roomId);
+      if (Number.isFinite(objId) && objId > 0) stillInHouseByObjId.add(objId);
+    }
+    if (!checkedOut || departure !== today) continue;
+    addCheckoutSignal(r.name, r.roomId, res.reservationId ?? res.id ?? "", "rest-room-reservation");
+  }
+
+
+  try {
+    const creds = loadPrevioCredentials(cfg.credentials_secret_name);
+    const xmlResult = await callPrevioXml({
+      method: "searchReservations",
+      creds,
+      pmsHotelId: String(cfg.pms_hotel_id || ""),
+      extraXml: `<term><from>${today}</from><to>${addDays(today, 1)}</to></term>`,
+    });
+    if (!xmlResult.ok) {
+      // Best-effort only. Ottofiori's REST ApiKey is known to reject the XML
+      // endpoint with 401, but REST polling still works there. Keep the poll
+      // successful and only expose the XML miss as diagnostics.
+      result.diagnostics.push({
+        source: "xml-searchReservations",
+        accepted: false,
+        status: xmlResult.status,
+        reason: xmlResult.errorMessage || xmlResult.text.slice(0, 120),
+      });
+    } else {
+      const blocks = xmlResult.text.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
+      const grab = (s: string, tag: string) => {
+        const m = s.match(new RegExp(`<${tag}>([^<]*)<\/${tag}>`));
+        return m ? m[1].trim() : "";
+      };
+      for (const block of blocks) {
+        const departure = cleanDate(grab(block, "to"));
+        const statusId = grab(block, "statusId");
+        // A current, explicit status 3 for a mapped physical room is positive
+        // occupancy evidence, including when REST omits its reservation.
+        const physicalId = xmlInHouseDepartureRoomId(block, departure, statusId, today);
+        if (physicalId !== null) {
+          const matchedLocal = localScheduledByObjId.get(physicalId);
+          if (matchedLocal) {
+            xmlInHouseIds.add(physicalId);
+            stillInHouseByObjId.add(physicalId);
+            result.diagnostics.push({
+              source: "xml-confirmed-inhouse-pending-departure",
+              localRoom: matchedLocal.room_number,
+              roomId: physicalId,
+              statusId,
+              scheduledDepartureToday: matchedLocal.pms_metadata?.scheduledDepartureToday === true,
+              storedCheckoutToday: matchedLocal.pms_metadata?.checkedOutToday === true,
+              accepted: true,
+            });
+          }
+        }
+        if (departure !== today || !isCheckedOutStatus(statusId)) continue;
+        const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
+        const reservationId = grab(block, "resId") || grab(block, "reservationId") || grab(block, "id");
+        const objId = objMatch ? objMatch[1] : "";
+        const roomName = objMatch ? objMatch[2].trim() : "";
+        result.diagnostics.push({
+          source: "xml-searchReservations",
+          room: roomName,
+          roomId: objId || null,
+          departure,
+          statusId,
+          accepted: true,
+        });
+        addCheckoutSignal(roomName, objId, reservationId, "xml-searchReservations");
+      }
+    }
+  } catch (e: any) {
+    result.diagnostics.push({
+      source: "xml-searchReservations",
+      accepted: false,
+      reason: e?.message || String(e),
+    });
+  }
+
+  // Gozsdu: always query Previo's explicit check-out feed for today's
+  // business window, not only rooms that were already planned as checkout.
+  // This is how an early departure can promote a live daily assignment to
+  // checkout cleaning. The explicit feed + status 6/9 is required; dirty room,
+  // scheduled departure, missing REST reservation and the clock are never RTC.
+  if (hotelId === "gozsdu-court") {
+    const rosterById = new Map(rooms.map((r) => [Number(r.roomId), String(r.name ?? "").trim()]));
+    const mappedIds = new Set(
+      localScheduledRooms
+        .map((r: any) => Number(r.pms_metadata?.roomId))
+        .filter((id: number) => Number.isFinite(id) && id > 0),
+    );
+
+    try {
+      const explicit = await callPrevioXml({
+        method: "searchReservations",
+        creds: loadPrevioCredentials(cfg.credentials_secret_name),
+        pmsHotelId: String(cfg.pms_hotel_id || ""),
+        extraXml: `<term><termType>check-out</termType><from>${today}</from><to>${addDays(today, 1)}</to></term>`,
+      });
+      if (!explicit.ok) {
+        result.diagnostics.push({
+          source: "gozsdu-independent-checkout",
+          accepted: false,
+          reason: "explicit Previo check-out feed unavailable",
+          status: explicit.status,
+        });
+      } else {
+        const verified = verifiedGozsduCheckouts(
+          explicit.text, today, rosterById, mappedIds, stillInHouseByObjId,
+        );
+        for (const signal of verified) {
+          addCheckoutSignal(signal.roomName, signal.objId, signal.reservationId, "gozsdu-explicit-checkout");
+        }
+        result.diagnostics.push({
+          source: "gozsdu-independent-checkout",
+          accepted: verified.length > 0,
+          matchedExplicitCheckouts: verified.length,
+          reason: verified.length > 0
+            ? "explicit same-day/early checkout(s) verified"
+            : "no explicit physical checkout returned",
+        });
+      }
+    } catch (error: any) {
+      result.diagnostics.push({
+        source: "gozsdu-independent-checkout",
+        accepted: false,
+        reason: "explicit checkout verification failed",
+        error: String(error?.message ?? error).slice(0, 150),
+      });
+    }
+
+    // These are rooms that were already planned as checkout but still have no
+    // verified physical departure. Keep the older REST fallback only for them;
+    // the all-room explicit feed above is what covers a daily -> early checkout.
+    const pendingLocal = localScheduledRooms.filter((r: any) =>
+      pendingCheckoutRoomIds.has(r.id)
+      && Number.isFinite(Number(r.pms_metadata?.roomId))
+      && Number(r.pms_metadata?.roomId) > 0
+      && !checkedOutByObjId.has(Number(r.pms_metadata?.roomId))
+    );
+    for (const local of pendingLocal) {
+      const objId = Number(local.pms_metadata.roomId);
+      result.diagnostics.push({
+        source: "gozsdu-independent-checkout-room",
+        room: rosterById.get(objId) ?? null,
+        roomId: objId,
+        localRoom: local.room_number,
+        confirmed: false,
+        accepted: false,
+        reason: "Previo explicit check-out feed did not confirm checkout; RTC intentionally held",
+      });
+    }
+
+    // The Previo Cleaning screen can display a departure and a new same-day
+    // arrival while REST /rooms omits its reservation and XML's checkout
+    // feed has not recorded a completed checkout. Query a second READ-ONLY
+    // REST reservation source before declaring the pending room unresolved.
+    // Never release from expected departure times, room dirtiness or the
+    // presence of the next booking. All evidence stays property + ID scoped.
+    const stillPending = pendingLocal.filter((local: any) =>
+      !checkedOutByObjId.has(Number(local.pms_metadata?.roomId)));
+    if (stillPending.length > 0) {
+      const targetIds = new Set<number>(
+        stillPending.map((local: any) => Number(local.pms_metadata.roomId)));
+      const restPaths = [
+        `/rest/reservations?departureDateFrom=${today}&departureDateTo=${addDays(today, 1)}`,
+        `/rest/reservations?from=${today}&to=${addDays(today, 1)}`,
+      ];
+      const targetStatusById = new Map<number, string>();
+      for (const path of restPaths) {
+        try {
+          const { response } = await fetchPrevioWithAuth({
+            credentialsSecretName: cfg.credentials_secret_name,
+            pmsHotelId: String(cfg.pms_hotel_id || ""),
+            path,
+          });
+          if (!response.ok) {
+            result.diagnostics.push({
+              source: "gozsdu-rest-checkout", path: path.split("?")[0],
+              httpStatus: response.status, accepted: false,
+              reason: "REST reservation lookup unavailable",
+            });
+            continue;
+          }
+          const payload: unknown = await response.json().catch(() => null);
+          const parsed = verifiedGozsduRestCheckouts(
+            payload, today, rosterById, targetIds, stillInHouseByObjId,
+          );
+          for (const audit of parsed.audits) {
+            if (targetIds.has(audit.roomId)) targetStatusById.set(audit.roomId, audit.status);
+          }
+          for (const signal of parsed.checkouts) {
+            if (checkedOutByObjId.has(signal.objId)) continue;
+            addCheckoutSignal(signal.roomName, signal.objId, signal.reservationId, "gozsdu-rest-explicit-checkout");
+          }
+          result.diagnostics.push({
+            source: "gozsdu-rest-checkout", accepted: parsed.checkouts.length > 0,
+            recordsReturned: parsed.total,
+            matchedExplicitCheckouts: parsed.checkouts.length,
+          });
+          if (stillPending.every((r: any) =>
+              checkedOutByObjId.has(Number(r.pms_metadata.roomId)))) break;
+        } catch (e: any) {
+          result.diagnostics.push({
+            source: "gozsdu-rest-checkout", accepted: false,
+            reason: "REST reservation lookup failed",
+            error: String(e?.message ?? e).slice(0, 160),
+          });
+        }
+      }
+      for (const local of stillPending) {
+        const objId = Number(local.pms_metadata.roomId);
+        result.diagnostics.push({
+          source: "gozsdu-rest-checkout-room", roomId: objId,
+          localRoom: local.room_number,
+          returnedReservationStatus: targetStatusById.get(objId) ?? null,
+          accepted: checkedOutByObjId.has(objId),
+          reason: checkedOutByObjId.has(objId)
+            ? "verified physical checkout returned by Previo"
+            : "Previo REST did not confirm physical checkout; RTC held",
+        });
+      }
+    }
+  }
+
+  const trueCheckoutRoomIds = new Set<string>();
+  const departedRoomMap = new Map<string, PrevioRoom>();
+  for (const r of rooms.filter((r) =>
+    checkedOutByObjId.has(r.roomId) || checkedOutByName.has(r.name),
+  )) {
+    departedRoomMap.set(`${r.roomId || ""}:${r.name || ""}`, r);
+  }
+  for (const sig of checkoutSignals) {
+    if (![...departedRoomMap.values()].some((r) =>
+      (sig.objId != null && Number(r.roomId) === sig.objId) || (sig.name && String(r.name).trim() === sig.name),
+    )) {
+      departedRoomMap.set(`${sig.objId || ""}:${sig.name || ""}`, {
+        roomId: sig.objId ?? 0,
+        name: sig.name,
+      });
+    }
+  }
+  const departedRooms = [...departedRoomMap.values()];
+  result.departed = departedRooms.length;
+
+
+  // 3. Process each departed room
+  for (const r of departedRooms) {
+    try {
+      const rawName = String(r.name ?? "").trim();
+      const numToken = extractNum(rawName);
+      const previoRoomId = r.roomId != null ? String(r.roomId) : "";
+      const reservationId =
+        checkedOutByObjId.get(r.roomId) || checkedOutByName.get(rawName) || "";
+
+      const tryQ = async (mut: (q: any) => any) => {
+        const { data } = await mut(
+          service
+            .from("rooms")
+            .select("id, status, is_checkout_room, checkout_time, room_number, pms_metadata")
+            .in("hotel", hotelKeys),
+        ).maybeSingle();
+        return (data as any) || null;
+      };
+      // A physical Previo room ID is authoritative. Do not try a room-name or
+      // first-numeric-token fallback when a valid ID is present but unmapped:
+      // apartment labels can share numeric fragments across different rooms.
+      // In that case fail closed and surface the missing mapping for review.
+      let localRoom: any = null;
+      if (previoRoomId && Number(previoRoomId) > 0) {
+        localRoom = await tryQ((q: any) =>
+          q.filter("pms_metadata->>roomId", "eq", previoRoomId));
+      } else if (rawName) {
+        // Only identity-less feeds may use an EXACT full-label lookup.
+        localRoom = await tryQ((q: any) => q.eq("room_number", rawName));
+      }
+
+      if (!localRoom) {
+        result.unmatched.push(rawName || previoRoomId);
+        result.diagnostics.push({
+          source: "checkout-unmapped-physical-room",
+          room: rawName || null,
+          roomId: previoRoomId || null,
+          accepted: false,
+          reason: "Previo checkout has no exact physical-room ID mapping; RTC not changed",
+        });
+        continue;
+      }
+      // Portfolio workbook exclusions are NOT operational housekeeping rooms.
+      // Previo may still return departures from inactive WR Pension units;
+      // never reintroduce them into the HotelCare checkout/RTC workflow.
+      if (hotelId === "slnt-group"
+          && (localRoom.pms_metadata?.excludedFromHousekeeping === true
+              || localRoom.pms_metadata?.workbookActive === false)) {
+        result.diagnostics.push({
+          source: "inactive-unit-checkout-ignored",
+          room: localRoom.room_number,
+          roomId: previoRoomId || null,
+          accepted: false,
+          reason: "excluded SLNT unit retained in Previo but not available for housekeeping",
+        });
+        continue;
+      }
+      if (hasXmlInHouseConflict(localRoom.pms_metadata?.roomId, xmlInHouseIds)) {
+        result.diagnostics.push({
+          source: "checkout-conflicts-with-live-inhouse",
+          localRoom: localRoom.room_number,
+          roomId: previoRoomId || null,
+          accepted: false,
+          reason: "explicit same-day in-house status overrides contradictory checkout evidence",
+        });
+        continue;
+      }
+      trueCheckoutRoomIds.add(localRoom.id);
+
+      const wasCheckout = !!localRoom.is_checkout_room;
+
+      // Look up today's active assignments first so we can protect an
+      // in-progress housekeeper cleaning from having its status stomped.
+      const { data: existingAsg } = await service
+        .from("room_assignments")
+        .select("id, status, assignment_type, assigned_to, ready_to_clean, pms_hold, pms_hold_reason, pms_hold_event_id")
+        .eq("room_id", localRoom.id)
+        .eq("assignment_date", today)
+        .in("status", ["assigned", "in_progress"]);
+      const hasActiveAssignment = (existingAsg ?? []).length > 0;
+
+      // A verified departure can be RTC-ready even before a cleaner is assigned.
+      // Surface that coverage gap, but never invent a housekeeper or rewrite
+      // finished work as a side effect of PMS synchronization.
+      if (!hasActiveAssignment && localRoom.pms_metadata?.excludedFromHousekeeping !== true) {
+        const { data: anyTodayAsg, error: assignmentCheckError } = await service
+          .from("room_assignments")
+          .select("id,status")
+          .eq("room_id", localRoom.id)
+          .eq("assignment_date", today)
+          .limit(1);
+        if (assignmentCheckError) {
+          result.errors.push(`assignment verification ${localRoom.room_number}: ${assignmentCheckError.message}`);
+        } else if (!(anyTodayAsg ?? []).length) {
+          result.diagnostics.push({
+            source: "confirmed-checkout-without-housekeeping-task",
+            room: localRoom.room_number,
+            roomId: previoRoomId || null,
+            accepted: true,
+            actionRequired: "assign-housekeeper",
+            reason: "Previo physical checkout confirmed; room RTC is synchronized but no cleaning assignment exists",
+          });
+        }
+      }
+
+      const existingMeta = (localRoom.pms_metadata && typeof localRoom.pms_metadata === "object")
+        ? localRoom.pms_metadata : {};
+
+      if (dryRun) {
+        result.marked += (existingAsg ?? []).filter((a: any) => a.assignment_type === "checkout_cleaning").length;
+        continue;
+      }
+
+      // A repeated Previo checkout is not a NEW room state change.
+      // Skipping the no-op write prevents unnecessary triggers, WAL and
+      // Realtime broadcasts while preserving the first confirmed checkout,
+      // overnight carryover and new same-day reservation turnovers.
+      if (needsCheckoutRoomWrite(localRoom, today, reservationId)) {
+        const stampedAt = nowIso();
+        const updateData: Record<string, any> = {
+          is_checkout_room: true,
+          checkout_time: stampedAt,
+          updated_at: stampedAt,
+          pms_metadata: {
+            ...existingMeta,
+            checkedOutToday: true,
+            readyToClean: true,
+            checkedOutAt: stampedAt,
+            readyToCleanDate: today,
+          },
+        };
+        // This branch only runs for a *new* physical checkout (or incomplete
+        // confirmation), so preserve the original dirty-room transition.
+        // Already-confirmed rooms are skipped entirely above, even after HK
+        // has finished cleaning them.
+        if (!hasActiveAssignment && localRoom.status !== "dirty") {
+          updateData.status = "dirty";
+        }
+
+        const { error: updErr } = await service
+          .from("rooms")
+          .update(updateData)
+          .eq("id", localRoom.id);
+        if (updErr) throw updErr;
+      } else if (existingMeta.readyToCleanDate !== today) {
+        // Same verified checkout, but an old/missing readiness date.
+        // Repair metadata only: never mark an already-cleaned room dirty or
+        // alter an active/completed housekeeping task on an idempotent poll.
+        const { error: dateErr } = await service.from("rooms").update({
+          pms_metadata: { ...existingMeta, readyToCleanDate: today },
+          updated_at: nowIso(),
+        }).eq("id", localRoom.id);
+        if (dateErr) throw dateErr;
+      }
+
+
+      // A confirmed physical checkout is authoritative for today's active
+      // housekeeping assignment too. This matters when the room was planned as
+      // a daily clean (or was manually assigned before the fresh PMS snapshot)
+      // and Previo later changes it to a checkout. Preserve the selected
+      // housekeeper and work status, but reconcile the cleaning type and RTC.
+      const staleTypeAssignments = (existingAsg ?? []).filter(
+        (a: any) => a.assignment_type !== "checkout_cleaning",
+      );
+      if (staleTypeAssignments.length > 0) {
+        const { error: reconcileError } = await service
+          .from("room_assignments")
+          .update({
+            assignment_type: "checkout_cleaning",
+            ready_to_clean: true,
+            pms_hold: false,
+            pms_hold_reason: null,
+            pms_hold_event_id: null,
+            updated_at: nowIso(),
+          })
+          .in("id", staleTypeAssignments.map((a: any) => a.id));
+        if (reconcileError) throw reconcileError;
+        result.diagnostics.push({
+          source: "checkout-assignment-reconcile",
+          room: localRoom.room_number || rawName,
+          roomId: localRoom.id,
+          reconciledAssignments: staleTypeAssignments.length,
+          accepted: true,
+          reason: "explicit PMS checkout converted active daily assignment to checkout cleaning and RTC",
+        });
+      }
+
+      // Emit a change when either the room itself flipped to checkout OR an
+      // already-checkout room had a stale live assignment corrected. The
+      // latter was the ST-B44 split-brain case: manager overview said Checkout,
+      // while the housekeeper still saw Daily.
+      if (!wasCheckout || staleTypeAssignments.length > 0) {
+        await service
+          .from("pms_change_events")
+          .insert({
+            hotel_id: hotelId,
+            room_id: localRoom.id,
+            room_label: localRoom.room_number || rawName,
+            event_type: "checkout_confirmed",
+            source: "poll_checkouts",
+            previo_reservation_id: reservationId || null,
+            before: {
+              is_checkout_room: wasCheckout,
+              status: localRoom.status,
+              assignment_types: staleTypeAssignments.map((a: any) => a.assignment_type),
+            },
+            after: {
+              is_checkout_room: true,
+              status: "dirty",
+              assignment_type: "checkout_cleaning",
+              ready_to_clean: true,
+            },
+            is_conflict: false,
+            conflicts_with_assignment_id: null,
+            auto_applied: true,
+            resolution: staleTypeAssignments.length > 0 ? "assignment_type_reconciled" : null,
+          });
+        result.events++;
+      }
+
+      // Reconcile only assignments still held or missing RTC. The stale
+      // daily assignments were already released in the block above.
+      // The result count still represents all active checkout assignments,
+      // not the number of database UPDATE statements.
+      const pendingReleaseIds = checkoutAssignmentsNeedingRelease(existingAsg ?? []);
+      if (pendingReleaseIds.length) {
+        const { error: releaseErr } = await service
+          .from("room_assignments")
+          .update({
+            ready_to_clean: true,
+            pms_hold: false,
+            pms_hold_reason: null,
+            pms_hold_event_id: null,
+            updated_at: nowIso(),
+          })
+          .in("id", pendingReleaseIds)
+          .eq("assignment_date", today)
+          .eq("assignment_type", "checkout_cleaning")
+          .in("status", ["assigned", "in_progress"]);
+        if (releaseErr) throw releaseErr;
+      }
+      result.marked += (existingAsg ?? []).length;
+    } catch (e: any) {
+      result.errors.push(`${r.name}: ${e?.message || e}`);
+    }
+  }
+
+  // 3.5. Reconcile false RTC only when Previo explicitly says the guest is
+  // still in-house (statusId=3 / checked-in). Never clear based on a missing
+  // reservation object because some tenants drop the reservation after real
+  // checkout.
+  try {
+    if (!dryRun && (stillInHouseByName.size > 0 || stillInHouseByObjId.size > 0)) {
+      const { data: rtcRooms, error: rtcReadError } = await service
+        .from("rooms")
+        .select("id, room_number, status, checkout_time, pms_metadata")
+        .in("hotel", hotelKeys)
+        .eq("is_checkout_room", true);
+      if (rtcReadError) throw rtcReadError;
+      const falseRtcRows = (rtcRooms ?? []).filter((r: any) => {
+        if (trueCheckoutRoomIds.has(r.id)) return false;
+        const meta = r.pms_metadata || {};
+        if (meta.manual_checkout === true || meta.manual_rtc === true) return false;
+        if (meta.scheduledDepartureToday !== true) return false;
+        if (meta.checkedOutToday !== true && meta.readyToClean !== true && !r.checkout_time) return false;
+        const objId = Number(meta.roomId);
+        const byObj = Number.isFinite(objId) && stillInHouseByObjId.has(objId);
+        const name = String(r.room_number ?? "").trim();
+        const byName = stillInHouseByName.has(name) || stillInHouseByName.has(extractNum(name));
+        return Number.isFinite(objId) && objId > 0 ? byObj : byName;
+      });
+
+      for (const r of falseRtcRows) {
+        const meta = clearedCheckoutMetadata((r as any).pms_metadata || {});
+        // Clear the active task first. If the room write fails, its stale
+        // flags remain eligible for retry on the next poll.
+        const { data: revertedAssignments, error: assignmentClearError } = await service
+          .from("room_assignments")
+          .update({ ready_to_clean: false, updated_at: nowIso() })
+          .select("id")
+          .eq("room_id", (r as any).id)
+          .eq("assignment_date", today)
+          .eq("assignment_type", "checkout_cleaning")
+          .eq("ready_to_clean", true)
+          .in("status", ["assigned", "in_progress"]);
+        if (assignmentClearError) throw assignmentClearError;
+        const { error: roomClearError } = await service
+          .from("rooms")
+          .update({
+            checkout_time: null,
+            pms_metadata: meta,
+            updated_at: nowIso(),
+          })
+          .eq("id", (r as any).id);
+        if (roomClearError) throw roomClearError;
+        result.revertedCheckedOut += 1;
+        result.cleared += revertedAssignments?.length ?? 0;
+        await service.from("pms_change_events").insert({
+          hotel_id: hotelId,
+          room_id: (r as any).id,
+          room_label: (r as any).room_number,
+          event_type: "checkout_cleared",
+          source: "poll_checkouts_reconcile",
+          before: { checkedOutToday: true, readyToClean: true },
+          after: { scheduledDepartureToday: true, checkedOutToday: false, readyToClean: false },
+          is_conflict: false,
+        });
+        result.events++;
+      }
+    }
+  } catch (e: any) {
+    result.errors.push(`false RTC reconcile: ${e?.message || e}`);
+  }
+
+  // 4. Clear stale checkout flags (guest now back, or earlier false positive).
+  // NEVER clear a room that is still scheduled to depart today or already
+  // marked checked-out today via the PMS upload / sync — otherwise a poll
+  // that only sees statusId=5 (already-departed) reservations would wipe
+  // legitimate scheduled-departure rooms out of the checkout bucket.
+  try {
+    if (dryRun) return result;
+    const { data: stale } = await service
+      .from("rooms")
+      .select("id, room_number, pms_metadata")
+      .in("hotel", hotelKeys)
+      .eq("is_checkout_room", true);
+    const staleRows = (stale ?? []).filter((r: any) => {
+      if (trueCheckoutRoomIds.has(r.id)) return false;
+      const meta = r.pms_metadata || {};
+      if (meta.scheduledDepartureToday === true) return false;
+      if (meta.checkedOutToday === true) return false;
+      const lastRefresh = meta.lastPmsRefreshDate || meta.pmsUploadDate;
+      if (lastRefresh === today) return false; // trust today's upload/sync
+      return true;
+    });
+    if (staleRows.length > 0) {
+      const ids = staleRows.map((r: any) => r.id);
+      await service
+        .from("rooms")
+        .update({ is_checkout_room: false, checkout_time: null, updated_at: nowIso() })
+        .in("id", ids);
+      result.cleared = ids.length;
+      const evtRows = staleRows.map((r: any) => ({
+        hotel_id: hotelId,
+        room_id: r.id,
+        room_label: r.room_number,
+        event_type: "checkout_cleared",
+        source: "poll_checkouts",
+        before: { is_checkout_room: true },
+        after: { is_checkout_room: false },
+        is_conflict: false,
+      }));
+      if (evtRows.length) await service.from("pms_change_events").insert(evtRows);
+      result.events += evtRows.length;
+    }
+  } catch (e: any) {
+    result.errors.push(`stale cleanup: ${e?.message || e}`);
+  }
+
+  // SLNT final-state RTC invariant.
+  //
+  // A Previo poll can confirm checkout first and a manager/auto-assignment
+  // action can create or refresh the housekeeping assignment a moment later.
+  // That leaves the room correctly marked checked-out/RTC while the newer
+  // assignment still has ready_to_clean=false. Reconcile once more from the
+  // authoritative, date-stamped room state at the END of each account poll.
+  //
+  // Keep this SLNT-only: other tenants retain their existing checkout logic.
+  // Never infer RTC from schedule, dirtiness, clean status, or the clock.
+  if (!dryRun && hotelId === "slnt-group") {
+    try {
+      const { data: rtcRooms, error: rtcRoomsError } = await service
+        .from("rooms")
+        .select("id, status, checkout_time, pms_metadata")
+        .in("hotel", hotelKeys)
+        .eq("is_checkout_room", true);
+      if (rtcRoomsError) throw rtcRoomsError;
+
+      const releaseRoomIds = (rtcRooms ?? [])
+        .filter((room: any) => shouldHealSlntCheckoutRtc(room, today))
+        .map((room: any) => room.id);
+
+      if (releaseRoomIds.length > 0) {
+        const { data: healedAssignments, error: healError } = await service
+          .from("room_assignments")
+          .update({
+            ready_to_clean: true,
+            pms_hold: false,
+            pms_hold_reason: null,
+            pms_hold_event_id: null,
+            updated_at: nowIso(),
+          })
+          .select("id, room_id")
+          .in("room_id", releaseRoomIds)
+          .eq("assignment_date", today)
+          .eq("assignment_type", "checkout_cleaning")
+          .eq("ready_to_clean", false)
+          .in("status", ["assigned", "in_progress"]);
+
+        if (healError) throw healError;
+
+        const healed = healedAssignments?.length ?? 0;
+        if (healed > 0) {
+          result.marked += healed;
+          result.diagnostics.push({
+            source: "slnt-rtc-final-state-invariant",
+            accepted: true,
+            repairedAssignments: healed,
+            reason: "same-day explicit Previo checkout was already confirmed but the live assignment was still waiting for RTC",
+          });
+        }
+      }
+    } catch (e: any) {
+      result.errors.push(`SLNT RTC invariant: ${e?.message || e}`);
+    }
+  }
+
+  return result;
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+
+    const body = await req.json().catch(() => ({} as any));
+    const hotelIdInput: string = body?.hotelId || "";
+    const isCronTrigger = body?.trigger === "cron";
+    const dryRun = body?.dryRun === true;
+
+    const authHeader = req.headers.get("Authorization") || "";
+    const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const service = createClient(SUPABASE_URL, SERVICE);
+
+    let isServiceCall = false;
+    let userId: string | null = null;
+    let profile: any = null;
+
+    if (authHeader.startsWith("Bearer ")) {
+      const token = authHeader.replace("Bearer ", "");
+      if (token === SERVICE) {
+        isServiceCall = true;
+      } else if (token && token !== ANON) {
+        const anon = createClient(SUPABASE_URL, ANON);
+        const { data: userRes } = await anon.auth.getUser(token);
+        if (userRes?.user) {
+          userId = userRes.user.id;
+          const { data: p } = await service
+            .from("profiles").select("role, assigned_hotel")
+            .eq("id", userId).maybeSingle();
+          profile = p;
+        }
+      }
+    }
+
+    // Cron fan-out: anonymous trigger allowed when no hotelId targeted.
+    if (!isServiceCall && !userId && !isCronTrigger) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Resolve which hotels to poll.
+    let targets: { hotel_id: string; pms_hotel_id: any; credentials_secret_name: string }[] = [];
+    if (hotelIdInput) {
+      if (!isServiceCall) {
+        const isAdmin = profile?.role === "admin" || profile?.role === "top_management" || profile?.role === "top_management_manager";
+        if (!isAdmin) {
+          // Legacy profiles can store a hotel's human display name while
+          // integration calls correctly use the canonical hotel_id. Resolve
+          // both aliases before enforcing scope so "Hotel Ottofiori" and
+          // "ottofiori" authorize as the same property.
+          const { data: hotelIdentity } = await service
+            .from("hotel_configurations")
+            .select("hotel_id, hotel_name")
+            .eq("hotel_id", hotelIdInput)
+            .maybeSingle();
+          const allowedHotelKeys = new Set(
+            [hotelIdInput, hotelIdentity?.hotel_id, hotelIdentity?.hotel_name]
+              .filter((v): v is string => typeof v === "string" && v.length > 0),
+          );
+          if (!profile?.assigned_hotel || !allowedHotelKeys.has(profile.assigned_hotel)) {
+            return new Response(JSON.stringify({ error: "Forbidden" }), {
+              status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+      }
+      const { data: cfg } = await service
+        .from("pms_configurations")
+        .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
+        .eq("hotel_id", hotelIdInput)
+        .eq("pms_type", "previo")
+        .eq("is_active", true)
+        .maybeSingle();
+      // Portfolio tenants (e.g. SLNT) keep their Previo credentials in
+      // pms_accounts — one row per Previo account — instead of a single
+      // pms_configurations row. Poll every active account for that property.
+      const found: any[] = cfg ? [cfg] : [];
+      if (found.length === 0) {
+        const { data: accts } = await service
+          .from("pms_accounts")
+          .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
+          .eq("hotel_id", hotelIdInput)
+          .eq("pms_type", "previo")
+          .eq("is_active", true)
+          .order("is_primary", { ascending: false });
+        for (const a of accts ?? []) found.push(a);
+      }
+      if (found.length === 0) {
+        return new Response(JSON.stringify({ error: `No active Previo config for ${hotelIdInput}` }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const enabled = found.filter((c) => !c?.settings?.disable_checkout_poll);
+      if (enabled.length === 0) {
+        return new Response(JSON.stringify({ ok: true, skipped: true, reason: "disabled in settings" }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      for (const c of enabled) targets.push(c as any);
+    } else {
+      // Fan-out: service-role OR cron trigger only.
+      if (!isServiceCall && !isCronTrigger) {
+        return new Response(JSON.stringify({ error: "hotelId required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: cfgs } = await service
+        .from("pms_configurations")
+        .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
+        .eq("pms_type", "previo")
+        .eq("is_active", true);
+      // SLNT keeps its two Previo accounts in pms_accounts, not
+      // pms_configurations. Include both in the SAME authenticated/scheduled
+      // fan-out, rather than creating a targeted anonymous cron request.
+      const { data: slntAccounts, error: accountsError } = await service
+        .from("pms_accounts")
+        .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
+        .eq("hotel_id", "slnt-group")
+        .eq("pms_type", "previo")
+        .eq("is_active", true);
+      if (accountsError) throw accountsError;
+      targets = [...(cfgs ?? []), ...(slntAccounts ?? [])]
+        .filter((c: any) => !c.settings?.disable_checkout_poll) as any;
+    }
+
+    const perHotel: PollResult[] = [];
+    for (const t of targets) {
+      try {
+        const r = await pollOneHotel(service, t.hotel_id, t, dryRun);
+        perHotel.push(r);
+        if (!dryRun) {
+          await service.from("pms_sync_history").insert({
+            sync_type: "checkouts_poll",
+            direction: "from_previo",
+            hotel_id: t.hotel_id,
+            data: r,
+            changed_by: userId,
+            sync_status: r.errors.length ? "partial" : "success",
+            error_message: r.errors.length ? r.errors.slice(0, 5).join(" | ") : null,
+          });
+        }
+      } catch (e: any) {
+        perHotel.push({
+          hotel_id: t.hotel_id, checked: 0, marked: 0, cleared: 0,
+          events: 0, conflicts: 0, errors: [e?.message || String(e)],
+          unmatched: [], reservationFetchError: null, departed: 0, diagnostics: [],
+          revertedCheckedOut: 0, heldAssignments: 0,
+        });
+      }
+    }
+
+    const totals = perHotel.reduce(
+      (acc, r) => ({
+        marked: acc.marked + r.marked,
+        cleared: acc.cleared + r.cleared,
+        events: acc.events + r.events,
+        conflicts: acc.conflicts + r.conflicts,
+        errors: acc.errors + r.errors.length,
+      }),
+      { marked: 0, cleared: 0, events: 0, conflicts: 0, errors: 0 },
+    );
+
+    return new Response(JSON.stringify({ ok: true, dryRun, hotels: perHotel.length, ...totals, perHotel }), {
+      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (e: any) {
+    return new Response(JSON.stringify({ ok: false, error: e?.message || "Unknown error" }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

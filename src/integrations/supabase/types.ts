@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "12.2.12 (cd3cf9e)"
+    PostgrestVersion: "12.2.12"
   }
   public: {
     Tables: {
@@ -259,42 +259,135 @@ export type Database = {
         }
         Relationships: []
       }
+      assistant_action_requests: {
+        Row: {
+          applied_at: string | null
+          approved_items: Json | null
+          consent_text: string | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decided_by_name: string | null
+          decided_by_role: string | null
+          error: string | null
+          expires_at: string
+          hotel_id: string
+          id: string
+          kind: string
+          organization_slug: string
+          plan: Json
+          plan_hash: string
+          requested_by: string
+          result: Json | null
+          status: string
+          summary: string | null
+          thread_id: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          applied_at?: string | null
+          approved_items?: Json | null
+          consent_text?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_by_name?: string | null
+          decided_by_role?: string | null
+          error?: string | null
+          expires_at?: string
+          hotel_id: string
+          id?: string
+          kind: string
+          organization_slug: string
+          plan: Json
+          plan_hash: string
+          requested_by: string
+          result?: Json | null
+          status?: string
+          summary?: string | null
+          thread_id?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          applied_at?: string | null
+          approved_items?: Json | null
+          consent_text?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_by_name?: string | null
+          decided_by_role?: string | null
+          error?: string | null
+          expires_at?: string
+          hotel_id?: string
+          id?: string
+          kind?: string
+          organization_slug?: string
+          plan?: Json
+          plan_hash?: string
+          requested_by?: string
+          result?: Json | null
+          status?: string
+          summary?: string | null
+          thread_id?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       assistant_audit_log: {
         Row: {
           created_at: string
+          duration_ms: number | null
           hotel_id: string | null
           id: string
+          input_tokens: number | null
           model: string | null
           organization_slug: string | null
+          output_tokens: number | null
           question: string
           refused: boolean
           role: string | null
           scopes_used: string[]
+          thread_id: string | null
           user_id: string
+          workflow: string | null
         }
         Insert: {
           created_at?: string
+          duration_ms?: number | null
           hotel_id?: string | null
           id?: string
+          input_tokens?: number | null
           model?: string | null
           organization_slug?: string | null
+          output_tokens?: number | null
           question?: string
           refused?: boolean
           role?: string | null
           scopes_used?: string[]
+          thread_id?: string | null
           user_id: string
+          workflow?: string | null
         }
         Update: {
           created_at?: string
+          duration_ms?: number | null
           hotel_id?: string | null
           id?: string
+          input_tokens?: number | null
           model?: string | null
           organization_slug?: string | null
+          output_tokens?: number | null
           question?: string
           refused?: boolean
           role?: string | null
           scopes_used?: string[]
+          thread_id?: string | null
           user_id?: string
+          workflow?: string | null
         }
         Relationships: []
       }
@@ -425,8 +518,215 @@ export type Database = {
           },
         ]
       }
+      assistant_mail_accounts: {
+        Row: {
+          access_token_ciphertext: string | null
+          access_token_expires_at: string | null
+          created_at: string
+          display_name: string | null
+          email: string
+          id: string
+          last_used_at: string | null
+          organization_slug: string | null
+          provider: string
+          refresh_token_ciphertext: string
+          scopes: string | null
+          settings: Json
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token_ciphertext?: string | null
+          access_token_expires_at?: string | null
+          created_at?: string
+          display_name?: string | null
+          email: string
+          id?: string
+          last_used_at?: string | null
+          organization_slug?: string | null
+          provider: string
+          refresh_token_ciphertext: string
+          scopes?: string | null
+          settings?: Json
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token_ciphertext?: string | null
+          access_token_expires_at?: string | null
+          created_at?: string
+          display_name?: string | null
+          email?: string
+          id?: string
+          last_used_at?: string | null
+          organization_slug?: string | null
+          provider?: string
+          refresh_token_ciphertext?: string
+          scopes?: string | null
+          settings?: Json
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      assistant_mail_drafts: {
+        Row: {
+          account_id: string
+          assistant_thread_id: string | null
+          body: string
+          cc_addresses: string[]
+          created_at: string
+          error: string | null
+          expires_at: string
+          id: string
+          organization_slug: string | null
+          provider_message_id: string | null
+          reply_header_message_id: string | null
+          reply_thread_id: string | null
+          reply_to_message_id: string | null
+          sent_at: string | null
+          status: string
+          subject: string
+          to_addresses: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          assistant_thread_id?: string | null
+          body: string
+          cc_addresses?: string[]
+          created_at?: string
+          error?: string | null
+          expires_at?: string
+          id?: string
+          organization_slug?: string | null
+          provider_message_id?: string | null
+          reply_header_message_id?: string | null
+          reply_thread_id?: string | null
+          reply_to_message_id?: string | null
+          sent_at?: string | null
+          status?: string
+          subject: string
+          to_addresses: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          assistant_thread_id?: string | null
+          body?: string
+          cc_addresses?: string[]
+          created_at?: string
+          error?: string | null
+          expires_at?: string
+          id?: string
+          organization_slug?: string | null
+          provider_message_id?: string | null
+          reply_header_message_id?: string | null
+          reply_thread_id?: string | null
+          reply_to_message_id?: string | null
+          sent_at?: string | null
+          status?: string
+          subject?: string
+          to_addresses?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assistant_mail_drafts_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "assistant_mail_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assistant_mail_log: {
+        Row: {
+          cc_addresses: string[]
+          created_at: string
+          draft_id: string | null
+          error: string | null
+          from_email: string
+          id: string
+          is_reply: boolean
+          organization_slug: string | null
+          outcome: string
+          provider: string
+          subject: string
+          to_addresses: string[]
+          user_id: string
+        }
+        Insert: {
+          cc_addresses?: string[]
+          created_at?: string
+          draft_id?: string | null
+          error?: string | null
+          from_email: string
+          id?: string
+          is_reply?: boolean
+          organization_slug?: string | null
+          outcome: string
+          provider: string
+          subject: string
+          to_addresses: string[]
+          user_id: string
+        }
+        Update: {
+          cc_addresses?: string[]
+          created_at?: string
+          draft_id?: string | null
+          error?: string | null
+          from_email?: string
+          id?: string
+          is_reply?: boolean
+          organization_slug?: string | null
+          outcome?: string
+          provider?: string
+          subject?: string
+          to_addresses?: string[]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      assistant_mail_oauth_states: {
+        Row: {
+          created_at: string
+          expires_at: string
+          organization_slug: string | null
+          provider: string
+          return_url: string
+          state: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          organization_slug?: string | null
+          provider: string
+          return_url: string
+          state: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          organization_slug?: string | null
+          provider?: string
+          return_url?: string
+          state?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       assistant_messages: {
         Row: {
+          attachments: Json
           content: string
           created_at: string
           id: string
@@ -438,6 +738,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          attachments?: Json
           content?: string
           created_at?: string
           id?: string
@@ -449,6 +750,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          attachments?: Json
           content?: string
           created_at?: string
           id?: string
@@ -468,6 +770,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      assistant_monthly_message_usage: {
+        Row: {
+          created_at: string
+          estimated_cost_usd: number
+          input_tokens: number
+          message_id: string
+          month_start: string
+          organization_slug: string | null
+          output_tokens: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          estimated_cost_usd?: number
+          input_tokens?: number
+          message_id: string
+          month_start: string
+          organization_slug?: string | null
+          output_tokens?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          estimated_cost_usd?: number
+          input_tokens?: number
+          message_id?: string
+          month_start?: string
+          organization_slug?: string | null
+          output_tokens?: number
+          user_id?: string
+        }
+        Relationships: []
       }
       assistant_paid_questions: {
         Row: {
@@ -601,12 +936,47 @@ export type Database = {
         }
         Relationships: []
       }
+      assistant_projects: {
+        Row: {
+          created_at: string
+          id: string
+          instructions: string
+          name: string
+          organization_slug: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          instructions?: string
+          name: string
+          organization_slug?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          instructions?: string
+          name?: string
+          organization_slug?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       assistant_threads: {
         Row: {
           created_at: string
+          follow_up_status: string
           hotel_id: string | null
           id: string
+          last_read_at: string
+          last_reply_at: string | null
           organization_slug: string | null
+          pinned_at: string | null
+          project_id: string | null
           title: string
           title_locked: boolean
           updated_at: string
@@ -614,9 +984,14 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          follow_up_status?: string
           hotel_id?: string | null
           id?: string
+          last_read_at?: string
+          last_reply_at?: string | null
           organization_slug?: string | null
+          pinned_at?: string | null
+          project_id?: string | null
           title?: string
           title_locked?: boolean
           updated_at?: string
@@ -624,15 +999,28 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          follow_up_status?: string
           hotel_id?: string | null
           id?: string
+          last_read_at?: string
+          last_reply_at?: string | null
           organization_slug?: string | null
+          pinned_at?: string | null
+          project_id?: string | null
           title?: string
           title_locked?: boolean
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "assistant_threads_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "assistant_projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       assistant_unlimited_users: {
         Row: {
@@ -654,6 +1042,39 @@ export type Database = {
           enabled?: boolean
           reason?: string | null
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      assistant_usage_alert_events: {
+        Row: {
+          alert_type: string
+          created_at: string
+          emailed_at: string | null
+          id: string
+          message: string
+          month_start: string
+          organization_slug: string | null
+          user_id: string
+        }
+        Insert: {
+          alert_type: string
+          created_at?: string
+          emailed_at?: string | null
+          id?: string
+          message: string
+          month_start: string
+          organization_slug?: string | null
+          user_id: string
+        }
+        Update: {
+          alert_type?: string
+          created_at?: string
+          emailed_at?: string | null
+          id?: string
+          message?: string
+          month_start?: string
+          organization_slug?: string | null
           user_id?: string
         }
         Relationships: []
@@ -736,6 +1157,80 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_access_overrides: {
+        Row: {
+          bypass_billing: boolean
+          created_at: string
+          expires_at: string | null
+          hotel_id: string | null
+          id: string
+          organization_slug: string
+          reason: string | null
+          scope_key: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          bypass_billing?: boolean
+          created_at?: string
+          expires_at?: string | null
+          hotel_id?: string | null
+          id?: string
+          organization_slug: string
+          reason?: string | null
+          scope_key?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          bypass_billing?: boolean
+          created_at?: string
+          expires_at?: string | null
+          hotel_id?: string | null
+          id?: string
+          organization_slug?: string
+          reason?: string | null
+          scope_key?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      billing_agreement_entitlements: {
+        Row: {
+          agreement_code: string
+          enabled: boolean
+          hotel_id: string
+          module: string
+          organization_slug: string
+          updated_at: string
+        }
+        Insert: {
+          agreement_code: string
+          enabled?: boolean
+          hotel_id: string
+          module: string
+          organization_slug: string
+          updated_at?: string
+        }
+        Update: {
+          agreement_code?: string
+          enabled?: boolean
+          hotel_id?: string
+          module?: string
+          organization_slug?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_agreement_entitlement_organization_slug_agreement__fkey"
+            columns: ["organization_slug", "agreement_code"]
+            isOneToOne: false
+            referencedRelation: "billing_fixed_agreements"
+            referencedColumns: ["organization_slug", "agreement_code"]
+          },
+        ]
+      }
       billing_events: {
         Row: {
           created_at: string
@@ -763,6 +1258,44 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_fixed_agreements: {
+        Row: {
+          agreement_code: string
+          enabled: boolean
+          label: string
+          organization_slug: string
+          price_cents: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          agreement_code: string
+          enabled?: boolean
+          label?: string
+          organization_slug: string
+          price_cents?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          agreement_code?: string
+          enabled?: boolean
+          label?: string
+          organization_slug?: string
+          price_cents?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_fixed_agreements_organization_slug_fkey"
+            columns: ["organization_slug"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
       billing_hotel_overrides: {
         Row: {
           created_at: string
@@ -789,6 +1322,151 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      billing_module_overrides: {
+        Row: {
+          created_at: string
+          hotel_id: string | null
+          id: string
+          module: string
+          organization_slug: string
+          price_cents: number
+          pricing_mode: string
+          scope_key: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          hotel_id?: string | null
+          id?: string
+          module: string
+          organization_slug: string
+          price_cents?: number
+          pricing_mode?: string
+          scope_key?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string | null
+          id?: string
+          module?: string
+          organization_slug?: string
+          price_cents?: number
+          pricing_mode?: string
+          scope_key?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      billing_module_trials: {
+        Row: {
+          enabled: boolean
+          ends_on: string
+          hotel_id: string
+          module: string
+          organization_slug: string
+          starts_on: string
+          updated_at: string
+        }
+        Insert: {
+          enabled?: boolean
+          ends_on: string
+          hotel_id: string
+          module: string
+          organization_slug: string
+          starts_on: string
+          updated_at?: string
+        }
+        Update: {
+          enabled?: boolean
+          ends_on?: string
+          hotel_id?: string
+          module?: string
+          organization_slug?: string
+          starts_on?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_module_trials_organization_slug_fkey"
+            columns: ["organization_slug"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
+      billing_one_time_payments: {
+        Row: {
+          billing_details: Json
+          created_at: string
+          currency: string
+          description: string
+          gross_cents: number
+          id: string
+          invoiced_at: string | null
+          net_cents: number
+          organization_slug: string
+          package_key: string
+          paid_at: string | null
+          status: string
+          stripe_checkout_session_id: string | null
+          stripe_payment_intent_id: string | null
+          szamlazz_invoice_number: string | null
+          updated_at: string
+          vat_cents: number
+        }
+        Insert: {
+          billing_details?: Json
+          created_at?: string
+          currency?: string
+          description: string
+          gross_cents: number
+          id?: string
+          invoiced_at?: string | null
+          net_cents: number
+          organization_slug: string
+          package_key: string
+          paid_at?: string | null
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          szamlazz_invoice_number?: string | null
+          updated_at?: string
+          vat_cents: number
+        }
+        Update: {
+          billing_details?: Json
+          created_at?: string
+          currency?: string
+          description?: string
+          gross_cents?: number
+          id?: string
+          invoiced_at?: string | null
+          net_cents?: number
+          organization_slug?: string
+          package_key?: string
+          paid_at?: string | null
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_payment_intent_id?: string | null
+          szamlazz_invoice_number?: string | null
+          updated_at?: string
+          vat_cents?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_one_time_payments_organization_slug_fkey"
+            columns: ["organization_slug"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["slug"]
+          },
+        ]
       }
       billing_revenue_usage: {
         Row: {
@@ -861,6 +1539,11 @@ export type Database = {
           operations_module_enabled: boolean
           operations_module_label: string
           operations_price_cents: number
+          operations_promotion_enabled: boolean
+          operations_promotion_ends_on: string | null
+          operations_promotion_label: string
+          operations_promotion_note: string
+          operations_promotion_starts_on: string | null
           organization_slug: string
           payments_enabled: boolean
           revenue_automation_price_cents: number
@@ -871,6 +1554,11 @@ export type Database = {
           revenue_percent_min_cents: number
           revenue_price_cents: number
           revenue_pricing_mode: string
+          revenue_promotion_enabled: boolean
+          revenue_promotion_ends_on: string | null
+          revenue_promotion_label: string
+          revenue_promotion_note: string
+          revenue_promotion_starts_on: string | null
           standard_operations_price_cents: number
           standard_revenue_automation_price_cents: number
           standard_revenue_bi_price_cents: number
@@ -903,6 +1591,11 @@ export type Database = {
           operations_module_enabled?: boolean
           operations_module_label?: string
           operations_price_cents?: number
+          operations_promotion_enabled?: boolean
+          operations_promotion_ends_on?: string | null
+          operations_promotion_label?: string
+          operations_promotion_note?: string
+          operations_promotion_starts_on?: string | null
           organization_slug: string
           payments_enabled?: boolean
           revenue_automation_price_cents?: number
@@ -913,6 +1606,11 @@ export type Database = {
           revenue_percent_min_cents?: number
           revenue_price_cents?: number
           revenue_pricing_mode?: string
+          revenue_promotion_enabled?: boolean
+          revenue_promotion_ends_on?: string | null
+          revenue_promotion_label?: string
+          revenue_promotion_note?: string
+          revenue_promotion_starts_on?: string | null
           standard_operations_price_cents?: number
           standard_revenue_automation_price_cents?: number
           standard_revenue_bi_price_cents?: number
@@ -945,6 +1643,11 @@ export type Database = {
           operations_module_enabled?: boolean
           operations_module_label?: string
           operations_price_cents?: number
+          operations_promotion_enabled?: boolean
+          operations_promotion_ends_on?: string | null
+          operations_promotion_label?: string
+          operations_promotion_note?: string
+          operations_promotion_starts_on?: string | null
           organization_slug?: string
           payments_enabled?: boolean
           revenue_automation_price_cents?: number
@@ -955,6 +1658,11 @@ export type Database = {
           revenue_percent_min_cents?: number
           revenue_price_cents?: number
           revenue_pricing_mode?: string
+          revenue_promotion_enabled?: boolean
+          revenue_promotion_ends_on?: string | null
+          revenue_promotion_label?: string
+          revenue_promotion_note?: string
+          revenue_promotion_starts_on?: string | null
           standard_operations_price_cents?: number
           standard_revenue_automation_price_cents?: number
           standard_revenue_bi_price_cents?: number
@@ -964,6 +1672,198 @@ export type Database = {
           trial_start?: string
           updated_at?: string
           vat_percent?: number
+        }
+        Relationships: []
+      }
+      booking_engine_bookings: {
+        Row: {
+          attribution: Json
+          cancelled_at: string | null
+          check_in_date: string
+          check_out_date: string
+          consent: Json
+          created_at: string
+          currency: string
+          engine_id: string
+          free_cancellation_until: string | null
+          guest_email: string
+          guest_email_status: string | null
+          guest_id: string | null
+          guest_name: string
+          hotel_email_status: string | null
+          hotel_id: string
+          id: string
+          ip_hash: string | null
+          language: string
+          manage_token_hash: string
+          organization_slug: string
+          reference: string
+          reminder_sent_at: string | null
+          reminder_status: string | null
+          rooms: Json
+          status: string
+          total_amount: number
+          user_agent: string | null
+        }
+        Insert: {
+          attribution?: Json
+          cancelled_at?: string | null
+          check_in_date: string
+          check_out_date: string
+          consent?: Json
+          created_at?: string
+          currency: string
+          engine_id: string
+          free_cancellation_until?: string | null
+          guest_email: string
+          guest_email_status?: string | null
+          guest_id?: string | null
+          guest_name: string
+          hotel_email_status?: string | null
+          hotel_id: string
+          id?: string
+          ip_hash?: string | null
+          language?: string
+          manage_token_hash: string
+          organization_slug: string
+          reference: string
+          reminder_sent_at?: string | null
+          reminder_status?: string | null
+          rooms: Json
+          status?: string
+          total_amount: number
+          user_agent?: string | null
+        }
+        Update: {
+          attribution?: Json
+          cancelled_at?: string | null
+          check_in_date?: string
+          check_out_date?: string
+          consent?: Json
+          created_at?: string
+          currency?: string
+          engine_id?: string
+          free_cancellation_until?: string | null
+          guest_email?: string
+          guest_email_status?: string | null
+          guest_id?: string | null
+          guest_name?: string
+          hotel_email_status?: string | null
+          hotel_id?: string
+          id?: string
+          ip_hash?: string | null
+          language?: string
+          manage_token_hash?: string
+          organization_slug?: string
+          reference?: string
+          reminder_sent_at?: string | null
+          reminder_status?: string | null
+          rooms?: Json
+          status?: string
+          total_amount?: number
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_engine_bookings_engine_id_fkey"
+            columns: ["engine_id"]
+            isOneToOne: false
+            referencedRelation: "booking_engines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_engine_bookings_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      booking_engine_rate_limits: {
+        Row: {
+          bucket: string
+          hits: number
+          window_start: string
+        }
+        Insert: {
+          bucket: string
+          hits?: number
+          window_start: string
+        }
+        Update: {
+          bucket?: string
+          hits?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
+      booking_engines: {
+        Row: {
+          booking_window: Json
+          contact: Json
+          created_at: string
+          default_language: string
+          display_name: string | null
+          enabled: boolean
+          hotel_id: string
+          id: string
+          languages: string[]
+          logo_url: string | null
+          notification_emails: string[]
+          organization_slug: string
+          policies: Json
+          preview_token: string
+          public_id: string
+          rate_plans: Json
+          reminder_days: number
+          theme: Json
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          booking_window?: Json
+          contact?: Json
+          created_at?: string
+          default_language?: string
+          display_name?: string | null
+          enabled?: boolean
+          hotel_id: string
+          id?: string
+          languages?: string[]
+          logo_url?: string | null
+          notification_emails?: string[]
+          organization_slug: string
+          policies?: Json
+          preview_token?: string
+          public_id?: string
+          rate_plans?: Json
+          reminder_days?: number
+          theme?: Json
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          booking_window?: Json
+          contact?: Json
+          created_at?: string
+          default_language?: string
+          display_name?: string | null
+          enabled?: boolean
+          hotel_id?: string
+          id?: string
+          languages?: string[]
+          logo_url?: string | null
+          notification_emails?: string[]
+          organization_slug?: string
+          policies?: Json
+          preview_token?: string
+          public_id?: string
+          rate_plans?: Json
+          reminder_days?: number
+          theme?: Json
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
@@ -1309,6 +2209,436 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      channex_ari_outbox: {
+        Row: {
+          attempts: number
+          created_at: string
+          environment: string
+          hotel_id: string
+          id: string
+          is_full_sync: boolean
+          kind: string
+          last_error: string | null
+          mode: string
+          next_attempt_at: string
+          readback: Json | null
+          sent_at: string | null
+          status: string
+          task_ids: Json | null
+          updated_at: string
+          value_count: number
+          values: Json
+          warnings: Json | null
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          environment: string
+          hotel_id: string
+          id?: string
+          is_full_sync?: boolean
+          kind: string
+          last_error?: string | null
+          mode: string
+          next_attempt_at?: string
+          readback?: Json | null
+          sent_at?: string | null
+          status?: string
+          task_ids?: Json | null
+          updated_at?: string
+          value_count?: number
+          values: Json
+          warnings?: Json | null
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          environment?: string
+          hotel_id?: string
+          id?: string
+          is_full_sync?: boolean
+          kind?: string
+          last_error?: string | null
+          mode?: string
+          next_attempt_at?: string
+          readback?: Json | null
+          sent_at?: string | null
+          status?: string
+          task_ids?: Json | null
+          updated_at?: string
+          value_count?: number
+          values?: Json
+          warnings?: Json | null
+        }
+        Relationships: []
+      }
+      channex_audit_log: {
+        Row: {
+          action: string
+          actor: string | null
+          created_at: string
+          details: Json
+          hotel_id: string | null
+          id: number
+        }
+        Insert: {
+          action: string
+          actor?: string | null
+          created_at?: string
+          details?: Json
+          hotel_id?: string | null
+          id?: number
+        }
+        Update: {
+          action?: string
+          actor?: string | null
+          created_at?: string
+          details?: Json
+          hotel_id?: string | null
+          id?: number
+        }
+        Relationships: []
+      }
+      channex_availability_dirty: {
+        Row: {
+          created_at: string
+          date_from: string
+          date_to: string
+          hotel_id: string
+          id: number
+          processed_at: string | null
+          reason: string
+          room_type_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          date_from: string
+          date_to: string
+          hotel_id: string
+          id?: number
+          processed_at?: string | null
+          reason: string
+          room_type_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          date_from?: string
+          date_to?: string
+          hotel_id?: string
+          id?: number
+          processed_at?: string | null
+          reason?: string
+          room_type_id?: string | null
+        }
+        Relationships: []
+      }
+      channex_booking_revisions: {
+        Row: {
+          ack_error: string | null
+          acked_at: string | null
+          arrival_date: string | null
+          attempts: number
+          channex_booking_id: string | null
+          channex_property_id: string | null
+          created_at: string
+          departure_date: string | null
+          environment: string
+          hotel_id: string | null
+          id: string
+          last_error: string | null
+          ota_name: string | null
+          ota_reservation_code: string | null
+          payload: Json | null
+          pii_purged_at: string | null
+          received_via: string
+          reservation_ids: string[]
+          revision_id: string
+          revision_status: string | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          ack_error?: string | null
+          acked_at?: string | null
+          arrival_date?: string | null
+          attempts?: number
+          channex_booking_id?: string | null
+          channex_property_id?: string | null
+          created_at?: string
+          departure_date?: string | null
+          environment: string
+          hotel_id?: string | null
+          id?: string
+          last_error?: string | null
+          ota_name?: string | null
+          ota_reservation_code?: string | null
+          payload?: Json | null
+          pii_purged_at?: string | null
+          received_via: string
+          reservation_ids?: string[]
+          revision_id: string
+          revision_status?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          ack_error?: string | null
+          acked_at?: string | null
+          arrival_date?: string | null
+          attempts?: number
+          channex_booking_id?: string | null
+          channex_property_id?: string | null
+          created_at?: string
+          departure_date?: string | null
+          environment?: string
+          hotel_id?: string | null
+          id?: string
+          last_error?: string | null
+          ota_name?: string | null
+          ota_reservation_code?: string | null
+          payload?: Json | null
+          pii_purged_at?: string | null
+          received_via?: string
+          reservation_ids?: string[]
+          revision_id?: string
+          revision_status?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      channex_connections: {
+        Row: {
+          certified_at: string | null
+          channex_group_id: string | null
+          channex_property_id: string | null
+          channex_webhook_id: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          dpa_signed: boolean
+          environment: string
+          hotel_id: string
+          id: string
+          is_sandbox_hotel: boolean
+          kill_switch: boolean
+          last_ari_push_at: string | null
+          last_error: string | null
+          last_feed_ok_at: string | null
+          last_feed_poll_at: string | null
+          mode: string
+          ntak_reporting_path: string
+          organization_slug: string
+          owner_approved_at: string | null
+          owner_approved_by: string | null
+          primary_occupancy: number
+          single_publisher_confirmed: boolean
+          tax_settings_confirmed: boolean
+          timezone: string
+          updated_at: string
+          viza_document_scan_confirmed: boolean
+        }
+        Insert: {
+          certified_at?: string | null
+          channex_group_id?: string | null
+          channex_property_id?: string | null
+          channex_webhook_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          dpa_signed?: boolean
+          environment?: string
+          hotel_id: string
+          id?: string
+          is_sandbox_hotel?: boolean
+          kill_switch?: boolean
+          last_ari_push_at?: string | null
+          last_error?: string | null
+          last_feed_ok_at?: string | null
+          last_feed_poll_at?: string | null
+          mode?: string
+          ntak_reporting_path?: string
+          organization_slug: string
+          owner_approved_at?: string | null
+          owner_approved_by?: string | null
+          primary_occupancy?: number
+          single_publisher_confirmed?: boolean
+          tax_settings_confirmed?: boolean
+          timezone?: string
+          updated_at?: string
+          viza_document_scan_confirmed?: boolean
+        }
+        Update: {
+          certified_at?: string | null
+          channex_group_id?: string | null
+          channex_property_id?: string | null
+          channex_webhook_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          dpa_signed?: boolean
+          environment?: string
+          hotel_id?: string
+          id?: string
+          is_sandbox_hotel?: boolean
+          kill_switch?: boolean
+          last_ari_push_at?: string | null
+          last_error?: string | null
+          last_feed_ok_at?: string | null
+          last_feed_poll_at?: string | null
+          mode?: string
+          ntak_reporting_path?: string
+          organization_slug?: string
+          owner_approved_at?: string | null
+          owner_approved_by?: string | null
+          primary_occupancy?: number
+          single_publisher_confirmed?: boolean
+          tax_settings_confirmed?: boolean
+          timezone?: string
+          updated_at?: string
+          viza_document_scan_confirmed?: boolean
+        }
+        Relationships: []
+      }
+      channex_mappings: {
+        Row: {
+          channex_id: string
+          channex_title: string | null
+          created_at: string
+          hotel_id: string
+          id: string
+          kind: string
+          local_id: string
+          settings: Json
+          updated_at: string
+        }
+        Insert: {
+          channex_id: string
+          channex_title?: string | null
+          created_at?: string
+          hotel_id: string
+          id?: string
+          kind: string
+          local_id: string
+          settings?: Json
+          updated_at?: string
+        }
+        Update: {
+          channex_id?: string
+          channex_title?: string | null
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          kind?: string
+          local_id?: string
+          settings?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channex_mappings_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "channex_connections"
+            referencedColumns: ["hotel_id"]
+          },
+        ]
+      }
+      channex_rate_changes: {
+        Row: {
+          created_at: string
+          currency: string
+          hotel_id: string
+          id: number
+          patch: Json
+          processed_at: string | null
+          rate_plan_id: string | null
+          room_type_id: string
+          skipped_reason: string | null
+          source: string
+          source_ref: string | null
+          stay_date: string
+        }
+        Insert: {
+          created_at?: string
+          currency: string
+          hotel_id: string
+          id?: number
+          patch: Json
+          processed_at?: string | null
+          rate_plan_id?: string | null
+          room_type_id: string
+          skipped_reason?: string | null
+          source: string
+          source_ref?: string | null
+          stay_date: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          hotel_id?: string
+          id?: number
+          patch?: Json
+          processed_at?: string | null
+          rate_plan_id?: string | null
+          room_type_id?: string
+          skipped_reason?: string | null
+          source?: string
+          source_ref?: string | null
+          stay_date?: string
+        }
+        Relationships: []
+      }
+      channex_review_cases: {
+        Row: {
+          created_at: string
+          details: Json
+          hotel_id: string
+          id: string
+          reason: string
+          reservation_ids: string[]
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          revision_row_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          details?: Json
+          hotel_id: string
+          id?: string
+          reason: string
+          reservation_ids?: string[]
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          revision_row_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          details?: Json
+          hotel_id?: string
+          id?: string
+          reason?: string
+          reservation_ids?: string[]
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          revision_row_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channex_review_cases_revision_row_id_fkey"
+            columns: ["revision_row_id"]
+            isOneToOne: true
+            referencedRelation: "channex_booking_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       client_error_logs: {
         Row: {
@@ -2030,6 +3360,153 @@ export type Database = {
         }
         Relationships: []
       }
+      dirty_linen_correction_audit: {
+        Row: {
+          action: string
+          assignment_id: string | null
+          changed_by: string | null
+          changed_by_name: string | null
+          created_at: string
+          hotel: string | null
+          housekeeper_id: string
+          id: string
+          linen_item_id: string
+          linen_item_name: string | null
+          new_count: number | null
+          old_count: number | null
+          organization_slug: string | null
+          room_id: string
+          room_number: string | null
+          source_row_id: string | null
+          work_date: string
+        }
+        Insert: {
+          action: string
+          assignment_id?: string | null
+          changed_by?: string | null
+          changed_by_name?: string | null
+          created_at?: string
+          hotel?: string | null
+          housekeeper_id: string
+          id?: string
+          linen_item_id: string
+          linen_item_name?: string | null
+          new_count?: number | null
+          old_count?: number | null
+          organization_slug?: string | null
+          room_id: string
+          room_number?: string | null
+          source_row_id?: string | null
+          work_date: string
+        }
+        Update: {
+          action?: string
+          assignment_id?: string | null
+          changed_by?: string | null
+          changed_by_name?: string | null
+          created_at?: string
+          hotel?: string | null
+          housekeeper_id?: string
+          id?: string
+          linen_item_id?: string
+          linen_item_name?: string | null
+          new_count?: number | null
+          old_count?: number | null
+          organization_slug?: string | null
+          room_id?: string
+          room_number?: string | null
+          source_row_id?: string | null
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dirty_linen_correction_audit_assignment_id_fkey"
+            columns: ["assignment_id"]
+            isOneToOne: false
+            referencedRelation: "room_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dirty_linen_correction_audit_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dirty_linen_correction_audit_housekeeper_id_fkey"
+            columns: ["housekeeper_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dirty_linen_correction_audit_linen_item_id_fkey"
+            columns: ["linen_item_id"]
+            isOneToOne: false
+            referencedRelation: "dirty_linen_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dirty_linen_correction_audit_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dirty_linen_correction_events: {
+        Row: {
+          action: string
+          assignment_id: string | null
+          corrected_by: string
+          corrected_count: number
+          created_at: string
+          hotel: string
+          housekeeper_id: string
+          id: string
+          linen_count_id: string
+          linen_item_id: string
+          organization_slug: string | null
+          previous_count: number
+          room_id: string
+          work_date: string
+        }
+        Insert: {
+          action: string
+          assignment_id?: string | null
+          corrected_by: string
+          corrected_count: number
+          created_at?: string
+          hotel: string
+          housekeeper_id: string
+          id?: string
+          linen_count_id: string
+          linen_item_id: string
+          organization_slug?: string | null
+          previous_count: number
+          room_id: string
+          work_date: string
+        }
+        Update: {
+          action?: string
+          assignment_id?: string | null
+          corrected_by?: string
+          corrected_count?: number
+          created_at?: string
+          hotel?: string
+          housekeeper_id?: string
+          id?: string
+          linen_count_id?: string
+          linen_item_id?: string
+          organization_slug?: string | null
+          previous_count?: number
+          room_id?: string
+          work_date?: string
+        }
+        Relationships: []
+      }
       dirty_linen_counts: {
         Row: {
           assignment_id: string | null
@@ -2081,6 +3558,7 @@ export type Database = {
         Row: {
           created_at: string
           display_name: string
+          hotel_scope: string | null
           id: string
           is_active: boolean
           name: string
@@ -2090,6 +3568,7 @@ export type Database = {
         Insert: {
           created_at?: string
           display_name: string
+          hotel_scope?: string | null
           id?: string
           is_active?: boolean
           name: string
@@ -2099,6 +3578,7 @@ export type Database = {
         Update: {
           created_at?: string
           display_name?: string
+          hotel_scope?: string | null
           id?: string
           is_active?: boolean
           name?: string
@@ -2447,6 +3927,129 @@ export type Database = {
           },
         ]
       }
+      folio_lines: {
+        Row: {
+          adjustment_reason: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          description: string
+          folio_id: string
+          gross_total: number
+          gross_unit_price: number
+          guest_id: string | null
+          id: string
+          legacy_guest_folio_id: string | null
+          net_total: number
+          origin_line_id: string | null
+          quantity: number
+          room_id: string | null
+          service_catalog_item_id: string | null
+          service_date: string
+          service_period_from: string | null
+          service_period_to: string | null
+          source_type: string
+          status: string
+          unit: string
+          updated_at: string
+          vat_code: string
+          vat_rate: number | null
+          vat_total: number
+        }
+        Insert: {
+          adjustment_reason?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          description: string
+          folio_id: string
+          gross_total?: number
+          gross_unit_price?: number
+          guest_id?: string | null
+          id?: string
+          legacy_guest_folio_id?: string | null
+          net_total?: number
+          origin_line_id?: string | null
+          quantity?: number
+          room_id?: string | null
+          service_catalog_item_id?: string | null
+          service_date?: string
+          service_period_from?: string | null
+          service_period_to?: string | null
+          source_type?: string
+          status?: string
+          unit?: string
+          updated_at?: string
+          vat_code?: string
+          vat_rate?: number | null
+          vat_total?: number
+        }
+        Update: {
+          adjustment_reason?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          description?: string
+          folio_id?: string
+          gross_total?: number
+          gross_unit_price?: number
+          guest_id?: string | null
+          id?: string
+          legacy_guest_folio_id?: string | null
+          net_total?: number
+          origin_line_id?: string | null
+          quantity?: number
+          room_id?: string | null
+          service_catalog_item_id?: string | null
+          service_date?: string
+          service_period_from?: string | null
+          service_period_to?: string | null
+          source_type?: string
+          status?: string
+          unit?: string
+          updated_at?: string
+          vat_code?: string
+          vat_rate?: number | null
+          vat_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "folio_lines_folio_id_fkey"
+            columns: ["folio_id"]
+            isOneToOne: false
+            referencedRelation: "reservation_folios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folio_lines_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folio_lines_origin_line_id_fkey"
+            columns: ["origin_line_id"]
+            isOneToOne: false
+            referencedRelation: "folio_lines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folio_lines_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folio_lines_service_catalog_item_id_fkey"
+            columns: ["service_catalog_item_id"]
+            isOneToOne: false
+            referencedRelation: "service_catalog_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       general_tasks: {
         Row: {
           assigned_by: string
@@ -2460,6 +4063,8 @@ export type Database = {
           housekeeping_section_id: string | null
           housekeeping_section_task_id: string | null
           id: string
+          next_day_plan_area_task_id: string | null
+          next_day_property_area_assignment_id: string | null
           notes: string | null
           organization_slug: string | null
           priority: number
@@ -2482,6 +4087,8 @@ export type Database = {
           housekeeping_section_id?: string | null
           housekeeping_section_task_id?: string | null
           id?: string
+          next_day_plan_area_task_id?: string | null
+          next_day_property_area_assignment_id?: string | null
           notes?: string | null
           organization_slug?: string | null
           priority?: number
@@ -2504,6 +4111,8 @@ export type Database = {
           housekeeping_section_id?: string | null
           housekeeping_section_task_id?: string | null
           id?: string
+          next_day_plan_area_task_id?: string | null
+          next_day_property_area_assignment_id?: string | null
           notes?: string | null
           organization_slug?: string | null
           priority?: number
@@ -2527,6 +4136,20 @@ export type Database = {
             columns: ["housekeeping_section_task_id"]
             isOneToOne: false
             referencedRelation: "hotel_housekeeping_section_tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "general_tasks_next_day_plan_area_task_id_fkey"
+            columns: ["next_day_plan_area_task_id"]
+            isOneToOne: false
+            referencedRelation: "next_day_housekeeping_plan_area_tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "general_tasks_next_day_property_area_assignment_id_fkey"
+            columns: ["next_day_property_area_assignment_id"]
+            isOneToOne: false
+            referencedRelation: "next_day_housekeeping_public_area_assignments"
             referencedColumns: ["id"]
           },
         ]
@@ -2602,15 +4225,26 @@ export type Database = {
       }
       google_business_locations: {
         Row: {
+          auto_backfill_active: boolean
+          auto_backfill_authorized_at: string | null
+          auto_backfill_authorized_by: string | null
+          auto_backfill_cutoff: string | null
+          auto_backfill_upper_bound: string | null
+          auto_reply_authorized_by: string | null
+          auto_reply_consent_at: string | null
           auto_reply_delay_minutes: number
           auto_reply_enabled: boolean
           auto_reply_enabled_at: string | null
           brand_context: string | null
+          business_category: string
           connection_id: string
           created_at: string
           google_account_name: string | null
+          google_average_rating: number | null
           google_location_name: string
           google_location_title: string
+          google_review_stats_updated_at: string | null
+          google_total_review_count: number | null
           hotel_id: string | null
           id: string
           is_active: boolean
@@ -2618,6 +4252,7 @@ export type Database = {
           min_auto_rating: number
           organization_id: string
           place_id: string | null
+          reply_brand_name: string | null
           reply_language_mode: string
           reply_mode: string
           reply_signature: string | null
@@ -2627,15 +4262,26 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auto_backfill_active?: boolean
+          auto_backfill_authorized_at?: string | null
+          auto_backfill_authorized_by?: string | null
+          auto_backfill_cutoff?: string | null
+          auto_backfill_upper_bound?: string | null
+          auto_reply_authorized_by?: string | null
+          auto_reply_consent_at?: string | null
           auto_reply_delay_minutes?: number
           auto_reply_enabled?: boolean
           auto_reply_enabled_at?: string | null
           brand_context?: string | null
+          business_category?: string
           connection_id: string
           created_at?: string
           google_account_name?: string | null
+          google_average_rating?: number | null
           google_location_name: string
           google_location_title: string
+          google_review_stats_updated_at?: string | null
+          google_total_review_count?: number | null
           hotel_id?: string | null
           id?: string
           is_active?: boolean
@@ -2643,6 +4289,7 @@ export type Database = {
           min_auto_rating?: number
           organization_id: string
           place_id?: string | null
+          reply_brand_name?: string | null
           reply_language_mode?: string
           reply_mode?: string
           reply_signature?: string | null
@@ -2652,15 +4299,26 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auto_backfill_active?: boolean
+          auto_backfill_authorized_at?: string | null
+          auto_backfill_authorized_by?: string | null
+          auto_backfill_cutoff?: string | null
+          auto_backfill_upper_bound?: string | null
+          auto_reply_authorized_by?: string | null
+          auto_reply_consent_at?: string | null
           auto_reply_delay_minutes?: number
           auto_reply_enabled?: boolean
           auto_reply_enabled_at?: string | null
           brand_context?: string | null
+          business_category?: string
           connection_id?: string
           created_at?: string
           google_account_name?: string | null
+          google_average_rating?: number | null
           google_location_name?: string
           google_location_title?: string
+          google_review_stats_updated_at?: string | null
+          google_total_review_count?: number | null
           hotel_id?: string | null
           id?: string
           is_active?: boolean
@@ -2668,6 +4326,7 @@ export type Database = {
           min_auto_rating?: number
           organization_id?: string
           place_id?: string | null
+          reply_brand_name?: string | null
           reply_language_mode?: string
           reply_mode?: string
           reply_signature?: string | null
@@ -2734,6 +4393,73 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_reputation_alerts: {
+        Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          detected_at: string
+          google_location_id: string
+          google_review_name: string
+          id: string
+          organization_id: string
+          resolved_at: string | null
+          review_excerpt: string | null
+          review_id: string | null
+          star_rating: number
+          status: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          detected_at?: string
+          google_location_id: string
+          google_review_name: string
+          id?: string
+          organization_id: string
+          resolved_at?: string | null
+          review_excerpt?: string | null
+          review_id?: string | null
+          star_rating: number
+          status?: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          detected_at?: string
+          google_location_id?: string
+          google_review_name?: string
+          id?: string
+          organization_id?: string
+          resolved_at?: string | null
+          review_excerpt?: string | null
+          review_id?: string | null
+          star_rating?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_reputation_alerts_google_location_id_fkey"
+            columns: ["google_location_id"]
+            isOneToOne: false
+            referencedRelation: "google_business_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_reputation_alerts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_reputation_alerts_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "google_reviews"
             referencedColumns: ["id"]
           },
         ]
@@ -2856,6 +4582,7 @@ export type Database = {
           ai_sentiment: string | null
           ai_summary: string | null
           auto_reply_eligible: boolean
+          auto_reply_kind: string | null
           comment: string | null
           created_at: string
           draft_edited_at: string | null
@@ -2871,6 +4598,7 @@ export type Database = {
           raw: Json
           replied_at: string | null
           replied_by: string | null
+          reply_origin: string
           reply_status: string
           review_create_time: string | null
           review_update_time: string | null
@@ -2889,6 +4617,7 @@ export type Database = {
           ai_sentiment?: string | null
           ai_summary?: string | null
           auto_reply_eligible?: boolean
+          auto_reply_kind?: string | null
           comment?: string | null
           created_at?: string
           draft_edited_at?: string | null
@@ -2904,6 +4633,7 @@ export type Database = {
           raw?: Json
           replied_at?: string | null
           replied_by?: string | null
+          reply_origin?: string
           reply_status?: string
           review_create_time?: string | null
           review_update_time?: string | null
@@ -2922,6 +4652,7 @@ export type Database = {
           ai_sentiment?: string | null
           ai_summary?: string | null
           auto_reply_eligible?: boolean
+          auto_reply_kind?: string | null
           comment?: string | null
           created_at?: string
           draft_edited_at?: string | null
@@ -2937,6 +4668,7 @@ export type Database = {
           raw?: Json
           replied_at?: string | null
           replied_by?: string | null
+          reply_origin?: string
           reply_status?: string
           review_create_time?: string | null
           review_update_time?: string | null
@@ -2972,6 +4704,219 @@ export type Database = {
             columns: ["replied_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gozsdu_housekeeping_room_registry: {
+        Row: {
+          building_code: string
+          pms_room_name: string
+          room_id: string
+          service_status: string
+          source_date: string | null
+          source_file: string | null
+          unavailability_reason: string | null
+          updated_at: string
+        }
+        Insert: {
+          building_code: string
+          pms_room_name: string
+          room_id: string
+          service_status: string
+          source_date?: string | null
+          source_file?: string | null
+          unavailability_reason?: string | null
+          updated_at?: string
+        }
+        Update: {
+          building_code?: string
+          pms_room_name?: string
+          room_id?: string
+          service_status?: string
+          source_date?: string | null
+          source_file?: string | null
+          unavailability_reason?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gozsdu_housekeeping_room_registry_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: true
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gozsdu_laundry_duties: {
+        Row: {
+          assigned_at: string
+          assigned_by: string
+          hotel_id: string
+          organization_slug: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by: string
+          hotel_id?: string
+          organization_slug: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string
+          hotel_id?: string
+          organization_slug?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gozsdu_laundry_duties_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gozsdu_laundry_duties_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gozsdu_laundry_room_progress: {
+        Row: {
+          hotel_id: string
+          organization_slug: string
+          reason: string | null
+          room_id: string
+          status: string
+          updated_at: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          hotel_id?: string
+          organization_slug: string
+          reason?: string | null
+          room_id: string
+          status: string
+          updated_at?: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          hotel_id?: string
+          organization_slug?: string
+          reason?: string | null
+          room_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gozsdu_laundry_room_progress_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gozsdu_laundry_room_progress_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gozsdu_laundry_unallocated_daily: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          item_counts: Json
+          organization_slug: string
+          updated_at: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          created_at?: string
+          hotel_id?: string
+          item_counts?: Json
+          organization_slug: string
+          updated_at?: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          item_counts?: Json
+          organization_slug?: string
+          updated_at?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gozsdu_laundry_unallocated_daily_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gozsdu_room_state_events: {
+        Row: {
+          after_state: Json
+          before_state: Json
+          business_date: string
+          hotel_id: string
+          id: number
+          organization_slug: string
+          recorded_at: string
+          room_id: string
+          source: string
+        }
+        Insert: {
+          after_state?: Json
+          before_state?: Json
+          business_date: string
+          hotel_id?: string
+          id?: never
+          organization_slug: string
+          recorded_at?: string
+          room_id: string
+          source?: string
+        }
+        Update: {
+          after_state?: Json
+          before_state?: Json
+          business_date?: string
+          hotel_id?: string
+          id?: never
+          organization_slug?: string
+          recorded_at?: string
+          room_id?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gozsdu_room_state_events_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
         ]
@@ -3027,6 +4972,133 @@ export type Database = {
           },
         ]
       }
+      guest_id_data_purge_log: {
+        Row: {
+          as_of: string
+          guests_erased: number
+          id: number
+          ran_at: string
+        }
+        Insert: {
+          as_of: string
+          guests_erased: number
+          id?: never
+          ran_at?: string
+        }
+        Update: {
+          as_of?: string
+          guests_erased?: number
+          id?: never
+          ran_at?: string
+        }
+        Relationships: []
+      }
+      guest_invoices: {
+        Row: {
+          buyer: Json
+          created_at: string
+          created_by: string | null
+          currency: string
+          due_date: string | null
+          error_code: string | null
+          error_message: string | null
+          gross_total: number
+          hotel_id: string
+          id: string
+          invoice_number: string | null
+          issued_at: string | null
+          issuer_id: string | null
+          kind: string
+          language: string
+          lines: Json
+          net_total: number
+          organization_slug: string
+          origin_invoice_id: string | null
+          payment_method: string
+          provider: string
+          reservation_id: string
+          status: string
+          updated_at: string
+          vat_total: number
+        }
+        Insert: {
+          buyer: Json
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          due_date?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          gross_total?: number
+          hotel_id: string
+          id?: string
+          invoice_number?: string | null
+          issued_at?: string | null
+          issuer_id?: string | null
+          kind: string
+          language?: string
+          lines: Json
+          net_total?: number
+          organization_slug: string
+          origin_invoice_id?: string | null
+          payment_method: string
+          provider?: string
+          reservation_id: string
+          status?: string
+          updated_at?: string
+          vat_total?: number
+        }
+        Update: {
+          buyer?: Json
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          due_date?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          gross_total?: number
+          hotel_id?: string
+          id?: string
+          invoice_number?: string | null
+          issued_at?: string | null
+          issuer_id?: string | null
+          kind?: string
+          language?: string
+          lines?: Json
+          net_total?: number
+          organization_slug?: string
+          origin_invoice_id?: string | null
+          payment_method?: string
+          provider?: string
+          reservation_id?: string
+          status?: string
+          updated_at?: string
+          vat_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "guest_invoices_issuer_id_fkey"
+            columns: ["issuer_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_issuers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_invoices_origin_invoice_id_fkey"
+            columns: ["origin_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "guest_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_invoices_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       guest_recommendations: {
         Row: {
           created_at: string | null
@@ -3072,18 +5144,27 @@ export type Database = {
       guests: {
         Row: {
           address: string | null
+          birth_first_name: string | null
+          birth_last_name: string | null
+          birth_place: string | null
           city: string | null
           company_name: string | null
           country: string | null
           created_at: string
           date_of_birth: string | null
+          document_scan: Json | null
           email: string | null
+          entry_date: string | null
+          entry_place: string | null
           first_name: string
+          gender: string | null
           hotel_id: string | null
           id: string
+          id_data_erased_at: string | null
           id_document_number: string | null
           id_document_type: string | null
           last_name: string
+          mother_name: string | null
           nationality: string | null
           notes: string | null
           organization_slug: string | null
@@ -3094,21 +5175,31 @@ export type Database = {
           tax_id: string | null
           updated_at: string
           vip_status: string | null
+          visa_number: string | null
         }
         Insert: {
           address?: string | null
+          birth_first_name?: string | null
+          birth_last_name?: string | null
+          birth_place?: string | null
           city?: string | null
           company_name?: string | null
           country?: string | null
           created_at?: string
           date_of_birth?: string | null
+          document_scan?: Json | null
           email?: string | null
+          entry_date?: string | null
+          entry_place?: string | null
           first_name: string
+          gender?: string | null
           hotel_id?: string | null
           id?: string
+          id_data_erased_at?: string | null
           id_document_number?: string | null
           id_document_type?: string | null
           last_name: string
+          mother_name?: string | null
           nationality?: string | null
           notes?: string | null
           organization_slug?: string | null
@@ -3119,21 +5210,31 @@ export type Database = {
           tax_id?: string | null
           updated_at?: string
           vip_status?: string | null
+          visa_number?: string | null
         }
         Update: {
           address?: string | null
+          birth_first_name?: string | null
+          birth_last_name?: string | null
+          birth_place?: string | null
           city?: string | null
           company_name?: string | null
           country?: string | null
           created_at?: string
           date_of_birth?: string | null
+          document_scan?: Json | null
           email?: string | null
+          entry_date?: string | null
+          entry_place?: string | null
           first_name?: string
+          gender?: string | null
           hotel_id?: string | null
           id?: string
+          id_data_erased_at?: string | null
           id_document_number?: string | null
           id_document_type?: string | null
           last_name?: string
+          mother_name?: string | null
           nationality?: string | null
           notes?: string | null
           organization_slug?: string | null
@@ -3144,8 +5245,41 @@ export type Database = {
           tax_id?: string | null
           updated_at?: string
           vip_status?: string | null
+          visa_number?: string | null
         }
         Relationships: []
+      }
+      hc_memories_daily_carry_board: {
+        Row: {
+          business_date: string
+          carry_forward: Json
+          organization_slug: string
+          room_id: string
+          updated_at: string
+        }
+        Insert: {
+          business_date: string
+          carry_forward: Json
+          organization_slug: string
+          room_id: string
+          updated_at?: string
+        }
+        Update: {
+          business_date?: string
+          carry_forward?: Json
+          organization_slug?: string
+          room_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hc_memories_daily_carry_board_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       hotel_autoassign_profiles: {
         Row: {
@@ -3222,6 +5356,41 @@ export type Database = {
         }
         Relationships: []
       }
+      hotel_cleaning_time_targets: {
+        Row: {
+          assignment_type: string
+          cleaning_size: string
+          duration_minutes: number
+          hotel_configuration_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          assignment_type: string
+          cleaning_size: string
+          duration_minutes: number
+          hotel_configuration_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          assignment_type?: string
+          cleaning_size?: string
+          duration_minutes?: number
+          hotel_configuration_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hotel_cleaning_time_targets_hotel_configuration_id_fkey"
+            columns: ["hotel_configuration_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_configurations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hotel_configurations: {
         Row: {
           breakfast_enabled: boolean
@@ -3241,6 +5410,8 @@ export type Database = {
           is_active: boolean | null
           logo_scale: number | null
           logo_scale_auth: number | null
+          market_city: string | null
+          market_country: string | null
           minibar_logo_url: string | null
           organization_id: string | null
           settings: Json | null
@@ -3264,6 +5435,8 @@ export type Database = {
           is_active?: boolean | null
           logo_scale?: number | null
           logo_scale_auth?: number | null
+          market_city?: string | null
+          market_country?: string | null
           minibar_logo_url?: string | null
           organization_id?: string | null
           settings?: Json | null
@@ -3287,12 +5460,22 @@ export type Database = {
           is_active?: boolean | null
           logo_scale?: number | null
           logo_scale_auth?: number | null
+          market_city?: string | null
+          market_country?: string | null
           minibar_logo_url?: string | null
           organization_id?: string | null
           settings?: Json | null
           updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "hotel_configurations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       hotel_data_sources: {
         Row: {
@@ -3554,6 +5737,81 @@ export type Database = {
         }
         Relationships: []
       }
+      hotel_operational_contacts: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          hotel_name: string
+          id: string
+          organization_slug: string
+          reception_email: string | null
+          room_type_change_email_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hotel_id: string
+          hotel_name: string
+          id?: string
+          organization_slug: string
+          reception_email?: string | null
+          room_type_change_email_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          hotel_name?: string
+          id?: string
+          organization_slug?: string
+          reception_email?: string | null
+          room_type_change_email_enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      hotel_public_areas: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          hotel_name: string
+          icon: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          task_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          hotel_name: string
+          icon?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          task_type?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          hotel_name?: string
+          icon?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          task_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       hotel_revenue_settings: {
         Row: {
           abnormal_pickup_threshold: number
@@ -3561,6 +5819,7 @@ export type Database = {
           auto_push_to_pms: boolean
           autopilot_enabled: boolean
           base_currency: string
+          breakfast_price_per_guest: number | null
           created_at: string
           decay_window_days: number
           decrease_interval_hours: number
@@ -3617,6 +5876,7 @@ export type Database = {
           auto_push_to_pms?: boolean
           autopilot_enabled?: boolean
           base_currency?: string
+          breakfast_price_per_guest?: number | null
           created_at?: string
           decay_window_days?: number
           decrease_interval_hours?: number
@@ -3673,6 +5933,7 @@ export type Database = {
           auto_push_to_pms?: boolean
           autopilot_enabled?: boolean
           base_currency?: string
+          breakfast_price_per_guest?: number | null
           created_at?: string
           decay_window_days?: number
           decrease_interval_hours?: number
@@ -3825,6 +6086,389 @@ export type Database = {
         }
         Relationships: []
       }
+      housekeeping_assignment_learning_events: {
+        Row: {
+          changed_by: string
+          context: Json
+          created_at: string
+          final_staff_id: string
+          floor_number: number | null
+          hotel_id: string
+          housekeeping_section_id: string | null
+          housekeeping_section_name: string | null
+          id: string
+          organization_slug: string
+          plan_date: string
+          plan_id: string
+          plan_item_id: string
+          room_id: string
+          room_kind: string
+          room_number: string
+          source_type: string
+          suggested_staff_id: string
+          updated_at: string
+          wing: string | null
+        }
+        Insert: {
+          changed_by: string
+          context?: Json
+          created_at?: string
+          final_staff_id: string
+          floor_number?: number | null
+          hotel_id: string
+          housekeeping_section_id?: string | null
+          housekeeping_section_name?: string | null
+          id?: string
+          organization_slug: string
+          plan_date: string
+          plan_id: string
+          plan_item_id: string
+          room_id: string
+          room_kind: string
+          room_number: string
+          source_type?: string
+          suggested_staff_id: string
+          updated_at?: string
+          wing?: string | null
+        }
+        Update: {
+          changed_by?: string
+          context?: Json
+          created_at?: string
+          final_staff_id?: string
+          floor_number?: number | null
+          hotel_id?: string
+          housekeeping_section_id?: string | null
+          housekeeping_section_name?: string | null
+          id?: string
+          organization_slug?: string
+          plan_date?: string
+          plan_id?: string
+          plan_item_id?: string
+          room_id?: string
+          room_kind?: string
+          room_number?: string
+          source_type?: string
+          suggested_staff_id?: string
+          updated_at?: string
+          wing?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_assignment_learning_events_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_assignment_learning_events_final_staff_id_fkey"
+            columns: ["final_staff_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_assignment_learning_events_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "next_day_housekeeping_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_assignment_learning_events_plan_item_id_fkey"
+            columns: ["plan_item_id"]
+            isOneToOne: true
+            referencedRelation: "next_day_housekeeping_plan_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_assignment_learning_events_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_assignment_learning_events_suggested_staff_id_fkey"
+            columns: ["suggested_staff_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_assignment_learning_profiles: {
+        Row: {
+          confidence_score: number
+          correction_count: number
+          created_at: string
+          diagnostics: Json
+          hotel_id: string
+          last_correction_at: string | null
+          model_version: string
+          organization_slug: string
+          refreshed_at: string
+          sample_count: number
+          staff_preferences: Json
+          updated_at: string
+        }
+        Insert: {
+          confidence_score?: number
+          correction_count?: number
+          created_at?: string
+          diagnostics?: Json
+          hotel_id: string
+          last_correction_at?: string | null
+          model_version?: string
+          organization_slug: string
+          refreshed_at?: string
+          sample_count?: number
+          staff_preferences?: Json
+          updated_at?: string
+        }
+        Update: {
+          confidence_score?: number
+          correction_count?: number
+          created_at?: string
+          diagnostics?: Json
+          hotel_id?: string
+          last_correction_at?: string | null
+          model_version?: string
+          organization_slug?: string
+          refreshed_at?: string
+          sample_count?: number
+          staff_preferences?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      housekeeping_automation_alerts: {
+        Row: {
+          alert_type: string
+          assignment_count: number
+          attempt_count: number
+          created_at: string
+          cutoff_at: string
+          first_detected_at: string
+          hotel_id: string
+          id: string
+          last_attempt_at: string | null
+          last_error: string | null
+          organization_slug: string
+          provider_message_id: string | null
+          recipients: string[]
+          sent_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          alert_type?: string
+          assignment_count?: number
+          attempt_count?: number
+          created_at?: string
+          cutoff_at: string
+          first_detected_at?: string
+          hotel_id: string
+          id?: string
+          last_attempt_at?: string | null
+          last_error?: string | null
+          organization_slug: string
+          provider_message_id?: string | null
+          recipients: string[]
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          alert_type?: string
+          assignment_count?: number
+          attempt_count?: number
+          created_at?: string
+          cutoff_at?: string
+          first_detected_at?: string
+          hotel_id?: string
+          id?: string
+          last_attempt_at?: string | null
+          last_error?: string | null
+          organization_slug?: string
+          provider_message_id?: string | null
+          recipients?: string[]
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_automation_alerts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_automation_settings: {
+        Row: {
+          alert_emails: string[]
+          created_at: string
+          created_by: string | null
+          hotel_id: string
+          inactivity_alert_enabled: boolean
+          inactivity_alert_time: string
+          organization_slug: string
+          timezone: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          alert_emails?: string[]
+          created_at?: string
+          created_by?: string | null
+          hotel_id: string
+          inactivity_alert_enabled?: boolean
+          inactivity_alert_time?: string
+          organization_slug: string
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          alert_emails?: string[]
+          created_at?: string
+          created_by?: string | null
+          hotel_id?: string
+          inactivity_alert_enabled?: boolean
+          inactivity_alert_time?: string
+          organization_slug?: string
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_automation_settings_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_automation_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_daily_presence: {
+        Row: {
+          client_context: Json
+          created_at: string
+          first_seen_at: string
+          hotel_id: string
+          id: string
+          last_seen_at: string
+          organization_slug: string
+          source: string
+          updated_at: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          client_context?: Json
+          created_at?: string
+          first_seen_at?: string
+          hotel_id: string
+          id?: string
+          last_seen_at?: string
+          organization_slug: string
+          source?: string
+          updated_at?: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          client_context?: Json
+          created_at?: string
+          first_seen_at?: string
+          hotel_id?: string
+          id?: string
+          last_seen_at?: string
+          organization_slug?: string
+          source?: string
+          updated_at?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_daily_presence_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_manager_clean_overrides: {
+        Row: {
+          actor_id: string
+          actor_name: string | null
+          actor_role: string
+          after_state: Json
+          assignment_date: string | null
+          assignment_id: string | null
+          before_state: Json
+          created_at: string
+          hotel_id: string
+          id: string
+          organization_slug: string
+          room_id: string
+          room_number: string
+          source: string
+        }
+        Insert: {
+          actor_id: string
+          actor_name?: string | null
+          actor_role: string
+          after_state?: Json
+          assignment_date?: string | null
+          assignment_id?: string | null
+          before_state?: Json
+          created_at?: string
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          room_id: string
+          room_number: string
+          source?: string
+        }
+        Update: {
+          actor_id?: string
+          actor_name?: string | null
+          actor_role?: string
+          after_state?: Json
+          assignment_date?: string | null
+          assignment_id?: string | null
+          before_state?: Json
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          room_id?: string
+          room_number?: string
+          source?: string
+        }
+        Relationships: []
+      }
       housekeeping_notes: {
         Row: {
           assignment_id: string | null
@@ -3929,9 +6573,1635 @@ export type Database = {
           },
         ]
       }
+      housekeeping_photo_requirements: {
+        Row: {
+          category: string
+          created_at: string
+          hotel_configuration_id: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          hotel_configuration_id: string
+          sort_order: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          hotel_configuration_id?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_photo_requirements_hotel_configuration_id_fkey"
+            columns: ["hotel_configuration_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_configurations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_room_change_email_log: {
+        Row: {
+          business_date: string
+          changed_by: string | null
+          changed_by_name: string | null
+          created_at: string
+          hotel_id: string
+          id: string
+          last_error: string | null
+          new_type: string
+          note: string | null
+          organization_slug: string
+          previous_type: string
+          provider_message_id: string | null
+          recipient: string
+          room_id: string | null
+          room_number: string
+          sent_at: string | null
+          status: string
+        }
+        Insert: {
+          business_date: string
+          changed_by?: string | null
+          changed_by_name?: string | null
+          created_at?: string
+          hotel_id: string
+          id?: string
+          last_error?: string | null
+          new_type: string
+          note?: string | null
+          organization_slug: string
+          previous_type: string
+          provider_message_id?: string | null
+          recipient: string
+          room_id?: string | null
+          room_number: string
+          sent_at?: string | null
+          status?: string
+        }
+        Update: {
+          business_date?: string
+          changed_by?: string | null
+          changed_by_name?: string | null
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          last_error?: string | null
+          new_type?: string
+          note?: string | null
+          organization_slug?: string
+          previous_type?: string
+          provider_message_id?: string | null
+          recipient?: string
+          room_id?: string | null
+          room_number?: string
+          sent_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
+      housekeeping_room_snapshots: {
+        Row: {
+          assigned_to: string | null
+          assignment_completed_at: string | null
+          assignment_id: string | null
+          assignment_notes: string | null
+          assignment_started_at: string | null
+          assignment_status: string | null
+          assignment_type: string | null
+          bed_configuration: string | null
+          bed_type: string | null
+          business_date: string
+          captured_at: string
+          dnd_attempt_count: number | null
+          final_state: Json | null
+          finalized_at: string | null
+          floor_number: number | null
+          guest_nights_stayed: number | null
+          had_dnd: boolean
+          had_extra_towels_request: boolean
+          had_linen_change: boolean
+          had_no_service: boolean
+          had_no_show: boolean
+          had_ready_to_clean: boolean
+          had_room_cleaning_request: boolean
+          had_towel_change: boolean
+          hotel: string
+          id: string
+          is_checkout_room: boolean | null
+          is_dnd: boolean
+          last_cleaned_at: string | null
+          last_linen_change: string | null
+          last_towel_change: string | null
+          linen_change_required: boolean
+          organization_slug: string | null
+          pms_hold: boolean | null
+          pms_metadata: Json | null
+          ready_to_clean: boolean | null
+          room_id: string
+          room_notes: string | null
+          room_number: string
+          room_size_sqm: number | null
+          room_status: string | null
+          scheduled_service_due: Json | null
+          source: string
+          status_history: Json
+          supervisor_approved: boolean | null
+          towel_change_required: boolean
+          updated_at: string
+          venue_id: string | null
+        }
+        Insert: {
+          assigned_to?: string | null
+          assignment_completed_at?: string | null
+          assignment_id?: string | null
+          assignment_notes?: string | null
+          assignment_started_at?: string | null
+          assignment_status?: string | null
+          assignment_type?: string | null
+          bed_configuration?: string | null
+          bed_type?: string | null
+          business_date: string
+          captured_at?: string
+          dnd_attempt_count?: number | null
+          final_state?: Json | null
+          finalized_at?: string | null
+          floor_number?: number | null
+          guest_nights_stayed?: number | null
+          had_dnd?: boolean
+          had_extra_towels_request?: boolean
+          had_linen_change?: boolean
+          had_no_service?: boolean
+          had_no_show?: boolean
+          had_ready_to_clean?: boolean
+          had_room_cleaning_request?: boolean
+          had_towel_change?: boolean
+          hotel: string
+          id?: string
+          is_checkout_room?: boolean | null
+          is_dnd?: boolean
+          last_cleaned_at?: string | null
+          last_linen_change?: string | null
+          last_towel_change?: string | null
+          linen_change_required?: boolean
+          organization_slug?: string | null
+          pms_hold?: boolean | null
+          pms_metadata?: Json | null
+          ready_to_clean?: boolean | null
+          room_id: string
+          room_notes?: string | null
+          room_number: string
+          room_size_sqm?: number | null
+          room_status?: string | null
+          scheduled_service_due?: Json | null
+          source?: string
+          status_history?: Json
+          supervisor_approved?: boolean | null
+          towel_change_required?: boolean
+          updated_at?: string
+          venue_id?: string | null
+        }
+        Update: {
+          assigned_to?: string | null
+          assignment_completed_at?: string | null
+          assignment_id?: string | null
+          assignment_notes?: string | null
+          assignment_started_at?: string | null
+          assignment_status?: string | null
+          assignment_type?: string | null
+          bed_configuration?: string | null
+          bed_type?: string | null
+          business_date?: string
+          captured_at?: string
+          dnd_attempt_count?: number | null
+          final_state?: Json | null
+          finalized_at?: string | null
+          floor_number?: number | null
+          guest_nights_stayed?: number | null
+          had_dnd?: boolean
+          had_extra_towels_request?: boolean
+          had_linen_change?: boolean
+          had_no_service?: boolean
+          had_no_show?: boolean
+          had_ready_to_clean?: boolean
+          had_room_cleaning_request?: boolean
+          had_towel_change?: boolean
+          hotel?: string
+          id?: string
+          is_checkout_room?: boolean | null
+          is_dnd?: boolean
+          last_cleaned_at?: string | null
+          last_linen_change?: string | null
+          last_towel_change?: string | null
+          linen_change_required?: boolean
+          organization_slug?: string | null
+          pms_hold?: boolean | null
+          pms_metadata?: Json | null
+          ready_to_clean?: boolean | null
+          room_id?: string
+          room_notes?: string | null
+          room_number?: string
+          room_size_sqm?: number | null
+          room_status?: string | null
+          scheduled_service_due?: Json | null
+          source?: string
+          status_history?: Json
+          supervisor_approved?: boolean | null
+          towel_change_required?: boolean
+          updated_at?: string
+          venue_id?: string | null
+        }
+        Relationships: []
+      }
+      housekeeping_same_day_staff_replacements: {
+        Row: {
+          area_task_ids: string[]
+          from_staff_id: string
+          hotel_id: string
+          id: string
+          organization_slug: string
+          plan_id: string
+          replaced_at: string
+          replaced_by: string
+          room_assignment_ids: string[]
+          skipped_areas: number
+          skipped_rooms: number
+          to_staff_id: string
+          work_date: string
+        }
+        Insert: {
+          area_task_ids?: string[]
+          from_staff_id: string
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          plan_id: string
+          replaced_at?: string
+          replaced_by: string
+          room_assignment_ids?: string[]
+          skipped_areas?: number
+          skipped_rooms?: number
+          to_staff_id: string
+          work_date: string
+        }
+        Update: {
+          area_task_ids?: string[]
+          from_staff_id?: string
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          plan_id?: string
+          replaced_at?: string
+          replaced_by?: string
+          room_assignment_ids?: string[]
+          skipped_areas?: number
+          skipped_rooms?: number
+          to_staff_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_same_day_staff_replacements_from_staff_id_fkey"
+            columns: ["from_staff_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_same_day_staff_replacements_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "next_day_housekeeping_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_same_day_staff_replacements_replaced_by_fkey"
+            columns: ["replaced_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_same_day_staff_replacements_to_staff_id_fkey"
+            columns: ["to_staff_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_stay_extension_reviews: {
+        Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          arrival_date: string
+          business_date: string
+          detected_at: string
+          extension_history: Json
+          hotel_id: string
+          id: string
+          identity_status: string
+          next_services: Json
+          nights_completed: number
+          organization_slug: string
+          original_checkout_date: string
+          planned_nights: number
+          policy_configured: boolean
+          previous_checkout_date: string
+          resolution_note: string | null
+          revised_checkout_date: string
+          room_id: string
+          services_due: Json
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          arrival_date: string
+          business_date: string
+          detected_at?: string
+          extension_history?: Json
+          hotel_id: string
+          id?: string
+          identity_status?: string
+          next_services?: Json
+          nights_completed: number
+          organization_slug: string
+          original_checkout_date: string
+          planned_nights: number
+          policy_configured?: boolean
+          previous_checkout_date: string
+          resolution_note?: string | null
+          revised_checkout_date: string
+          room_id: string
+          services_due?: Json
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          arrival_date?: string
+          business_date?: string
+          detected_at?: string
+          extension_history?: Json
+          hotel_id?: string
+          id?: string
+          identity_status?: string
+          next_services?: Json
+          nights_completed?: number
+          organization_slug?: string
+          original_checkout_date?: string
+          planned_nights?: number
+          policy_configured?: boolean
+          previous_checkout_date?: string
+          resolution_note?: string | null
+          revised_checkout_date?: string
+          room_id?: string
+          services_due?: Json
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_stay_extension_reviews_organization_slug_fkey"
+            columns: ["organization_slug"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["slug"]
+          },
+          {
+            foreignKeyName: "housekeeping_stay_extension_reviews_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_stay_service_policies: {
+        Row: {
+          display_label: string
+          enabled: boolean
+          first_due_after_nights: number
+          hotel_id: string
+          id: string
+          organization_slug: string
+          repeat_every_nights: number | null
+          service_code: string
+          updated_at: string
+        }
+        Insert: {
+          display_label: string
+          enabled?: boolean
+          first_due_after_nights: number
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          repeat_every_nights?: number | null
+          service_code: string
+          updated_at?: string
+        }
+        Update: {
+          display_label?: string
+          enabled?: boolean
+          first_due_after_nights?: number
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          repeat_every_nights?: number | null
+          service_code?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_stay_service_policies_organization_slug_fkey"
+            columns: ["organization_slug"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
+      housekeeping_team_day_staff: {
+        Row: {
+          created_at: string
+          id: string
+          selected_by: string | null
+          service_date: string
+          team_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          selected_by?: string | null
+          service_date: string
+          team_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          selected_by?: string | null
+          service_date?: string
+          team_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_team_day_staff_selected_by_fkey"
+            columns: ["selected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_day_staff_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "housekeeping_teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_day_staff_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_team_members: {
+        Row: {
+          created_at: string
+          effective_from: string | null
+          effective_to: string | null
+          id: string
+          is_active: boolean
+          is_default: boolean
+          team_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          team_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          effective_from?: string | null
+          effective_to?: string | null
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          team_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_team_members_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "housekeeping_teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_team_property_preferences: {
+        Row: {
+          property_key: string
+          team_id: string
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          property_key: string
+          team_id: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          property_key?: string
+          team_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_team_property_preferences_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "housekeeping_teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_property_preferences_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_property_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_team_rooms: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          room_id: string
+          team_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          room_id: string
+          team_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          room_id?: string
+          team_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_team_rooms_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_rooms_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "housekeeping_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_team_tasks: {
+        Row: {
+          assignment_type: Database["public"]["Enums"]["assignment_type"]
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string
+          estimated_duration: number | null
+          hotel_id: string
+          id: string
+          notes: string | null
+          organization_slug: string
+          planned_candidate_user_id: string | null
+          priority: number
+          room_assignment_id: string | null
+          room_id: string
+          service_date: string
+          source_plan_item_id: string | null
+          status: string
+          team_id: string
+          updated_at: string
+        }
+        Insert: {
+          assignment_type: Database["public"]["Enums"]["assignment_type"]
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          estimated_duration?: number | null
+          hotel_id: string
+          id?: string
+          notes?: string | null
+          organization_slug: string
+          planned_candidate_user_id?: string | null
+          priority?: number
+          room_assignment_id?: string | null
+          room_id: string
+          service_date: string
+          source_plan_item_id?: string | null
+          status?: string
+          team_id: string
+          updated_at?: string
+        }
+        Update: {
+          assignment_type?: Database["public"]["Enums"]["assignment_type"]
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          estimated_duration?: number | null
+          hotel_id?: string
+          id?: string
+          notes?: string | null
+          organization_slug?: string
+          planned_candidate_user_id?: string | null
+          priority?: number
+          room_assignment_id?: string | null
+          room_id?: string
+          service_date?: string
+          source_plan_item_id?: string | null
+          status?: string
+          team_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "housekeeping_team_tasks_claimed_by_fkey"
+            columns: ["claimed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_tasks_planned_candidate_user_id_fkey"
+            columns: ["planned_candidate_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_tasks_room_assignment_id_fkey"
+            columns: ["room_assignment_id"]
+            isOneToOne: false
+            referencedRelation: "room_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_tasks_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_tasks_source_plan_item_id_fkey"
+            columns: ["source_plan_item_id"]
+            isOneToOne: false
+            referencedRelation: "next_day_housekeeping_plan_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "housekeeping_team_tasks_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "housekeeping_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      housekeeping_teams: {
+        Row: {
+          assignment_mode: string
+          code: string
+          created_at: string
+          hotel_id: string
+          id: string
+          is_active: boolean
+          name: string
+          organization_slug: string
+          updated_at: string
+        }
+        Insert: {
+          assignment_mode?: string
+          code: string
+          created_at?: string
+          hotel_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          organization_slug: string
+          updated_at?: string
+        }
+        Update: {
+          assignment_mode?: string
+          code?: string
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          organization_slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      insuite_booking_requests: {
+        Row: {
+          client_request_id: string
+          created_at: string
+          device_id: string
+          hotel_id: string
+          id: string
+          kind: string
+          notes: string
+          organization_slug: string
+          party_size: number
+          reservation_id: string
+          room_id: string
+          session_epoch: string
+          staff_note: string | null
+          starts_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          client_request_id: string
+          created_at?: string
+          device_id: string
+          hotel_id: string
+          id?: string
+          kind: string
+          notes?: string
+          organization_slug: string
+          party_size: number
+          reservation_id: string
+          room_id: string
+          session_epoch: string
+          staff_note?: string | null
+          starts_at: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          client_request_id?: string
+          created_at?: string
+          device_id?: string
+          hotel_id?: string
+          id?: string
+          kind?: string
+          notes?: string
+          organization_slug?: string
+          party_size?: number
+          reservation_id?: string
+          room_id?: string
+          session_epoch?: string
+          staff_note?: string | null
+          starts_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insuite_booking_requests_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "insuite_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_booking_requests_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_booking_requests_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insuite_catalog_items: {
+        Row: {
+          allergens: string
+          created_at: string
+          currency: string
+          description: string
+          hotel_id: string
+          id: string
+          image_url: string | null
+          is_active: boolean
+          kind: string
+          name: string
+          organization_slug: string
+          price: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          allergens?: string
+          created_at?: string
+          currency: string
+          description?: string
+          hotel_id: string
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          kind: string
+          name: string
+          organization_slug: string
+          price: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          allergens?: string
+          created_at?: string
+          currency?: string
+          description?: string
+          hotel_id?: string
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          kind?: string
+          name?: string
+          organization_slug?: string
+          price?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      insuite_devices: {
+        Row: {
+          active_reservation_id: string | null
+          created_at: string
+          created_by: string | null
+          device_token_hash: string | null
+          guest_verify_failures: number
+          guest_verify_locked_until: string | null
+          hotel_id: string
+          id: string
+          is_active: boolean
+          kind: string
+          label: string
+          last_seen_at: string | null
+          organization_slug: string
+          paired_at: string | null
+          pairing_expires_at: string | null
+          pairing_hash: string | null
+          pin_failed_attempts: number
+          pin_hash: string | null
+          pin_locked_until: string | null
+          room_id: string
+          session_epoch: string
+          session_started_at: string
+        }
+        Insert: {
+          active_reservation_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          device_token_hash?: string | null
+          guest_verify_failures?: number
+          guest_verify_locked_until?: string | null
+          hotel_id: string
+          id?: string
+          is_active?: boolean
+          kind?: string
+          label?: string
+          last_seen_at?: string | null
+          organization_slug: string
+          paired_at?: string | null
+          pairing_expires_at?: string | null
+          pairing_hash?: string | null
+          pin_failed_attempts?: number
+          pin_hash?: string | null
+          pin_locked_until?: string | null
+          room_id: string
+          session_epoch?: string
+          session_started_at?: string
+        }
+        Update: {
+          active_reservation_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          device_token_hash?: string | null
+          guest_verify_failures?: number
+          guest_verify_locked_until?: string | null
+          hotel_id?: string
+          id?: string
+          is_active?: boolean
+          kind?: string
+          label?: string
+          last_seen_at?: string | null
+          organization_slug?: string
+          paired_at?: string | null
+          pairing_expires_at?: string | null
+          pairing_hash?: string | null
+          pin_failed_attempts?: number
+          pin_hash?: string | null
+          pin_locked_until?: string | null
+          room_id?: string
+          session_epoch?: string
+          session_started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insuite_devices_active_reservation_id_fkey"
+            columns: ["active_reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_devices_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insuite_messages: {
+        Row: {
+          body: string
+          created_at: string
+          device_id: string
+          hotel_id: string
+          id: string
+          organization_slug: string
+          room_id: string
+          sender: string
+          sender_user_id: string | null
+          session_epoch: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          device_id: string
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          room_id: string
+          sender: string
+          sender_user_id?: string | null
+          session_epoch: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          device_id?: string
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          room_id?: string
+          sender?: string
+          sender_user_id?: string | null
+          session_epoch?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insuite_messages_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "insuite_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_messages_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insuite_order_lines: {
+        Row: {
+          catalog_item_id: string
+          id: string
+          line_total: number
+          name_snapshot: string
+          order_id: string
+          quantity: number
+          unit_price: number
+        }
+        Insert: {
+          catalog_item_id: string
+          id?: string
+          line_total: number
+          name_snapshot: string
+          order_id: string
+          quantity: number
+          unit_price: number
+        }
+        Update: {
+          catalog_item_id?: string
+          id?: string
+          line_total?: number
+          name_snapshot?: string
+          order_id?: string
+          quantity?: number
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insuite_order_lines_catalog_item_id_fkey"
+            columns: ["catalog_item_id"]
+            isOneToOne: false
+            referencedRelation: "insuite_catalog_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_order_lines_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "insuite_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insuite_orders: {
+        Row: {
+          client_request_id: string
+          completed_at: string | null
+          created_at: string
+          currency: string
+          device_id: string
+          hotel_id: string
+          id: string
+          kind: string
+          notes: string
+          organization_slug: string
+          quoted_total: number
+          requested_at: string | null
+          reservation_id: string
+          room_id: string
+          session_epoch: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          client_request_id: string
+          completed_at?: string | null
+          created_at?: string
+          currency: string
+          device_id: string
+          hotel_id: string
+          id?: string
+          kind: string
+          notes?: string
+          organization_slug: string
+          quoted_total: number
+          requested_at?: string | null
+          reservation_id: string
+          room_id: string
+          session_epoch: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          client_request_id?: string
+          completed_at?: string | null
+          created_at?: string
+          currency?: string
+          device_id?: string
+          hotel_id?: string
+          id?: string
+          kind?: string
+          notes?: string
+          organization_slug?: string
+          quoted_total?: number
+          requested_at?: string | null
+          reservation_id?: string
+          room_id?: string
+          session_epoch?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insuite_orders_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "insuite_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_orders_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_orders_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insuite_property_configs: {
+        Row: {
+          draft: Json
+          enabled: boolean
+          hotel_id: string
+          id: string
+          organization_slug: string
+          published: Json
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          draft?: Json
+          enabled?: boolean
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          published?: Json
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          draft?: Json
+          enabled?: boolean
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          published?: Json
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      insuite_request_events: {
+        Row: {
+          actor_user_id: string | null
+          id: number
+          new_status: string
+          occurred_at: string
+          old_status: string | null
+          request_id: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          id?: never
+          new_status: string
+          occurred_at?: string
+          old_status?: string | null
+          request_id: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          id?: never
+          new_status?: string
+          occurred_at?: string
+          old_status?: string | null
+          request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insuite_request_events_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "insuite_service_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insuite_service_requests: {
+        Row: {
+          assigned_room_work_id: string | null
+          assigned_to: string | null
+          client_request_id: string
+          completed_at: string | null
+          created_at: string
+          department: string
+          detail: string
+          device_id: string
+          escalated_at: string | null
+          escalation_level: number
+          hotel_id: string
+          id: string
+          organization_slug: string
+          priority: string
+          quantity: number
+          request_type: string
+          room_id: string
+          session_epoch: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_room_work_id?: string | null
+          assigned_to?: string | null
+          client_request_id: string
+          completed_at?: string | null
+          created_at?: string
+          department: string
+          detail?: string
+          device_id: string
+          escalated_at?: string | null
+          escalation_level?: number
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          priority?: string
+          quantity?: number
+          request_type: string
+          room_id: string
+          session_epoch: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_room_work_id?: string | null
+          assigned_to?: string | null
+          client_request_id?: string
+          completed_at?: string | null
+          created_at?: string
+          department?: string
+          detail?: string
+          device_id?: string
+          escalated_at?: string | null
+          escalation_level?: number
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          priority?: string
+          quantity?: number
+          request_type?: string
+          room_id?: string
+          session_epoch?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insuite_service_requests_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "insuite_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_service_requests_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insuite_staff_alerts: {
+        Row: {
+          acknowledged_at: string | null
+          body: string
+          created_at: string
+          event_key: string
+          hotel_id: string
+          id: number
+          kind: string
+          message_id: string | null
+          organization_slug: string
+          recipient_id: string
+          request_id: string | null
+          room_id: string | null
+          title: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          body: string
+          created_at?: string
+          event_key: string
+          hotel_id: string
+          id?: never
+          kind: string
+          message_id?: string | null
+          organization_slug: string
+          recipient_id: string
+          request_id?: string | null
+          room_id?: string | null
+          title: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          body?: string
+          created_at?: string
+          event_key?: string
+          hotel_id?: string
+          id?: never
+          kind?: string
+          message_id?: string | null
+          organization_slug?: string
+          recipient_id?: string
+          request_id?: string | null
+          room_id?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insuite_staff_alerts_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "insuite_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_staff_alerts_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_staff_alerts_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "insuite_service_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_staff_alerts_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insuite_wellness_bookings: {
+        Row: {
+          cancel_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          client_request_id: string | null
+          created_at: string
+          created_by: string | null
+          ends_at: string
+          guest_email: string | null
+          guest_name: string
+          hotel_id: string
+          id: string
+          key_handed_at: string | null
+          notes: string
+          organization_slug: string
+          party_size: number
+          reservation_id: string | null
+          resource_id: string
+          room_id: string | null
+          slot: unknown
+          source: string
+          starts_at: string
+          status: string
+          ticket_code: string
+          updated_at: string
+        }
+        Insert: {
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          client_request_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          ends_at: string
+          guest_email?: string | null
+          guest_name: string
+          hotel_id: string
+          id?: string
+          key_handed_at?: string | null
+          notes?: string
+          organization_slug: string
+          party_size: number
+          reservation_id?: string | null
+          resource_id: string
+          room_id?: string | null
+          slot?: unknown
+          source: string
+          starts_at: string
+          status?: string
+          ticket_code: string
+          updated_at?: string
+        }
+        Update: {
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          client_request_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          ends_at?: string
+          guest_email?: string | null
+          guest_name?: string
+          hotel_id?: string
+          id?: string
+          key_handed_at?: string | null
+          notes?: string
+          organization_slug?: string
+          party_size?: number
+          reservation_id?: string | null
+          resource_id?: string
+          room_id?: string | null
+          slot?: unknown
+          source?: string
+          starts_at?: string
+          status?: string
+          ticket_code?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insuite_wellness_bookings_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_wellness_bookings_resource_id_fkey"
+            columns: ["resource_id"]
+            isOneToOne: false
+            referencedRelation: "insuite_wellness_resources"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insuite_wellness_bookings_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insuite_wellness_resources: {
+        Row: {
+          closes_at: string
+          created_at: string
+          currency: string
+          description: string
+          hotel_id: string
+          id: string
+          image_url: string | null
+          is_active: boolean
+          kind: string
+          max_guests: number
+          max_per_day: number
+          name: string
+          opens_at: string
+          organization_slug: string
+          price: number
+          slot_minutes: number
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+          weekdays: number[]
+        }
+        Insert: {
+          closes_at?: string
+          created_at?: string
+          currency?: string
+          description?: string
+          hotel_id: string
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          kind: string
+          max_guests?: number
+          max_per_day?: number
+          name: string
+          opens_at?: string
+          organization_slug: string
+          price?: number
+          slot_minutes?: number
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+          weekdays?: number[]
+        }
+        Update: {
+          closes_at?: string
+          created_at?: string
+          currency?: string
+          description?: string
+          hotel_id?: string
+          id?: string
+          image_url?: string | null
+          is_active?: boolean
+          kind?: string
+          max_guests?: number
+          max_per_day?: number
+          name?: string
+          opens_at?: string
+          organization_slug?: string
+          price?: number
+          slot_minutes?: number
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+          weekdays?: number[]
+        }
+        Relationships: []
+      }
+      insuite_wellness_settings: {
+        Row: {
+          hotel_id: string
+          notification_emails: string[]
+          organization_slug: string
+          transfer_prices: Json
+          transfer_source: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          hotel_id: string
+          notification_emails?: string[]
+          organization_slug: string
+          transfer_prices?: Json
+          transfer_source?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          hotel_id?: string
+          notification_emails?: string[]
+          organization_slug?: string
+          transfer_prices?: Json
+          transfer_source?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       invoice_buyer_companies: {
         Row: {
           created_at: string
+          default_category_id: string | null
+          default_cost_centre_id: string | null
           display_color: string | null
           id: string
           is_active: boolean
@@ -3940,11 +8210,14 @@ export type Database = {
           normalized_tax_id: string | null
           notes: string | null
           organization_slug: string
+          registered_address: string | null
           tax_id: string | null
           updated_at: string
         }
         Insert: {
           created_at?: string
+          default_category_id?: string | null
+          default_cost_centre_id?: string | null
           display_color?: string | null
           id?: string
           is_active?: boolean
@@ -3953,11 +8226,14 @@ export type Database = {
           normalized_tax_id?: string | null
           notes?: string | null
           organization_slug: string
+          registered_address?: string | null
           tax_id?: string | null
           updated_at?: string
         }
         Update: {
           created_at?: string
+          default_category_id?: string | null
+          default_cost_centre_id?: string | null
           display_color?: string | null
           id?: string
           is_active?: boolean
@@ -3966,10 +8242,26 @@ export type Database = {
           normalized_tax_id?: string | null
           notes?: string | null
           organization_slug?: string
+          registered_address?: string | null
           tax_id?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "invoice_buyer_companies_default_category_id_fkey"
+            columns: ["default_category_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoice_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_buyer_companies_default_cost_centre_id_fkey"
+            columns: ["default_cost_centre_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_cost_centres"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       invoice_company_aliases: {
         Row: {
@@ -4071,6 +8363,158 @@ export type Database = {
         }
         Relationships: []
       }
+      invoice_hotel_issuers: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          hotel_id: string
+          issuer_id: string
+          organization_slug: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          hotel_id: string
+          issuer_id: string
+          organization_slug: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          hotel_id?: string
+          issuer_id?: string
+          organization_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_hotel_issuers_issuer_id_organization_slug_fkey"
+            columns: ["issuer_id", "organization_slug"]
+            isOneToOne: false
+            referencedRelation: "invoice_issuers"
+            referencedColumns: ["id", "organization_slug"]
+          },
+          {
+            foreignKeyName: "invoice_hotel_issuers_organization_slug_fkey"
+            columns: ["organization_slug"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
+      invoice_issuer_audit: {
+        Row: {
+          actor_id: string
+          created_at: string
+          hotel_id: string | null
+          id: number
+          issuer_id: string | null
+          operation: string
+          organization_slug: string
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          hotel_id?: string | null
+          id?: never
+          issuer_id?: string | null
+          operation: string
+          organization_slug: string
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          hotel_id?: string | null
+          id?: never
+          issuer_id?: string | null
+          operation?: string
+          organization_slug?: string
+        }
+        Relationships: []
+      }
+      invoice_issuers: {
+        Row: {
+          bank_account: string
+          bank_name: string
+          billing_email: string
+          city: string
+          connection_mode: string
+          created_at: string
+          created_by: string | null
+          credential_ciphertext: string | null
+          credential_iv: string | null
+          enabled: boolean
+          environment: string
+          id: string
+          invoice_prefix: string
+          language: string
+          legal_name: string
+          organization_slug: string
+          reply_to_email: string
+          street_address: string
+          tax_number: string
+          updated_at: string
+          updated_by: string | null
+          zip: string
+        }
+        Insert: {
+          bank_account?: string
+          bank_name?: string
+          billing_email: string
+          city: string
+          connection_mode?: string
+          created_at?: string
+          created_by?: string | null
+          credential_ciphertext?: string | null
+          credential_iv?: string | null
+          enabled?: boolean
+          environment?: string
+          id?: string
+          invoice_prefix?: string
+          language?: string
+          legal_name: string
+          organization_slug: string
+          reply_to_email?: string
+          street_address: string
+          tax_number: string
+          updated_at?: string
+          updated_by?: string | null
+          zip: string
+        }
+        Update: {
+          bank_account?: string
+          bank_name?: string
+          billing_email?: string
+          city?: string
+          connection_mode?: string
+          created_at?: string
+          created_by?: string | null
+          credential_ciphertext?: string | null
+          credential_iv?: string | null
+          enabled?: boolean
+          environment?: string
+          id?: string
+          invoice_prefix?: string
+          language?: string
+          legal_name?: string
+          organization_slug?: string
+          reply_to_email?: string
+          street_address?: string
+          tax_number?: string
+          updated_at?: string
+          updated_by?: string | null
+          zip?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_issuers_organization_slug_fkey"
+            columns: ["organization_slug"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
       lead_time_adjustments: {
         Row: {
           bucket: string
@@ -4102,6 +8546,8 @@ export type Database = {
           claimed_by: string | null
           created_at: string
           found_date: string
+          found_location: string | null
+          hotel: string | null
           id: string
           item_description: string
           notes: string | null
@@ -4118,6 +8564,8 @@ export type Database = {
           claimed_by?: string | null
           created_at?: string
           found_date?: string
+          found_location?: string | null
+          hotel?: string | null
           id?: string
           item_description: string
           notes?: string | null
@@ -4134,6 +8582,8 @@ export type Database = {
           claimed_by?: string | null
           created_at?: string
           found_date?: string
+          found_location?: string | null
+          hotel?: string | null
           id?: string
           item_description?: string
           notes?: string | null
@@ -4157,6 +8607,133 @@ export type Database = {
             columns: ["room_id"]
             isOneToOne: false
             referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maintenance_escalation_events: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          error_message: string | null
+          escalation_level: number
+          hotel: string
+          id: string
+          organization_slug: string
+          provider_message_id: string | null
+          recipient_emails: string[]
+          sent_at: string | null
+          status: string
+          threshold_at: string
+          ticket_id: string
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          error_message?: string | null
+          escalation_level: number
+          hotel: string
+          id?: string
+          organization_slug: string
+          provider_message_id?: string | null
+          recipient_emails?: string[]
+          sent_at?: string | null
+          status?: string
+          threshold_at: string
+          ticket_id: string
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          error_message?: string | null
+          escalation_level?: number
+          hotel?: string
+          id?: string
+          organization_slug?: string
+          provider_message_id?: string | null
+          recipient_emails?: string[]
+          sent_at?: string | null
+          status?: string
+          threshold_at?: string
+          ticket_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maintenance_escalation_events_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maintenance_escalation_settings: {
+        Row: {
+          created_at: string
+          creation_emails: string[]
+          creation_recipient_ids: string[]
+          email_enabled: boolean
+          high_sla_hours: number
+          hotel: string
+          id: string
+          l1_emails: string[]
+          l2_emails: string[]
+          low_sla_hours: number
+          medium_sla_hours: number
+          notify_on_creation: boolean
+          notify_property_staff: boolean
+          organization_slug: string
+          updated_at: string
+          updated_by: string | null
+          urgent_sla_hours: number
+        }
+        Insert: {
+          created_at?: string
+          creation_emails?: string[]
+          creation_recipient_ids?: string[]
+          email_enabled?: boolean
+          high_sla_hours?: number
+          hotel: string
+          id?: string
+          l1_emails?: string[]
+          l2_emails?: string[]
+          low_sla_hours?: number
+          medium_sla_hours?: number
+          notify_on_creation?: boolean
+          notify_property_staff?: boolean
+          organization_slug: string
+          updated_at?: string
+          updated_by?: string | null
+          urgent_sla_hours?: number
+        }
+        Update: {
+          created_at?: string
+          creation_emails?: string[]
+          creation_recipient_ids?: string[]
+          email_enabled?: boolean
+          high_sla_hours?: number
+          hotel?: string
+          id?: string
+          l1_emails?: string[]
+          l2_emails?: string[]
+          low_sla_hours?: number
+          medium_sla_hours?: number
+          notify_on_creation?: boolean
+          notify_property_staff?: boolean
+          organization_slug?: string
+          updated_at?: string
+          updated_by?: string | null
+          urgent_sla_hours?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maintenance_escalation_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -4226,6 +8803,136 @@ export type Database = {
             columns: ["room_id"]
             isOneToOne: false
             referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maintenance_manual_email_events: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          hotel: string
+          id: string
+          note: string | null
+          organization_slug: string
+          provider_message_id: string | null
+          recipient_email: string
+          recipient_id: string
+          requested_by: string
+          sent_at: string | null
+          status: string
+          ticket_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          hotel: string
+          id?: string
+          note?: string | null
+          organization_slug: string
+          provider_message_id?: string | null
+          recipient_email: string
+          recipient_id: string
+          requested_by: string
+          sent_at?: string | null
+          status: string
+          ticket_id: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          hotel?: string
+          id?: string
+          note?: string | null
+          organization_slug?: string
+          provider_message_id?: string | null
+          recipient_email?: string
+          recipient_id?: string
+          requested_by?: string
+          sent_at?: string | null
+          status?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maintenance_manual_email_events_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maintenance_manual_email_events_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maintenance_manual_email_events_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maintenance_room_change_audit: {
+        Row: {
+          changed_at: string
+          changed_by: string | null
+          hotel: string
+          id: string
+          new_room_number: string
+          old_description: string | null
+          old_room_number: string | null
+          old_source_room_id: string | null
+          old_title: string | null
+          organization_slug: string
+          source: string
+          ticket_id: string
+        }
+        Insert: {
+          changed_at?: string
+          changed_by?: string | null
+          hotel: string
+          id?: string
+          new_room_number: string
+          old_description?: string | null
+          old_room_number?: string | null
+          old_source_room_id?: string | null
+          old_title?: string | null
+          organization_slug: string
+          source?: string
+          ticket_id: string
+        }
+        Update: {
+          changed_at?: string
+          changed_by?: string | null
+          hotel?: string
+          id?: string
+          new_room_number?: string
+          old_description?: string | null
+          old_room_number?: string | null
+          old_source_room_id?: string | null
+          old_title?: string | null
+          organization_slug?: string
+          source?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maintenance_room_change_audit_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maintenance_room_change_audit_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
             referencedColumns: ["id"]
           },
         ]
@@ -4605,6 +9312,424 @@ export type Database = {
         }
         Relationships: []
       }
+      next_day_housekeeping_plan_area_tasks: {
+        Row: {
+          assigned_to: string
+          created_at: string
+          created_by: string
+          estimated_duration: number | null
+          id: string
+          plan_id: string
+          section_id: string | null
+          section_task_id: string | null
+          sort_order: number
+          source: string
+          task_key: string
+          task_name: string
+          task_type: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to: string
+          created_at?: string
+          created_by: string
+          estimated_duration?: number | null
+          id?: string
+          plan_id: string
+          section_id?: string | null
+          section_task_id?: string | null
+          sort_order?: number
+          source?: string
+          task_key: string
+          task_name: string
+          task_type?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string
+          created_at?: string
+          created_by?: string
+          estimated_duration?: number | null
+          id?: string
+          plan_id?: string
+          section_id?: string | null
+          section_task_id?: string | null
+          sort_order?: number
+          source?: string
+          task_key?: string
+          task_name?: string
+          task_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "next_day_housekeeping_plan_area_tasks_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_plan_area_tasks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_plan_area_tasks_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "next_day_housekeeping_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_plan_area_tasks_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_housekeeping_sections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_plan_area_tasks_section_task_id_fkey"
+            columns: ["section_task_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_housekeeping_section_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      next_day_housekeeping_plan_items: {
+        Row: {
+          assigned_to: string
+          assignment_type: Database["public"]["Enums"]["assignment_type"]
+          created_at: string
+          estimated_duration: number | null
+          id: string
+          notes: string | null
+          plan_id: string
+          priority: number
+          recommendation_context: Json
+          recommendation_score: number | null
+          room_id: string
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to: string
+          assignment_type?: Database["public"]["Enums"]["assignment_type"]
+          created_at?: string
+          estimated_duration?: number | null
+          id?: string
+          notes?: string | null
+          plan_id: string
+          priority?: number
+          recommendation_context?: Json
+          recommendation_score?: number | null
+          room_id: string
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string
+          assignment_type?: Database["public"]["Enums"]["assignment_type"]
+          created_at?: string
+          estimated_duration?: number | null
+          id?: string
+          notes?: string | null
+          plan_id?: string
+          priority?: number
+          recommendation_context?: Json
+          recommendation_score?: number | null
+          room_id?: string
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "next_day_housekeeping_plan_items_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_plan_items_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "next_day_housekeeping_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_plan_items_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      next_day_housekeeping_plan_staff: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          plan_id: string
+          selected: boolean
+          shift_snapshot: Json
+          source: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          plan_id: string
+          selected?: boolean
+          shift_snapshot?: Json
+          source?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          plan_id?: string
+          selected?: boolean
+          shift_snapshot?: Json
+          source?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "next_day_housekeeping_plan_staff_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_plan_staff_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "next_day_housekeeping_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_plan_staff_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      next_day_housekeeping_plans: {
+        Row: {
+          algorithm_version: string | null
+          approved_at: string | null
+          approved_by: string | null
+          auto_release: boolean
+          created_at: string
+          created_by: string
+          generation_context: Json
+          hotel_id: string
+          id: string
+          last_error: string | null
+          organization_slug: string
+          plan_date: string
+          pms_sync_snapshot: Json
+          pms_synced_at: string | null
+          pre_release_pms_sync_attempt_count: number
+          pre_release_pms_sync_attempted_at: string | null
+          pre_release_pms_sync_result: Json
+          pre_release_pms_sync_status: string
+          pre_release_pms_synced_at: string | null
+          release_adjustment_notification_error: string | null
+          release_adjustment_notified_at: string | null
+          release_attempted_at: string | null
+          release_failure_notification_error: string | null
+          release_failure_notified_at: string | null
+          release_recovery_notified_at: string | null
+          release_result: Json
+          release_revalidated_at: string | null
+          release_revalidation_attempt_count: number
+          release_revalidation_attempted_at: string | null
+          release_revalidation_result: Json
+          release_revalidation_status: string
+          release_time: string
+          release_timezone: string
+          released_at: string | null
+          scheduled_release_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          algorithm_version?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          auto_release?: boolean
+          created_at?: string
+          created_by: string
+          generation_context?: Json
+          hotel_id: string
+          id?: string
+          last_error?: string | null
+          organization_slug?: string
+          plan_date: string
+          pms_sync_snapshot?: Json
+          pms_synced_at?: string | null
+          pre_release_pms_sync_attempt_count?: number
+          pre_release_pms_sync_attempted_at?: string | null
+          pre_release_pms_sync_result?: Json
+          pre_release_pms_sync_status?: string
+          pre_release_pms_synced_at?: string | null
+          release_adjustment_notification_error?: string | null
+          release_adjustment_notified_at?: string | null
+          release_attempted_at?: string | null
+          release_failure_notification_error?: string | null
+          release_failure_notified_at?: string | null
+          release_recovery_notified_at?: string | null
+          release_result?: Json
+          release_revalidated_at?: string | null
+          release_revalidation_attempt_count?: number
+          release_revalidation_attempted_at?: string | null
+          release_revalidation_result?: Json
+          release_revalidation_status?: string
+          release_time?: string
+          release_timezone?: string
+          released_at?: string | null
+          scheduled_release_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          algorithm_version?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          auto_release?: boolean
+          created_at?: string
+          created_by?: string
+          generation_context?: Json
+          hotel_id?: string
+          id?: string
+          last_error?: string | null
+          organization_slug?: string
+          plan_date?: string
+          pms_sync_snapshot?: Json
+          pms_synced_at?: string | null
+          pre_release_pms_sync_attempt_count?: number
+          pre_release_pms_sync_attempted_at?: string | null
+          pre_release_pms_sync_result?: Json
+          pre_release_pms_sync_status?: string
+          pre_release_pms_synced_at?: string | null
+          release_adjustment_notification_error?: string | null
+          release_adjustment_notified_at?: string | null
+          release_attempted_at?: string | null
+          release_failure_notification_error?: string | null
+          release_failure_notified_at?: string | null
+          release_recovery_notified_at?: string | null
+          release_result?: Json
+          release_revalidated_at?: string | null
+          release_revalidation_attempt_count?: number
+          release_revalidation_attempted_at?: string | null
+          release_revalidation_result?: Json
+          release_revalidation_status?: string
+          release_time?: string
+          release_timezone?: string
+          released_at?: string | null
+          scheduled_release_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "next_day_housekeeping_plans_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_plans_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      next_day_housekeeping_public_area_assignments: {
+        Row: {
+          assigned_to: string
+          created_at: string
+          created_by: string
+          hotel_id: string
+          id: string
+          organization_slug: string
+          plan_date: string
+          public_area_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          assigned_to: string
+          created_at?: string
+          created_by: string
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          plan_date: string
+          public_area_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          assigned_to?: string
+          created_at?: string
+          created_by?: string
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          plan_date?: string
+          public_area_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "next_day_housekeeping_public_area_assignmen_public_area_id_fkey"
+            columns: ["public_area_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_public_areas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_public_area_assignments_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_public_area_assignments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "next_day_housekeeping_public_area_assignments_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notification_preferences: {
         Row: {
           banner_permanently_hidden: boolean | null
@@ -4639,6 +9764,526 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: true
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ntak_booking_queue: {
+        Row: {
+          booking_no: string
+          cancelled_sent: boolean
+          dirty_at: string
+          hotel_id: string
+          last_message_id: string | null
+          last_payload_hash: string | null
+          last_problem: string | null
+          last_sent_at: string | null
+        }
+        Insert: {
+          booking_no: string
+          cancelled_sent?: boolean
+          dirty_at?: string
+          hotel_id: string
+          last_message_id?: string | null
+          last_payload_hash?: string | null
+          last_problem?: string | null
+          last_sent_at?: string | null
+        }
+        Update: {
+          booking_no?: string
+          cancelled_sent?: boolean
+          dirty_at?: string
+          hotel_id?: string
+          last_message_id?: string | null
+          last_payload_hash?: string | null
+          last_problem?: string | null
+          last_sent_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ntak_booking_queue_last_message_id_fkey"
+            columns: ["last_message_id"]
+            isOneToOne: false
+            referencedRelation: "ntak_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ntak_daily_closures: {
+        Row: {
+          accepted_once: boolean
+          classification: string
+          closed_at: string
+          closed_by: string | null
+          closed_day: string
+          correction_detected_at: string | null
+          hotel_id: string
+          message_id: string | null
+          needs_correction: boolean
+          organization_slug: string
+          protocol_id: string | null
+          reason: string | null
+          snapshot: Json
+          snapshot_hash: string
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_once?: boolean
+          classification: string
+          closed_at?: string
+          closed_by?: string | null
+          closed_day: string
+          correction_detected_at?: string | null
+          hotel_id: string
+          message_id?: string | null
+          needs_correction?: boolean
+          organization_slug: string
+          protocol_id?: string | null
+          reason?: string | null
+          snapshot: Json
+          snapshot_hash: string
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_once?: boolean
+          classification?: string
+          closed_at?: string
+          closed_by?: string | null
+          closed_day?: string
+          correction_detected_at?: string | null
+          hotel_id?: string
+          message_id?: string | null
+          needs_correction?: boolean
+          organization_slug?: string
+          protocol_id?: string | null
+          reason?: string | null
+          snapshot?: Json
+          snapshot_hash?: string
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ntak_daily_closures_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "ntak_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ntak_event_queue: {
+        Row: {
+          created_at: string
+          from_room_id: string | null
+          guest_ids: string[] | null
+          hotel_id: string
+          id: string
+          is_correction: boolean
+          kind: string
+          last_error: string | null
+          message_id: string | null
+          occurred_at: string
+          organization_slug: string | null
+          reservation_id: string
+          room_id: string | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          from_room_id?: string | null
+          guest_ids?: string[] | null
+          hotel_id: string
+          id?: string
+          is_correction?: boolean
+          kind: string
+          last_error?: string | null
+          message_id?: string | null
+          occurred_at?: string
+          organization_slug?: string | null
+          reservation_id: string
+          room_id?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          from_room_id?: string | null
+          guest_ids?: string[] | null
+          hotel_id?: string
+          id?: string
+          is_correction?: boolean
+          kind?: string
+          last_error?: string | null
+          message_id?: string | null
+          occurred_at?: string
+          organization_slug?: string | null
+          reservation_id?: string
+          room_id?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ntak_event_queue_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "ntak_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ntak_event_queue_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ntak_guest_ids: {
+        Row: {
+          first_used_at: string
+          guest_id: string
+          hotel_id: string
+          vendeg_id: string
+        }
+        Insert: {
+          first_used_at?: string
+          guest_id: string
+          hotel_id: string
+          vendeg_id: string
+        }
+        Update: {
+          first_used_at?: string
+          guest_id?: string
+          hotel_id?: string
+          vendeg_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ntak_guest_ids_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ntak_messages: {
+        Row: {
+          attempts: number
+          created_at: string
+          created_by: string | null
+          environment: string
+          errors: Json
+          expected_start_date: string | null
+          hotel_id: string
+          id: string
+          kind: string
+          last_error: string | null
+          last_http_status: number | null
+          next_attempt_at: string
+          next_verify_at: string | null
+          ntak_status: string | null
+          organization_slug: string
+          processing_id: string | null
+          ref: string
+          request_xml: string | null
+          sent_at: string | null
+          state: string
+          updated_at: string
+          uzenet_id: string | null
+          verified_at: string | null
+          verify_attempts: number
+          warnings: Json
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          created_by?: string | null
+          environment: string
+          errors?: Json
+          expected_start_date?: string | null
+          hotel_id: string
+          id?: string
+          kind: string
+          last_error?: string | null
+          last_http_status?: number | null
+          next_attempt_at?: string
+          next_verify_at?: string | null
+          ntak_status?: string | null
+          organization_slug: string
+          processing_id?: string | null
+          ref: string
+          request_xml?: string | null
+          sent_at?: string | null
+          state?: string
+          updated_at?: string
+          uzenet_id?: string | null
+          verified_at?: string | null
+          verify_attempts?: number
+          warnings?: Json
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          created_by?: string | null
+          environment?: string
+          errors?: Json
+          expected_start_date?: string | null
+          hotel_id?: string
+          id?: string
+          kind?: string
+          last_error?: string | null
+          last_http_status?: number | null
+          next_attempt_at?: string
+          next_verify_at?: string | null
+          ntak_status?: string | null
+          organization_slug?: string
+          processing_id?: string | null
+          ref?: string
+          request_xml?: string | null
+          sent_at?: string | null
+          state?: string
+          updated_at?: string
+          uzenet_id?: string | null
+          verified_at?: string | null
+          verify_attempts?: number
+          warnings?: Json
+        }
+        Relationships: []
+      }
+      ntak_room_type_units: {
+        Row: {
+          active: boolean
+          capacity: number
+          hotel_id: string
+          room_type_id: string
+          unit_type: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          capacity?: number
+          hotel_id: string
+          room_type_id: string
+          unit_type?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          capacity?: number
+          hotel_id?: string
+          room_type_id?: string
+          unit_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ntak_room_type_units_room_type_id_fkey"
+            columns: ["room_type_id"]
+            isOneToOne: true
+            referencedRelation: "room_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ntak_settings: {
+        Row: {
+          accommodation_class: string
+          accommodation_name: string | null
+          accommodation_vat: number
+          allow_backdating: boolean
+          auto_close_time: string
+          backdating_min_date: string | null
+          cert_not_after: string | null
+          cert_serial: string | null
+          cert_subject: Json | null
+          cert_uploaded_at: string | null
+          closure_mode: string
+          created_at: string
+          data_reporting_id: string | null
+          data_start_checked_at: string | null
+          data_start_date: string | null
+          enabled: boolean
+          endpoint_url: string | null
+          environment: string
+          first_closure_date: string | null
+          hotel_id: string
+          ifa_rate: number
+          ifa_type: string
+          ifa_vat: number
+          initial_booking_sync_done_at: string | null
+          initial_booking_sync_started_at: string | null
+          last_error: string | null
+          last_error_at: string | null
+          last_ok_at: string | null
+          ledger_config: Json
+          organization_slug: string
+          pending_csr_created_at: string | null
+          pending_csr_pem: string | null
+          pending_spki_sha256: string | null
+          provider_name: string | null
+          provider_tax_number: string | null
+          region: string
+          registered_bed_count: number | null
+          registered_room_count: number | null
+          registration_number: string | null
+          sending_blocked_reason: string | null
+          signature_profile: string
+          software_change_date: string | null
+          software_id: string | null
+          software_version: string
+          unit_scope: string
+          unknown_country_code: string
+          updated_at: string
+        }
+        Insert: {
+          accommodation_class?: string
+          accommodation_name?: string | null
+          accommodation_vat?: number
+          allow_backdating?: boolean
+          auto_close_time?: string
+          backdating_min_date?: string | null
+          cert_not_after?: string | null
+          cert_serial?: string | null
+          cert_subject?: Json | null
+          cert_uploaded_at?: string | null
+          closure_mode?: string
+          created_at?: string
+          data_reporting_id?: string | null
+          data_start_checked_at?: string | null
+          data_start_date?: string | null
+          enabled?: boolean
+          endpoint_url?: string | null
+          environment?: string
+          first_closure_date?: string | null
+          hotel_id: string
+          ifa_rate?: number
+          ifa_type?: string
+          ifa_vat?: number
+          initial_booking_sync_done_at?: string | null
+          initial_booking_sync_started_at?: string | null
+          last_error?: string | null
+          last_error_at?: string | null
+          last_ok_at?: string | null
+          ledger_config?: Json
+          organization_slug: string
+          pending_csr_created_at?: string | null
+          pending_csr_pem?: string | null
+          pending_spki_sha256?: string | null
+          provider_name?: string | null
+          provider_tax_number?: string | null
+          region?: string
+          registered_bed_count?: number | null
+          registered_room_count?: number | null
+          registration_number?: string | null
+          sending_blocked_reason?: string | null
+          signature_profile?: string
+          software_change_date?: string | null
+          software_id?: string | null
+          software_version?: string
+          unit_scope?: string
+          unknown_country_code?: string
+          updated_at?: string
+        }
+        Update: {
+          accommodation_class?: string
+          accommodation_name?: string | null
+          accommodation_vat?: number
+          allow_backdating?: boolean
+          auto_close_time?: string
+          backdating_min_date?: string | null
+          cert_not_after?: string | null
+          cert_serial?: string | null
+          cert_subject?: Json | null
+          cert_uploaded_at?: string | null
+          closure_mode?: string
+          created_at?: string
+          data_reporting_id?: string | null
+          data_start_checked_at?: string | null
+          data_start_date?: string | null
+          enabled?: boolean
+          endpoint_url?: string | null
+          environment?: string
+          first_closure_date?: string | null
+          hotel_id?: string
+          ifa_rate?: number
+          ifa_type?: string
+          ifa_vat?: number
+          initial_booking_sync_done_at?: string | null
+          initial_booking_sync_started_at?: string | null
+          last_error?: string | null
+          last_error_at?: string | null
+          last_ok_at?: string | null
+          ledger_config?: Json
+          organization_slug?: string
+          pending_csr_created_at?: string | null
+          pending_csr_pem?: string | null
+          pending_spki_sha256?: string | null
+          provider_name?: string | null
+          provider_tax_number?: string | null
+          region?: string
+          registered_bed_count?: number | null
+          registered_room_count?: number | null
+          registration_number?: string | null
+          sending_blocked_reason?: string | null
+          signature_profile?: string
+          software_change_date?: string | null
+          software_id?: string | null
+          software_version?: string
+          unit_scope?: string
+          unknown_country_code?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ntak_unit_profiles: {
+        Row: {
+          active: boolean
+          building: string
+          double_beds: number
+          extra_beds: number
+          hotel_id: string
+          room_id: string
+          room_number: string
+          single_beds: number
+          unit_type: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          building?: string
+          double_beds?: number
+          extra_beds?: number
+          hotel_id: string
+          room_id: string
+          room_number: string
+          single_beds?: number
+          unit_type?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          building?: string
+          double_beds?: number
+          extra_beds?: number
+          hotel_id?: string
+          room_id?: string
+          room_number?: string
+          single_beds?: number
+          unit_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ntak_unit_profiles_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: true
+            referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
         ]
@@ -4736,6 +10381,33 @@ export type Database = {
         }
         Relationships: []
       }
+      open_channel_events: {
+        Row: {
+          hotel_code: string
+          id: string
+          payload: Json
+          received_at: string
+          request_id: string
+          unique_id: string
+        }
+        Insert: {
+          hotel_code: string
+          id?: string
+          payload: Json
+          received_at?: string
+          request_id: string
+          unique_id: string
+        }
+        Update: {
+          hotel_code?: string
+          id?: string
+          payload?: Json
+          received_at?: string
+          request_id?: string
+          unique_id?: string
+        }
+        Relationships: []
+      }
       organization_settings: {
         Row: {
           id: string
@@ -4823,6 +10495,616 @@ export type Database = {
         }
         Relationships: []
       }
+      ota_commercial_terms: {
+        Row: {
+          amount_basis: string
+          applies_by_default: boolean
+          channel_key: string
+          city_tax_pct: number
+          commission_pct: number
+          created_at: string
+          created_by: string | null
+          extra_commission_pct: number
+          hotel_id: string
+          id: string
+          listing_ref: string | null
+          notes: string | null
+          payment_fee_pct: number
+          source: string
+          updated_at: string
+          valid_from: string
+          valid_to: string | null
+          vat_pct: number | null
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          amount_basis: string
+          applies_by_default?: boolean
+          channel_key: string
+          city_tax_pct?: number
+          commission_pct: number
+          created_at?: string
+          created_by?: string | null
+          extra_commission_pct?: number
+          hotel_id: string
+          id?: string
+          listing_ref?: string | null
+          notes?: string | null
+          payment_fee_pct?: number
+          source?: string
+          updated_at?: string
+          valid_from: string
+          valid_to?: string | null
+          vat_pct?: number | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          amount_basis?: string
+          applies_by_default?: boolean
+          channel_key?: string
+          city_tax_pct?: number
+          commission_pct?: number
+          created_at?: string
+          created_by?: string | null
+          extra_commission_pct?: number
+          hotel_id?: string
+          id?: string
+          listing_ref?: string | null
+          notes?: string | null
+          payment_fee_pct?: number
+          source?: string
+          updated_at?: string
+          valid_from?: string
+          valid_to?: string | null
+          vat_pct?: number | null
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: []
+      }
+      ota_statement_lines: {
+        Row: {
+          booked_at: string | null
+          channel_key: string
+          check_in: string | null
+          check_out: string | null
+          commission_amount: number | null
+          commission_pct: number | null
+          currency: string
+          gross_amount: number | null
+          hotel_id: string
+          id: string
+          import_batch: string | null
+          imported_at: string
+          imported_by: string | null
+          listing_ref: string
+          original_amount: number | null
+          ota_reservation_code: string
+          payout_amount: number | null
+          room_nights: number | null
+          source_file: string | null
+          statement_period: string
+          status: string | null
+        }
+        Insert: {
+          booked_at?: string | null
+          channel_key: string
+          check_in?: string | null
+          check_out?: string | null
+          commission_amount?: number | null
+          commission_pct?: number | null
+          currency?: string
+          gross_amount?: number | null
+          hotel_id: string
+          id?: string
+          import_batch?: string | null
+          imported_at?: string
+          imported_by?: string | null
+          listing_ref?: string
+          original_amount?: number | null
+          ota_reservation_code: string
+          payout_amount?: number | null
+          room_nights?: number | null
+          source_file?: string | null
+          statement_period: string
+          status?: string | null
+        }
+        Update: {
+          booked_at?: string | null
+          channel_key?: string
+          check_in?: string | null
+          check_out?: string | null
+          commission_amount?: number | null
+          commission_pct?: number | null
+          currency?: string
+          gross_amount?: number | null
+          hotel_id?: string
+          id?: string
+          import_batch?: string | null
+          imported_at?: string
+          imported_by?: string | null
+          listing_ref?: string
+          original_amount?: number | null
+          ota_reservation_code?: string
+          payout_amount?: number | null
+          room_nights?: number | null
+          source_file?: string | null
+          statement_period?: string
+          status?: string | null
+        }
+        Relationships: []
+      }
+      ottofiori_ai_price_policies: {
+        Row: {
+          created_at: string
+          decision_id: string | null
+          delta_eur: number
+          hotel_id: string
+          organization_slug: string
+          reason: string
+          review_id: string
+          stay_date: string
+          valid_until: string
+        }
+        Insert: {
+          created_at?: string
+          decision_id?: string | null
+          delta_eur: number
+          hotel_id?: string
+          organization_slug?: string
+          reason: string
+          review_id: string
+          stay_date: string
+          valid_until: string
+        }
+        Update: {
+          created_at?: string
+          decision_id?: string | null
+          delta_eur?: number
+          hotel_id?: string
+          organization_slug?: string
+          reason?: string
+          review_id?: string
+          stay_date?: string
+          valid_until?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ottofiori_ai_price_policies_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_date_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ottofiori_ai_price_policies_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "ottofiori_ai_review_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ottofiori_ai_review_runs: {
+        Row: {
+          decisions: Json | null
+          error: string | null
+          estimated_cost_usd: number
+          finished_at: string | null
+          id: string
+          model: string | null
+          outcomes: Json | null
+          pms_refreshed_at: string | null
+          slot: number
+          started_at: string
+          status: string
+          summary: string | null
+        }
+        Insert: {
+          decisions?: Json | null
+          error?: string | null
+          estimated_cost_usd?: number
+          finished_at?: string | null
+          id?: string
+          model?: string | null
+          outcomes?: Json | null
+          pms_refreshed_at?: string | null
+          slot: number
+          started_at?: string
+          status?: string
+          summary?: string | null
+        }
+        Update: {
+          decisions?: Json | null
+          error?: string | null
+          estimated_cost_usd?: number
+          finished_at?: string | null
+          id?: string
+          model?: string | null
+          outcomes?: Json | null
+          pms_refreshed_at?: string | null
+          slot?: number
+          started_at?: string
+          status?: string
+          summary?: string | null
+        }
+        Relationships: []
+      }
+      parking_batches: {
+        Row: {
+          created_at: string
+          created_by: string
+          expires_on: string | null
+          first_number: number
+          hotel_id: string
+          id: string
+          label: string | null
+          last_number: number
+          number_width: number
+          organization_slug: string
+          range_end: string
+          range_prefix: string
+          range_start: string
+          ticket_count: number
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expires_on?: string | null
+          first_number: number
+          hotel_id: string
+          id?: string
+          label?: string | null
+          last_number: number
+          number_width: number
+          organization_slug: string
+          range_end: string
+          range_prefix: string
+          range_start: string
+          ticket_count: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expires_on?: string | null
+          first_number?: number
+          hotel_id?: string
+          id?: string
+          label?: string | null
+          last_number?: number
+          number_width?: number
+          organization_slug?: string
+          range_end?: string
+          range_prefix?: string
+          range_start?: string
+          ticket_count?: number
+        }
+        Relationships: []
+      }
+      parking_email_jobs: {
+        Row: {
+          attempts: number
+          audience: string
+          created_at: string
+          event_id: string | null
+          hotel_id: string
+          id: string
+          last_error: string | null
+          lease_id: string | null
+          next_attempt_at: string
+          organization_slug: string
+          payload: Json
+          provider_id: string | null
+          recipient: string
+          sent_at: string | null
+          status: string
+          ticket_id: string
+        }
+        Insert: {
+          attempts?: number
+          audience: string
+          created_at?: string
+          event_id?: string | null
+          hotel_id: string
+          id?: string
+          last_error?: string | null
+          lease_id?: string | null
+          next_attempt_at?: string
+          organization_slug: string
+          payload: Json
+          provider_id?: string | null
+          recipient: string
+          sent_at?: string | null
+          status?: string
+          ticket_id: string
+        }
+        Update: {
+          attempts?: number
+          audience?: string
+          created_at?: string
+          event_id?: string | null
+          hotel_id?: string
+          id?: string
+          last_error?: string | null
+          lease_id?: string | null
+          next_attempt_at?: string
+          organization_slug?: string
+          payload?: Json
+          provider_id?: string | null
+          recipient?: string
+          sent_at?: string | null
+          status?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parking_email_jobs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "parking_ticket_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parking_email_jobs_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "parking_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parking_settings: {
+        Row: {
+          brand_name: string
+          created_at: string
+          default_validity_days: number
+          guest_email_enabled: boolean
+          hotel_id: string
+          id: string
+          notification_emails: string[]
+          organization_slug: string
+          parking_instructions: string
+          provider_name: string
+          reply_to: string | null
+          sender_email: string
+          updated_at: string
+          updated_by: string | null
+          vendor_auto_email: boolean
+        }
+        Insert: {
+          brand_name?: string
+          created_at?: string
+          default_validity_days?: number
+          guest_email_enabled?: boolean
+          hotel_id: string
+          id?: string
+          notification_emails?: string[]
+          organization_slug: string
+          parking_instructions?: string
+          provider_name?: string
+          reply_to?: string | null
+          sender_email?: string
+          updated_at?: string
+          updated_by?: string | null
+          vendor_auto_email?: boolean
+        }
+        Update: {
+          brand_name?: string
+          created_at?: string
+          default_validity_days?: number
+          guest_email_enabled?: boolean
+          hotel_id?: string
+          id?: string
+          notification_emails?: string[]
+          organization_slug?: string
+          parking_instructions?: string
+          provider_name?: string
+          reply_to?: string | null
+          sender_email?: string
+          updated_at?: string
+          updated_by?: string | null
+          vendor_auto_email?: boolean
+        }
+        Relationships: []
+      }
+      parking_ticket_events: {
+        Row: {
+          actor_id: string | null
+          actor_name: string
+          created_at: string
+          details: Json
+          event_type: string
+          hotel_id: string
+          id: string
+          organization_slug: string
+          ticket_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          actor_name: string
+          created_at?: string
+          details?: Json
+          event_type: string
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          ticket_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          actor_name?: string
+          created_at?: string
+          details?: Json
+          event_type?: string
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parking_ticket_events_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "parking_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parking_tickets: {
+        Row: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          batch_id: string
+          cancellation_reported_at?: string | null
+          cancellation_reported_by?: string | null
+          created_at?: string
+          expires_on?: string | null
+          guest_email?: string | null
+          guest_name?: string | null
+          hotel_id: string
+          id?: string
+          issued_at?: string | null
+          issued_by?: string | null
+          notes?: string | null
+          organization_slug: string
+          reference: string
+          reference_search?: string | null
+          reservation_ref?: string | null
+          reservation_search?: string | null
+          room_number?: string | null
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          batch_id?: string
+          cancellation_reported_at?: string | null
+          cancellation_reported_by?: string | null
+          created_at?: string
+          expires_on?: string | null
+          guest_email?: string | null
+          guest_name?: string | null
+          hotel_id?: string
+          id?: string
+          issued_at?: string | null
+          issued_by?: string | null
+          notes?: string | null
+          organization_slug?: string
+          reference?: string
+          reference_search?: string | null
+          reservation_ref?: string | null
+          reservation_search?: string | null
+          room_number?: string | null
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+          valid_from?: string | null
+          valid_to?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parking_tickets_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "parking_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parking_user_access: {
+        Row: {
+          access_level: string
+          created_at: string
+          granted_by: string | null
+          hotel_id: string
+          id: string
+          organization_slug: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_level: string
+          created_at?: string
+          granted_by?: string | null
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_level?: string
+          created_at?: string
+          granted_by?: string | null
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      password_reset_attempt_limits: {
+        Row: {
+          attempt_count: number
+          blocked_until: string | null
+          key_hash: string
+          updated_at: string
+          window_started_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          blocked_until?: string | null
+          key_hash: string
+          updated_at?: string
+          window_started_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          blocked_until?: string | null
+          key_hash?: string
+          updated_at?: string
+          window_started_at?: string
+        }
+        Relationships: []
+      }
       password_reset_otps: {
         Row: {
           created_at: string | null
@@ -4855,6 +11137,199 @@ export type Database = {
           verified?: boolean | null
         }
         Relationships: []
+      }
+      payment_allocations: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          folio_id: string
+          id: string
+          payment_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          folio_id: string
+          id?: string
+          payment_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          folio_id?: string
+          id?: string
+          payment_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_allocations_folio_id_fkey"
+            columns: ["folio_id"]
+            isOneToOne: false
+            referencedRelation: "reservation_folios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_allocations_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          currency: string
+          folio_id: string
+          hotel_id: string
+          id: string
+          legacy_guest_folio_id: string | null
+          method: string
+          organization_slug: string
+          provider: string | null
+          provider_transaction_id: string | null
+          received_at: string
+          reference: string | null
+          reservation_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          folio_id: string
+          hotel_id: string
+          id?: string
+          legacy_guest_folio_id?: string | null
+          method: string
+          organization_slug: string
+          provider?: string | null
+          provider_transaction_id?: string | null
+          received_at?: string
+          reference?: string | null
+          reservation_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          folio_id?: string
+          hotel_id?: string
+          id?: string
+          legacy_guest_folio_id?: string | null
+          method?: string
+          organization_slug?: string
+          provider?: string | null
+          provider_transaction_id?: string | null
+          received_at?: string
+          reference?: string | null
+          reservation_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_folio_id_fkey"
+            columns: ["folio_id"]
+            isOneToOne: false
+            referencedRelation: "reservation_folios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pci_card_tokens: {
+        Row: {
+          card_token_uri: string
+          card_type: string | null
+          channex_booking_id: string
+          created_at: string
+          created_by: string | null
+          hotel_id: string
+          id: string
+          masked_label: string | null
+          reservation_id: string | null
+        }
+        Insert: {
+          card_token_uri: string
+          card_type?: string | null
+          channex_booking_id: string
+          created_at?: string
+          created_by?: string | null
+          hotel_id: string
+          id?: string
+          masked_label?: string | null
+          reservation_id?: string | null
+        }
+        Update: {
+          card_token_uri?: string
+          card_type?: string | null
+          channex_booking_id?: string
+          created_at?: string
+          created_by?: string | null
+          hotel_id?: string
+          id?: string
+          masked_label?: string | null
+          reservation_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pci_card_tokens_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pci_card_views: {
+        Row: {
+          card_token_id: string
+          hotel_id: string
+          id: string
+          viewed_at: string
+          viewed_by: string
+        }
+        Insert: {
+          card_token_id: string
+          hotel_id: string
+          id?: string
+          viewed_at?: string
+          viewed_by: string
+        }
+        Update: {
+          card_token_id?: string
+          hotel_id?: string
+          id?: string
+          viewed_at?: string
+          viewed_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pci_card_views_card_token_id_fkey"
+            columns: ["card_token_id"]
+            isOneToOne: false
+            referencedRelation: "pci_card_tokens"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       photo_cleanup_log: {
         Row: {
@@ -4894,6 +11369,992 @@ export type Database = {
           storage_freed_mb?: number | null
         }
         Relationships: []
+      }
+      pi_daily_summary_log: {
+        Row: {
+          created_at: string
+          exception_count: number
+          fingerprint: string
+          organization_slug: string
+          recipients: number
+          sent_on: string
+        }
+        Insert: {
+          created_at?: string
+          exception_count?: number
+          fingerprint: string
+          organization_slug: string
+          recipients?: number
+          sent_on: string
+        }
+        Update: {
+          created_at?: string
+          exception_count?: number
+          fingerprint?: string
+          organization_slug?: string
+          recipients?: number
+          sent_on?: string
+        }
+        Relationships: []
+      }
+      pi_deleted_invoices: {
+        Row: {
+          audit_trail: Json
+          deleted_at: string
+          deleted_by: string | null
+          id: string
+          invoice_id: string
+          organization_slug: string
+          snapshot: Json
+        }
+        Insert: {
+          audit_trail?: Json
+          deleted_at?: string
+          deleted_by?: string | null
+          id?: string
+          invoice_id: string
+          organization_slug: string
+          snapshot: Json
+        }
+        Update: {
+          audit_trail?: Json
+          deleted_at?: string
+          deleted_by?: string | null
+          id?: string
+          invoice_id?: string
+          organization_slug?: string
+          snapshot?: Json
+        }
+        Relationships: []
+      }
+      pi_invoice_field_provenance: {
+        Row: {
+          action: string
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decision_note: string | null
+          field: string
+          final_value: string | null
+          id: string
+          invoice_id: string
+          material: boolean
+          nav_invoice_id: string | null
+          nav_value: string | null
+          ocr_value: string | null
+          organization_slug: string
+          rule: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_note?: string | null
+          field: string
+          final_value?: string | null
+          id?: string
+          invoice_id: string
+          material?: boolean
+          nav_invoice_id?: string | null
+          nav_value?: string | null
+          ocr_value?: string | null
+          organization_slug: string
+          rule?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_note?: string | null
+          field?: string
+          final_value?: string | null
+          id?: string
+          invoice_id?: string
+          material?: boolean
+          nav_invoice_id?: string | null
+          nav_value?: string | null
+          ocr_value?: string | null
+          organization_slug?: string
+          rule?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_invoice_field_provenance_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pi_invoice_field_provenance_nav_invoice_id_fkey"
+            columns: ["nav_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "pi_nav_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pi_missing_document_followups: {
+        Row: {
+          assigned_to: string | null
+          company_id: string
+          created_at: string
+          due_date: string | null
+          hotel_id: string | null
+          id: string
+          last_notified_at: string | null
+          nav_invoice_id: string
+          organization_slug: string
+          requested_at: string | null
+          requested_by: string | null
+          requested_from_hotel: string | null
+          resolution: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          company_id: string
+          created_at?: string
+          due_date?: string | null
+          hotel_id?: string | null
+          id?: string
+          last_notified_at?: string | null
+          nav_invoice_id: string
+          organization_slug: string
+          requested_at?: string | null
+          requested_by?: string | null
+          requested_from_hotel?: string | null
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          company_id?: string
+          created_at?: string
+          due_date?: string | null
+          hotel_id?: string | null
+          id?: string
+          last_notified_at?: string | null
+          nav_invoice_id?: string
+          organization_slug?: string
+          requested_at?: string | null
+          requested_by?: string | null
+          requested_from_hotel?: string | null
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_missing_document_followups_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_buyer_companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pi_missing_document_followups_nav_invoice_id_fkey"
+            columns: ["nav_invoice_id"]
+            isOneToOne: true
+            referencedRelation: "pi_nav_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pi_missing_document_notes: {
+        Row: {
+          author_id: string
+          created_at: string
+          followup_id: string
+          id: number
+          note: string
+          organization_slug: string
+        }
+        Insert: {
+          author_id: string
+          created_at?: string
+          followup_id: string
+          id?: number
+          note: string
+          organization_slug: string
+        }
+        Update: {
+          author_id?: string
+          created_at?: string
+          followup_id?: string
+          id?: number
+          note?: string
+          organization_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_missing_document_notes_followup_id_fkey"
+            columns: ["followup_id"]
+            isOneToOne: false
+            referencedRelation: "pi_missing_document_followups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pi_module_settings: {
+        Row: {
+          allowed_roles: string[]
+          amount_tolerance_foreign: number
+          amount_tolerance_huf: number
+          auto_apply_gap_fill: boolean
+          auto_reconcile: boolean
+          backfill_days: number
+          block_approval_on_exceptions: boolean
+          created_at: string
+          daily_summary_enabled: boolean
+          date_tolerance_days: number
+          default_category_id: string | null
+          default_cost_centre_id: string | null
+          module_enabled: boolean
+          notification_recipient_ids: string[]
+          organization_slug: string
+          reconciliation_start_date: string | null
+          reporting_delay_days: number
+          require_nav_match_for_approval: boolean
+          require_separate_approver: boolean
+          sync_interval_minutes: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          allowed_roles?: string[]
+          amount_tolerance_foreign?: number
+          amount_tolerance_huf?: number
+          auto_apply_gap_fill?: boolean
+          auto_reconcile?: boolean
+          backfill_days?: number
+          block_approval_on_exceptions?: boolean
+          created_at?: string
+          daily_summary_enabled?: boolean
+          date_tolerance_days?: number
+          default_category_id?: string | null
+          default_cost_centre_id?: string | null
+          module_enabled?: boolean
+          notification_recipient_ids?: string[]
+          organization_slug: string
+          reconciliation_start_date?: string | null
+          reporting_delay_days?: number
+          require_nav_match_for_approval?: boolean
+          require_separate_approver?: boolean
+          sync_interval_minutes?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          allowed_roles?: string[]
+          amount_tolerance_foreign?: number
+          amount_tolerance_huf?: number
+          auto_apply_gap_fill?: boolean
+          auto_reconcile?: boolean
+          backfill_days?: number
+          block_approval_on_exceptions?: boolean
+          created_at?: string
+          daily_summary_enabled?: boolean
+          date_tolerance_days?: number
+          default_category_id?: string | null
+          default_cost_centre_id?: string | null
+          module_enabled?: boolean
+          notification_recipient_ids?: string[]
+          organization_slug?: string
+          reconciliation_start_date?: string | null
+          reporting_delay_days?: number
+          require_nav_match_for_approval?: boolean
+          require_separate_approver?: boolean
+          sync_interval_minutes?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_module_settings_default_category_id_fkey"
+            columns: ["default_category_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoice_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pi_module_settings_default_cost_centre_id_fkey"
+            columns: ["default_cost_centre_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_cost_centres"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pi_nav_connection_secrets: {
+        Row: {
+          connection_id: string
+          credential_ciphertext: string
+          credential_iv: string
+          key_version: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          connection_id: string
+          credential_ciphertext: string
+          credential_iv: string
+          key_version?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          connection_id?: string
+          credential_ciphertext?: string
+          credential_iv?: string
+          key_version?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_nav_connection_secrets_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: true
+            referencedRelation: "pi_nav_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pi_nav_connections: {
+        Row: {
+          company_id: string
+          consecutive_failures: number
+          created_at: string
+          created_by: string | null
+          credentials_set: boolean
+          credentials_updated_at: string | null
+          enabled: boolean
+          environment: string
+          id: string
+          initial_sync_completed_at: string | null
+          initial_sync_through: string | null
+          ins_date_cursor: string | null
+          last_attempt_at: string | null
+          last_backfill_at: string | null
+          last_error_category: string | null
+          last_error_code: string | null
+          last_error_message: string | null
+          last_success_at: string | null
+          last_sync_state: string | null
+          last_test_at: string | null
+          last_test_ok: boolean | null
+          last_test_result: Json | null
+          login_hint: string | null
+          next_retry_at: string | null
+          organization_slug: string
+          status: string
+          sync_from_date: string | null
+          sync_lock_token: string | null
+          sync_lock_until: string | null
+          tax_number: string
+          updated_at: string
+          updated_by: string | null
+          use_for_reconciliation: boolean
+        }
+        Insert: {
+          company_id: string
+          consecutive_failures?: number
+          created_at?: string
+          created_by?: string | null
+          credentials_set?: boolean
+          credentials_updated_at?: string | null
+          enabled?: boolean
+          environment?: string
+          id?: string
+          initial_sync_completed_at?: string | null
+          initial_sync_through?: string | null
+          ins_date_cursor?: string | null
+          last_attempt_at?: string | null
+          last_backfill_at?: string | null
+          last_error_category?: string | null
+          last_error_code?: string | null
+          last_error_message?: string | null
+          last_success_at?: string | null
+          last_sync_state?: string | null
+          last_test_at?: string | null
+          last_test_ok?: boolean | null
+          last_test_result?: Json | null
+          login_hint?: string | null
+          next_retry_at?: string | null
+          organization_slug: string
+          status?: string
+          sync_from_date?: string | null
+          sync_lock_token?: string | null
+          sync_lock_until?: string | null
+          tax_number: string
+          updated_at?: string
+          updated_by?: string | null
+          use_for_reconciliation?: boolean
+        }
+        Update: {
+          company_id?: string
+          consecutive_failures?: number
+          created_at?: string
+          created_by?: string | null
+          credentials_set?: boolean
+          credentials_updated_at?: string | null
+          enabled?: boolean
+          environment?: string
+          id?: string
+          initial_sync_completed_at?: string | null
+          initial_sync_through?: string | null
+          ins_date_cursor?: string | null
+          last_attempt_at?: string | null
+          last_backfill_at?: string | null
+          last_error_category?: string | null
+          last_error_code?: string | null
+          last_error_message?: string | null
+          last_success_at?: string | null
+          last_sync_state?: string | null
+          last_test_at?: string | null
+          last_test_ok?: boolean | null
+          last_test_result?: Json | null
+          login_hint?: string | null
+          next_retry_at?: string | null
+          organization_slug?: string
+          status?: string
+          sync_from_date?: string | null
+          sync_lock_token?: string | null
+          sync_lock_until?: string | null
+          tax_number?: string
+          updated_at?: string
+          updated_by?: string | null
+          use_for_reconciliation?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_nav_connections_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_buyer_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pi_nav_invoices: {
+        Row: {
+          batch_index: number | null
+          company_id: string
+          completeness_indicator: boolean | null
+          connection_id: string | null
+          created_at: string
+          currency: string | null
+          customer_group_member_tax_number: string | null
+          customer_name: string | null
+          customer_tax_number: string | null
+          detail_attempts: number
+          detail_error: string | null
+          detail_fetched_at: string | null
+          detail_status: string
+          duplicate_document_ids: string[]
+          environment: string
+          exchange_rate: number | null
+          first_seen_at: string
+          gross_amount: number | null
+          gross_amount_huf: number | null
+          hotel_id: string | null
+          id: string
+          ins_date: string
+          invoice_appearance: string | null
+          invoice_category: string | null
+          invoice_delivery_date: string | null
+          invoice_issue_date: string | null
+          invoice_number: string
+          invoice_operation: string
+          last_seen_at: string
+          last_sync_run_id: string | null
+          line_items: Json
+          manual_at: string | null
+          manual_by: string | null
+          manual_reason: string | null
+          manual_status: string | null
+          match_explanation: Json
+          match_reason: string | null
+          match_score: number | null
+          match_status: string
+          matched_at: string | null
+          matched_invoice_id: string | null
+          modification_index: number | null
+          nav_source: string | null
+          net_amount: number | null
+          net_amount_huf: number | null
+          normalized_invoice_number: string | null
+          organization_slug: string
+          original_invoice_number: string | null
+          payment_date: string | null
+          payment_method: string | null
+          raw_digest: Json
+          report_index: number | null
+          source_key: string
+          supplier_address: string | null
+          supplier_bank_account: string | null
+          supplier_group_member_tax_number: string | null
+          supplier_name: string | null
+          supplier_tax_number: string
+          supplier_tax_number_full: string | null
+          transaction_id: string | null
+          updated_at: string
+          vat_amount: number | null
+          vat_amount_huf: number | null
+          vat_breakdown: Json
+        }
+        Insert: {
+          batch_index?: number | null
+          company_id: string
+          completeness_indicator?: boolean | null
+          connection_id?: string | null
+          created_at?: string
+          currency?: string | null
+          customer_group_member_tax_number?: string | null
+          customer_name?: string | null
+          customer_tax_number?: string | null
+          detail_attempts?: number
+          detail_error?: string | null
+          detail_fetched_at?: string | null
+          detail_status?: string
+          duplicate_document_ids?: string[]
+          environment: string
+          exchange_rate?: number | null
+          first_seen_at?: string
+          gross_amount?: number | null
+          gross_amount_huf?: number | null
+          hotel_id?: string | null
+          id?: string
+          ins_date: string
+          invoice_appearance?: string | null
+          invoice_category?: string | null
+          invoice_delivery_date?: string | null
+          invoice_issue_date?: string | null
+          invoice_number: string
+          invoice_operation: string
+          last_seen_at?: string
+          last_sync_run_id?: string | null
+          line_items?: Json
+          manual_at?: string | null
+          manual_by?: string | null
+          manual_reason?: string | null
+          manual_status?: string | null
+          match_explanation?: Json
+          match_reason?: string | null
+          match_score?: number | null
+          match_status?: string
+          matched_at?: string | null
+          matched_invoice_id?: string | null
+          modification_index?: number | null
+          nav_source?: string | null
+          net_amount?: number | null
+          net_amount_huf?: number | null
+          normalized_invoice_number?: string | null
+          organization_slug: string
+          original_invoice_number?: string | null
+          payment_date?: string | null
+          payment_method?: string | null
+          raw_digest?: Json
+          report_index?: number | null
+          source_key: string
+          supplier_address?: string | null
+          supplier_bank_account?: string | null
+          supplier_group_member_tax_number?: string | null
+          supplier_name?: string | null
+          supplier_tax_number: string
+          supplier_tax_number_full?: string | null
+          transaction_id?: string | null
+          updated_at?: string
+          vat_amount?: number | null
+          vat_amount_huf?: number | null
+          vat_breakdown?: Json
+        }
+        Update: {
+          batch_index?: number | null
+          company_id?: string
+          completeness_indicator?: boolean | null
+          connection_id?: string | null
+          created_at?: string
+          currency?: string | null
+          customer_group_member_tax_number?: string | null
+          customer_name?: string | null
+          customer_tax_number?: string | null
+          detail_attempts?: number
+          detail_error?: string | null
+          detail_fetched_at?: string | null
+          detail_status?: string
+          duplicate_document_ids?: string[]
+          environment?: string
+          exchange_rate?: number | null
+          first_seen_at?: string
+          gross_amount?: number | null
+          gross_amount_huf?: number | null
+          hotel_id?: string | null
+          id?: string
+          ins_date?: string
+          invoice_appearance?: string | null
+          invoice_category?: string | null
+          invoice_delivery_date?: string | null
+          invoice_issue_date?: string | null
+          invoice_number?: string
+          invoice_operation?: string
+          last_seen_at?: string
+          last_sync_run_id?: string | null
+          line_items?: Json
+          manual_at?: string | null
+          manual_by?: string | null
+          manual_reason?: string | null
+          manual_status?: string | null
+          match_explanation?: Json
+          match_reason?: string | null
+          match_score?: number | null
+          match_status?: string
+          matched_at?: string | null
+          matched_invoice_id?: string | null
+          modification_index?: number | null
+          nav_source?: string | null
+          net_amount?: number | null
+          net_amount_huf?: number | null
+          normalized_invoice_number?: string | null
+          organization_slug?: string
+          original_invoice_number?: string | null
+          payment_date?: string | null
+          payment_method?: string | null
+          raw_digest?: Json
+          report_index?: number | null
+          source_key?: string
+          supplier_address?: string | null
+          supplier_bank_account?: string | null
+          supplier_group_member_tax_number?: string | null
+          supplier_name?: string | null
+          supplier_tax_number?: string
+          supplier_tax_number_full?: string | null
+          transaction_id?: string | null
+          updated_at?: string
+          vat_amount?: number | null
+          vat_amount_huf?: number | null
+          vat_breakdown?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_nav_invoices_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_buyer_companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pi_nav_invoices_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "pi_nav_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pi_nav_invoices_matched_invoice_id_fkey"
+            columns: ["matched_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pi_nav_sync_events: {
+        Row: {
+          created_at: string
+          detail: Json
+          event: string
+          id: number
+          level: string
+          organization_slug: string
+          run_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          detail?: Json
+          event: string
+          id?: number
+          level?: string
+          organization_slug: string
+          run_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          detail?: Json
+          event?: string
+          id?: number
+          level?: string
+          organization_slug?: string
+          run_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_nav_sync_events_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "pi_nav_sync_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pi_nav_sync_runs: {
+        Row: {
+          company_id: string
+          connection_id: string | null
+          details_failed: number
+          details_fetched: number
+          digests_received: number
+          environment: string
+          error_category: string | null
+          error_code: string | null
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          mode: string
+          organization_slug: string
+          pages_fetched: number
+          records_upserted: number
+          requested_by: string | null
+          started_at: string
+          status: string
+          trigger: string
+          window_from: string | null
+          window_to: string | null
+        }
+        Insert: {
+          company_id: string
+          connection_id?: string | null
+          details_failed?: number
+          details_fetched?: number
+          digests_received?: number
+          environment: string
+          error_category?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          mode: string
+          organization_slug: string
+          pages_fetched?: number
+          records_upserted?: number
+          requested_by?: string | null
+          started_at?: string
+          status?: string
+          trigger: string
+          window_from?: string | null
+          window_to?: string | null
+        }
+        Update: {
+          company_id?: string
+          connection_id?: string | null
+          details_failed?: number
+          details_fetched?: number
+          digests_received?: number
+          environment?: string
+          error_category?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          mode?: string
+          organization_slug?: string
+          pages_fetched?: number
+          records_upserted?: number
+          requested_by?: string | null
+          started_at?: string
+          status?: string
+          trigger?: string
+          window_from?: string | null
+          window_to?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_nav_sync_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_buyer_companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pi_nav_sync_runs_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "pi_nav_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pi_processing_jobs: {
+        Row: {
+          attempts: number
+          completed_at: string | null
+          created_at: string
+          id: string
+          invoice_id: string
+          last_error: string | null
+          last_error_code: string | null
+          lock_token: string | null
+          locked_at: string | null
+          max_attempts: number
+          next_attempt_at: string
+          organization_slug: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          invoice_id: string
+          last_error?: string | null
+          last_error_code?: string | null
+          lock_token?: string | null
+          locked_at?: string | null
+          max_attempts?: number
+          next_attempt_at?: string
+          organization_slug: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          invoice_id?: string
+          last_error?: string | null
+          last_error_code?: string | null
+          lock_token?: string | null
+          locked_at?: string | null
+          max_attempts?: number
+          next_attempt_at?: string
+          organization_slug?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_processing_jobs_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: true
+            referencedRelation: "purchase_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pi_reconcile_state: {
+        Row: {
+          last_error: string | null
+          last_finished_at: string | null
+          last_started_at: string | null
+          last_status: string | null
+          last_summary: Json
+          lock_token: string | null
+          lock_until: string | null
+          organization_slug: string
+          requested_at: string | null
+        }
+        Insert: {
+          last_error?: string | null
+          last_finished_at?: string | null
+          last_started_at?: string | null
+          last_status?: string | null
+          last_summary?: Json
+          lock_token?: string | null
+          lock_until?: string | null
+          organization_slug: string
+          requested_at?: string | null
+        }
+        Update: {
+          last_error?: string | null
+          last_finished_at?: string | null
+          last_started_at?: string | null
+          last_status?: string | null
+          last_summary?: Json
+          lock_token?: string | null
+          lock_until?: string | null
+          organization_slug?: string
+          requested_at?: string | null
+        }
+        Relationships: []
+      }
+      pi_reconciliation_events: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_kind: string
+          company_id: string | null
+          created_at: string
+          detail: Json
+          id: number
+          invoice_id: string | null
+          nav_invoice_id: string | null
+          new_status: string | null
+          old_status: string | null
+          organization_slug: string
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_kind?: string
+          company_id?: string | null
+          created_at?: string
+          detail?: Json
+          id?: number
+          invoice_id?: string | null
+          nav_invoice_id?: string | null
+          new_status?: string | null
+          old_status?: string | null
+          organization_slug: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_kind?: string
+          company_id?: string | null
+          created_at?: string
+          detail?: Json
+          id?: number
+          invoice_id?: string | null
+          nav_invoice_id?: string | null
+          new_status?: string | null
+          old_status?: string | null
+          organization_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pi_reconciliation_events_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pi_reconciliation_events_nav_invoice_id_fkey"
+            columns: ["nav_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "pi_nav_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pickup_snapshots: {
         Row: {
@@ -5020,6 +12481,106 @@ export type Database = {
         }
         Relationships: []
       }
+      pms_ari_availability: {
+        Row: {
+          availability: number | null
+          booked: number
+          date: string
+          hotel_id: string
+          out_of_order: number
+          room_type_id: string
+          sell_limit: number | null
+          total_rooms: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          availability?: number | null
+          booked?: number
+          date: string
+          hotel_id: string
+          out_of_order?: number
+          room_type_id: string
+          sell_limit?: number | null
+          total_rooms?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          availability?: number | null
+          booked?: number
+          date?: string
+          hotel_id?: string
+          out_of_order?: number
+          room_type_id?: string
+          sell_limit?: number | null
+          total_rooms?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_ari_availability_room_type_id_fkey"
+            columns: ["room_type_id"]
+            isOneToOne: false
+            referencedRelation: "room_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pms_ari_rates: {
+        Row: {
+          closed_to_arrival: boolean | null
+          closed_to_departure: boolean | null
+          date: string
+          hotel_id: string
+          max_stay: number | null
+          min_stay_arrival: number | null
+          min_stay_through: number | null
+          rate: number | null
+          rate_plan_id: string
+          stop_sell: boolean | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          closed_to_arrival?: boolean | null
+          closed_to_departure?: boolean | null
+          date: string
+          hotel_id: string
+          max_stay?: number | null
+          min_stay_arrival?: number | null
+          min_stay_through?: number | null
+          rate?: number | null
+          rate_plan_id: string
+          stop_sell?: boolean | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          closed_to_arrival?: boolean | null
+          closed_to_departure?: boolean | null
+          date?: string
+          hotel_id?: string
+          max_stay?: number | null
+          min_stay_arrival?: number | null
+          min_stay_through?: number | null
+          rate?: number | null
+          rate_plan_id?: string
+          stop_sell?: boolean | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_ari_rates_rate_plan_id_fkey"
+            columns: ["rate_plan_id"]
+            isOneToOne: false
+            referencedRelation: "rate_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pms_change_events: {
         Row: {
           acknowledged_at: string | null
@@ -5094,6 +12655,51 @@ export type Database = {
           },
         ]
       }
+      pms_channel_rate_rules: {
+        Row: {
+          active: boolean
+          adjustment_kind: string
+          adjustment_value: number
+          channel_key: string
+          channel_title: string
+          created_at: string
+          created_by: string | null
+          hotel_id: string
+          id: string
+          rounding: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          adjustment_kind?: string
+          adjustment_value?: number
+          channel_key: string
+          channel_title: string
+          created_at?: string
+          created_by?: string | null
+          hotel_id: string
+          id?: string
+          rounding?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          adjustment_kind?: string
+          adjustment_value?: number
+          channel_key?: string
+          channel_title?: string
+          created_at?: string
+          created_by?: string | null
+          hotel_id?: string
+          id?: string
+          rounding?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       pms_configurations: {
         Row: {
           activated_at: string | null
@@ -5127,6 +12733,7 @@ export type Database = {
           outbound_room_allowlist: string[] | null
           pms_hotel_id: string
           pms_type: string
+          reservation_writeback_mode: string
           room_discovery_enabled: boolean
           room_import_enabled: boolean
           settings: Json | null
@@ -5169,6 +12776,7 @@ export type Database = {
           outbound_room_allowlist?: string[] | null
           pms_hotel_id: string
           pms_type?: string
+          reservation_writeback_mode?: string
           room_discovery_enabled?: boolean
           room_import_enabled?: boolean
           settings?: Json | null
@@ -5211,6 +12819,7 @@ export type Database = {
           outbound_room_allowlist?: string[] | null
           pms_hotel_id?: string
           pms_type?: string
+          reservation_writeback_mode?: string
           room_discovery_enabled?: boolean
           room_import_enabled?: boolean
           settings?: Json | null
@@ -5230,6 +12839,102 @@ export type Database = {
             referencedColumns: ["hotel_id"]
           },
         ]
+      }
+      pms_financial_events: {
+        Row: {
+          actor_user_id: string | null
+          amount: number | null
+          created_at: string
+          currency: string | null
+          entity_id: string | null
+          entity_type: string | null
+          event_type: string
+          folio_id: string | null
+          hotel_id: string
+          id: string
+          metadata: Json
+          organization_slug: string
+          reservation_id: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          amount?: number | null
+          created_at?: string
+          currency?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
+          event_type: string
+          folio_id?: string | null
+          hotel_id: string
+          id?: string
+          metadata?: Json
+          organization_slug: string
+          reservation_id: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          amount?: number | null
+          created_at?: string
+          currency?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
+          event_type?: string
+          folio_id?: string | null
+          hotel_id?: string
+          id?: string
+          metadata?: Json
+          organization_slug?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_financial_events_folio_id_fkey"
+            columns: ["folio_id"]
+            isOneToOne: false
+            referencedRelation: "reservation_folios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pms_financial_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pms_morning_sync_runs: {
+        Row: {
+          business_date: string
+          completed_at: string | null
+          error_message: string | null
+          result: Json
+          slot: number
+          started_at: string
+          status: string
+          target_key: string
+        }
+        Insert: {
+          business_date: string
+          completed_at?: string | null
+          error_message?: string | null
+          result?: Json
+          slot: number
+          started_at?: string
+          status: string
+          target_key: string
+        }
+        Update: {
+          business_date?: string
+          completed_at?: string | null
+          error_message?: string | null
+          result?: Json
+          slot?: number
+          started_at?: string
+          status?: string
+          target_key?: string
+        }
+        Relationships: []
       }
       pms_outbound_queue: {
         Row: {
@@ -5337,6 +13042,185 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      pms_refresh_queue: {
+        Row: {
+          attempt: number
+          available_at: string
+          business_date: string
+          error_message: string | null
+          finished_at: string | null
+          hotel_id: string
+          id: string
+          lease_expires_at: string | null
+          request_group_id: string | null
+          request_kind: string
+          requested_at: string
+          requested_by: string | null
+          result: Json | null
+          started_at: string | null
+          status: string
+          target_key: string
+        }
+        Insert: {
+          attempt?: number
+          available_at?: string
+          business_date: string
+          error_message?: string | null
+          finished_at?: string | null
+          hotel_id: string
+          id?: string
+          lease_expires_at?: string | null
+          request_group_id?: string | null
+          request_kind: string
+          requested_at?: string
+          requested_by?: string | null
+          result?: Json | null
+          started_at?: string | null
+          status?: string
+          target_key: string
+        }
+        Update: {
+          attempt?: number
+          available_at?: string
+          business_date?: string
+          error_message?: string | null
+          finished_at?: string | null
+          hotel_id?: string
+          id?: string
+          lease_expires_at?: string | null
+          request_group_id?: string | null
+          request_kind?: string
+          requested_at?: string
+          requested_by?: string | null
+          result?: Json | null
+          started_at?: string | null
+          status?: string
+          target_key?: string
+        }
+        Relationships: []
+      }
+      pms_reservation_outbox: {
+        Row: {
+          action: string
+          attempts: number
+          created_at: string
+          created_by: string | null
+          hotel_id: string
+          id: string
+          last_error: string | null
+          mode: string
+          next_attempt_at: string
+          pms_reservation_id: string | null
+          pms_room_reservation_id: string | null
+          request: Json | null
+          reservation_id: string
+          room_changed: boolean
+          sent_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          action: string
+          attempts?: number
+          created_at?: string
+          created_by?: string | null
+          hotel_id: string
+          id?: string
+          last_error?: string | null
+          mode: string
+          next_attempt_at?: string
+          pms_reservation_id?: string | null
+          pms_room_reservation_id?: string | null
+          request?: Json | null
+          reservation_id: string
+          room_changed?: boolean
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          attempts?: number
+          created_at?: string
+          created_by?: string | null
+          hotel_id?: string
+          id?: string
+          last_error?: string | null
+          mode?: string
+          next_attempt_at?: string
+          pms_reservation_id?: string | null
+          pms_room_reservation_id?: string | null
+          request?: Json | null
+          reservation_id?: string
+          room_changed?: boolean
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_reservation_outbox_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pms_room_bucket_audit: {
+        Row: {
+          business_date: string
+          hotel: string
+          id: number
+          new_checkout: boolean | null
+          new_scheduled: boolean | null
+          new_source: string | null
+          new_sync_date: string | null
+          old_checkout: boolean | null
+          old_scheduled: boolean | null
+          old_source: string | null
+          old_sync_date: string | null
+          recorded_at: string
+          room_id: string
+          room_number: string
+          writer: string
+        }
+        Insert: {
+          business_date: string
+          hotel: string
+          id?: never
+          new_checkout?: boolean | null
+          new_scheduled?: boolean | null
+          new_source?: string | null
+          new_sync_date?: string | null
+          old_checkout?: boolean | null
+          old_scheduled?: boolean | null
+          old_source?: string | null
+          old_sync_date?: string | null
+          recorded_at?: string
+          room_id: string
+          room_number: string
+          writer?: string
+        }
+        Update: {
+          business_date?: string
+          hotel?: string
+          id?: never
+          new_checkout?: boolean | null
+          new_scheduled?: boolean | null
+          new_source?: string | null
+          new_sync_date?: string | null
+          old_checkout?: boolean | null
+          old_scheduled?: boolean | null
+          old_source?: string | null
+          old_sync_date?: string | null
+          recorded_at?: string
+          room_id?: string
+          room_number?: string
+          writer?: string
+        }
+        Relationships: []
       }
       pms_room_mappings: {
         Row: {
@@ -5764,6 +13648,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          access_role: string | null
           acts_as_housekeeper: boolean
           assigned_hotel: string | null
           created_at: string | null
@@ -5786,6 +13671,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          access_role?: string | null
           acts_as_housekeeper?: boolean
           assigned_hotel?: string | null
           created_at?: string | null
@@ -5808,6 +13694,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          access_role?: string | null
           acts_as_housekeeper?: boolean
           assigned_hotel?: string | null
           created_at?: string | null
@@ -6004,6 +13891,8 @@ export type Database = {
       }
       purchase_invoices: {
         Row: {
+          advance_paid_amount: number | null
+          amount_due: number | null
           approval_status: string
           approved_at: string | null
           approved_by: string | null
@@ -6017,6 +13906,9 @@ export type Database = {
           cost_centre_id: string | null
           created_at: string
           currency: string
+          currency_source: string | null
+          discount_amount: number | null
+          document_kind: string | null
           document_type: string | null
           due_date: string | null
           duplicate_of: string | null
@@ -6026,30 +13918,55 @@ export type Database = {
           expense_category: string | null
           expense_category_id: string | null
           extraction_notes: string | null
+          extraction_passes: number
+          field_confidence: Json
           file_mime: string | null
-          file_path: string
+          file_path: string | null
           file_sha256: string | null
           file_size_bytes: number | null
           hotel_id: string | null
           id: string
+          import_batch_id: string | null
+          import_row_hash: string | null
           invoice_date: string | null
           invoice_number: string | null
           is_credit_note: boolean
           is_verified: boolean
           merchant_address: string | null
+          merchant_bank_account: string | null
           merchant_country: string | null
           merchant_name: string | null
           merchant_tax_id: string | null
+          nav_differences: Json
+          nav_duplicate_of: string | null
+          nav_invoice_id: string | null
+          nav_last_checked_at: string | null
+          nav_manual_at: string | null
+          nav_manual_by: string | null
+          nav_manual_nav_invoice_id: string | null
+          nav_manual_reason: string | null
+          nav_manual_status: string | null
+          nav_match_explanation: Json
+          nav_match_reason: string | null
+          nav_match_score: number | null
+          nav_match_status: string
           needs_review: boolean
           net_amount: number | null
           normalized_invoice_number: string | null
           normalized_merchant_tax_id: string | null
           notes: string | null
+          ocr_model: string | null
+          ocr_original: Json | null
+          ocr_provider: string | null
+          ocr_version: string | null
           organization_slug: string
           payment_method: string | null
           performance_date: string | null
+          preview_path: string | null
+          previous_balance: number | null
           processing_notes: string | null
           raw_text: string | null
+          reference_invoice_number: string | null
           rejected_at: string | null
           rejected_by: string | null
           rejection_reason: string | null
@@ -6060,6 +13977,9 @@ export type Database = {
           reviewed_at: string | null
           reviewed_by: string | null
           reviewer_notes: string | null
+          service_period_end: string | null
+          service_period_start: string | null
+          source: string
           status: string
           submitted_at: string | null
           total_amount: number | null
@@ -6067,10 +13987,14 @@ export type Database = {
           updated_at: string
           uploaded_at: string
           uploaded_by: string
+          validation_results: Json
+          validation_status: string | null
           verified_at: string | null
           verified_by: string | null
         }
         Insert: {
+          advance_paid_amount?: number | null
+          amount_due?: number | null
           approval_status?: string
           approved_at?: string | null
           approved_by?: string | null
@@ -6084,6 +14008,9 @@ export type Database = {
           cost_centre_id?: string | null
           created_at?: string
           currency?: string
+          currency_source?: string | null
+          discount_amount?: number | null
+          document_kind?: string | null
           document_type?: string | null
           due_date?: string | null
           duplicate_of?: string | null
@@ -6093,30 +14020,55 @@ export type Database = {
           expense_category?: string | null
           expense_category_id?: string | null
           extraction_notes?: string | null
+          extraction_passes?: number
+          field_confidence?: Json
           file_mime?: string | null
-          file_path: string
+          file_path?: string | null
           file_sha256?: string | null
           file_size_bytes?: number | null
           hotel_id?: string | null
           id?: string
+          import_batch_id?: string | null
+          import_row_hash?: string | null
           invoice_date?: string | null
           invoice_number?: string | null
           is_credit_note?: boolean
           is_verified?: boolean
           merchant_address?: string | null
+          merchant_bank_account?: string | null
           merchant_country?: string | null
           merchant_name?: string | null
           merchant_tax_id?: string | null
+          nav_differences?: Json
+          nav_duplicate_of?: string | null
+          nav_invoice_id?: string | null
+          nav_last_checked_at?: string | null
+          nav_manual_at?: string | null
+          nav_manual_by?: string | null
+          nav_manual_nav_invoice_id?: string | null
+          nav_manual_reason?: string | null
+          nav_manual_status?: string | null
+          nav_match_explanation?: Json
+          nav_match_reason?: string | null
+          nav_match_score?: number | null
+          nav_match_status?: string
           needs_review?: boolean
           net_amount?: number | null
           normalized_invoice_number?: string | null
           normalized_merchant_tax_id?: string | null
           notes?: string | null
+          ocr_model?: string | null
+          ocr_original?: Json | null
+          ocr_provider?: string | null
+          ocr_version?: string | null
           organization_slug: string
           payment_method?: string | null
           performance_date?: string | null
+          preview_path?: string | null
+          previous_balance?: number | null
           processing_notes?: string | null
           raw_text?: string | null
+          reference_invoice_number?: string | null
           rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
@@ -6127,6 +14079,9 @@ export type Database = {
           reviewed_at?: string | null
           reviewed_by?: string | null
           reviewer_notes?: string | null
+          service_period_end?: string | null
+          service_period_start?: string | null
+          source?: string
           status?: string
           submitted_at?: string | null
           total_amount?: number | null
@@ -6134,10 +14089,14 @@ export type Database = {
           updated_at?: string
           uploaded_at?: string
           uploaded_by: string
+          validation_results?: Json
+          validation_status?: string | null
           verified_at?: string | null
           verified_by?: string | null
         }
         Update: {
+          advance_paid_amount?: number | null
+          amount_due?: number | null
           approval_status?: string
           approved_at?: string | null
           approved_by?: string | null
@@ -6151,6 +14110,9 @@ export type Database = {
           cost_centre_id?: string | null
           created_at?: string
           currency?: string
+          currency_source?: string | null
+          discount_amount?: number | null
+          document_kind?: string | null
           document_type?: string | null
           due_date?: string | null
           duplicate_of?: string | null
@@ -6160,30 +14122,55 @@ export type Database = {
           expense_category?: string | null
           expense_category_id?: string | null
           extraction_notes?: string | null
+          extraction_passes?: number
+          field_confidence?: Json
           file_mime?: string | null
-          file_path?: string
+          file_path?: string | null
           file_sha256?: string | null
           file_size_bytes?: number | null
           hotel_id?: string | null
           id?: string
+          import_batch_id?: string | null
+          import_row_hash?: string | null
           invoice_date?: string | null
           invoice_number?: string | null
           is_credit_note?: boolean
           is_verified?: boolean
           merchant_address?: string | null
+          merchant_bank_account?: string | null
           merchant_country?: string | null
           merchant_name?: string | null
           merchant_tax_id?: string | null
+          nav_differences?: Json
+          nav_duplicate_of?: string | null
+          nav_invoice_id?: string | null
+          nav_last_checked_at?: string | null
+          nav_manual_at?: string | null
+          nav_manual_by?: string | null
+          nav_manual_nav_invoice_id?: string | null
+          nav_manual_reason?: string | null
+          nav_manual_status?: string | null
+          nav_match_explanation?: Json
+          nav_match_reason?: string | null
+          nav_match_score?: number | null
+          nav_match_status?: string
           needs_review?: boolean
           net_amount?: number | null
           normalized_invoice_number?: string | null
           normalized_merchant_tax_id?: string | null
           notes?: string | null
+          ocr_model?: string | null
+          ocr_original?: Json | null
+          ocr_provider?: string | null
+          ocr_version?: string | null
           organization_slug?: string
           payment_method?: string | null
           performance_date?: string | null
+          preview_path?: string | null
+          previous_balance?: number | null
           processing_notes?: string | null
           raw_text?: string | null
+          reference_invoice_number?: string | null
           rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
@@ -6194,6 +14181,9 @@ export type Database = {
           reviewed_at?: string | null
           reviewed_by?: string | null
           reviewer_notes?: string | null
+          service_period_end?: string | null
+          service_period_start?: string | null
+          source?: string
           status?: string
           submitted_at?: string | null
           total_amount?: number | null
@@ -6201,6 +14191,8 @@ export type Database = {
           updated_at?: string
           uploaded_at?: string
           uploaded_by?: string
+          validation_results?: Json
+          validation_status?: string | null
           verified_at?: string | null
           verified_by?: string | null
         }
@@ -6234,6 +14226,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "purchase_invoices_nav_duplicate_of_fkey"
+            columns: ["nav_duplicate_of"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_invoices_nav_invoice_fk"
+            columns: ["nav_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "pi_nav_invoices"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "purchase_invoices_uploaded_by_fkey"
             columns: ["uploaded_by"]
             isOneToOne: false
@@ -6248,6 +14254,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      push_notification_self_tests: {
+        Row: {
+          last_sent_at: string
+          user_id: string
+        }
+        Insert: {
+          last_sent_at?: string
+          user_id: string
+        }
+        Update: {
+          last_sent_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          auth: string
+          created_at: string
+          endpoint: string
+          id: string
+          last_seen_at: string
+          p256dh: string
+          updated_at: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          endpoint: string
+          id?: string
+          last_seen_at?: string
+          p256dh: string
+          updated_at?: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          endpoint?: string
+          id?: string
+          last_seen_at?: string
+          p256dh?: string
+          updated_at?: string
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       rate_calendar: {
         Row: {
@@ -6392,6 +14449,7 @@ export type Database = {
         Row: {
           base_rate: number
           cancellation_policy: string | null
+          code: string | null
           created_at: string
           currency: string | null
           hotel_id: string | null
@@ -6403,6 +14461,8 @@ export type Database = {
           name: string
           organization_slug: string | null
           room_type: string | null
+          room_type_id: string | null
+          sort_order: number
           updated_at: string
           valid_from: string | null
           valid_to: string | null
@@ -6410,6 +14470,7 @@ export type Database = {
         Insert: {
           base_rate?: number
           cancellation_policy?: string | null
+          code?: string | null
           created_at?: string
           currency?: string | null
           hotel_id?: string | null
@@ -6421,6 +14482,8 @@ export type Database = {
           name: string
           organization_slug?: string | null
           room_type?: string | null
+          room_type_id?: string | null
+          sort_order?: number
           updated_at?: string
           valid_from?: string | null
           valid_to?: string | null
@@ -6428,6 +14491,7 @@ export type Database = {
         Update: {
           base_rate?: number
           cancellation_policy?: string | null
+          code?: string | null
           created_at?: string
           currency?: string | null
           hotel_id?: string | null
@@ -6439,11 +14503,21 @@ export type Database = {
           name?: string
           organization_slug?: string | null
           room_type?: string | null
+          room_type_id?: string | null
+          sort_order?: number
           updated_at?: string
           valid_from?: string | null
           valid_to?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "rate_plans_room_type_id_fkey"
+            columns: ["room_type_id"]
+            isOneToOne: false
+            referencedRelation: "room_types"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       rate_recommendations: {
         Row: {
@@ -6513,6 +14587,80 @@ export type Database = {
           },
         ]
       }
+      rd_historical_roster_import_batches: {
+        Row: {
+          actor_id: string
+          id: string
+          imported_at: string
+          imported_count: number
+          source_file: string | null
+        }
+        Insert: {
+          actor_id: string
+          id?: string
+          imported_at?: string
+          imported_count?: number
+          source_file?: string | null
+        }
+        Update: {
+          actor_id?: string
+          id?: string
+          imported_at?: string
+          imported_count?: number
+          source_file?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rd_historical_roster_import_batches_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rd_staff_position_history: {
+        Row: {
+          changed_at: string
+          editor_id: string
+          employee_id: string
+          id: string
+          new_position: string | null
+          old_position: string | null
+        }
+        Insert: {
+          changed_at?: string
+          editor_id: string
+          employee_id: string
+          id?: string
+          new_position?: string | null
+          old_position?: string | null
+        }
+        Update: {
+          changed_at?: string
+          editor_id?: string
+          employee_id?: string
+          id?: string
+          new_position?: string | null
+          old_position?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rd_staff_position_history_editor_id_fkey"
+            columns: ["editor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rd_staff_position_history_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reservation_events: {
         Row: {
           created_at: string
@@ -6550,6 +14698,139 @@ export type Database = {
             columns: ["reservation_id"]
             isOneToOne: false
             referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reservation_folios: {
+        Row: {
+          base_reservation_amount: number
+          closed_at: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          display_name: string
+          folio_type: string
+          group_key: string | null
+          hotel_id: string
+          id: string
+          opened_at: string
+          organization_slug: string
+          parent_folio_id: string | null
+          reservation_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          base_reservation_amount?: number
+          closed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          display_name?: string
+          folio_type?: string
+          group_key?: string | null
+          hotel_id: string
+          id?: string
+          opened_at?: string
+          organization_slug: string
+          parent_folio_id?: string | null
+          reservation_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          base_reservation_amount?: number
+          closed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          display_name?: string
+          folio_type?: string
+          group_key?: string | null
+          hotel_id?: string
+          id?: string
+          opened_at?: string
+          organization_slug?: string
+          parent_folio_id?: string | null
+          reservation_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reservation_folios_parent_folio_id_fkey"
+            columns: ["parent_folio_id"]
+            isOneToOne: false
+            referencedRelation: "reservation_folios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reservation_folios_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reservation_guests: {
+        Row: {
+          arrived_at: string | null
+          created_at: string
+          created_by: string | null
+          departed_at: string | null
+          guest_id: string
+          ifa_status: string | null
+          is_primary: boolean
+          reservation_id: string
+          room_id: string | null
+          stay_state: string
+        }
+        Insert: {
+          arrived_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          departed_at?: string | null
+          guest_id: string
+          ifa_status?: string | null
+          is_primary?: boolean
+          reservation_id: string
+          room_id?: string | null
+          stay_state?: string
+        }
+        Update: {
+          arrived_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          departed_at?: string | null
+          guest_id?: string
+          ifa_status?: string | null
+          is_primary?: boolean
+          reservation_id?: string
+          room_id?: string | null
+          stay_state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reservation_guests_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reservation_guests_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reservation_guests_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
         ]
@@ -6607,6 +14888,8 @@ export type Database = {
           balance_due: number | null
           cancellation_reason: string | null
           cancelled_at: string | null
+          channex_booking_id: string | null
+          channex_room_index: number | null
           check_in_date: string
           check_out_date: string
           children: number
@@ -6617,12 +14900,34 @@ export type Database = {
           hotel_id: string | null
           id: string
           internal_notes: string | null
+          ntak_booking_no: string | null
           organization_slug: string | null
+          ota_name: string | null
+          ota_reservation_code: string | null
+          ota_taxes: Json | null
+          payment_collect: string | null
           payment_status: string | null
+          pms_channel: string | null
+          pms_channel_id: string | null
+          pms_contact_email: string | null
+          pms_contact_name: string | null
+          pms_contact_phone: string | null
+          pms_group_note: string | null
           pms_guest_name: string | null
+          pms_locked: boolean | null
+          pms_missing_since: string | null
+          pms_option_expires_at: string | null
+          pms_paid_amount: number | null
+          pms_payment_status: string | null
+          pms_rate_plan_id: string | null
+          pms_reservation_id: string | null
+          pms_room_reservation_id: string | null
+          pms_status_id: number | null
+          pms_voucher: string | null
           rate_per_night: number | null
           reservation_number: string | null
           room_id: string | null
+          room_type_id: string | null
           room_type_requested: string | null
           source: string | null
           source_reservation_id: string | null
@@ -6639,6 +14944,8 @@ export type Database = {
           balance_due?: number | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
+          channex_booking_id?: string | null
+          channex_room_index?: number | null
           check_in_date: string
           check_out_date: string
           children?: number
@@ -6649,12 +14956,34 @@ export type Database = {
           hotel_id?: string | null
           id?: string
           internal_notes?: string | null
+          ntak_booking_no?: string | null
           organization_slug?: string | null
+          ota_name?: string | null
+          ota_reservation_code?: string | null
+          ota_taxes?: Json | null
+          payment_collect?: string | null
           payment_status?: string | null
+          pms_channel?: string | null
+          pms_channel_id?: string | null
+          pms_contact_email?: string | null
+          pms_contact_name?: string | null
+          pms_contact_phone?: string | null
+          pms_group_note?: string | null
           pms_guest_name?: string | null
+          pms_locked?: boolean | null
+          pms_missing_since?: string | null
+          pms_option_expires_at?: string | null
+          pms_paid_amount?: number | null
+          pms_payment_status?: string | null
+          pms_rate_plan_id?: string | null
+          pms_reservation_id?: string | null
+          pms_room_reservation_id?: string | null
+          pms_status_id?: number | null
+          pms_voucher?: string | null
           rate_per_night?: number | null
           reservation_number?: string | null
           room_id?: string | null
+          room_type_id?: string | null
           room_type_requested?: string | null
           source?: string | null
           source_reservation_id?: string | null
@@ -6671,6 +15000,8 @@ export type Database = {
           balance_due?: number | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
+          channex_booking_id?: string | null
+          channex_room_index?: number | null
           check_in_date?: string
           check_out_date?: string
           children?: number
@@ -6681,12 +15012,34 @@ export type Database = {
           hotel_id?: string | null
           id?: string
           internal_notes?: string | null
+          ntak_booking_no?: string | null
           organization_slug?: string | null
+          ota_name?: string | null
+          ota_reservation_code?: string | null
+          ota_taxes?: Json | null
+          payment_collect?: string | null
           payment_status?: string | null
+          pms_channel?: string | null
+          pms_channel_id?: string | null
+          pms_contact_email?: string | null
+          pms_contact_name?: string | null
+          pms_contact_phone?: string | null
+          pms_group_note?: string | null
           pms_guest_name?: string | null
+          pms_locked?: boolean | null
+          pms_missing_since?: string | null
+          pms_option_expires_at?: string | null
+          pms_paid_amount?: number | null
+          pms_payment_status?: string | null
+          pms_rate_plan_id?: string | null
+          pms_reservation_id?: string | null
+          pms_room_reservation_id?: string | null
+          pms_status_id?: number | null
+          pms_voucher?: string | null
           rate_per_night?: number | null
           reservation_number?: string | null
           room_id?: string | null
+          room_type_id?: string | null
           room_type_requested?: string | null
           source?: string | null
           source_reservation_id?: string | null
@@ -6711,15 +15064,25 @@ export type Database = {
             referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "reservations_room_type_id_fkey"
+            columns: ["room_type_id"]
+            isOneToOne: false
+            referencedRelation: "room_types"
+            referencedColumns: ["id"]
+          },
         ]
       }
       restaurant_reservations: {
         Row: {
+          booked_at: string | null
           created_at: string
           dashboard_sync_error: string | null
           dashboard_sync_state: string
           dashboard_synced_at: string | null
           ends_at: string | null
+          first_seen_at: string | null
+          first_seen_by: string | null
           guest_email: string | null
           guest_name: string
           guest_phone: string | null
@@ -6741,11 +15104,14 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          booked_at?: string | null
           created_at?: string
           dashboard_sync_error?: string | null
           dashboard_sync_state?: string
           dashboard_synced_at?: string | null
           ends_at?: string | null
+          first_seen_at?: string | null
+          first_seen_by?: string | null
           guest_email?: string | null
           guest_name?: string
           guest_phone?: string | null
@@ -6767,11 +15133,14 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          booked_at?: string | null
           created_at?: string
           dashboard_sync_error?: string | null
           dashboard_sync_state?: string
           dashboard_synced_at?: string | null
           ends_at?: string | null
+          first_seen_at?: string | null
+          first_seen_by?: string | null
           guest_email?: string | null
           guest_name?: string
           guest_phone?: string | null
@@ -7105,6 +15474,60 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_booking_activity_archive: {
+        Row: {
+          arrival_date: string
+          captured_at: string
+          checkout_date: string
+          event_at: string
+          guests: number
+          hotel_id: string
+          kind: string
+          organization_slug: string
+          reservation_id: string
+          room_key: string
+          room_nights: number
+          room_type_name: string | null
+          source_name: string | null
+          updated_at: string
+          value_eur: number
+        }
+        Insert: {
+          arrival_date: string
+          captured_at?: string
+          checkout_date: string
+          event_at: string
+          guests?: number
+          hotel_id: string
+          kind: string
+          organization_slug: string
+          reservation_id: string
+          room_key: string
+          room_nights: number
+          room_type_name?: string | null
+          source_name?: string | null
+          updated_at?: string
+          value_eur?: number
+        }
+        Update: {
+          arrival_date?: string
+          captured_at?: string
+          checkout_date?: string
+          event_at?: string
+          guests?: number
+          hotel_id?: string
+          kind?: string
+          organization_slug?: string
+          reservation_id?: string
+          room_key?: string
+          room_nights?: number
+          room_type_name?: string | null
+          source_name?: string | null
+          updated_at?: string
+          value_eur?: number
+        }
+        Relationships: []
+      }
       revenue_booking_nights: {
         Row: {
           captured_at: string
@@ -7177,6 +15600,161 @@ export type Database = {
           stay_from?: string | null
           stay_to?: string | null
           total_price_eur?: number | null
+        }
+        Relationships: []
+      }
+      revenue_booking_stay_context: {
+        Row: {
+          event_at: string
+          hotel_id: string
+          kind: string
+          observed_at: string
+          reservation_id: string
+          room_key: string
+          scheduled_arrival: string
+          scheduled_checkout: string
+        }
+        Insert: {
+          event_at: string
+          hotel_id: string
+          kind: string
+          observed_at?: string
+          reservation_id: string
+          room_key: string
+          scheduled_arrival: string
+          scheduled_checkout: string
+        }
+        Update: {
+          event_at?: string
+          hotel_id?: string
+          kind?: string
+          observed_at?: string
+          reservation_id?: string
+          room_key?: string
+          scheduled_arrival?: string
+          scheduled_checkout?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "revenue_booking_stay_context_hotel_id_reservation_id_room__fkey"
+            columns: [
+              "hotel_id",
+              "reservation_id",
+              "room_key",
+              "kind",
+              "event_at",
+            ]
+            isOneToOne: true
+            referencedRelation: "revenue_booking_activity_archive"
+            referencedColumns: [
+              "hotel_id",
+              "reservation_id",
+              "room_key",
+              "kind",
+              "event_at",
+            ]
+          },
+        ]
+      }
+      revenue_booking_value_observations: {
+        Row: {
+          approved_for_automated_training: boolean
+          booking_channel: string | null
+          booking_event_at: string | null
+          booking_kind: string
+          hotel_id: string
+          id: number
+          observation_origin: string
+          observed_at: string
+          observed_value_as_reported: number | null
+          organization_slug: string
+          reservation_fingerprint: string
+          room_fingerprint: string
+          room_nights: number | null
+          stay_from: string | null
+          stay_to: string | null
+        }
+        Insert: {
+          approved_for_automated_training?: boolean
+          booking_channel?: string | null
+          booking_event_at?: string | null
+          booking_kind: string
+          hotel_id: string
+          id?: never
+          observation_origin: string
+          observed_at?: string
+          observed_value_as_reported?: number | null
+          organization_slug: string
+          reservation_fingerprint: string
+          room_fingerprint: string
+          room_nights?: number | null
+          stay_from?: string | null
+          stay_to?: string | null
+        }
+        Update: {
+          approved_for_automated_training?: boolean
+          booking_channel?: string | null
+          booking_event_at?: string | null
+          booking_kind?: string
+          hotel_id?: string
+          id?: never
+          observation_origin?: string
+          observed_at?: string
+          observed_value_as_reported?: number | null
+          organization_slug?: string
+          reservation_fingerprint?: string
+          room_fingerprint?: string
+          room_nights?: number | null
+          stay_from?: string | null
+          stay_to?: string | null
+        }
+        Relationships: []
+      }
+      revenue_calendar_history_archive: {
+        Row: {
+          adr_eur: number | null
+          archived_at: string
+          captured_at: string | null
+          events: Json
+          hotel_id: string
+          occupancy_pct: number | null
+          organization_slug: string
+          rates: Json
+          revenue_eur: number | null
+          revpar_eur: number | null
+          rooms_available: number | null
+          rooms_sold: number | null
+          stay_date: string
+        }
+        Insert: {
+          adr_eur?: number | null
+          archived_at?: string
+          captured_at?: string | null
+          events?: Json
+          hotel_id: string
+          occupancy_pct?: number | null
+          organization_slug: string
+          rates?: Json
+          revenue_eur?: number | null
+          revpar_eur?: number | null
+          rooms_available?: number | null
+          rooms_sold?: number | null
+          stay_date: string
+        }
+        Update: {
+          adr_eur?: number | null
+          archived_at?: string
+          captured_at?: string | null
+          events?: Json
+          hotel_id?: string
+          occupancy_pct?: number | null
+          organization_slug?: string
+          rates?: Json
+          revenue_eur?: number | null
+          revpar_eur?: number | null
+          rooms_available?: number | null
+          rooms_sold?: number | null
+          stay_date?: string
         }
         Relationships: []
       }
@@ -7257,6 +15835,33 @@ export type Database = {
           stay_from?: string | null
           stay_to?: string | null
           total_price_eur?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      revenue_converting_prices: {
+        Row: {
+          bookings: number
+          converted_at: string
+          hotel_id: string
+          price_eur: number
+          stay_date: string
+          updated_at: string
+        }
+        Insert: {
+          bookings?: number
+          converted_at: string
+          hotel_id: string
+          price_eur: number
+          stay_date: string
+          updated_at?: string
+        }
+        Update: {
+          bookings?: number
+          converted_at?: string
+          hotel_id?: string
+          price_eur?: number
+          stay_date?: string
           updated_at?: string
         }
         Relationships: []
@@ -7435,6 +16040,60 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_date_tiers: {
+        Row: {
+          ceiling_eur: number | null
+          created_at: string
+          created_by: string | null
+          created_by_name: string | null
+          event_title: string | null
+          hotel_id: string
+          organization_slug: string
+          reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source: string
+          status: string
+          stay_date: string
+          tier: string
+          updated_at: string
+        }
+        Insert: {
+          ceiling_eur?: number | null
+          created_at?: string
+          created_by?: string | null
+          created_by_name?: string | null
+          event_title?: string | null
+          hotel_id: string
+          organization_slug?: string
+          reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source?: string
+          status?: string
+          stay_date: string
+          tier: string
+          updated_at?: string
+        }
+        Update: {
+          ceiling_eur?: number | null
+          created_at?: string
+          created_by?: string | null
+          created_by_name?: string | null
+          event_title?: string | null
+          hotel_id?: string
+          organization_slug?: string
+          reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source?: string
+          status?: string
+          stay_date?: string
+          tier?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       revenue_demand_ratings: {
         Row: {
           created_at: string
@@ -7588,6 +16247,57 @@ export type Database = {
           organization_slug?: string
           stay_date?: string
           uplift_eur?: number
+        }
+        Relationships: []
+      }
+      revenue_historical_daily: {
+        Row: {
+          adr_eur: number | null
+          captured_at: string
+          hotel_id: string
+          lead_days: number | null
+          new_bookings: number
+          observed_date: string
+          occupancy_pct: number | null
+          organization_slug: string
+          revenue_eur: number
+          revpar_eur: number | null
+          rooms_available: number
+          rooms_sold: number
+          stay_date: string
+          updated_at: string
+        }
+        Insert: {
+          adr_eur?: number | null
+          captured_at: string
+          hotel_id: string
+          lead_days?: number | null
+          new_bookings?: number
+          observed_date: string
+          occupancy_pct?: number | null
+          organization_slug: string
+          revenue_eur?: number
+          revpar_eur?: number | null
+          rooms_available?: number
+          rooms_sold?: number
+          stay_date: string
+          updated_at?: string
+        }
+        Update: {
+          adr_eur?: number | null
+          captured_at?: string
+          hotel_id?: string
+          lead_days?: number | null
+          new_bookings?: number
+          observed_date?: string
+          occupancy_pct?: number | null
+          organization_slug?: string
+          revenue_eur?: number
+          revpar_eur?: number | null
+          rooms_available?: number
+          rooms_sold?: number
+          stay_date?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -7824,6 +16534,108 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      revenue_pace_policy_log: {
+        Row: {
+          base_price: number | null
+          ceiling_ref: number | null
+          cells: number | null
+          converting_price: number | null
+          created_at: string
+          current_price: number | null
+          days_out: number
+          expected_pct: number | null
+          floor_ref: number | null
+          hotel_id: string
+          id: number
+          live_direction: string | null
+          live_movement: number | null
+          live_reason: string | null
+          mode: string
+          occupancy_pct: number | null
+          pace_gap: number | null
+          policy_detail: string | null
+          policy_direction: string
+          policy_intent: string | null
+          policy_movement: number
+          policy_raw: number | null
+          policy_reason: string | null
+          policy_target: number | null
+          pressure: number | null
+          rooms_remaining: number | null
+          run_id: string | null
+          stay_date: string
+          tier: string | null
+          tier_source: string | null
+          zone: string | null
+        }
+        Insert: {
+          base_price?: number | null
+          ceiling_ref?: number | null
+          cells?: number | null
+          converting_price?: number | null
+          created_at?: string
+          current_price?: number | null
+          days_out: number
+          expected_pct?: number | null
+          floor_ref?: number | null
+          hotel_id: string
+          id?: never
+          live_direction?: string | null
+          live_movement?: number | null
+          live_reason?: string | null
+          mode: string
+          occupancy_pct?: number | null
+          pace_gap?: number | null
+          policy_detail?: string | null
+          policy_direction: string
+          policy_intent?: string | null
+          policy_movement?: number
+          policy_raw?: number | null
+          policy_reason?: string | null
+          policy_target?: number | null
+          pressure?: number | null
+          rooms_remaining?: number | null
+          run_id?: string | null
+          stay_date: string
+          tier?: string | null
+          tier_source?: string | null
+          zone?: string | null
+        }
+        Update: {
+          base_price?: number | null
+          ceiling_ref?: number | null
+          cells?: number | null
+          converting_price?: number | null
+          created_at?: string
+          current_price?: number | null
+          days_out?: number
+          expected_pct?: number | null
+          floor_ref?: number | null
+          hotel_id?: string
+          id?: never
+          live_direction?: string | null
+          live_movement?: number | null
+          live_reason?: string | null
+          mode?: string
+          occupancy_pct?: number | null
+          pace_gap?: number | null
+          policy_detail?: string | null
+          policy_direction?: string
+          policy_intent?: string | null
+          policy_movement?: number
+          policy_raw?: number | null
+          policy_reason?: string | null
+          policy_target?: number | null
+          pressure?: number | null
+          rooms_remaining?: number | null
+          run_id?: string | null
+          stay_date?: string
+          tier?: string | null
+          tier_source?: string | null
+          zone?: string | null
+        }
+        Relationships: []
       }
       revenue_pace_targets: {
         Row: {
@@ -8070,6 +16882,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           currency: string
+          date_column_lockstep_enabled: boolean
           direction_change_hours: number
           engine_version: number
           evaluation_interval_minutes: number
@@ -8150,6 +16963,7 @@ export type Database = {
           occupancy_lift_enabled: boolean
           occupancy_lift_ladder: Json | null
           organization_slug: string
+          pace_policy: Json
           pickup_increase_ladder: Json | null
           pickup_lookback_hours: number
           positive_pickup_enabled: boolean
@@ -8197,6 +17011,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           currency?: string
+          date_column_lockstep_enabled?: boolean
           direction_change_hours?: number
           engine_version?: number
           evaluation_interval_minutes?: number
@@ -8277,6 +17092,7 @@ export type Database = {
           occupancy_lift_enabled?: boolean
           occupancy_lift_ladder?: Json | null
           organization_slug: string
+          pace_policy?: Json
           pickup_increase_ladder?: Json | null
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
@@ -8324,6 +17140,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           currency?: string
+          date_column_lockstep_enabled?: boolean
           direction_change_hours?: number
           engine_version?: number
           evaluation_interval_minutes?: number
@@ -8404,6 +17221,7 @@ export type Database = {
           occupancy_lift_enabled?: boolean
           occupancy_lift_ladder?: Json | null
           organization_slug?: string
+          pace_policy?: Json
           pickup_increase_ladder?: Json | null
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
@@ -8887,6 +17705,87 @@ export type Database = {
           },
         ]
       }
+      revenue_reservation_price_memory: {
+        Row: {
+          hotel_id: string
+          last_captured_at: string | null
+          last_obj_id: string | null
+          last_stay_from: string | null
+          last_stay_to: string | null
+          obk_id: string
+          original_total_price: number | null
+          res_id: string
+          source_currency: string | null
+          source_name: string | null
+          total_price_eur: number | null
+          updated_at: string
+        }
+        Insert: {
+          hotel_id: string
+          last_captured_at?: string | null
+          last_obj_id?: string | null
+          last_stay_from?: string | null
+          last_stay_to?: string | null
+          obk_id?: string
+          original_total_price?: number | null
+          res_id: string
+          source_currency?: string | null
+          source_name?: string | null
+          total_price_eur?: number | null
+          updated_at?: string
+        }
+        Update: {
+          hotel_id?: string
+          last_captured_at?: string | null
+          last_obj_id?: string | null
+          last_stay_from?: string | null
+          last_stay_to?: string | null
+          obk_id?: string
+          original_total_price?: number | null
+          res_id?: string
+          source_currency?: string | null
+          source_name?: string | null
+          total_price_eur?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      revenue_room_type_availability: {
+        Row: {
+          availability: number
+          captured_at: string
+          created_at: string
+          hotel_id: string
+          obk_id: string
+          organization_slug: string
+          pms_hotel_id: string
+          source: string
+          stay_date: string
+        }
+        Insert: {
+          availability: number
+          captured_at?: string
+          created_at?: string
+          hotel_id: string
+          obk_id: string
+          organization_slug: string
+          pms_hotel_id: string
+          source?: string
+          stay_date: string
+        }
+        Update: {
+          availability?: number
+          captured_at?: string
+          created_at?: string
+          hotel_id?: string
+          obk_id?: string
+          organization_slug?: string
+          pms_hotel_id?: string
+          source?: string
+          stay_date?: string
+        }
+        Relationships: []
+      }
       revenue_room_type_rates: {
         Row: {
           captured_at: string
@@ -8942,6 +17841,93 @@ export type Database = {
           rate_plan_id?: string
           room_type_name?: string | null
           source?: string
+          stay_date?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      revenue_rule_backups: {
+        Row: {
+          hotel_id: string
+          id: string
+          note: string | null
+          pace_targets: Json | null
+          price_floors: Json | null
+          rule: Json
+          taken_at: string
+        }
+        Insert: {
+          hotel_id: string
+          id?: string
+          note?: string | null
+          pace_targets?: Json | null
+          price_floors?: Json | null
+          rule: Json
+          taken_at?: string
+        }
+        Update: {
+          hotel_id?: string
+          id?: string
+          note?: string | null
+          pace_targets?: Json | null
+          price_floors?: Json | null
+          rule?: Json
+          taken_at?: string
+        }
+        Relationships: []
+      }
+      revenue_seasonal_base: {
+        Row: {
+          base_eur: number
+          computed_at: string
+          detail: Json
+          hotel_id: string
+          sister_count: number
+          special_ratio: number | null
+          stay_date: string
+        }
+        Insert: {
+          base_eur: number
+          computed_at?: string
+          detail?: Json
+          hotel_id: string
+          sister_count?: number
+          special_ratio?: number | null
+          stay_date: string
+        }
+        Update: {
+          base_eur?: number
+          computed_at?: string
+          detail?: Json
+          hotel_id?: string
+          sister_count?: number
+          special_ratio?: number | null
+          stay_date?: string
+        }
+        Relationships: []
+      }
+      revenue_sellout_state: {
+        Row: {
+          hotel_id: string
+          reservation_counts: Json
+          room_type_name: string
+          rooms_left: number
+          stay_date: string
+          updated_at: string
+        }
+        Insert: {
+          hotel_id: string
+          reservation_counts?: Json
+          room_type_name: string
+          rooms_left: number
+          stay_date: string
+          updated_at?: string
+        }
+        Update: {
+          hotel_id?: string
+          reservation_counts?: Json
+          room_type_name?: string
+          rooms_left?: number
           stay_date?: string
           updated_at?: string
         }
@@ -9033,6 +18019,7 @@ export type Database = {
       }
       revenue_soldout_prices: {
         Row: {
+          capture_method: string
           captured_at: string
           created_at: string
           currency: string
@@ -9042,11 +18029,19 @@ export type Database = {
           organization_slug: string
           price: number
           released_at: string | null
+          reservation_nightly_price: number | null
           room_type_name: string
+          source_booking_created_at: string | null
+          source_obk_id: string | null
+          source_rate_captured_at: string | null
+          source_rate_plan_id: string | null
+          source_res_id: string | null
+          source_room_key: string | null
           stay_date: string
           updated_at: string
         }
         Insert: {
+          capture_method?: string
           captured_at?: string
           created_at?: string
           currency?: string
@@ -9056,11 +18051,19 @@ export type Database = {
           organization_slug: string
           price: number
           released_at?: string | null
+          reservation_nightly_price?: number | null
           room_type_name: string
+          source_booking_created_at?: string | null
+          source_obk_id?: string | null
+          source_rate_captured_at?: string | null
+          source_rate_plan_id?: string | null
+          source_res_id?: string | null
+          source_room_key?: string | null
           stay_date: string
           updated_at?: string
         }
         Update: {
+          capture_method?: string
           captured_at?: string
           created_at?: string
           currency?: string
@@ -9070,7 +18073,14 @@ export type Database = {
           organization_slug?: string
           price?: number
           released_at?: string | null
+          reservation_nightly_price?: number | null
           room_type_name?: string
+          source_booking_created_at?: string | null
+          source_obk_id?: string | null
+          source_rate_captured_at?: string | null
+          source_rate_plan_id?: string | null
+          source_res_id?: string | null
+          source_room_key?: string | null
           stay_date?: string
           updated_at?: string
         }
@@ -9304,20 +18314,29 @@ export type Database = {
           dnd_retry_unlocked_at: string | null
           estimated_duration: number | null
           id: string
+          instruction_snapshot: Json | null
           is_dnd: boolean | null
+          manager_instruction_text: string | null
+          manager_instruction_updated_at: string | null
           notes: string | null
           organization_slug: string | null
           pms_hold: boolean
           pms_hold_event_id: string | null
           pms_hold_reason: string | null
+          previous_day_context: Json | null
           priority: number
           ready_to_clean: boolean
+          recheck_photos: string[]
           room_id: string
+          service_result: string | null
           started_at: string | null
           status: Database["public"]["Enums"]["assignment_status"]
           supervisor_approved: boolean | null
           supervisor_approved_at: string | null
           supervisor_approved_by: string | null
+          supervisor_review_outcome: string | null
+          supervisor_reviewed_at: string | null
+          supervisor_reviewed_by: string | null
           total_break_time_minutes: number | null
           updated_at: string
         }
@@ -9337,20 +18356,29 @@ export type Database = {
           dnd_retry_unlocked_at?: string | null
           estimated_duration?: number | null
           id?: string
+          instruction_snapshot?: Json | null
           is_dnd?: boolean | null
+          manager_instruction_text?: string | null
+          manager_instruction_updated_at?: string | null
           notes?: string | null
           organization_slug?: string | null
           pms_hold?: boolean
           pms_hold_event_id?: string | null
           pms_hold_reason?: string | null
+          previous_day_context?: Json | null
           priority?: number
           ready_to_clean?: boolean
+          recheck_photos?: string[]
           room_id: string
+          service_result?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["assignment_status"]
           supervisor_approved?: boolean | null
           supervisor_approved_at?: string | null
           supervisor_approved_by?: string | null
+          supervisor_review_outcome?: string | null
+          supervisor_reviewed_at?: string | null
+          supervisor_reviewed_by?: string | null
           total_break_time_minutes?: number | null
           updated_at?: string
         }
@@ -9370,20 +18398,29 @@ export type Database = {
           dnd_retry_unlocked_at?: string | null
           estimated_duration?: number | null
           id?: string
+          instruction_snapshot?: Json | null
           is_dnd?: boolean | null
+          manager_instruction_text?: string | null
+          manager_instruction_updated_at?: string | null
           notes?: string | null
           organization_slug?: string | null
           pms_hold?: boolean
           pms_hold_event_id?: string | null
           pms_hold_reason?: string | null
+          previous_day_context?: Json | null
           priority?: number
           ready_to_clean?: boolean
+          recheck_photos?: string[]
           room_id?: string
+          service_result?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["assignment_status"]
           supervisor_approved?: boolean | null
           supervisor_approved_at?: string | null
           supervisor_approved_by?: string | null
+          supervisor_review_outcome?: string | null
+          supervisor_reviewed_at?: string | null
+          supervisor_reviewed_by?: string | null
           total_break_time_minutes?: number | null
           updated_at?: string
         }
@@ -9420,6 +18457,7 @@ export type Database = {
       }
       room_minibar_usage: {
         Row: {
+          added_after_completion: boolean
           cleared_at: string | null
           cleared_by: string | null
           cleared_note: string | null
@@ -9429,14 +18467,26 @@ export type Database = {
           is_cleared: boolean | null
           minibar_item_id: string
           organization_slug: string | null
+          pending_supervisor_review: boolean
+          previo_charge_confirmed_at: string | null
+          previo_charge_confirmed_by: string | null
           quantity_used: number | null
           recorded_by: string | null
+          refill_blocked_at: string | null
+          refill_blocked_by: string | null
+          refill_blocked_reason: string | null
+          refill_resolved_at: string | null
+          refill_resolved_by: string | null
+          refill_status: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
           room_id: string
           source: string | null
           updated_at: string
           usage_date: string | null
         }
         Insert: {
+          added_after_completion?: boolean
           cleared_at?: string | null
           cleared_by?: string | null
           cleared_note?: string | null
@@ -9446,14 +18496,26 @@ export type Database = {
           is_cleared?: boolean | null
           minibar_item_id: string
           organization_slug?: string | null
+          pending_supervisor_review?: boolean
+          previo_charge_confirmed_at?: string | null
+          previo_charge_confirmed_by?: string | null
           quantity_used?: number | null
           recorded_by?: string | null
+          refill_blocked_at?: string | null
+          refill_blocked_by?: string | null
+          refill_blocked_reason?: string | null
+          refill_resolved_at?: string | null
+          refill_resolved_by?: string | null
+          refill_status?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           room_id: string
           source?: string | null
           updated_at?: string
           usage_date?: string | null
         }
         Update: {
+          added_after_completion?: boolean
           cleared_at?: string | null
           cleared_by?: string | null
           cleared_note?: string | null
@@ -9463,8 +18525,19 @@ export type Database = {
           is_cleared?: boolean | null
           minibar_item_id?: string
           organization_slug?: string | null
+          pending_supervisor_review?: boolean
+          previo_charge_confirmed_at?: string | null
+          previo_charge_confirmed_by?: string | null
           quantity_used?: number | null
           recorded_by?: string | null
+          refill_blocked_at?: string | null
+          refill_blocked_by?: string | null
+          refill_blocked_reason?: string | null
+          refill_resolved_at?: string | null
+          refill_resolved_by?: string | null
+          refill_status?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           room_id?: string
           source?: string | null
           updated_at?: string
@@ -9490,6 +18563,448 @@ export type Database = {
             columns: ["room_id"]
             isOneToOne: false
             referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_note_provenance_events: {
+        Row: {
+          content: string
+          id: string
+          organization_slug: string | null
+          recorded_at: string
+          room_id: string
+          source: string
+        }
+        Insert: {
+          content: string
+          id?: string
+          organization_slug?: string | null
+          recorded_at?: string
+          room_id: string
+          source: string
+        }
+        Update: {
+          content?: string
+          id?: string
+          organization_slug?: string | null
+          recorded_at?: string
+          room_id?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_note_provenance_events_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_planned_note_history: {
+        Row: {
+          action: string
+          changed_at: string
+          changed_by: string | null
+          id: string
+          planned_note_id: string
+          snapshot: Json
+        }
+        Insert: {
+          action: string
+          changed_at?: string
+          changed_by?: string | null
+          id?: string
+          planned_note_id: string
+          snapshot: Json
+        }
+        Update: {
+          action?: string
+          changed_at?: string
+          changed_by?: string | null
+          id?: string
+          planned_note_id?: string
+          snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_planned_note_history_planned_note_id_fkey"
+            columns: ["planned_note_id"]
+            isOneToOne: false
+            referencedRelation: "room_planned_notes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_planned_notes: {
+        Row: {
+          content: string
+          created_at: string
+          created_by: string
+          end_date: string
+          hotel: string
+          id: string
+          instruction_type: string
+          organization_slug: string | null
+          room_id: string
+          selected_dates: string[] | null
+          start_date: string
+          status: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          created_by?: string
+          end_date: string
+          hotel: string
+          id?: string
+          instruction_type?: string
+          organization_slug?: string | null
+          room_id: string
+          selected_dates?: string[] | null
+          start_date: string
+          status?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          created_by?: string
+          end_date?: string
+          hotel?: string
+          id?: string
+          instruction_type?: string
+          organization_slug?: string | null
+          room_id?: string
+          selected_dates?: string[] | null
+          start_date?: string
+          status?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_planned_notes_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_sale_overnight_watches: {
+        Row: {
+          baseline_confirmed: number
+          baseline_refs: string[]
+          closed_at: string | null
+          created_at: string
+          email_sent_at: string | null
+          expires_at: string
+          failure_alert_sent_at: string | null
+          first_obk_id: string
+          hotel_id: string
+          id: string
+          last_checked_at: string | null
+          last_confirmed_remaining: number | null
+          last_error: string | null
+          organization_slug: string
+          physical_capacity: number | null
+          pool_mode: string
+          reconcile_requested_at: string | null
+          reconciled_at: string | null
+          second_obk_id: string
+          shared_units: number
+          source_base_availability: number | null
+          source_booked_at_start: number | null
+          starts_at: string
+          status: string
+          stay_date: string
+          target_base_availability: number | null
+          target_booked_at_start: number | null
+          triggered_at: string | null
+          triggered_reservation: string | null
+        }
+        Insert: {
+          baseline_confirmed: number
+          baseline_refs: string[]
+          closed_at?: string | null
+          created_at?: string
+          email_sent_at?: string | null
+          expires_at: string
+          failure_alert_sent_at?: string | null
+          first_obk_id: string
+          hotel_id: string
+          id?: string
+          last_checked_at?: string | null
+          last_confirmed_remaining?: number | null
+          last_error?: string | null
+          organization_slug: string
+          physical_capacity?: number | null
+          pool_mode?: string
+          reconcile_requested_at?: string | null
+          reconciled_at?: string | null
+          second_obk_id: string
+          shared_units?: number
+          source_base_availability?: number | null
+          source_booked_at_start?: number | null
+          starts_at?: string
+          status?: string
+          stay_date: string
+          target_base_availability?: number | null
+          target_booked_at_start?: number | null
+          triggered_at?: string | null
+          triggered_reservation?: string | null
+        }
+        Update: {
+          baseline_confirmed?: number
+          baseline_refs?: string[]
+          closed_at?: string | null
+          created_at?: string
+          email_sent_at?: string | null
+          expires_at?: string
+          failure_alert_sent_at?: string | null
+          first_obk_id?: string
+          hotel_id?: string
+          id?: string
+          last_checked_at?: string | null
+          last_confirmed_remaining?: number | null
+          last_error?: string | null
+          organization_slug?: string
+          physical_capacity?: number | null
+          pool_mode?: string
+          reconcile_requested_at?: string | null
+          reconciled_at?: string | null
+          second_obk_id?: string
+          shared_units?: number
+          source_base_availability?: number | null
+          source_booked_at_start?: number | null
+          starts_at?: string
+          status?: string
+          stay_date?: string
+          target_base_availability?: number | null
+          target_booked_at_start?: number | null
+          triggered_at?: string | null
+          triggered_reservation?: string | null
+        }
+        Relationships: []
+      }
+      room_sale_upgrade_events: {
+        Row: {
+          attempts: number
+          booked_room_type_name: string
+          created_at: string
+          delivery_state: string
+          email_to: string | null
+          event_kind: string
+          hotel_id: string
+          id: string
+          last_error: string | null
+          organization_slug: string
+          reservation_id: string
+          room_key: string
+          rule_id: string
+          sent_at: string | null
+          stay_date: string
+          upgrade_room_type_name: string
+        }
+        Insert: {
+          attempts?: number
+          booked_room_type_name: string
+          created_at?: string
+          delivery_state?: string
+          email_to?: string | null
+          event_kind: string
+          hotel_id: string
+          id?: string
+          last_error?: string | null
+          organization_slug: string
+          reservation_id: string
+          room_key: string
+          rule_id: string
+          sent_at?: string | null
+          stay_date: string
+          upgrade_room_type_name: string
+        }
+        Update: {
+          attempts?: number
+          booked_room_type_name?: string
+          created_at?: string
+          delivery_state?: string
+          email_to?: string | null
+          event_kind?: string
+          hotel_id?: string
+          id?: string
+          last_error?: string | null
+          organization_slug?: string
+          reservation_id?: string
+          room_key?: string
+          rule_id?: string
+          sent_at?: string | null
+          stay_date?: string
+          upgrade_room_type_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_sale_upgrade_events_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "room_sale_upgrade_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_sale_upgrade_locks: {
+        Row: {
+          expires_at: string
+          hotel_id: string
+          owner: string
+          stay_date: string
+        }
+        Insert: {
+          expires_at: string
+          hotel_id: string
+          owner: string
+          stay_date: string
+        }
+        Update: {
+          expires_at?: string
+          hotel_id?: string
+          owner?: string
+          stay_date?: string
+        }
+        Relationships: []
+      }
+      room_sale_upgrade_rules: {
+        Row: {
+          activated_at: string | null
+          actual_source_before: number | null
+          actual_target_before: number | null
+          booked_at_creation: number
+          close_trigger: string
+          created_at: string
+          created_by: string | null
+          hotel_id: string
+          id: string
+          last_checked_at: string | null
+          last_error: string | null
+          notify_mode: string
+          organization_slug: string
+          physical_capacity: number
+          sell_mode: string
+          source_obk_id: string
+          source_room_type_name: string
+          status: string
+          stay_date: string
+          target_obk_id: string
+          target_room_type_name: string
+          unit_count: number
+          updated_at: string
+        }
+        Insert: {
+          activated_at?: string | null
+          actual_source_before?: number | null
+          actual_target_before?: number | null
+          booked_at_creation: number
+          close_trigger: string
+          created_at?: string
+          created_by?: string | null
+          hotel_id: string
+          id?: string
+          last_checked_at?: string | null
+          last_error?: string | null
+          notify_mode?: string
+          organization_slug: string
+          physical_capacity: number
+          sell_mode: string
+          source_obk_id: string
+          source_room_type_name: string
+          status?: string
+          stay_date: string
+          target_obk_id: string
+          target_room_type_name: string
+          unit_count: number
+          updated_at?: string
+        }
+        Update: {
+          activated_at?: string | null
+          actual_source_before?: number | null
+          actual_target_before?: number | null
+          booked_at_creation?: number
+          close_trigger?: string
+          created_at?: string
+          created_by?: string | null
+          hotel_id?: string
+          id?: string
+          last_checked_at?: string | null
+          last_error?: string | null
+          notify_mode?: string
+          organization_slug?: string
+          physical_capacity?: number
+          sell_mode?: string
+          source_obk_id?: string
+          source_room_type_name?: string
+          status?: string
+          stay_date?: string
+          target_obk_id?: string
+          target_room_type_name?: string
+          unit_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      room_type_profiles: {
+        Row: {
+          amenities: string[]
+          bed_setup: Json
+          description: Json
+          hotel_id: string
+          max_adults: number
+          max_children: number
+          max_occupancy: number
+          photos: Json
+          room_type_id: string
+          size_sqm: number | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          amenities?: string[]
+          bed_setup?: Json
+          description?: Json
+          hotel_id: string
+          max_adults?: number
+          max_children?: number
+          max_occupancy?: number
+          photos?: Json
+          room_type_id: string
+          size_sqm?: number | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          amenities?: string[]
+          bed_setup?: Json
+          description?: Json
+          hotel_id?: string
+          max_adults?: number
+          max_children?: number
+          max_occupancy?: number
+          photos?: Json
+          room_type_id?: string
+          size_sqm?: number | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_type_profiles_room_type_id_fkey"
+            columns: ["room_type_id"]
+            isOneToOne: true
+            referencedRelation: "room_types"
             referencedColumns: ["id"]
           },
         ]
@@ -9565,6 +19080,7 @@ export type Database = {
           bed_configuration: string | null
           bed_type: string | null
           checkout_time: string | null
+          cleaning_size: string | null
           created_at: string
           dnd_marked_at: string | null
           dnd_marked_by: string | null
@@ -9573,6 +19089,7 @@ export type Database = {
           guest_count: number | null
           guest_nights_stayed: number | null
           hotel: string
+          hotelcare_planned_note_shadow: string | null
           id: string
           is_checkout_room: boolean | null
           is_dnd: boolean | null
@@ -9581,8 +19098,11 @@ export type Database = {
           last_linen_change: string | null
           last_towel_change: string | null
           linen_change_required: boolean | null
+          memories_manual_bed_date: string | null
+          memories_manual_note_date: string | null
           minibar_qr_token: string | null
           notes: string | null
+          operational_note_date: string | null
           organization_slug: string | null
           pms_metadata: Json | null
           room_capacity: number | null
@@ -9595,12 +19115,14 @@ export type Database = {
           towel_change_required: boolean | null
           updated_at: string
           venue_id: string | null
+          verified_bed_count: number | null
           wing: string | null
         }
         Insert: {
           bed_configuration?: string | null
           bed_type?: string | null
           checkout_time?: string | null
+          cleaning_size?: string | null
           created_at?: string
           dnd_marked_at?: string | null
           dnd_marked_by?: string | null
@@ -9609,6 +19131,7 @@ export type Database = {
           guest_count?: number | null
           guest_nights_stayed?: number | null
           hotel: string
+          hotelcare_planned_note_shadow?: string | null
           id?: string
           is_checkout_room?: boolean | null
           is_dnd?: boolean | null
@@ -9617,8 +19140,11 @@ export type Database = {
           last_linen_change?: string | null
           last_towel_change?: string | null
           linen_change_required?: boolean | null
+          memories_manual_bed_date?: string | null
+          memories_manual_note_date?: string | null
           minibar_qr_token?: string | null
           notes?: string | null
+          operational_note_date?: string | null
           organization_slug?: string | null
           pms_metadata?: Json | null
           room_capacity?: number | null
@@ -9631,12 +19157,14 @@ export type Database = {
           towel_change_required?: boolean | null
           updated_at?: string
           venue_id?: string | null
+          verified_bed_count?: number | null
           wing?: string | null
         }
         Update: {
           bed_configuration?: string | null
           bed_type?: string | null
           checkout_time?: string | null
+          cleaning_size?: string | null
           created_at?: string
           dnd_marked_at?: string | null
           dnd_marked_by?: string | null
@@ -9645,6 +19173,7 @@ export type Database = {
           guest_count?: number | null
           guest_nights_stayed?: number | null
           hotel?: string
+          hotelcare_planned_note_shadow?: string | null
           id?: string
           is_checkout_room?: boolean | null
           is_dnd?: boolean | null
@@ -9653,8 +19182,11 @@ export type Database = {
           last_linen_change?: string | null
           last_towel_change?: string | null
           linen_change_required?: boolean | null
+          memories_manual_bed_date?: string | null
+          memories_manual_note_date?: string | null
           minibar_qr_token?: string | null
           notes?: string | null
+          operational_note_date?: string | null
           organization_slug?: string | null
           pms_metadata?: Json | null
           room_capacity?: number | null
@@ -9667,6 +19199,7 @@ export type Database = {
           towel_change_required?: boolean | null
           updated_at?: string
           venue_id?: string | null
+          verified_bed_count?: number | null
           wing?: string | null
         }
         Relationships: [
@@ -9682,6 +19215,274 @@ export type Database = {
             columns: ["venue_id"]
             isOneToOne: false
             referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_catalog_items: {
+        Row: {
+          allowed_hotel_ids: string[]
+          category: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          default_gross_price: number
+          id: string
+          is_active: boolean
+          name: string
+          organization_slug: string
+          price_editable: boolean
+          requires_manager_approval: boolean
+          sort_order: number
+          unit: string
+          updated_at: string
+          vat_code: string
+          vat_rate: number | null
+        }
+        Insert: {
+          allowed_hotel_ids?: string[]
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          default_gross_price?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          organization_slug: string
+          price_editable?: boolean
+          requires_manager_approval?: boolean
+          sort_order?: number
+          unit?: string
+          updated_at?: string
+          vat_code?: string
+          vat_rate?: number | null
+        }
+        Update: {
+          allowed_hotel_ids?: string[]
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          default_gross_price?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          organization_slug?: string
+          price_editable?: boolean
+          requires_manager_approval?: boolean
+          sort_order?: number
+          unit?: string
+          updated_at?: string
+          vat_code?: string
+          vat_rate?: number | null
+        }
+        Relationships: []
+      }
+      slnt_housekeeping_rollout: {
+        Row: {
+          enabled: boolean
+          organization_slug: string
+          team_a_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          enabled?: boolean
+          organization_slug: string
+          team_a_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          enabled?: boolean
+          organization_slug?: string
+          team_a_enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      slnt_staff_roster_templates: {
+        Row: {
+          created_at: string
+          created_by: string
+          hotel_id: string
+          id: string
+          is_working: boolean
+          iso_weekday: number
+          notes: string | null
+          organization_slug: string
+          shift_end: string
+          shift_start: string
+          updated_at: string
+          user_id: string
+          venue_ids: string[]
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          hotel_id: string
+          id?: string
+          is_working?: boolean
+          iso_weekday: number
+          notes?: string | null
+          organization_slug?: string
+          shift_end?: string
+          shift_start?: string
+          updated_at?: string
+          user_id: string
+          venue_ids?: string[]
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          hotel_id?: string
+          id?: string
+          is_working?: boolean
+          iso_weekday?: number
+          notes?: string | null
+          organization_slug?: string
+          shift_end?: string
+          shift_start?: string
+          updated_at?: string
+          user_id?: string
+          venue_ids?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slnt_staff_roster_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slnt_staff_roster_templates_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      slnt_team_a_days_off: {
+        Row: {
+          created_at: string
+          created_by: string
+          team_id: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          team_id: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          team_id?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slnt_team_a_days_off_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slnt_team_a_days_off_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "housekeeping_teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slnt_team_a_days_off_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      slnt_team_b_activity_v5: {
+        Row: {
+          first_activity_at: string
+          last_activity_at: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          first_activity_at?: string
+          last_activity_at?: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          first_activity_at?: string
+          last_activity_at?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slnt_team_b_activity_v5_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      slnt_team_b_days_off: {
+        Row: {
+          absence_kind: string
+          created_at: string
+          created_by: string
+          team_id: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          absence_kind?: string
+          created_at?: string
+          created_by: string
+          team_id: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          absence_kind?: string
+          created_at?: string
+          created_by?: string
+          team_id?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slnt_team_b_days_off_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slnt_team_b_days_off_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "housekeeping_teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slnt_team_b_days_off_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -9798,6 +19599,7 @@ export type Database = {
           updated_at: string
           user_id: string
           work_date: string
+          work_status: string
         }
         Insert: {
           created_at?: string
@@ -9814,6 +19616,7 @@ export type Database = {
           updated_at?: string
           user_id: string
           work_date: string
+          work_status?: string
         }
         Update: {
           created_at?: string
@@ -9830,6 +19633,7 @@ export type Database = {
           updated_at?: string
           user_id?: string
           work_date?: string
+          work_status?: string
         }
         Relationships: [
           {
@@ -9850,6 +19654,47 @@ export type Database = {
             foreignKeyName: "staff_schedules_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_work_venue_state: {
+        Row: {
+          home_hotel: string
+          last_confirmed_on: string | null
+          last_switched_on: string | null
+          last_worked_hotel: string
+          organization_slug: string
+          prompt_next_day: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          home_hotel: string
+          last_confirmed_on?: string | null
+          last_switched_on?: string | null
+          last_worked_hotel: string
+          organization_slug: string
+          prompt_next_day?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          home_hotel?: string
+          last_confirmed_on?: string | null
+          last_switched_on?: string | null
+          last_worked_hotel?: string
+          organization_slug?: string
+          prompt_next_day?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_work_venue_state_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -9921,6 +19766,7 @@ export type Database = {
       system_announcements: {
         Row: {
           body: string
+          compact: boolean
           created_at: string
           created_by: string | null
           dedupe_key: string | null
@@ -9937,6 +19783,7 @@ export type Database = {
         }
         Insert: {
           body: string
+          compact?: boolean
           created_at?: string
           created_by?: string | null
           dedupe_key?: string | null
@@ -9953,6 +19800,7 @@ export type Database = {
         }
         Update: {
           body?: string
+          compact?: boolean
           created_at?: string
           created_by?: string | null
           dedupe_key?: string | null
@@ -9966,6 +19814,168 @@ export type Database = {
           title?: string
           tone?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      system_anomaly_alerts: {
+        Row: {
+          details: Json
+          detected_at: string
+          email_message_id: string | null
+          fingerprint: string
+          id: string
+          kind: string
+          last_notify_error: string | null
+          notified_at: string | null
+          notify_attempts: number
+          processing_started_at: string | null
+          severity: string
+          status: string
+          title: string
+        }
+        Insert: {
+          details?: Json
+          detected_at?: string
+          email_message_id?: string | null
+          fingerprint: string
+          id?: string
+          kind: string
+          last_notify_error?: string | null
+          notified_at?: string | null
+          notify_attempts?: number
+          processing_started_at?: string | null
+          severity: string
+          status?: string
+          title: string
+        }
+        Update: {
+          details?: Json
+          detected_at?: string
+          email_message_id?: string | null
+          fingerprint?: string
+          id?: string
+          kind?: string
+          last_notify_error?: string | null
+          notified_at?: string | null
+          notify_attempts?: number
+          processing_started_at?: string | null
+          severity?: string
+          status?: string
+          title?: string
+        }
+        Relationships: []
+      }
+      system_anomaly_settings: {
+        Row: {
+          admin_email: string
+          cooldown_minutes: number
+          enabled: boolean
+          query_calls_threshold_5m: number
+          query_exec_ms_threshold_5m: number
+          rollback_threshold_5m: number
+          singleton: boolean
+          updated_at: string
+        }
+        Insert: {
+          admin_email?: string
+          cooldown_minutes?: number
+          enabled?: boolean
+          query_calls_threshold_5m?: number
+          query_exec_ms_threshold_5m?: number
+          rollback_threshold_5m?: number
+          singleton?: boolean
+          updated_at?: string
+        }
+        Update: {
+          admin_email?: string
+          cooldown_minutes?: number
+          enabled?: boolean
+          query_calls_threshold_5m?: number
+          query_exec_ms_threshold_5m?: number
+          rollback_threshold_5m?: number
+          singleton?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      system_monitor_db_snapshot: {
+        Row: {
+          captured_at: string
+          deadlocks: number
+          singleton: boolean
+          stats_reset: string | null
+          xact_commit: number
+          xact_rollback: number
+        }
+        Insert: {
+          captured_at: string
+          deadlocks: number
+          singleton?: boolean
+          stats_reset?: string | null
+          xact_commit: number
+          xact_rollback: number
+        }
+        Update: {
+          captured_at?: string
+          deadlocks?: number
+          singleton?: boolean
+          stats_reset?: string | null
+          xact_commit?: number
+          xact_rollback?: number
+        }
+        Relationships: []
+      }
+      system_monitor_query_snapshot: {
+        Row: {
+          calls: number
+          captured_at: string
+          dbid: unknown
+          queryid: number
+          total_exec_time: number
+          userid: unknown
+        }
+        Insert: {
+          calls: number
+          captured_at: string
+          dbid: unknown
+          queryid: number
+          total_exec_time: number
+          userid: unknown
+        }
+        Update: {
+          calls?: number
+          captured_at?: string
+          dbid?: unknown
+          queryid?: number
+          total_exec_time?: number
+          userid?: unknown
+        }
+        Relationships: []
+      }
+      system_monitor_realtime_table_snapshot: {
+        Row: {
+          captured_at: string
+          n_tup_del: number
+          n_tup_ins: number
+          n_tup_upd: number
+          relid: unknown
+          table_name: string
+        }
+        Insert: {
+          captured_at: string
+          n_tup_del: number
+          n_tup_ins: number
+          n_tup_upd: number
+          relid: unknown
+          table_name: string
+        }
+        Update: {
+          captured_at?: string
+          n_tup_del?: number
+          n_tup_ins?: number
+          n_tup_upd?: number
+          relid?: unknown
+          table_name?: string
         }
         Relationships: []
       }
@@ -10534,6 +20544,908 @@ export type Database = {
         }
         Relationships: []
       }
+      viza_guest_events: {
+        Row: {
+          arrival_fogadas_azonosito: string | null
+          arrival_state: string
+          attempts: number
+          created_at: string
+          departure_fogadas_azonosito: string | null
+          departure_state: string | null
+          erkezes_azonosito: string
+          erkezes_ideje: string
+          guest_id: string | null
+          hotel_id: string
+          id: string
+          last_error: string | null
+          organization_slug: string
+          reservation_id: string
+          tavozas_ideje: string | null
+          tavozas_varhato_datuma: string
+          updated_at: string
+        }
+        Insert: {
+          arrival_fogadas_azonosito?: string | null
+          arrival_state?: string
+          attempts?: number
+          created_at?: string
+          departure_fogadas_azonosito?: string | null
+          departure_state?: string | null
+          erkezes_azonosito?: string
+          erkezes_ideje: string
+          guest_id?: string | null
+          hotel_id: string
+          id?: string
+          last_error?: string | null
+          organization_slug: string
+          reservation_id: string
+          tavozas_ideje?: string | null
+          tavozas_varhato_datuma: string
+          updated_at?: string
+        }
+        Update: {
+          arrival_fogadas_azonosito?: string | null
+          arrival_state?: string
+          attempts?: number
+          created_at?: string
+          departure_fogadas_azonosito?: string | null
+          departure_state?: string | null
+          erkezes_azonosito?: string
+          erkezes_ideje?: string
+          guest_id?: string | null
+          hotel_id?: string
+          id?: string
+          last_error?: string | null
+          organization_slug?: string
+          reservation_id?: string
+          tavozas_ideje?: string | null
+          tavozas_varhato_datuma?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "viza_guest_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      viza_settings: {
+        Row: {
+          adatszolgaltatasi_azonosito: string | null
+          created_at: string
+          enabled: boolean
+          environment: string
+          failed_count: number
+          hotel_id: string
+          last_error: string | null
+          last_status_at: string | null
+          last_status_code: string | null
+          organization_slug: string
+          szallas_nev: string | null
+          szolgaltato_adoszam: string | null
+          szolgaltato_nev: string | null
+          thf_ca_pem: string | null
+          thf_url: string
+          unsent_count: number
+          updated_at: string
+        }
+        Insert: {
+          adatszolgaltatasi_azonosito?: string | null
+          created_at?: string
+          enabled?: boolean
+          environment?: string
+          failed_count?: number
+          hotel_id: string
+          last_error?: string | null
+          last_status_at?: string | null
+          last_status_code?: string | null
+          organization_slug: string
+          szallas_nev?: string | null
+          szolgaltato_adoszam?: string | null
+          szolgaltato_nev?: string | null
+          thf_ca_pem?: string | null
+          thf_url?: string
+          unsent_count?: number
+          updated_at?: string
+        }
+        Update: {
+          adatszolgaltatasi_azonosito?: string | null
+          created_at?: string
+          enabled?: boolean
+          environment?: string
+          failed_count?: number
+          hotel_id?: string
+          last_error?: string | null
+          last_status_at?: string | null
+          last_status_code?: string | null
+          organization_slug?: string
+          szallas_nev?: string | null
+          szolgaltato_adoszam?: string | null
+          szolgaltato_nev?: string | null
+          thf_ca_pem?: string | null
+          thf_url?: string
+          unsent_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      viza_trigger_failures: {
+        Row: {
+          attempts: number
+          created_at: string
+          from_status: string
+          hotel_id: string
+          id: string
+          last_error: string
+          occurred_at: string
+          organization_slug: string
+          reservation_id: string
+          resolved_at: string | null
+          sqlstate: string
+          to_status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          from_status: string
+          hotel_id: string
+          id?: string
+          last_error: string
+          occurred_at: string
+          organization_slug: string
+          reservation_id: string
+          resolved_at?: string | null
+          sqlstate: string
+          to_status: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          from_status?: string
+          hotel_id?: string
+          id?: string
+          last_error?: string
+          occurred_at?: string
+          organization_slug?: string
+          reservation_id?: string
+          resolved_at?: string | null
+          sqlstate?: string
+          to_status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "viza_trigger_failures_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      website_chat_rate_limits: {
+        Row: {
+          bucket: string
+          hits: number
+          window_start: string
+        }
+        Insert: {
+          bucket: string
+          hits?: number
+          window_start: string
+        }
+        Update: {
+          bucket?: string
+          hits?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
+      website_chat_sessions: {
+        Row: {
+          attribution: Json
+          completed_at: string | null
+          consent_at: string | null
+          consent_text: string | null
+          consent_version: string | null
+          consent_withdrawn_at: string | null
+          contact_name: string | null
+          created_at: string
+          email: string | null
+          email_offers: number
+          erase_after: string
+          id: string
+          ip_hash: string | null
+          language: string
+          last_reminder_at: string | null
+          last_visitor_at: string
+          lead_due: boolean | null
+          lead_notified_at: string | null
+          lead_notified_messages: number
+          messages: Json
+          next_reminder_at: string | null
+          page_path: string | null
+          profile: Json
+          reminders_sent: number
+          secret_hash: string
+          stage: string
+          time_zone: string | null
+          updated_at: string
+          visitor_messages: number
+        }
+        Insert: {
+          attribution?: Json
+          completed_at?: string | null
+          consent_at?: string | null
+          consent_text?: string | null
+          consent_version?: string | null
+          consent_withdrawn_at?: string | null
+          contact_name?: string | null
+          created_at?: string
+          email?: string | null
+          email_offers?: number
+          erase_after?: string
+          id?: string
+          ip_hash?: string | null
+          language?: string
+          last_reminder_at?: string | null
+          last_visitor_at?: string
+          lead_due?: boolean | null
+          lead_notified_at?: string | null
+          lead_notified_messages?: number
+          messages?: Json
+          next_reminder_at?: string | null
+          page_path?: string | null
+          profile?: Json
+          reminders_sent?: number
+          secret_hash: string
+          stage?: string
+          time_zone?: string | null
+          updated_at?: string
+          visitor_messages?: number
+        }
+        Update: {
+          attribution?: Json
+          completed_at?: string | null
+          consent_at?: string | null
+          consent_text?: string | null
+          consent_version?: string | null
+          consent_withdrawn_at?: string | null
+          contact_name?: string | null
+          created_at?: string
+          email?: string | null
+          email_offers?: number
+          erase_after?: string
+          id?: string
+          ip_hash?: string | null
+          language?: string
+          last_reminder_at?: string | null
+          last_visitor_at?: string
+          lead_due?: boolean | null
+          lead_notified_at?: string | null
+          lead_notified_messages?: number
+          messages?: Json
+          next_reminder_at?: string | null
+          page_path?: string | null
+          profile?: Json
+          reminders_sent?: number
+          secret_hash?: string
+          stage?: string
+          time_zone?: string | null
+          updated_at?: string
+          visitor_messages?: number
+        }
+        Relationships: []
+      }
+      welcome_quote_catalog: {
+        Row: {
+          audiences: string[]
+          author: string
+          created_at: string
+          is_active: boolean
+          practical_takeaway: string
+          provenance: string
+          quality_rank: number
+          quote_key: string
+          quote_text: string
+          source_url: string
+          tone: string
+          verified_at: string
+        }
+        Insert: {
+          audiences: string[]
+          author: string
+          created_at?: string
+          is_active?: boolean
+          practical_takeaway: string
+          provenance?: string
+          quality_rank?: number
+          quote_key: string
+          quote_text: string
+          source_url: string
+          tone?: string
+          verified_at: string
+        }
+        Update: {
+          audiences?: string[]
+          author?: string
+          created_at?: string
+          is_active?: boolean
+          practical_takeaway?: string
+          provenance?: string
+          quality_rank?: number
+          quote_key?: string
+          quote_text?: string
+          source_url?: string
+          tone?: string
+          verified_at?: string
+        }
+        Relationships: []
+      }
+      welcome_quote_impressions: {
+        Row: {
+          quote_key: string
+          shown_at: string
+          user_id: string
+        }
+        Insert: {
+          quote_key: string
+          shown_at?: string
+          user_id: string
+        }
+        Update: {
+          quote_key?: string
+          shown_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "welcome_quote_impressions_quote_key_fkey"
+            columns: ["quote_key"]
+            isOneToOne: false
+            referencedRelation: "welcome_quote_catalog"
+            referencedColumns: ["quote_key"]
+          },
+        ]
+      }
+      welcome_quote_refill_state: {
+        Row: {
+          cooldown_until: string | null
+          generated_total: number
+          id: boolean
+          last_error: string | null
+          last_refill_at: string | null
+          lease_until: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          cooldown_until?: string | null
+          generated_total?: number
+          id?: boolean
+          last_error?: string | null
+          last_refill_at?: string | null
+          lease_until?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          cooldown_until?: string | null
+          generated_total?: number
+          id?: boolean
+          last_error?: string | null
+          last_refill_at?: string | null
+          lease_until?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      workforce_audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string
+          id: number
+          organization_slug: string
+          record_id: string | null
+          staff_id: string | null
+          table_name: string
+          work_date: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          id?: never
+          organization_slug: string
+          record_id?: string | null
+          staff_id?: string | null
+          table_name: string
+          work_date?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          id?: never
+          organization_slug?: string
+          record_id?: string | null
+          staff_id?: string | null
+          table_name?: string
+          work_date?: string | null
+        }
+        Relationships: []
+      }
+      workforce_change_notices: {
+        Row: {
+          acknowledged_at: string | null
+          after: Json | null
+          before: Json | null
+          changed_at: string
+          changed_by: string | null
+          created_at: string
+          id: string
+          organization_slug: string
+          pushed_at: string | null
+          reason: string | null
+          short_notice: boolean
+          staff_id: string
+          work_date: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          after?: Json | null
+          before?: Json | null
+          changed_at?: string
+          changed_by?: string | null
+          created_at?: string
+          id?: string
+          organization_slug: string
+          pushed_at?: string | null
+          reason?: string | null
+          short_notice?: boolean
+          staff_id: string
+          work_date: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          after?: Json | null
+          before?: Json | null
+          changed_at?: string
+          changed_by?: string | null
+          created_at?: string
+          id?: string
+          organization_slug?: string
+          pushed_at?: string | null
+          reason?: string | null
+          short_notice?: boolean
+          staff_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workforce_change_notices_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "workforce_staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workforce_departments: {
+        Row: {
+          color: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          organization_slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          organization_slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          organization_slug?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      workforce_entries: {
+        Row: {
+          code: string | null
+          created_at: string
+          created_by: string | null
+          day_fraction: number
+          end_time: string | null
+          extra_minutes: number
+          hotel_id: string | null
+          id: string
+          kind: string
+          note: string | null
+          organization_slug: string
+          published_at: string | null
+          published_by: string | null
+          published_version: Json | null
+          raw_text: string | null
+          staff_id: string
+          start_time: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          work_date: string
+          worked_minutes: number
+        }
+        Insert: {
+          code?: string | null
+          created_at?: string
+          created_by?: string | null
+          day_fraction?: number
+          end_time?: string | null
+          extra_minutes?: number
+          hotel_id?: string | null
+          id?: string
+          kind: string
+          note?: string | null
+          organization_slug: string
+          published_at?: string | null
+          published_by?: string | null
+          published_version?: Json | null
+          raw_text?: string | null
+          staff_id: string
+          start_time?: string | null
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+          work_date: string
+          worked_minutes?: number
+        }
+        Update: {
+          code?: string | null
+          created_at?: string
+          created_by?: string | null
+          day_fraction?: number
+          end_time?: string | null
+          extra_minutes?: number
+          hotel_id?: string | null
+          id?: string
+          kind?: string
+          note?: string | null
+          organization_slug?: string
+          published_at?: string | null
+          published_by?: string | null
+          published_version?: Json | null
+          raw_text?: string | null
+          staff_id?: string
+          start_time?: string | null
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+          work_date?: string
+          worked_minutes?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workforce_entries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "workforce_staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workforce_job_roles: {
+        Row: {
+          created_at: string
+          department_id: string
+          id: string
+          is_active: boolean
+          name: string
+          organization_slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          department_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          organization_slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          organization_slug?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workforce_job_roles_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "workforce_departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workforce_published_months: {
+        Row: {
+          month: string
+          organization_slug: string
+          published_at: string
+          published_by: string | null
+          staff_id: string
+        }
+        Insert: {
+          month: string
+          organization_slug: string
+          published_at?: string
+          published_by?: string | null
+          staff_id: string
+        }
+        Update: {
+          month?: string
+          organization_slug?: string
+          published_at?: string
+          published_by?: string | null
+          staff_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workforce_published_months_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "workforce_staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workforce_settings: {
+        Row: {
+          organization_slug: string
+          staff_schedule_live: boolean
+          staff_schedule_live_changed_at: string | null
+          staff_schedule_live_changed_by: string | null
+          staff_visible_days: number | null
+          updated_at: string
+        }
+        Insert: {
+          organization_slug: string
+          staff_schedule_live?: boolean
+          staff_schedule_live_changed_at?: string | null
+          staff_schedule_live_changed_by?: string | null
+          staff_visible_days?: number | null
+          updated_at?: string
+        }
+        Update: {
+          organization_slug?: string
+          staff_schedule_live?: boolean
+          staff_schedule_live_changed_at?: string | null
+          staff_schedule_live_changed_by?: string | null
+          staff_visible_days?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      workforce_shift_codes: {
+        Row: {
+          code: string
+          created_at: string
+          day_fraction: number
+          end_time: string | null
+          hotel_id: string | null
+          id: string
+          is_active: boolean
+          kind: string
+          label: string
+          organization_slug: string
+          sort_order: number
+          start_time: string | null
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          day_fraction?: number
+          end_time?: string | null
+          hotel_id?: string | null
+          id?: string
+          is_active?: boolean
+          kind: string
+          label: string
+          organization_slug: string
+          sort_order?: number
+          start_time?: string | null
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          day_fraction?: number
+          end_time?: string | null
+          hotel_id?: string | null
+          id?: string
+          is_active?: boolean
+          kind?: string
+          label?: string
+          organization_slug?: string
+          sort_order?: number
+          start_time?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      workforce_staff: {
+        Row: {
+          annual_leave_days: number | null
+          created_at: string
+          created_by: string | null
+          daily_hours: number
+          department_id: string | null
+          email: string | null
+          employment_type: string
+          end_date: string | null
+          full_name: string
+          hotel_id: string | null
+          id: string
+          is_active: boolean
+          job_role_id: string | null
+          leave_note: string | null
+          nickname: string | null
+          notes: string | null
+          organization_slug: string
+          phone: string | null
+          profile_id: string | null
+          sort_order: number
+          source_label: string | null
+          start_date: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          annual_leave_days?: number | null
+          created_at?: string
+          created_by?: string | null
+          daily_hours?: number
+          department_id?: string | null
+          email?: string | null
+          employment_type?: string
+          end_date?: string | null
+          full_name: string
+          hotel_id?: string | null
+          id?: string
+          is_active?: boolean
+          job_role_id?: string | null
+          leave_note?: string | null
+          nickname?: string | null
+          notes?: string | null
+          organization_slug: string
+          phone?: string | null
+          profile_id?: string | null
+          sort_order?: number
+          source_label?: string | null
+          start_date?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          annual_leave_days?: number | null
+          created_at?: string
+          created_by?: string | null
+          daily_hours?: number
+          department_id?: string | null
+          email?: string | null
+          employment_type?: string
+          end_date?: string | null
+          full_name?: string
+          hotel_id?: string | null
+          id?: string
+          is_active?: boolean
+          job_role_id?: string | null
+          leave_note?: string | null
+          nickname?: string | null
+          notes?: string | null
+          organization_slug?: string
+          phone?: string | null
+          profile_id?: string | null
+          sort_order?: number
+          source_label?: string | null
+          start_date?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workforce_staff_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "workforce_departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workforce_staff_job_role_id_fkey"
+            columns: ["job_role_id"]
+            isOneToOne: false
+            referencedRelation: "workforce_job_roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workforce_staff_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workforce_staff_notes: {
+        Row: {
+          month: string
+          note: string
+          organization_slug: string
+          staff_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          month: string
+          note?: string
+          organization_slug: string
+          staff_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          month?: string
+          note?: string
+          organization_slug?: string
+          staff_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workforce_staff_notes_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "workforce_staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       yielding_tags: {
         Row: {
           aggressiveness: string
@@ -10583,6 +21495,45 @@ export type Database = {
       }
     }
     Views: {
+      hc_housekeeping_room_service_history: {
+        Row: {
+          bed_configuration: string | null
+          business_date: string | null
+          final_state: Json | null
+          is_checkout_room: boolean | null
+          linen_change_required: boolean | null
+          pms_metadata: Json | null
+          room_id: string | null
+          room_notes: string | null
+          scheduled_service_due: Json | null
+          towel_change_required: boolean | null
+        }
+        Insert: {
+          bed_configuration?: string | null
+          business_date?: string | null
+          final_state?: never
+          is_checkout_room?: never
+          linen_change_required?: never
+          pms_metadata?: never
+          room_id?: string | null
+          room_notes?: never
+          scheduled_service_due?: never
+          towel_change_required?: never
+        }
+        Update: {
+          bed_configuration?: string | null
+          business_date?: string | null
+          final_state?: never
+          is_checkout_room?: never
+          linen_change_required?: never
+          pms_metadata?: never
+          room_id?: string | null
+          room_notes?: never
+          scheduled_service_due?: never
+          towel_change_required?: never
+        }
+        Relationships: []
+      }
       revenue_competitor_market_daily: {
         Row: {
           active_competitor_count: number | null
@@ -10600,6 +21551,167 @@ export type Database = {
           raw_average_rate_eur: number | null
           stay_date: string | null
           validated_competitor_count: number | null
+        }
+        Relationships: []
+      }
+      revenue_intelligence_daily_quality: {
+        Row: {
+          adr_amount_raw: number | null
+          approved_for_automated_training: boolean | null
+          hotel_id: string | null
+          occupancy_pct: number | null
+          organization_slug: string | null
+          quality_flags: string[] | null
+          quality_status: string | null
+          recorded_event_count: number | null
+          recorded_rate_cells: number | null
+          reported_currency: string | null
+          revenue_amount_raw: number | null
+          revpar_amount_raw: number | null
+          rooms_available: number | null
+          rooms_sold: number | null
+          source_captured_at: string | null
+          stay_date: string | null
+        }
+        Relationships: []
+      }
+      revenue_intelligence_event_outcomes: {
+        Row: {
+          adr_amount_raw: number | null
+          approved_for_automated_training: boolean | null
+          event_causality_proven: boolean | null
+          event_title: string | null
+          evidence_url: string | null
+          hotel_id: string | null
+          occupancy_pct: number | null
+          organization_slug: string | null
+          quality_flags: string[] | null
+          quality_status: string | null
+          recorded_end_date: string | null
+          recorded_event_category: string | null
+          recorded_event_impact: string | null
+          recorded_event_venue: string | null
+          recorded_start_date: string | null
+          reported_currency: string | null
+          revenue_amount_raw: number | null
+          revpar_amount_raw: number | null
+          rooms_available: number | null
+          rooms_sold: number | null
+          stay_date: string | null
+          stay_year: number | null
+        }
+        Relationships: []
+      }
+      revenue_intelligence_monthly: {
+        Row: {
+          all_calendar_dates_present: boolean | null
+          approved_for_automated_training: boolean | null
+          archived_days: number | null
+          calendar_days_in_month: number | null
+          complete_provisional_month: boolean | null
+          hotel_id: string | null
+          missing_days: number | null
+          month_start: string | null
+          organization_slug: string | null
+          provisional_available_room_nights: number | null
+          provisional_days: number | null
+          provisional_revenue: number | null
+          provisional_sold_room_nights: number | null
+          provisional_weighted_adr: number | null
+          provisional_weighted_occupancy_pct: number | null
+          provisional_weighted_revpar: number | null
+          raw_available_nights_audit_only: number | null
+          raw_room_revenue_audit_only: number | null
+          raw_sold_nights_audit_only: number | null
+          recorded_event_day_mentions: number | null
+          reported_currency: string | null
+          review_days: number | null
+        }
+        Relationships: []
+      }
+      revenue_intelligence_pace_checkpoints: {
+        Row: {
+          approved_for_automated_training: boolean | null
+          available_room_nights: number | null
+          hotel_id: string | null
+          lead_days: number | null
+          observed_date: string | null
+          on_books_room_nights: number | null
+          organization_slug: string | null
+          quality_status: string | null
+          recorded_on_books_adr_raw: number | null
+          recorded_on_books_occupancy_pct: number | null
+          recorded_on_books_revenue_raw: number | null
+          recorded_on_books_revpar_raw: number | null
+          reported_currency: string | null
+          source_captured_at: string | null
+          stay_date: string | null
+        }
+        Relationships: []
+      }
+      revenue_kpi_reconciliation_daily: {
+        Row: {
+          adr_gross: number | null
+          best_commercial_occupancy_pct: number | null
+          best_commercial_sold: number | null
+          best_physical_occupancy_pct: number | null
+          best_physical_occupied: number | null
+          best_source: string | null
+          booked_nights_all: number | null
+          bookings_captured_at: string | null
+          breakfast_guests: number | null
+          breakfast_price_per_guest: number | null
+          capacity_rooms: number | null
+          commercial_capacity: number | null
+          commercial_sold: number | null
+          confidence: string | null
+          flags: string[] | null
+          hold_nights: number | null
+          hotel_id: string | null
+          hotelcare_commercial_occupancy_pct: number | null
+          housekeeping_captured_at: string | null
+          housekeeping_occupancy_pct: number | null
+          housekeeping_occupied: number | null
+          housekeeping_usable: boolean | null
+          is_past_night: boolean | null
+          option_nights: number | null
+          previo_dashboard_occupancy_pct: number | null
+          previo_dashboard_occupied: number | null
+          revpar_gross: number | null
+          room_revenue_gross: number | null
+          stay_date: string | null
+          unassigned_nights: number | null
+          unpriced_nights: number | null
+        }
+        Relationships: []
+      }
+      revenue_kpi_reconciliation_monthly: {
+        Row: {
+          adr_gross: number | null
+          best_commercial_occupancy_pct: number | null
+          best_commercial_sold: number | null
+          best_physical_occupancy_pct: number | null
+          best_physical_occupied: number | null
+          booked_nights_all: number | null
+          capacity_room_nights: number | null
+          commercial_capacity_room_nights: number | null
+          commercial_sold: number | null
+          hold_nights: number | null
+          hotel_id: string | null
+          hotelcare_commercial_occupancy_pct: number | null
+          housekeeping_mismatch_nights: number | null
+          housekeeping_occupied_past: number | null
+          housekeeping_verified_nights: number | null
+          month_start: string | null
+          nights_in_data: number | null
+          option_nights: number | null
+          past_nights: number | null
+          previo_dashboard_occupancy_pct: number | null
+          previo_dashboard_occupied: number | null
+          revpar_gross: number | null
+          room_revenue_gross: number | null
+          unassigned_nights: number | null
+          unpriced_nights: number | null
         }
         Relationships: []
       }
@@ -10632,6 +21744,11 @@ export type Database = {
       }
     }
     Functions: {
+      access_role_allows_permission: {
+        Args: { _access_role: string; _role: string }
+        Returns: boolean
+      }
+      access_role_from_permission: { Args: { _role: string }; Returns: string }
       ai_spend_snapshot: {
         Args: { _org: string }
         Returns: {
@@ -10642,6 +21759,18 @@ export type Database = {
           within_budget: boolean
         }[]
       }
+      allocate_revenue_booking_total: {
+        Args: { p_hotel_id: string; p_res_id: string; p_total: number }
+        Returns: undefined
+      }
+      append_housekeeping_photo_angle: {
+        Args: { p_assignment_id: string; p_path: string; p_photo_url: string }
+        Returns: string[]
+      }
+      archive_revenue_calendar_days: {
+        Args: { p_from: string; p_through: string }
+        Returns: number
+      }
       assign_housekeeping_section_tasks: {
         Args: {
           p_assigned_date: string
@@ -10650,13 +21779,198 @@ export type Database = {
         }
         Returns: number
       }
+      assign_ottofiori_maintenance_ticket: {
+        Args: {
+          p_assignee_id: string
+          p_expected_updated_at: string
+          p_ticket_id: string
+        }
+        Returns: string
+      }
+      assistant_monthly_status: { Args: never; Returns: Json }
       billable_room_count: { Args: { _hotel_id: string }; Returns: number }
+      billing_admin_save_all: {
+        Args: {
+          p_access: Json
+          p_actor: string
+          p_agreements: Json
+          p_entitlements: Json
+          p_modules: Json
+          p_settings: Json
+          p_slug: string
+          p_trials: Json
+        }
+        Returns: undefined
+      }
       billing_realised_revenue: {
         Args: { _from: string; _hotel_id: string; _to: string }
         Returns: {
           revenue_eur: number
           room_nights: number
         }[]
+      }
+      booking_engine_calendar: {
+        Args: {
+          p_from: string
+          p_preview?: boolean
+          p_public_id: string
+          p_to: string
+        }
+        Returns: Json
+      }
+      booking_engine_calendar_core: {
+        Args: { p_from: string; p_public_id: string; p_to: string }
+        Returns: Json
+      }
+      booking_engine_can_manage: {
+        Args: { _hotel_id: string }
+        Returns: boolean
+      }
+      booking_engine_cancel_booking: {
+        Args: { p_public_id: string; p_reference: string; p_token_hash: string }
+        Returns: Json
+      }
+      booking_engine_create_booking: {
+        Args: {
+          p_attribution: Json
+          p_check_in: string
+          p_check_out: string
+          p_consent: Json
+          p_guest: Json
+          p_ip_hash: string
+          p_language: string
+          p_preview?: boolean
+          p_public_id: string
+          p_rooms: Json
+          p_token_hash: string
+          p_user_agent: string
+        }
+        Returns: Json
+      }
+      booking_engine_create_booking_live: {
+        Args: {
+          p_attribution: Json
+          p_check_in: string
+          p_check_out: string
+          p_consent: Json
+          p_guest: Json
+          p_ip_hash: string
+          p_language: string
+          p_public_id: string
+          p_rooms: Json
+          p_token_hash: string
+          p_user_agent: string
+        }
+        Returns: Json
+      }
+      booking_engine_due_reminders: {
+        Args: { p_limit?: number }
+        Returns: {
+          attribution: Json
+          cancelled_at: string | null
+          check_in_date: string
+          check_out_date: string
+          consent: Json
+          created_at: string
+          currency: string
+          engine_id: string
+          free_cancellation_until: string | null
+          guest_email: string
+          guest_email_status: string | null
+          guest_id: string | null
+          guest_name: string
+          hotel_email_status: string | null
+          hotel_id: string
+          id: string
+          ip_hash: string | null
+          language: string
+          manage_token_hash: string
+          organization_slug: string
+          reference: string
+          reminder_sent_at: string | null
+          reminder_status: string | null
+          rooms: Json
+          status: string
+          total_amount: number
+          user_agent: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "booking_engine_bookings"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      booking_engine_get_booking: {
+        Args: { p_public_id: string; p_reference: string; p_token_hash: string }
+        Returns: Json
+      }
+      booking_engine_guest_history: {
+        Args: {
+          p_email: string
+          p_exclude?: string[]
+          p_first_name: string
+          p_hotel_id: string
+          p_last_name: string
+        }
+        Returns: Json
+      }
+      booking_engine_hit: {
+        Args: { p_bucket: string; p_limit: number; p_window_seconds: number }
+        Returns: boolean
+      }
+      booking_engine_offers: {
+        Args: { p_check_in: string; p_check_out: string; p_engine_id: string }
+        Returns: {
+          available: number
+          blocked: string
+          currency: string
+          max_stay: number
+          min_stay: number
+          nightly: Json
+          nights: number
+          rate_plan_id: string
+          room_type_id: string
+          total: number
+        }[]
+      }
+      booking_engine_public_config: {
+        Args: { p_preview?: boolean; p_public_id: string }
+        Returns: Json
+      }
+      booking_engine_public_config_full: {
+        Args: { p_public_id: string }
+        Returns: Json
+      }
+      booking_engine_reset_preview_token: {
+        Args: { _hotel_id: string }
+        Returns: string
+      }
+      booking_engine_search: {
+        Args: {
+          p_check_in: string
+          p_check_out: string
+          p_preview?: boolean
+          p_public_id: string
+        }
+        Returns: Json
+      }
+      booking_engine_search_core: {
+        Args: { p_check_in: string; p_check_out: string; p_public_id: string }
+        Returns: Json
+      }
+      booking_engine_window_error: {
+        Args: {
+          p_check_in: string
+          p_check_out: string
+          p_engine: Database["public"]["Tables"]["booking_engines"]["Row"]
+        }
+        Returns: string
+      }
+      booking_engine_worker_secret: { Args: never; Returns: string }
+      can_access_guest_request_room: {
+        Args: { p_room_id: string }
+        Returns: boolean
       }
       can_access_pms_hotel: {
         Args: { _hotel_id: string; _org_slug: string; _uid: string }
@@ -10666,17 +21980,88 @@ export type Database = {
         Args: { _reservation_id: string; _uid: string }
         Returns: boolean
       }
+      can_assign_ottofiori_maintenance: { Args: never; Returns: boolean }
+      can_manage_maintenance_escalation: {
+        Args: { p_hotel: string; p_organization_slug: string }
+        Returns: boolean
+      }
+      can_manage_next_day_housekeeping_plan: {
+        Args: { p_hotel_id: string; p_organization_slug: string }
+        Returns: boolean
+      }
       can_manage_slnt_schedule: {
         Args: { _hotel_id: string }
+        Returns: boolean
+      }
+      can_review_maintenance_for_hotel: {
+        Args: { p_hotel: string; p_organization_slug: string }
         Returns: boolean
       }
       can_view_training_analytics: {
         Args: { _user_id: string }
         Returns: boolean
       }
+      capture_all_housekeeping_rooms_for_date: {
+        Args: { p_business_date?: string }
+        Returns: number
+      }
+      capture_housekeeping_room_snapshot: {
+        Args: {
+          p_business_date: string
+          p_include_room_state?: boolean
+          p_room_id: string
+        }
+        Returns: undefined
+      }
       capture_revenue_soldout_prices: {
         Args: { _hotel_id: string }
         Returns: undefined
+      }
+      channex_apply_revision: {
+        Args: {
+          p_action: string
+          p_guest: Json
+          p_review_details?: Json
+          p_review_reason?: string
+          p_revision_row: string
+          p_rooms: Json
+        }
+        Returns: Json
+      }
+      channex_full_sync_rates: {
+        Args: { p_from: string; p_hotel_id: string; p_to: string }
+        Returns: {
+          closed_to_arrival: boolean
+          closed_to_departure: boolean
+          currency: string
+          max_stay: number
+          min_stay: number
+          min_stay_through: number
+          price: number
+          rate_plan_id: string
+          room_type_id: string
+          stay_date: string
+          stop_sell: boolean
+        }[]
+      }
+      channex_purge_revision_pii: { Args: never; Returns: number }
+      channex_room_type_availability: {
+        Args: { p_from: string; p_hotel_id: string; p_to: string }
+        Returns: {
+          availability: number
+          booked: number
+          channex_room_type_id: string
+          room_type_id: string
+          sellable: number
+          stay_date: string
+        }[]
+      }
+      check_password_reset_attempt: {
+        Args: { p_email_hash: string; p_ip_hash: string }
+        Returns: {
+          allowed: boolean
+          retry_after_seconds: number
+        }[]
       }
       claim_automation_lock: {
         Args: { p_hotel: string; p_stale_minutes?: number }
@@ -10693,6 +22078,173 @@ export type Database = {
           interval_minutes: number
           rule_id: string
         }[]
+      }
+      claim_due_next_day_housekeeping_pms_preflight_plans: {
+        Args: { p_limit?: number }
+        Returns: {
+          algorithm_version: string | null
+          approved_at: string | null
+          approved_by: string | null
+          auto_release: boolean
+          created_at: string
+          created_by: string
+          generation_context: Json
+          hotel_id: string
+          id: string
+          last_error: string | null
+          organization_slug: string
+          plan_date: string
+          pms_sync_snapshot: Json
+          pms_synced_at: string | null
+          pre_release_pms_sync_attempt_count: number
+          pre_release_pms_sync_attempted_at: string | null
+          pre_release_pms_sync_result: Json
+          pre_release_pms_sync_status: string
+          pre_release_pms_synced_at: string | null
+          release_adjustment_notification_error: string | null
+          release_adjustment_notified_at: string | null
+          release_attempted_at: string | null
+          release_failure_notification_error: string | null
+          release_failure_notified_at: string | null
+          release_recovery_notified_at: string | null
+          release_result: Json
+          release_revalidated_at: string | null
+          release_revalidation_attempt_count: number
+          release_revalidation_attempted_at: string | null
+          release_revalidation_result: Json
+          release_revalidation_status: string
+          release_time: string
+          release_timezone: string
+          released_at: string | null
+          scheduled_release_at: string | null
+          status: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "next_day_housekeeping_plans"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_due_next_day_housekeeping_release_plans: {
+        Args: { p_limit?: number }
+        Returns: {
+          algorithm_version: string | null
+          approved_at: string | null
+          approved_by: string | null
+          auto_release: boolean
+          created_at: string
+          created_by: string
+          generation_context: Json
+          hotel_id: string
+          id: string
+          last_error: string | null
+          organization_slug: string
+          plan_date: string
+          pms_sync_snapshot: Json
+          pms_synced_at: string | null
+          pre_release_pms_sync_attempt_count: number
+          pre_release_pms_sync_attempted_at: string | null
+          pre_release_pms_sync_result: Json
+          pre_release_pms_sync_status: string
+          pre_release_pms_synced_at: string | null
+          release_adjustment_notification_error: string | null
+          release_adjustment_notified_at: string | null
+          release_attempted_at: string | null
+          release_failure_notification_error: string | null
+          release_failure_notified_at: string | null
+          release_recovery_notified_at: string | null
+          release_result: Json
+          release_revalidated_at: string | null
+          release_revalidation_attempt_count: number
+          release_revalidation_attempted_at: string | null
+          release_revalidation_result: Json
+          release_revalidation_status: string
+          release_time: string
+          release_timezone: string
+          released_at: string | null
+          scheduled_release_at: string | null
+          status: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "next_day_housekeeping_plans"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_housekeeping_activity_alerts: {
+        Args: { p_limit?: number }
+        Returns: {
+          alert_type: string
+          assignment_count: number
+          attempt_count: number
+          created_at: string
+          cutoff_at: string
+          first_detected_at: string
+          hotel_id: string
+          id: string
+          last_attempt_at: string | null
+          last_error: string | null
+          organization_slug: string
+          provider_message_id: string | null
+          recipients: string[]
+          sent_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          work_date: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "housekeeping_automation_alerts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_housekeeping_team_task: {
+        Args: { p_task_id: string }
+        Returns: Json
+      }
+      claim_maintenance_escalation_event: {
+        Args: {
+          p_escalation_level: number
+          p_hotel: string
+          p_organization_slug: string
+          p_recipient_emails: string[]
+          p_threshold_at: string
+          p_ticket_id: string
+        }
+        Returns: string
+      }
+      claim_next_pms_refresh: {
+        Args: never
+        Returns: {
+          attempt: number
+          available_at: string
+          business_date: string
+          error_message: string | null
+          finished_at: string | null
+          hotel_id: string
+          id: string
+          lease_expires_at: string | null
+          request_group_id: string | null
+          request_kind: string
+          requested_at: string
+          requested_by: string | null
+          result: Json | null
+          started_at: string | null
+          status: string
+          target_key: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "pms_refresh_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       claim_next_push_run: {
         Args: { p_stale_minutes?: number }
@@ -10742,6 +22294,46 @@ export type Database = {
               status: string
             }[]
           }
+      claim_room_sale_upgrade_lock: {
+        Args: { p_hotel_id: string; p_owner: string; p_stay_date: string }
+        Returns: boolean
+      }
+      claim_system_anomaly_alerts: {
+        Args: { p_limit?: number }
+        Returns: {
+          details: Json
+          detected_at: string
+          email_message_id: string | null
+          fingerprint: string
+          id: string
+          kind: string
+          last_notify_error: string | null
+          notified_at: string | null
+          notify_attempts: number
+          processing_started_at: string | null
+          severity: string
+          status: string
+          title: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "system_anomaly_alerts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_welcome_quote: {
+        Args: { p_seen_keys?: string[] }
+        Returns: {
+          author: string
+          quote_key: string
+          quote_text: string
+        }[]
+      }
+      claim_welcome_quote_refill_lease: {
+        Args: { p_bootstrap?: boolean }
+        Returns: boolean
+      }
       cleanup_old_photos: { Args: never; Returns: undefined }
       close_empty_revenue_push_runs: { Args: never; Returns: number }
       complete_revenue_sync:
@@ -10759,6 +22351,14 @@ export type Database = {
             Args: { _error?: string; _hotel_id: string; _success: boolean }
             Returns: undefined
           }
+      correct_maintenance_ticket_room: {
+        Args: {
+          p_expected_updated_at: string
+          p_room_number: string
+          p_ticket_id: string
+        }
+        Returns: undefined
+      }
       create_authenticated_housekeeper: {
         Args: {
           p_assigned_hotel?: string
@@ -10823,12 +22423,75 @@ export type Database = {
         }
         Returns: Json
       }
+      current_access_role: { Args: never; Returns: string }
       delete_user_profile: { Args: { p_user_id: string }; Returns: Json }
       delete_user_profile_v2: {
         Args: { p_reassign_to: string; p_user_id: string }
         Returns: Json
       }
+      demand_event_norm_text: { Args: { p_value: string }; Returns: string }
+      demand_event_quality_score: {
+        Args: {
+          p_confidence: number
+          p_source: string
+          p_title: string
+          p_url: string
+        }
+        Returns: number
+      }
+      demand_event_same: {
+        Args: {
+          a_category: string
+          a_end: string
+          a_start: string
+          a_title: string
+          a_url: string
+          a_venue: string
+          b_category: string
+          b_end: string
+          b_start: string
+          b_title: string
+          b_url: string
+          b_venue: string
+        }
+        Returns: boolean
+      }
+      demand_event_source_key: { Args: { p_url: string }; Returns: string }
+      demand_event_title_identity_key: {
+        Args: { p_title: string }
+        Returns: string
+      }
+      demand_event_title_similarity: {
+        Args: { a: string; b: string }
+        Returns: number
+      }
+      demand_event_venue_similarity: {
+        Args: { a: string; b: string }
+        Returns: number
+      }
+      detect_system_anomalies: { Args: never; Returns: Json }
+      effective_access_role: {
+        Args: { _access_role: string; _role: string }
+        Returns: string
+      }
+      effective_housekeeping_photo_categories_for_room: {
+        Args: { p_room_id: string }
+        Returns: string[]
+      }
+      enqueue_pms_manual_refresh: {
+        Args: { p_hotel_id: string }
+        Returns: {
+          job_id: string
+          request_group_id: string
+          status: string
+          target_key: string
+        }[]
+      }
       expire_stale_recommendations: { Args: never; Returns: number }
+      expire_stranded_next_day_housekeeping_releases: {
+        Args: never
+        Returns: number
+      }
       fin_can_approve: { Args: { _user_id?: string }; Returns: boolean }
       fin_is_admin: { Args: { _user_id?: string }; Returns: boolean }
       fin_profile: {
@@ -10842,6 +22505,37 @@ export type Database = {
       finalize_assistant_premium_question: {
         Args: { _success: boolean; _usage_id: string }
         Returns: Json
+      }
+      finalize_housekeeping_business_date: {
+        Args: { p_business_date?: string }
+        Returns: number
+      }
+      finalize_slnt_team_b_after_full_pms_sync: {
+        Args: { p_service_date: string }
+        Returns: Json
+      }
+      finish_pms_refresh: {
+        Args: {
+          p_error?: string
+          p_job_id: string
+          p_result?: Json
+          p_status: string
+        }
+        Returns: boolean
+      }
+      finish_pms_refresh_fenced: {
+        Args: {
+          p_attempt: number
+          p_error?: string
+          p_job_id: string
+          p_result?: Json
+          p_status: string
+        }
+        Returns: boolean
+      }
+      finish_welcome_quote_refill: {
+        Args: { p_error?: string; p_inserted: number; p_pause?: boolean }
+        Returns: undefined
       }
       generate_ticket_number: { Args: never; Returns: string }
       get_assignable_staff:
@@ -10935,6 +22629,8 @@ export type Database = {
         }
         Returns: Json
       }
+      get_channex_webhook_secret: { Args: never; Returns: string }
+      get_channex_worker_secret: { Args: never; Returns: string }
       get_current_user_role: {
         Args: never
         Returns: Database["public"]["Enums"]["user_role"]
@@ -10953,8 +22649,16 @@ export type Database = {
         }[]
       }
       get_google_reputation_worker_secret: { Args: never; Returns: string }
+      get_hotel_housekeeping_photo_requirements: {
+        Args: { p_hotel_configuration_id: string }
+        Returns: {
+          category: string
+          sort_order: number
+        }[]
+      }
       get_hotel_id_from_name: { Args: { hotel_name: string }; Returns: string }
       get_hotel_name_from_id: { Args: { hotel_id: string }; Returns: string }
+      get_hotelcare_push_secret: { Args: { _name: string }; Returns: string }
       get_housekeeper_avg_rating: {
         Args: { days_back?: number; p_housekeeper_id: string }
         Returns: number
@@ -10963,6 +22667,7 @@ export type Database = {
         Args: { days_back?: number; target_housekeeper_id?: string }
         Returns: Json
       }
+      get_housekeeping_activity_worker_secret: { Args: never; Returns: string }
       get_housekeeping_leaderboard: {
         Args: { days_back?: number }
         Returns: {
@@ -10974,9 +22679,51 @@ export type Database = {
           total_completed: number
         }[]
       }
+      get_housekeeping_photo_requirements: {
+        Args: { p_assignment_id: string }
+        Returns: {
+          category: string
+          sort_order: number
+        }[]
+      }
+      get_housekeeping_release_worker_secret: { Args: never; Returns: string }
       get_housekeeping_summary: {
         Args: { target_date?: string; user_id: string }
         Returns: Json
+      }
+      get_maintenance_creation_candidates: {
+        Args: { p_hotel: string }
+        Returns: {
+          assigned_hotel: string
+          can_email: boolean
+          email: string
+          full_name: string
+          id: string
+          role: string
+        }[]
+      }
+      get_maintenance_escalation_worker_secret: { Args: never; Returns: string }
+      get_maintenance_property_teammates: {
+        Args: never
+        Returns: {
+          full_name: string
+          id: string
+        }[]
+      }
+      get_maintenance_room_access: {
+        Args: { p_ticket_id: string }
+        Returns: {
+          access_state: string
+          applies: boolean
+          checked_out: boolean
+          checked_out_at: string
+          checkout_date: string
+          expected_checkout_time: string
+          room_id: string
+          room_number: string
+          room_type: string
+          stay_kind: string
+        }[]
       }
       get_maintenance_staff_for_hotel: {
         Args: { _hotel: string; _signed_in_only?: boolean }
@@ -10989,11 +22736,33 @@ export type Database = {
           role: string
         }[]
       }
+      get_market_demand_index: {
+        Args: { _horizon_days?: number; _hotel_id: string }
+        Returns: Json
+      }
       get_next_housekeeper_sequence: {
         Args: { p_org_slug: string }
         Returns: number
       }
+      get_ottofiori_maintenance_candidates: {
+        Args: never
+        Returns: {
+          assigned_hotel: string
+          full_name: string
+          id: string
+          is_signed_in: boolean
+          role: string
+        }[]
+      }
       get_pms_upload_hidden: { Args: { hotel_key: string }; Returns: boolean }
+      get_portfolio_rate_benchmark: {
+        Args: { _horizon_days?: number; _hotel_id: string }
+        Returns: Json
+      }
+      get_previo_reservation_sync_worker_secret: {
+        Args: never
+        Returns: string
+      }
       get_public_breakfast_hotels: {
         Args: { _org_slug: string }
         Returns: {
@@ -11005,6 +22774,19 @@ export type Database = {
           hotel_name: string
           organization_name: string
           organization_slug: string
+        }[]
+      }
+      get_purchase_invoice_worker_secret: { Args: never; Returns: string }
+      get_recent_rollback_evidence: { Args: never; Returns: Json }
+      get_revenue_monthly_kpis: {
+        Args: { _hotel_id: string }
+        Returns: {
+          complete: boolean
+          days: number
+          month_key: string
+          revenue_eur: number
+          rooms_sold: number
+          sync_completed_at: string
         }[]
       }
       get_revenue_published_payload: {
@@ -11027,6 +22809,28 @@ export type Database = {
           sync_completed_by_name: string
         }[]
       }
+      get_room_note_history: {
+        Args: { p_limit?: number; p_room_id: string }
+        Returns: {
+          content: string
+          created_at: string
+          created_by: string
+          created_by_name: string
+          id: string
+        }[]
+      }
+      get_room_note_provenance: {
+        Args: { p_limit?: number; p_room_id: string }
+        Returns: {
+          content: string
+          created_at: string
+          created_by: string
+          created_by_name: string
+          id: string
+          source: string
+        }[]
+      }
+      get_system_anomaly_worker_secret: { Args: never; Returns: string }
       get_user_access_config: {
         Args: { user_role: Database["public"]["Enums"]["user_role"] }
         Returns: {
@@ -11056,6 +22860,10 @@ export type Database = {
         Args: { user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      gozsdu_laundry_lock: {
+        Args: { p_date: string; p_user: string }
+        Returns: undefined
+      }
       grant_assistant_premium_purchase: {
         Args: {
           _amount_eur: number
@@ -11069,6 +22877,7 @@ export type Database = {
         }
         Returns: Json
       }
+      guest_id_data_purge: { Args: { p_today?: string }; Returns: number }
       has_hk_manager_powers: { Args: { _user_id: string }; Returns: boolean }
       has_pms_access: { Args: { user_id: string }; Returns: boolean }
       has_ticket_creation_permission: {
@@ -11079,11 +22888,144 @@ export type Database = {
         Args: { _user_id: string; _venue_id: string }
         Returns: boolean
       }
+      hc_acknowledge_stay_extension: {
+        Args: {
+          _identity_verified: boolean
+          _resolution_note?: string
+          _resolved?: boolean
+          _review_id: string
+        }
+        Returns: undefined
+      }
+      hc_capture_realtime_table_evidence: { Args: never; Returns: Json }
+      hc_carry_final_night_towel_only: {
+        Args: { p_business_date: string; p_hotel: string; p_pms_metadata: Json }
+        Returns: boolean
+      }
+      hc_close_housekeeping_day_20: { Args: never; Returns: Json }
+      hc_dnd_retry_ready_at: { Args: { p_first: string }; Returns: string }
+      hc_enqueue_system_anomaly: {
+        Args: {
+          p_details: Json
+          p_fingerprint: string
+          p_kind: string
+          p_severity: string
+          p_title: string
+        }
+        Returns: string
+      }
+      hc_expire_memories_workday_instructions: {
+        Args: never
+        Returns: {
+          expired_beds: number
+          expired_notes: number
+        }[]
+      }
+      hc_materialize_gozsdu_carry_assignments: {
+        Args: { p_assignment_date?: string }
+        Returns: number
+      }
+      hc_memories_previous_service_context: {
+        Args: {
+          p_assignment_date: string
+          p_assignment_type: string
+          p_room_id: string
+        }
+        Returns: Json
+      }
+      hc_mira_mark_thread_read: {
+        Args: { p_last_seen_at: string; p_thread_id: string }
+        Returns: undefined
+      }
+      hc_ottofiori_bucket_evidence_changed: {
+        Args: { p_new: Json; p_old: Json }
+        Returns: boolean
+      }
+      hc_ottofiori_checkout_decision: {
+        Args: {
+          p_checked_out: boolean
+          p_departing: boolean
+          p_manual_checkout: boolean
+          p_manual_daily: boolean
+          p_new_arrival: boolean
+          p_no_show: boolean
+          p_not_arrived: boolean
+          p_occupied: boolean
+          p_snapshot_fresh: boolean
+          p_stayover: boolean
+        }
+        Returns: string
+      }
+      hc_portfolio_carry_property_id: {
+        Args: { p_hotel: string }
+        Returns: string
+      }
+      hc_portfolio_previous_service_carry_payload: {
+        Args: {
+          p_assignment_date: string
+          p_assignment_type: string
+          p_room_id: string
+        }
+        Returns: Json
+      }
+      hc_prove_housekeeping_carry_context: {
+        Args: {
+          p_assignment_date: string
+          p_assignment_type: string
+          p_context: Json
+          p_room_id: string
+          p_service_result: string
+        }
+        Returns: Json
+      }
+      hc_refresh_memories_daily_carry_board: {
+        Args: { p_business_date?: string }
+        Returns: number
+      }
+      hc_refresh_memories_missed_service_carry: {
+        Args: { p_assignment_date?: string }
+        Returns: number
+      }
+      hc_refresh_portfolio_missed_service_carry: {
+        Args: { p_assignment_date?: string }
+        Returns: Json
+      }
+      hc_save_housekeeping_service_cycle: {
+        Args: {
+          p_change_first_night: number
+          p_change_repeat_nights: number
+          p_final_night_towel_only?: boolean
+          p_hotel_id: string
+          p_towel_first_night: number
+          p_towel_repeat_nights: number
+        }
+        Returns: Json
+      }
+      hc_save_memories_service_cycle: {
+        Args: {
+          p_change_first_night: number
+          p_change_repeat_nights: number
+          p_final_night_towel_only?: boolean
+          p_towel_first_night: number
+          p_towel_repeat_nights: number
+        }
+        Returns: Json
+      }
       hotel_belongs_to_user_organization: {
         Args: { _hotel_id: string; _uid: string }
         Returns: boolean
       }
       hotel_has_active_previo: { Args: { _hotel_id: string }; Returns: boolean }
+      hotelcare_ai_queue_ottofiori_column: {
+        Args: {
+          p_decision_reason: string
+          p_delta: number
+          p_dry_run?: boolean
+          p_reason_detail: string
+          p_stay_date: string
+        }
+        Returns: Json
+      }
       hotelcare_connector_get_automation_runs: {
         Args: { _hotel_id: string; _limit?: number }
         Returns: {
@@ -11154,6 +23096,18 @@ export type Database = {
           stay_date: string
         }[]
       }
+      hotelcare_dispatch_push: {
+        Args: {
+          _body: string
+          _data?: Json
+          _event_type: string
+          _tag: string
+          _title: string
+          _url: string
+          _user_ids: string[]
+        }
+        Returns: number
+      }
       hotelcare_get_my_properties: {
         Args: never
         Returns: {
@@ -11164,6 +23118,124 @@ export type Database = {
           organization_slug: string
         }[]
       }
+      hotelcare_is_budapest_market: {
+        Args: { p_city: string }
+        Returns: boolean
+      }
+      hotelcare_market_normalize: { Args: { p_value: string }; Returns: string }
+      hotelcare_org_has_market: {
+        Args: { p_city: string; p_country: string; p_organization_slug: string }
+        Returns: boolean
+      }
+      hotelcare_push_recipients: {
+        Args: {
+          _hotel_id: string
+          _organization_slug: string
+          _roles: string[]
+        }
+        Returns: string[]
+      }
+      hotelcare_same_market: {
+        Args: {
+          p_city_a: string
+          p_city_b: string
+          p_country_a: string
+          p_country_b: string
+        }
+        Returns: boolean
+      }
+      hotelcare_send_maintenance_activity_push: {
+        Args: { _actor_id?: string; _kind: string; _ticket_id: string }
+        Returns: number
+      }
+      hotelcare_test_my_push: { Args: never; Returns: Json }
+      hotelcare_verify_revenue_cron_token: {
+        Args: { _candidate: string }
+        Returns: boolean
+      }
+      housekeeping_room_change_email_worker_secret: {
+        Args: never
+        Returns: string
+      }
+      insert_welcome_original_thoughts: {
+        Args: { p_rows: Json }
+        Returns: number
+      }
+      insuite_create_order: {
+        Args: {
+          _client_request_id: string
+          _device_id: string
+          _items: Json
+          _kind: string
+          _notes: string
+          _requested_at: string
+          _session_epoch: string
+        }
+        Returns: Json
+      }
+      insuite_escalate_overdue: { Args: never; Returns: number }
+      insuite_fanout_alert: {
+        Args: {
+          _body: string
+          _direct_user_id?: string
+          _event_key: string
+          _hotel_id: string
+          _kind: string
+          _message_id?: string
+          _organization_slug: string
+          _request_id?: string
+          _roles: string[]
+          _room_id: string
+          _title: string
+        }
+        Returns: number
+      }
+      insuite_wellness_book: {
+        Args: {
+          _client_request_id?: string
+          _created_by?: string
+          _guest_email?: string
+          _guest_name?: string
+          _notes?: string
+          _party_size: number
+          _reservation_id?: string
+          _resource_id: string
+          _room_id?: string
+          _source: string
+          _starts_at: string
+        }
+        Returns: Json
+      }
+      insuite_wellness_change: {
+        Args: {
+          _action: string
+          _actor?: string
+          _booking_id: string
+          _hotel_id: string
+          _reason?: string
+          _reservation_id?: string
+        }
+        Returns: Json
+      }
+      insuite_wellness_slots: {
+        Args: {
+          _from: string
+          _hotel_id: string
+          _include_inactive?: boolean
+          _reservation_id?: string
+          _staff?: boolean
+          _to: string
+        }
+        Returns: Json
+      }
+      insuite_wellness_stay_bookings: {
+        Args: { _reservation_ids: string[] }
+        Returns: Json
+      }
+      invoice_credential_key_internal: { Args: never; Returns: string }
+      invoke_ottofiori_ai_supervisor:
+        | { Args: never; Returns: number }
+        | { Args: { p_body: Json }; Returns: number }
       invoke_ottofiori_market_scan: {
         Args: { _force?: boolean }
         Returns: number
@@ -11171,6 +23243,10 @@ export type Database = {
       is_revenue_user: { Args: { _uid: string }; Returns: boolean }
       is_super_admin: { Args: { user_id: string }; Returns: boolean }
       is_top_management: { Args: { _user_id: string }; Returns: boolean }
+      link_ticket_attachments: {
+        Args: { p_paths: string[]; p_ticket_id: string }
+        Returns: string[]
+      }
       maintenance_hotel_matches: {
         Args: {
           _organization_slug: string
@@ -11179,9 +23255,32 @@ export type Database = {
         }
         Returns: boolean
       }
+      manage_maintenance_ticket: {
+        Args: {
+          p_action: string
+          p_expected_updated_at: string
+          p_note: string
+          p_sla_breach_reason?: string
+          p_ticket_id: string
+        }
+        Returns: undefined
+      }
       manager_assignable_role: {
         Args: { _role: Database["public"]["Enums"]["user_role"] }
         Returns: boolean
+      }
+      manager_mark_room_clean: {
+        Args: {
+          p_assignment_id?: string
+          p_expected_assignment_date?: string
+          p_room_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      mark_housekeeping_presence: {
+        Args: { p_client_context?: Json; p_hotel_id: string; p_source?: string }
+        Returns: Json
       }
       market_rates_by_date: {
         Args: {
@@ -11202,10 +23301,850 @@ export type Database = {
           trimmed_avg_rate: number
         }[]
       }
+      materialize_slnt_team_b_planned_assignments: {
+        Args: { p_service_date: string }
+        Returns: Json
+      }
+      memories_mark_room_dirty: {
+        Args: {
+          p_expected_assignment_date?: string
+          p_room_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      nav_credential_key_internal: { Args: never; Returns: string }
+      next_day_housekeeping_staff_matches_hotel: {
+        Args: { p_plan_id: string; p_user_id: string }
+        Returns: boolean
+      }
       normalize_hotel_name: { Args: { input_hotel: string }; Returns: string }
+      normalize_previo_continuation_created_at: {
+        Args: { p_hotel_id: string; p_res_id: string }
+        Returns: undefined
+      }
+      ntak_booking_no:
+        | {
+            Args: {
+              _channex_booking_id: string
+              _id: string
+              _pms_reservation_id: string
+              _reservation_number: string
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              _channex_booking_id: string
+              _id: string
+              _override: string
+              _pms_reservation_id: string
+              _reservation_number: string
+            }
+            Returns: string
+          }
+      ntak_get_secret: {
+        Args: { _hotel_id: string; _kind: string }
+        Returns: string
+      }
+      ntak_install_certificate: {
+        Args: {
+          _cert: string
+          _expires: string
+          _hotel_id: string
+          _key: string
+          _registration: string
+          _serial: string
+          _subject: Json
+          _use_pending: boolean
+        }
+        Returns: undefined
+      }
+      ntak_put_secret: {
+        Args: { _hotel_id: string; _kind: string; _value: string }
+        Returns: undefined
+      }
+      ntak_save_pending_csr: {
+        Args: {
+          _csr: string
+          _fingerprint: string
+          _hotel_id: string
+          _key: string
+          _registration: string
+        }
+        Returns: string
+      }
+      ntak_secret_name: {
+        Args: { _hotel_id: string; _kind: string }
+        Returns: string
+      }
       organization_has_custom_branding: {
         Args: { org_slug: string }
         Returns: boolean
+      }
+      ota_channel_key: { Args: { p_source: string }; Returns: string }
+      ota_channel_type: { Args: { p_channel_key: string }; Returns: string }
+      ota_economics_nights: {
+        Args: { p_from: string; p_hotel_id: string; p_to: string }
+        Returns: {
+          amount: number
+          amount_basis: string
+          booked_on: string
+          booking_ref: string
+          channel_key: string
+          channel_type: string
+          city_tax: number
+          commission: number
+          commission_rate: number
+          commission_source: string
+          currency: string
+          data_source: string
+          gross_revenue: number
+          meal_plan: string
+          net_revenue: number
+          ota_code: string
+          payout_type: string
+          priced_nights: number
+          rate_label: string
+          revenue_ex_tax: number
+          room_nights: number
+          stay_date: string
+        }[]
+      }
+      ota_parse_amount: { Args: { s: string }; Returns: number }
+      ota_parse_note: {
+        Args: { p_note: string }
+        Returns: {
+          meal_plan: string
+          note_commission: number
+          note_currency: string
+          note_total: number
+          ota_booked_on: string
+          payout_type: string
+          rate_label: string
+          rate_plan_ref: string
+        }[]
+      }
+      ota_statement_check_rows: {
+        Args: { p_from: string; p_hotel_id: string; p_to: string }
+        Returns: {
+          booked_at: string
+          channel_key: string
+          check_in: string
+          check_out: string
+          currency: string
+          expected_commission: number
+          in_pms: boolean
+          listing_ref: string
+          note_commission: number
+          note_total: number
+          ota_reservation_code: string
+          payout_amount: number
+          pms_booking_ref: string
+          pms_status: string
+          room_nights: number
+          statement_commission: number
+          statement_gross: number
+          statement_pct: number
+          statement_period: string
+          status: string
+          terms_pct: number
+        }[]
+      }
+      ottofiori_ai_apply: {
+        Args: {
+          p_delta: number
+          p_dry_run?: boolean
+          p_expected_cells: Json
+          p_reason: string
+          p_review_id: string
+          p_stay_date: string
+        }
+        Returns: Json
+      }
+      ottofiori_ai_context: { Args: { p_stay_date?: string }; Returns: Json }
+      ottofiori_peer_context: { Args: never; Returns: Json }
+      parking_access_level: {
+        Args: { _hotel_id: string; _organization_slug: string }
+        Returns: string
+      }
+      parking_claim_email_jobs: {
+        Args: never
+        Returns: {
+          attempts: number
+          audience: string
+          created_at: string
+          event_id: string | null
+          hotel_id: string
+          id: string
+          last_error: string | null
+          lease_id: string | null
+          next_attempt_at: string
+          organization_slug: string
+          payload: Json
+          provider_id: string | null
+          recipient: string
+          sent_at: string | null
+          status: string
+          ticket_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "parking_email_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      parking_create_batch: {
+        Args: {
+          _expires_on: string
+          _hotel_id: string
+          _label?: string
+          _organization_slug: string
+          _range_end: string
+          _range_start: string
+        }
+        Returns: {
+          created_at: string
+          created_by: string
+          expires_on: string | null
+          first_number: number
+          hotel_id: string
+          id: string
+          label: string | null
+          last_number: number
+          number_width: number
+          organization_slug: string
+          range_end: string
+          range_prefix: string
+          range_start: string
+          ticket_count: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_batches"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_delete_batch: { Args: { _batch_id: string }; Returns: undefined }
+      parking_email_worker_secret: { Args: never; Returns: string }
+      parking_find_duplicate_ticket: {
+        Args: {
+          _guest_name?: string
+          _hotel_id: string
+          _organization_slug: string
+          _reservation_ref?: string
+          _room_number?: string
+          _valid_from: string
+          _valid_to: string
+        }
+        Returns: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "parking_tickets"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      parking_issue_ticket: {
+        Args: {
+          _guest_name?: string
+          _hotel_id: string
+          _notes?: string
+          _organization_slug: string
+          _reference: string
+          _reservation_ref?: string
+          _room_number?: string
+          _valid_from: string
+          _valid_to: string
+        }
+        Returns: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_tickets"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_issue_ticket_core: {
+        Args: {
+          _guest_name?: string
+          _hotel_id: string
+          _notes?: string
+          _organization_slug: string
+          _reference: string
+          _reservation_ref?: string
+          _room_number?: string
+          _valid_from: string
+          _valid_to: string
+        }
+        Returns: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_tickets"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_issue_ticket_with_email: {
+        Args: {
+          _guest_email?: string
+          _guest_name?: string
+          _hotel_id: string
+          _notes?: string
+          _organization_slug: string
+          _reference: string
+          _reservation_ref?: string
+          _room_number?: string
+          _valid_from: string
+          _valid_to: string
+        }
+        Returns: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_tickets"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_issue_ticket_with_email_override: {
+        Args: {
+          _allow_duplicate?: boolean
+          _guest_email?: string
+          _guest_name?: string
+          _hotel_id: string
+          _notes?: string
+          _organization_slug: string
+          _reference: string
+          _reservation_ref?: string
+          _room_number?: string
+          _valid_from: string
+          _valid_to: string
+        }
+        Returns: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_tickets"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_list_batches: {
+        Args: { _hotel_id: string; _organization_slug: string }
+        Returns: {
+          available: number
+          created_at: string
+          created_by: string
+          expires_on: string
+          id: string
+          issued: number
+          label: string
+          range_end: string
+          range_start: string
+          ticket_count: number
+          void: number
+        }[]
+      }
+      parking_list_users: {
+        Args: { _hotel_id: string; _organization_slug: string }
+        Returns: {
+          effective_access: string
+          email: string
+          full_name: string
+          granted_access: string
+          role: string
+          role_access: string
+          user_id: string
+        }[]
+      }
+      parking_normalize_reference: { Args: { _value: string }; Returns: string }
+      parking_retry_email_job: {
+        Args: { _job_id: string }
+        Returns: {
+          attempts: number
+          audience: string
+          created_at: string
+          event_id: string | null
+          hotel_id: string
+          id: string
+          last_error: string | null
+          lease_id: string | null
+          next_attempt_at: string
+          organization_slug: string
+          payload: Json
+          provider_id: string | null
+          recipient: string
+          sent_at: string | null
+          status: string
+          ticket_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_email_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_save_email_settings: {
+        Args: {
+          _brand_name: string
+          _default_validity_days: number
+          _guest_email_enabled: boolean
+          _hotel_id: string
+          _notification_emails: string[]
+          _organization_slug: string
+          _parking_instructions: string
+          _provider_name: string
+          _reply_to: string
+          _sender_email: string
+          _vendor_auto_email: boolean
+        }
+        Returns: {
+          brand_name: string
+          created_at: string
+          default_validity_days: number
+          guest_email_enabled: boolean
+          hotel_id: string
+          id: string
+          notification_emails: string[]
+          organization_slug: string
+          parking_instructions: string
+          provider_name: string
+          reply_to: string | null
+          sender_email: string
+          updated_at: string
+          updated_by: string | null
+          vendor_auto_email: boolean
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_settings"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_save_settings: {
+        Args: {
+          _default_validity_days: number
+          _hotel_id: string
+          _notification_emails: string[]
+          _organization_slug: string
+          _provider_name: string
+        }
+        Returns: {
+          brand_name: string
+          created_at: string
+          default_validity_days: number
+          guest_email_enabled: boolean
+          hotel_id: string
+          id: string
+          notification_emails: string[]
+          organization_slug: string
+          parking_instructions: string
+          provider_name: string
+          reply_to: string | null
+          sender_email: string
+          updated_at: string
+          updated_by: string | null
+          vendor_auto_email: boolean
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_settings"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_search_reservations: {
+        Args: {
+          _hotel_id: string
+          _limit?: number
+          _organization_slug: string
+          _query: string
+        }
+        Returns: {
+          check_in_date: string
+          check_out_date: string
+          guest_email: string
+          guest_name: string
+          reservation_id: string
+          reservation_number: string
+          reservation_status: string
+          room_number: string
+          source: string
+        }[]
+      }
+      parking_search_tickets: {
+        Args: {
+          _hotel_id: string
+          _limit?: number
+          _organization_slug: string
+          _query?: string
+          _status?: string
+        }
+        Returns: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "parking_tickets"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      parking_set_cancellation_reported: {
+        Args: { _reported: boolean; _ticket_id: string }
+        Returns: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_tickets"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_set_user_access: {
+        Args: {
+          _access_level: string
+          _hotel_id: string
+          _organization_slug: string
+          _user_id: string
+        }
+        Returns: Json
+      }
+      parking_set_user_access_internal: {
+        Args: {
+          _access_level: string
+          _hotel_id: string
+          _organization_slug: string
+          _user_id: string
+        }
+        Returns: Json
+      }
+      parking_stock_summary: {
+        Args: { _hotel_id: string; _organization_slug: string }
+        Returns: {
+          active: number
+          available: number
+          expired: number
+          total: number
+          unreported_expired: number
+          void: number
+        }[]
+      }
+      parking_update_ticket: {
+        Args: {
+          _guest_name?: string
+          _notes?: string
+          _reservation_ref?: string
+          _room_number?: string
+          _ticket_id: string
+          _valid_from: string
+          _valid_to: string
+        }
+        Returns: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_tickets"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_update_ticket_internal: {
+        Args: {
+          _guest_name?: string
+          _notes?: string
+          _reservation_ref?: string
+          _room_number?: string
+          _ticket_id: string
+          _valid_from: string
+          _valid_to: string
+        }
+        Returns: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_tickets"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      parking_void_ticket: {
+        Args: { _reason: string; _ticket_id: string }
+        Returns: {
+          batch_id: string
+          cancellation_reported_at: string | null
+          cancellation_reported_by: string | null
+          created_at: string
+          expires_on: string | null
+          guest_email: string | null
+          guest_name: string | null
+          hotel_id: string
+          id: string
+          issued_at: string | null
+          issued_by: string | null
+          notes: string | null
+          organization_slug: string
+          reference: string
+          reference_search: string | null
+          reservation_ref: string | null
+          reservation_search: string | null
+          room_number: string | null
+          status: string
+          updated_at: string
+          updated_by: string | null
+          valid_from: string | null
+          valid_to: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "parking_tickets"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       pause_competitor_scan: {
         Args: { _id: string; _minutes: number; _reason: string }
@@ -11275,8 +24214,54 @@ export type Database = {
           vat: number
         }[]
       }
+      pi_apply_gap_fill: {
+        Args: { _items: Json; _organization_slug: string }
+        Returns: Json
+      }
+      pi_apply_reconciliation: {
+        Args: { _documents: Json; _nav: Json; _organization_slug: string }
+        Returns: Json
+      }
+      pi_can_control_nav: { Args: never; Returns: boolean }
+      pi_can_view_nav: {
+        Args: { _company_id: string; _hotel_id: string }
+        Returns: boolean
+      }
+      pi_claim_nav_sync: {
+        Args: { _connection_id: string; _lock_token: string; _minutes?: number }
+        Returns: boolean
+      }
+      pi_claim_processing_job: {
+        Args: { _force?: boolean; _invoice_id: string; _lock_token: string }
+        Returns: {
+          attempts: number
+          claimed: boolean
+          status: string
+        }[]
+      }
+      pi_claim_reconcile: {
+        Args: {
+          _lock_token: string
+          _minutes?: number
+          _organization_slug: string
+        }
+        Returns: boolean
+      }
+      pi_finish_processing_job: {
+        Args: {
+          _error?: string
+          _error_code?: string
+          _invoice_id: string
+          _lock_token: string
+          _ok: boolean
+        }
+        Returns: undefined
+      }
+      pi_module_access: { Args: never; Returns: boolean }
+      pi_module_access_for: { Args: { _uid: string }; Returns: boolean }
       pi_norm_doc_number: { Args: { _raw: string }; Returns: string }
       pi_norm_tax_id: { Args: { _raw: string }; Returns: string }
+      pi_open_conflict_count: { Args: { _invoice_id: string }; Returns: number }
       pi_pending_ageing: {
         Args: never
         Returns: {
@@ -11284,6 +24269,30 @@ export type Database = {
           invoice_count: number
           value: number
         }[]
+      }
+      pi_reconciliation_summary: {
+        Args: { _company_id?: string; _from?: string; _to?: string }
+        Returns: {
+          currency: string
+          gross_total: number
+          invoice_count: number
+          side: string
+          status: string
+        }[]
+      }
+      pi_release_nav_sync: {
+        Args: { _connection_id: string; _lock_token: string }
+        Returns: undefined
+      }
+      pi_release_reconcile: {
+        Args: {
+          _error: string
+          _lock_token: string
+          _organization_slug: string
+          _status: string
+          _summary: Json
+        }
+        Returns: boolean
       }
       pi_search_invoices: {
         Args: { _limit?: number; _offset?: number; _q: string }
@@ -11303,6 +24312,7 @@ export type Database = {
           total_amount: number
         }[]
       }
+      pi_tax_core: { Args: { _raw: string }; Returns: string }
       pi_user_hotel: { Args: never; Returns: string }
       pi_user_org: { Args: never; Returns: string }
       pi_user_role: { Args: never; Returns: string }
@@ -11319,6 +24329,10 @@ export type Database = {
         }
         Returns: Json
       }
+      pms_add_stay_guest: {
+        Args: { _guest_id: string; _reservation_id: string }
+        Returns: Json
+      }
       pms_apply_change: {
         Args: {
           p_after: Json
@@ -11329,6 +24343,23 @@ export type Database = {
           p_room_id: string
         }
         Returns: Json
+      }
+      pms_ari_grid: {
+        Args: { _from: string; _hotel_id: string; _to: string }
+        Returns: Json
+      }
+      pms_ari_native_hotel: { Args: { _hotel_id: string }; Returns: boolean }
+      pms_ari_refresh_availability: {
+        Args: { _from: string; _hotel_id: string; _to: string }
+        Returns: number
+      }
+      pms_ari_save: {
+        Args: { _changes: Json; _hotel_id: string }
+        Returns: Json
+      }
+      pms_assert_business_moment: {
+        Args: { _hotel_id: string; _moment: string; _org_slug: string }
+        Returns: undefined
       }
       pms_available_rooms: {
         Args: {
@@ -11346,8 +24377,54 @@ export type Database = {
           room_type: string
         }[]
       }
+      pms_change_room: {
+        Args: { _moment?: string; _reservation_id: string; _to_room: string }
+        Returns: Json
+      }
+      pms_change_room_phase2: {
+        Args: { _moment?: string; _reservation_id: string; _to_room: string }
+        Returns: Json
+      }
+      pms_check_in: {
+        Args: {
+          _guest_ids?: string[]
+          _moment?: string
+          _override?: boolean
+          _reservation_id: string
+          _room_id?: string
+        }
+        Returns: Json
+      }
+      pms_check_in_phase2: {
+        Args: {
+          _guest_ids?: string[]
+          _moment?: string
+          _override?: boolean
+          _reservation_id: string
+          _room_id?: string
+        }
+        Returns: Json
+      }
       pms_check_in_reservation: {
         Args: { _override?: boolean; _reservation_id: string; _room_id: string }
+        Returns: Json
+      }
+      pms_check_out: {
+        Args: {
+          _acknowledge_balance?: boolean
+          _guest_ids?: string[]
+          _moment?: string
+          _reservation_id: string
+        }
+        Returns: Json
+      }
+      pms_check_out_phase2: {
+        Args: {
+          _acknowledge_balance?: boolean
+          _guest_ids?: string[]
+          _moment?: string
+          _reservation_id: string
+        }
         Returns: Json
       }
       pms_check_out_reservation: {
@@ -11373,10 +24450,163 @@ export type Database = {
         }
         Returns: Json
       }
+      pms_enqueue_guest_ntak: {
+        Args: {
+          _correction: boolean
+          _from_room: string
+          _ids: string[]
+          _kind: string
+          _moment: string
+          _reservation_id: string
+          _room_id: string
+        }
+        Returns: undefined
+      }
+      pms_finance_add_charge: {
+        Args: {
+          _currency: string
+          _description: string
+          _gross_unit_price: number
+          _quantity: number
+          _reservation_id: string
+          _service_catalog_item_id?: string
+          _service_date?: string
+          _unit: string
+          _vat_code: string
+          _vat_rate?: number
+        }
+        Returns: string
+      }
+      pms_finance_ensure_master_folio: {
+        Args: { _reservation_id: string }
+        Returns: string
+      }
+      pms_finance_is_native_pms: {
+        Args: { _reservation_id: string }
+        Returns: boolean
+      }
+      pms_finance_recalculate_reservation: {
+        Args: { _reservation_id: string }
+        Returns: undefined
+      }
+      pms_finance_record_payment: {
+        Args: {
+          _amount: number
+          _currency: string
+          _method: string
+          _received_at?: string
+          _reference?: string
+          _reservation_id: string
+        }
+        Returns: string
+      }
+      pms_finance_reverse_payment: {
+        Args: { _payment_id: string; _reason: string }
+        Returns: undefined
+      }
+      pms_finance_void_charge: {
+        Args: { _line_id: string; _reason: string }
+        Returns: undefined
+      }
+      pms_fold_text: { Args: { _text: string }; Returns: string }
+      pms_guest_directory: {
+        Args: {
+          _hotel_ids: string[]
+          _limit?: number
+          _offset?: number
+          _term?: string
+        }
+        Returns: Json[]
+      }
+      pms_guest_display_name: { Args: { _name: string }; Returns: string }
+      pms_guest_identity: {
+        Args: { _hotel_id: string; _key: string }
+        Returns: Record<string, unknown>
+      }
+      pms_guest_lifecycle_available: {
+        Args: { _reservation_id: string; _room_id?: string }
+        Returns: boolean
+      }
+      pms_guest_name_key: { Args: { _name: string }; Returns: string }
+      pms_guest_profile: {
+        Args: { _hotel_id: string; _key: string }
+        Returns: Json
+      }
+      pms_guest_profile_save: {
+        Args: { _hotel_id: string; _key: string; _patch: Json }
+        Returns: Json
+      }
+      pms_guest_signals: {
+        Args: { _reservation_ids: string[] }
+        Returns: {
+          dietary: string
+          group_size: number
+          guest_id: string
+          last_stay_end: string
+          notes: string
+          previous_stays: number
+          profile_key: string
+          reservation_id: string
+          tags: Json
+          vip: boolean
+        }[]
+      }
+      pms_guest_transition: {
+        Args: {
+          _acknowledge_balance?: boolean
+          _action: string
+          _guest_ids?: string[]
+          _moment?: string
+          _override?: boolean
+          _reservation_id: string
+          _room_id?: string
+        }
+        Returns: Json
+      }
       pms_hotel_room_keys: { Args: { _hotel_id: string }; Returns: string[] }
+      pms_ntak_guest_scope: {
+        Args: { _assigned_room?: string; _reservation_id: string }
+        Returns: boolean
+      }
+      pms_queue_guest_viza: {
+        Args: {
+          _action: string
+          _guest_id: string
+          _moment: string
+          _reservation_id: string
+        }
+        Returns: undefined
+      }
+      pms_rebuild_ntak_guest_states: {
+        Args: { _hotel_id: string }
+        Returns: number
+      }
       pms_recalc_reservation_financials: {
         Args: { _reservation_id: string }
         Returns: undefined
+      }
+      pms_record_business_folio_item: {
+        Args: {
+          _amount: number
+          _business_day?: string
+          _charge_type: string
+          _description: string
+          _method?: string
+          _reservation_id: string
+        }
+        Returns: Json
+      }
+      pms_reservation_guest_key: {
+        Args: { _contact_name: string; _guest_name: string }
+        Returns: string
+      }
+      pms_reservation_search: {
+        Args: { _hotel_ids: string[]; _term: string }
+        Returns: Json[]
+      }
+      pms_retry_viza_trigger_failure: {
+        Args: { _failure_id: string }
+        Returns: Json
       }
       pms_room_has_conflict: {
         Args: {
@@ -11387,8 +24617,29 @@ export type Database = {
         }
         Returns: boolean
       }
+      pms_set_business_moment: { Args: { _moment: string }; Returns: undefined }
+      pms_set_ntak_booking_no: {
+        Args: { _booking_no: string; _reservation_id: string }
+        Returns: Json
+      }
       pms_set_reservation_status: {
         Args: { _new_status: string; _reason?: string; _reservation_id: string }
+        Returns: Json
+      }
+      pms_undo_check_in: {
+        Args: { _moment?: string; _reservation_id: string }
+        Returns: Json
+      }
+      pms_undo_check_in_phase2: {
+        Args: { _moment?: string; _reservation_id: string }
+        Returns: Json
+      }
+      pms_undo_check_out: {
+        Args: { _moment?: string; _reservation_id: string }
+        Returns: Json
+      }
+      pms_undo_check_out_phase2: {
+        Args: { _moment?: string; _reservation_id: string }
         Returns: Json
       }
       pms_update_reservation: {
@@ -11407,6 +24658,37 @@ export type Database = {
           _special_requests?: string
         }
         Returns: Json
+      }
+      pms_viza_apply_status_transition: {
+        Args: {
+          _from_status: string
+          _moment: string
+          _reservation_id: string
+          _to_status: string
+        }
+        Returns: undefined
+      }
+      prepare_due_housekeeping_activity_alerts: { Args: never; Returns: number }
+      prepare_slnt_team_b_day_plan: {
+        Args: {
+          p_default_staff_ids: string[]
+          p_service_date: string
+          p_staff_ids: string[]
+          p_tasks: Json
+        }
+        Returns: {
+          cancelled_count: number
+          default_staff_count: number
+          queued_count: number
+          selected_staff_count: number
+        }[]
+      }
+      prepare_slnt_team_b_tasks: {
+        Args: { p_service_date: string; p_tasks: Json }
+        Returns: {
+          cancelled_count: number
+          queued_count: number
+        }[]
       }
       publish_reputation_live_announcement: {
         Args: { target_org_id: string }
@@ -11457,6 +24739,15 @@ export type Database = {
           stay_date: string
         }[]
       }
+      rd_import_historical_staff_schedules: {
+        Args: { _rows: Json; _source_file?: string }
+        Returns: number
+      }
+      rd_set_staff_position: {
+        Args: { _employee_id: string; _position: string }
+        Returns: undefined
+      }
+      rdhotels_active_room_ids: { Args: { _uid: string }; Returns: string[] }
       rdhotels_assignment_in_active_hotel: {
         Args: { _room_id: string; _user_id: string }
         Returns: boolean
@@ -11470,6 +24761,48 @@ export type Database = {
         }
         Returns: number
       }
+      reconcile_revenue_booking_price: {
+        Args: { p_hotel_id: string; p_res_id: string }
+        Returns: undefined
+      }
+      record_gozsdu_laundry_collection: {
+        Args: {
+          p_counts?: Json
+          p_reason?: string
+          p_room_id: string
+          p_status: string
+        }
+        Returns: undefined
+      }
+      record_gozsdu_unallocated_daily_linen: {
+        Args: { p_counts: Json }
+        Returns: undefined
+      }
+      refresh_housekeeping_assignment_learning_profile: {
+        Args: { p_hotel_id: string; p_organization_slug: string }
+        Returns: {
+          confidence_score: number
+          correction_count: number
+          created_at: string
+          diagnostics: Json
+          hotel_id: string
+          last_correction_at: string | null
+          model_version: string
+          organization_slug: string
+          refreshed_at: string
+          sample_count: number
+          staff_preferences: Json
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "housekeeping_assignment_learning_profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      refresh_revenue_booking_activity_archive: { Args: never; Returns: number }
+      refresh_revenue_booking_stay_context: { Args: never; Returns: number }
       refresh_revenue_published_payload: {
         Args: {
           _actor_name?: string
@@ -11478,10 +24811,24 @@ export type Database = {
         }
         Returns: undefined
       }
+      register_push_subscription: {
+        Args: {
+          _auth: string
+          _endpoint: string
+          _p256dh: string
+          _user_agent?: string
+        }
+        Returns: string
+      }
       release_automation_lock: { Args: { p_hotel: string }; Returns: undefined }
       release_competitor_scan_lease: {
         Args: { _id: string }
         Returns: undefined
+      }
+      release_due_next_day_housekeeping_plans: { Args: never; Returns: Json }
+      release_next_day_housekeeping_plan: {
+        Args: { p_plan_id: string }
+        Returns: Json
       }
       release_own_revenue_sync: {
         Args: { _error?: string; _hotel_id: string }
@@ -11489,6 +24836,30 @@ export type Database = {
       }
       release_publisher_lease: { Args: { p_token: string }; Returns: undefined }
       release_publisher_lock: { Args: { p_hotel: string }; Returns: undefined }
+      release_room_sale_upgrade_lock: {
+        Args: { p_hotel_id: string; p_owner: string; p_stay_date: string }
+        Returns: undefined
+      }
+      reopen_approved_room_same_housekeeper: {
+        Args: { p_assignment_id: string }
+        Returns: string
+      }
+      replace_released_housekeeping_staff: {
+        Args: {
+          p_from_staff_id: string
+          p_plan_id: string
+          p_to_staff_id: string
+        }
+        Returns: Json
+      }
+      reserve_assistant_monthly_message: {
+        Args: {
+          _message_id: string
+          _organization_slug: string
+          _user_id: string
+        }
+        Returns: Json
+      }
       reserve_assistant_premium_question: {
         Args: {
           _model: string
@@ -11496,6 +24867,24 @@ export type Database = {
           _thread_id: string
           _user_id: string
         }
+        Returns: Json
+      }
+      return_housekeeping_room_for_recheck: {
+        Args: {
+          p_assigned_to: string
+          p_assignment_id: string
+          p_evidence_paths?: string[]
+          p_new_assignment_id?: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      revenue_booking_activity_analytics: {
+        Args: { p_days?: number; p_hotel_id: string }
+        Returns: Json
+      }
+      revenue_booking_insights_v2: {
+        Args: { p_days?: number; p_hotel_id: string }
         Returns: Json
       }
       revenue_calendar_snapshots: {
@@ -11515,6 +24904,124 @@ export type Database = {
           rooms_available: number
           rooms_sold: number
           stay_date: string
+        }[]
+      }
+      revenue_channel_economics: {
+        Args: { p_from: string; p_hotel_id: string; p_to: string }
+        Returns: {
+          amount: number
+          amount_basis: string
+          booked_on: string
+          booking_ref: string
+          channel_key: string
+          channel_type: string
+          city_tax: number
+          commission: number
+          commission_rate: number
+          commission_source: string
+          currency: string
+          data_source: string
+          gross_revenue: number
+          meal_plan: string
+          net_revenue: number
+          ota_code: string
+          payout_type: string
+          priced_nights: number
+          rate_label: string
+          revenue_ex_tax: number
+          room_nights: number
+          stay_date: string
+        }[]
+      }
+      revenue_channel_economics_monthly: {
+        Args: { p_from: string; p_hotel_id: string; p_to: string }
+        Returns: {
+          amount: number
+          amount_basis: string
+          bookings: number
+          channel_key: string
+          channel_type: string
+          city_tax: number
+          commission: number
+          commission_source: string
+          currency: string
+          gross_revenue: number
+          month: string
+          net_revenue: number
+          priced_nights: number
+          revenue_ex_tax: number
+          room_nights: number
+          unknown_commission_gross: number
+        }[]
+      }
+      revenue_kpi_reconciliation_allowed: {
+        Args: { p_hotel_id: string }
+        Returns: boolean
+      }
+      revenue_kpi_reconciliation_days: {
+        Args: { p_from?: string; p_hotel_id: string; p_to?: string }
+        Returns: {
+          adr_gross: number
+          best_commercial_occupancy_pct: number
+          best_commercial_sold: number
+          best_physical_occupancy_pct: number
+          best_physical_occupied: number
+          best_source: string
+          booked_nights_all: number
+          bookings_captured_at: string
+          breakfast_guests: number
+          breakfast_price_per_guest: number
+          capacity_rooms: number
+          commercial_capacity: number
+          commercial_sold: number
+          confidence: string
+          flags: string[]
+          hold_nights: number
+          hotel_id: string
+          hotelcare_commercial_occupancy_pct: number
+          housekeeping_captured_at: string
+          housekeeping_occupancy_pct: number
+          housekeeping_occupied: number
+          housekeeping_usable: boolean
+          is_past_night: boolean
+          option_nights: number
+          previo_dashboard_occupancy_pct: number
+          previo_dashboard_occupied: number
+          revpar_gross: number
+          room_revenue_gross: number
+          stay_date: string
+          unassigned_nights: number
+          unpriced_nights: number
+        }[]
+      }
+      revenue_kpi_reconciliation_months: {
+        Args: { p_from?: string; p_hotel_id: string; p_to?: string }
+        Returns: {
+          adr_gross: number
+          best_commercial_occupancy_pct: number
+          best_commercial_sold: number
+          best_physical_occupancy_pct: number
+          best_physical_occupied: number
+          booked_nights_all: number
+          capacity_room_nights: number
+          commercial_capacity_room_nights: number
+          commercial_sold: number
+          hold_nights: number
+          hotel_id: string
+          hotelcare_commercial_occupancy_pct: number
+          housekeeping_mismatch_nights: number
+          housekeeping_occupied_past: number
+          housekeeping_verified_nights: number
+          month_start: string
+          nights_in_data: number
+          option_nights: number
+          past_nights: number
+          previo_dashboard_occupancy_pct: number
+          previo_dashboard_occupied: number
+          revpar_gross: number
+          room_revenue_gross: number
+          unassigned_nights: number
+          unpriced_nights: number
         }[]
       }
       revenue_latest_snapshots: {
@@ -11545,6 +25052,42 @@ export type Database = {
           stay_date: string
         }[]
       }
+      revenue_match_ota_codes: {
+        Args: { p_codes: string[]; p_hotel_id: string }
+        Returns: {
+          ota_code: string
+        }[]
+      }
+      revenue_ota_statement_check: {
+        Args: { p_from: string; p_hotel_id: string; p_to: string }
+        Returns: {
+          booked_at: string
+          channel_key: string
+          check_in: string
+          check_out: string
+          currency: string
+          expected_commission: number
+          in_pms: boolean
+          listing_ref: string
+          note_commission: number
+          note_total: number
+          ota_reservation_code: string
+          payout_amount: number
+          pms_booking_ref: string
+          pms_status: string
+          room_nights: number
+          statement_commission: number
+          statement_gross: number
+          statement_pct: number
+          statement_period: string
+          status: string
+          terms_pct: number
+        }[]
+      }
+      revenue_pace_policy_set_mode: {
+        Args: { p_hotel_id: string; p_mode: string; p_note?: string }
+        Returns: Json
+      }
       revenue_pickup_movements: {
         Args: { _from: string; _hotel_id: string; _since: string; _to: string }
         Returns: {
@@ -11564,6 +25107,47 @@ export type Database = {
           rooms_sold: number
           stay_date: string
         }[]
+      }
+      revenue_price_list: {
+        Args: { _days?: number; _from?: string; _hotel_id: string }
+        Returns: Json
+      }
+      revenue_price_signals: {
+        Args: { p_from: string; p_hotel_id: string; p_to: string }
+        Returns: {
+          action: string
+          band: string
+          days_out: number
+          drivers: string[]
+          engine_at: string
+          engine_direction: string
+          engine_reason: string
+          event_impact: string
+          event_title: string
+          market_median: number
+          occupancy_pct: number
+          pace_target_pct: number
+          pickup_24h: number
+          pickup_7d: number
+          reference_price: number
+          rooms_remaining: number
+          score: number
+          stay_date: string
+        }[]
+      }
+      revenue_push_run_confirmations: {
+        Args: { p_run_ids: string[] }
+        Returns: {
+          confirmed_count: number
+          pending_count: number
+          push_run_id: string
+          superseded_count: number
+          total_count: number
+        }[]
+      }
+      revenue_refresh_seasonal_base: {
+        Args: { p_days?: number; p_hotel_id: string; p_sisters: string[] }
+        Returns: number
       }
       revenue_seasonal_anchor: {
         Args: { p_hotel_id: string; p_min_samples?: number }
@@ -11586,7 +25170,279 @@ export type Database = {
         Returns: Json
       }
       revenue_v2_safety_gate: { Args: never; Returns: Json }
+      review_maintenance_completion: {
+        Args: {
+          p_decision: string
+          p_expected_updated_at: string
+          p_note: string
+          p_ticket_id: string
+        }
+        Returns: undefined
+      }
+      room_note_history_text: { Args: { p_notes: string }; Returns: string }
+      room_planned_note_text_for_date: {
+        Args: { business_date: string; target_room_id: string }
+        Returns: string
+      }
       run_auto_signout: { Args: never; Returns: number }
+      save_next_day_housekeeping_public_area_assignments: {
+        Args: {
+          p_assignments: Json
+          p_hotel_id: string
+          p_organization_slug: string
+          p_plan_date: string
+        }
+        Returns: number
+      }
+      save_room_note: {
+        Args: { p_notes: string; p_room_id: string }
+        Returns: {
+          notes: string
+          room_id: string
+          updated_at: string
+        }[]
+      }
+      save_room_note_if_unchanged: {
+        Args: { p_expected_notes: string; p_notes: string; p_room_id: string }
+        Returns: {
+          notes: string
+          room_id: string
+          updated_at: string
+        }[]
+      }
+      save_slnt_team_b_property_preferences: {
+        Args: { p_preferences: Json }
+        Returns: number
+      }
+      set_gozsdu_laundry_duty: {
+        Args: { p_enabled: boolean; p_user_id: string; p_work_date: string }
+        Returns: undefined
+      }
+      set_housekeeping_photo_requirements: {
+        Args: { p_categories: string[]; p_hotel_configuration_id: string }
+        Returns: undefined
+      }
+      set_slnt_housekeeping_team_members: {
+        Args: { p_team_code: string; p_user_ids: string[] }
+        Returns: Json
+      }
+      set_staff_access_role: {
+        Args: { _access_role: string; _user_id: string }
+        Returns: string
+      }
+      set_workforce_staff_schedule_live: {
+        Args: { _live: boolean }
+        Returns: boolean
+      }
+      set_workforce_staff_visible_days: {
+        Args: { _days: number }
+        Returns: number
+      }
+      slnt_apply_staff_roster_template: {
+        Args: {
+          _employee: string
+          _from: string
+          _hotel: string
+          _weeks?: number
+        }
+        Returns: Json
+      }
+      slnt_bulk_apply_staff_shifts: {
+        Args: { _hotel: string; _items: Json; _overwrite_published?: boolean }
+        Returns: Json
+      }
+      slnt_copy_staff_week: {
+        Args: { _from: string; _hotel: string }
+        Returns: Json
+      }
+      slnt_housekeeping_published_roster: {
+        Args: { _day: string; _hotel: string }
+        Returns: {
+          shift_end: string
+          shift_start: string
+          user_id: string
+          venue_ids: string[]
+        }[]
+      }
+      slnt_is_team_b_member: { Args: never; Returns: boolean }
+      slnt_publish_staff_week: {
+        Args: { _from: string; _hotel: string; _ids: string[] }
+        Returns: number
+      }
+      slnt_replace_staff_roster_template: {
+        Args: {
+          _days: Json
+          _employee: string
+          _hotel: string
+          _venues: string[]
+        }
+        Returns: number
+      }
+      slnt_save_staff_shift: {
+        Args: {
+          _date: string
+          _employee: string
+          _end: string
+          _hotel: string
+          _notes: string
+          _start: string
+          _status: string
+          _venues: string[]
+        }
+        Returns: string
+      }
+      slnt_schedule_row_allowed: {
+        Args: {
+          _employee: string
+          _hotel: string
+          _organization: string
+          _schedule?: string
+        }
+        Returns: boolean
+      }
+      slnt_schedule_venue_allowed: {
+        Args: { _schedule: string; _venue: string }
+        Returns: boolean
+      }
+      slnt_set_team_a_day_off: {
+        Args: {
+          p_is_off: boolean
+          p_team_id: string
+          p_user_id: string
+          p_work_date: string
+        }
+        Returns: undefined
+      }
+      slnt_simple_housekeeping_enabled: {
+        Args: { p_org?: string }
+        Returns: boolean
+      }
+      slnt_team_a_housekeeping_enabled: { Args: never; Returns: boolean }
+      slnt_team_b_active_staff: {
+        Args: { p_date?: string }
+        Returns: {
+          is_working: boolean
+          staff_name: string
+          user_id: string
+        }[]
+      }
+      slnt_team_b_calendar_v4: {
+        Args: { p_end: string; p_start: string }
+        Returns: {
+          absence_kind: string
+          is_working: boolean
+          staff_name: string
+          user_id: string
+          work_date: string
+        }[]
+      }
+      slnt_team_b_calendar_v5: {
+        Args: { p_end: string; p_start: string }
+        Returns: {
+          absence_kind: string
+          activity_state: string
+          is_working: boolean
+          last_activity_at: string
+          staff_name: string
+          user_id: string
+          work_date: string
+        }[]
+      }
+      slnt_team_b_claim_room: {
+        Args: { p_room_id: string; p_service_date: string }
+        Returns: string
+      }
+      slnt_team_b_pool_v4: {
+        Args: { p_service_date: string }
+        Returns: {
+          assigned_to: string
+          assignment_id: string
+          assignment_status: string
+          guest_count: number
+          is_checkout_room: boolean
+          is_optional: boolean
+          linen_change_required: boolean
+          notes: string
+          pms_metadata: Json
+          room_id: string
+          room_name: string
+          room_number: string
+          room_status: string
+          supervisor_approved: boolean
+          towel_change_required: boolean
+        }[]
+      }
+      slnt_team_b_pool_v6: {
+        Args: { p_service_date: string }
+        Returns: {
+          assigned_to: string
+          assignment_id: string
+          assignment_notes: string
+          assignment_status: string
+          bed_configuration: string
+          floor_number: number
+          guest_count: number
+          guest_nights_stayed: number
+          is_checkout_room: boolean
+          is_optional: boolean
+          linen_change_required: boolean
+          manager_instruction_text: string
+          manager_instruction_updated_at: string
+          notes: string
+          planned_notes: Json
+          pms_metadata: Json
+          room_id: string
+          room_name: string
+          room_number: string
+          room_status: string
+          supervisor_approved: boolean
+          towel_change_required: boolean
+        }[]
+      }
+      slnt_team_b_property_key: {
+        Args: { p_room_number: string }
+        Returns: string
+      }
+      slnt_team_b_set_availability_v4: {
+        Args: {
+          p_absence_kind?: string
+          p_user_id: string
+          p_work_date: string
+        }
+        Returns: undefined
+      }
+      slnt_team_b_set_day_off: {
+        Args: { p_is_off: boolean; p_user_id: string; p_work_date: string }
+        Returns: undefined
+      }
+      slnt_team_b_start_room_v4: {
+        Args: { p_room_id: string; p_service_date: string }
+        Returns: string
+      }
+      slnt_team_b_stayover_due: {
+        Args: { p_room_id: string; p_service_date: string }
+        Returns: boolean
+      }
+      slnt_team_b_touch_activity_v5: { Args: never; Returns: undefined }
+      slnt_team_b_worklist: {
+        Args: { p_service_date: string }
+        Returns: {
+          assigned_to: string
+          assignment_id: string
+          assignment_status: string
+          guest_count: number
+          is_checkout_room: boolean
+          linen_change_required: boolean
+          notes: string
+          pms_metadata: Json
+          room_id: string
+          room_name: string
+          room_number: string
+          room_status: string
+          supervisor_approved: boolean
+          towel_change_required: boolean
+        }[]
+      }
       slnt_venue_visible: {
         Args: { _user_id: string; _venue_id: string }
         Returns: boolean
@@ -11595,11 +25451,35 @@ export type Database = {
         Args: { p_caller_id?: string; p_target_user_id: string }
         Returns: Json
       }
+      staff_select_work_hotel: {
+        Args: { p_confirm?: boolean; p_hotel_id: string }
+        Returns: string
+      }
+      staff_work_venue_switch_authorized: {
+        Args: { p_hotel: string; p_user: string }
+        Returns: boolean
+      }
+      start_maintenance_ticket_with_access: {
+        Args: {
+          p_access_confirmation?: string
+          p_expected_updated_at: string
+          p_ticket_id: string
+        }
+        Returns: undefined
+      }
+      unregister_push_subscription: {
+        Args: { _endpoint: string }
+        Returns: boolean
+      }
       update_assignment_type: {
         Args: {
           assignment_id: string
           new_assignment_type: Database["public"]["Enums"]["assignment_type"]
         }
+        Returns: Json
+      }
+      update_next_day_housekeeping_release_time: {
+        Args: { p_plan_id: string; p_release_time: string }
         Returns: Json
       }
       update_user_credentials: {
@@ -11624,12 +25504,111 @@ export type Database = {
         }
         Returns: undefined
       }
+      user_accessible_hotel_ids: { Args: { _uid: string }; Returns: string[] }
+      user_assigned_hotel_keys: { Args: { _uid: string }; Returns: string[] }
+      user_assigned_room_ids: { Args: { _uid: string }; Returns: string[] }
       user_can_access_hotel: {
         Args: { _hotel_id: string; _uid: string }
         Returns: boolean
       }
       user_can_view_ticket: { Args: { ticket_id: string }; Returns: boolean }
       user_has_venue_scopes: { Args: { _user_id: string }; Returns: boolean }
+      user_same_hotel_housekeeper_ids: {
+        Args: { _uid: string }
+        Returns: string[]
+      }
+      user_slnt_visible_venue_ids: { Args: { _uid: string }; Returns: string[] }
+      verify_otto_ai_worker: { Args: { p_secret: string }; Returns: boolean }
+      verify_otto_market_worker_secret: {
+        Args: { p_secret: string }
+        Returns: boolean
+      }
+      verify_welcome_quote_worker_secret: {
+        Args: { p_secret: string }
+        Returns: boolean
+      }
+      viza_bump_attempts: {
+        Args: { _error: string; _ids: string[]; _kind: string }
+        Returns: undefined
+      }
+      website_chat_due_count: { Args: never; Returns: number }
+      website_chat_hit: {
+        Args: { p_bucket: string; p_limit: number; p_window_seconds: number }
+        Returns: boolean
+      }
+      website_chat_purge: { Args: never; Returns: number }
+      website_chat_worker_secret: { Args: never; Returns: string }
+      welcome_quote_remaining: { Args: never; Returns: number }
+      work_maintenance_ticket: {
+        Args: {
+          p_action: string
+          p_completion_photo?: string
+          p_expected_updated_at: string
+          p_hold_reason?: string
+          p_note: string
+          p_ticket_id: string
+        }
+        Returns: undefined
+      }
+      workforce_access: {
+        Args: never
+        Returns: {
+          access_level: string
+          hotel_id: string
+          organization_slug: string
+          role: string
+        }[]
+      }
+      workforce_acknowledge_changes: {
+        Args: { _ids: string[] }
+        Returns: number
+      }
+      workforce_can_edit_date: { Args: { _date: string }; Returns: boolean }
+      workforce_can_view_all: { Args: never; Returns: boolean }
+      workforce_entry_snapshot: {
+        Args: { _row: Database["public"]["Tables"]["workforce_entries"]["Row"] }
+        Returns: Json
+      }
+      workforce_first_editable_date: { Args: never; Returns: string }
+      workforce_hotel_key: {
+        Args: { _org: string; _value: string }
+        Returns: string
+      }
+      workforce_import: {
+        Args: { _overwrite?: boolean; _payload: Json; _source?: string }
+        Returns: Json
+      }
+      workforce_my_schedule: {
+        Args: { _from: string; _to: string }
+        Returns: Json
+      }
+      workforce_publish: {
+        Args: { _from: string; _staff_ids?: string[]; _to: string }
+        Returns: number
+      }
+      workforce_push_change_notices: { Args: never; Returns: number }
+      workforce_self_date_visible: {
+        Args: { _date: string; _kind: string; _org: string }
+        Returns: boolean
+      }
+      workforce_self_view_allowed: { Args: never; Returns: boolean }
+      workforce_set_change_reason: {
+        Args: { _ids: string[]; _reason: string }
+        Returns: number
+      }
+      workforce_shift_key: { Args: { _snapshot: Json }; Returns: Json }
+      workforce_staff_hotel: { Args: { _staff: string }; Returns: string }
+      workforce_staff_is_mine: { Args: { _staff: string }; Returns: boolean }
+      workforce_staff_org: { Args: { _staff: string }; Returns: string }
+      workforce_staff_schedule_live: {
+        Args: { _org: string }
+        Returns: boolean
+      }
+      workforce_staff_visible_days: { Args: { _org: string }; Returns: number }
+      workforce_staff_works_at: {
+        Args: { _hotel: string; _staff: string }
+        Returns: boolean
+      }
     }
     Enums: {
       assignment_status:

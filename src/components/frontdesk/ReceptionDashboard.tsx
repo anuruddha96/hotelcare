@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
+import { useReservationSearch, mergeSearchResults } from '@/hooks/useReservationSearch';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
 import { PmsSyncButton } from '@/components/frontdesk/PmsSyncButton';
@@ -27,7 +28,7 @@ import {
   reservationSearchText, RESERVATION_STATUS_COLORS, roomReadiness,
 } from '@/lib/reservations';
 
-const RES_SELECT = '*, guests(first_name, last_name, email, phone, vip_status), rooms:room_id(id, room_number, room_type, status)';
+const RES_SELECT = '*, guests(first_name, last_name, email, phone, vip_status, id_document_number), rooms:room_id(id, room_number, room_type, status)';
 
 interface ReceptionDashboardProps {
   /** When set, show a secondary link to the breakfast Daily Overview uploader. */
@@ -115,7 +116,7 @@ export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardPr
   const cleanRooms = useMemo(() => rooms.filter((r) => r.status === 'clean').length, [rooms]);
   const dirtyRooms = useMemo(() => rooms.filter((r) => r.status === 'dirty').length, [rooms]);
 
-  const searchResults = useMemo(() => {
+  const localSearchResults = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     if (term.length < 2) return [];
     const all = [...operational, ...upcoming];
@@ -128,6 +129,15 @@ export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardPr
       })
       .slice(0, 20);
   }, [searchTerm, operational, upcoming]);
+  // The dashboard only loads today + 14 days, so the search box also asks the
+  // server, which covers every date and the guest's passport/ID number.
+  const { serverResults, searching } = useReservationSearch(
+    hotelKeys.length ? hotelKeys : (hotelId ? [hotelId] : []), searchTerm,
+  );
+  const searchResults = useMemo(
+    () => mergeSearchResults(serverResults, localSearchResults, 20),
+    [serverResults, localSearchResults],
+  );
 
   const markNoShow = async () => {
     if (!noShowRes) return;
@@ -322,7 +332,7 @@ export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardPr
         {searchTerm.trim().length >= 2 && (
           <div className="absolute z-40 top-full mt-1 w-full bg-popover border border-border rounded-md shadow-lg max-h-72 overflow-y-auto">
             {searchResults.length === 0 ? (
-              <p className="p-3 text-sm text-muted-foreground text-center">{t('pms.fd.searchNoResults')}</p>
+              <p className="p-3 text-sm text-muted-foreground text-center">{searching ? '…' : t('pms.fd.searchNoResults')}</p>
             ) : (
               searchResults.map((r) => (
                 <button

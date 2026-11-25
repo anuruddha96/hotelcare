@@ -1,0 +1,43 @@
+name: Housekeeping carry evidence SQL CI
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261014083000_prove_housekeeping_carry_before_display.sql'
+      - 'supabase/tests/housekeeping_carry_evidence_integration.sql'
+      - '.github/workflows/housekeeping-carry-evidence-sql-ci.yml'
+permissions:
+  contents: read
+jobs:
+  carry-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Test false and legitimate carry-forward scenarios
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/housekeeping_carry_evidence_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261014083000_prove_housekeeping_carry_before_display.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/housekeeping_carry_evidence_integration.sql

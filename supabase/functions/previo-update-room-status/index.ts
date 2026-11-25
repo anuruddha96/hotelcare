@@ -28,7 +28,7 @@ serve(async (req) => {
     // Get room information from HotelCare
     const { data: room, error: roomError } = await supabase
       .from('rooms')
-      .select('hotel, room_number, pms_metadata')
+      .select('hotel, room_number, organization_slug, pms_metadata')
       .eq('id', roomId)
       .single();
 
@@ -36,6 +36,51 @@ serve(async (req) => {
       throw new Error(`Room not found: ${roomId}`);
     }
     hotelForLog = room.hotel;
+
+    // SLNT Team B: only a manager-approved, completed assignment may mark
+    // the room clean in Previo. Enforce this in the privileged PMS edge function.
+    // The revised approval gate becomes active only after the controlled SLNT
+    // rollout. Until then the existing Previo workflow remains unchanged.
+    let simplifiedSlntEnabled = false;
+    if (status === 'clean' && ['slnt', 'slnt-group'].includes(room.organization_slug || '')) {
+      const rollout = await supabase.rpc('slnt_simple_housekeeping_enabled', { p_org: 'slnt' });
+      if (!rollout.error) simplifiedSlntEnabled = rollout.data === true;
+    }
+    if (status === 'clean' && simplifiedSlntEnabled) {
+      const { data: team } = await supabase.from('housekeeping_teams')
+        .select('id').eq('organization_slug', 'slnt')
+        .eq('code', 'team-b').eq('is_active', true).maybeSingle();
+      if (team?.id) {
+        const { data: mapping, error: mappingError } = await supabase.from('housekeeping_team_rooms')
+          .select('room_id').eq('team_id', team.id).eq('room_id', roomId)
+          .eq('is_active', true).maybeSingle();
+        if (mappingError) throw mappingError;
+        if (mapping) {
+          if (!assignmentId) throw new Error('SLNT Team B requires a manager-approved assignment before Previo sync');
+          const { data: approved, error: approvalError } = await supabase.from('room_assignments')
+            .select('id, status, supervisor_approved, supervisor_approved_by, supervisor_approved_at, organization_slug')
+            .eq('id', assignmentId).eq('room_id', roomId).maybeSingle();
+          if (approvalError || !approved || approved.status !== 'completed' ||
+              approved.supervisor_approved !== true || !approved.supervisor_approved_by ||
+              !approved.supervisor_approved_at ||
+              !['slnt','slnt-group'].includes(approved.organization_slug || '')) {
+            throw new Error('SLNT Team B room is awaiting manager approval; Previo clean sync blocked');
+          }
+
+          // A shared-queue housekeeper cannot call this privileged endpoint.
+          const authorization = req.headers.get('Authorization') || '';
+          const token = authorization.replace(/^Bearer\s+/i, '');
+          const { data: caller, error: callerError } = await supabase.auth.getUser(token);
+          if (callerError || !caller.user) throw new Error('SLNT Team B clean sync requires manager authentication');
+          const { data: manager } = await supabase.from('profiles')
+            .select('role, organization_slug').eq('id', caller.user.id).maybeSingle();
+          if (!manager || !['slnt','slnt-group'].includes(manager.organization_slug || '') ||
+              !['admin','manager','housekeeping_manager','top_management','top_management_manager'].includes(manager.role)) {
+            throw new Error('Only SLNT management may send approved Team B room status to Previo');
+          }
+        }
+      }
+    }
 
     // A completed housekeeping assignment can mean either "cleaned" or
     // "guest declined / no service". Never translate a guest-declined
@@ -56,9 +101,12 @@ serve(async (req) => {
 
       const guestDeclined = assignment?.service_result === 'guest_declined'
         || String(assignment?.notes || '').includes('[NO_SERVICE]');
+      const towelChangeOnly = String(assignment?.notes || '').includes('[TOWEL_CHANGE_ONLY]');
+      const nonCleaningOutcome = guestDeclined || towelChangeOnly;
 
-      if (guestDeclined) {
-        console.log(`[previo-update-room-status] Skipping clean push for guest-declined assignment ${assignmentId}`);
+      if (nonCleaningOutcome) {
+        const reason = towelChangeOnly ? 'towel_change_only' : 'guest_declined_service';
+        console.log(`[previo-update-room-status] Skipping clean push for ${reason} assignment ${assignmentId}`);
         await supabase.from('pms_sync_history').insert({
           hotel_id: room.hotel,
           sync_type: 'room_status_update',
@@ -69,7 +117,7 @@ serve(async (req) => {
             room_number: room.room_number,
             assignment_id: assignmentId,
             requested_status: status,
-            reason: 'guest_declined_service',
+            reason,
           },
         });
         return new Response(
@@ -77,7 +125,9 @@ serve(async (req) => {
             success: true,
             skipped: true,
             reason: 'guest_declined_service',
-            message: 'No Service assignment must not mark the room clean in Previo',
+            message: towelChangeOnly
+              ? 'Towel-only service must not mark the room clean in Previo'
+              : 'No Service assignment must not mark the room clean in Previo',
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );

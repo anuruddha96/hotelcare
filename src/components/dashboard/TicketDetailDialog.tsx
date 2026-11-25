@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { canManageMaintenance, MaintenanceManagerControls } from './MaintenanceManagerControls';
+import { maintenanceLocation } from '@/lib/maintenanceQueue';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Dialog,
@@ -27,7 +29,10 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { FileUpload } from './FileUpload';
-import { AttachmentViewer } from './AttachmentViewer';
+import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
+import { MaintenanceManualEmail } from './MaintenanceManualEmail';
+import { MaintenanceRoomCorrection } from './MaintenanceRoomCorrection';
+import { isOttofiori, OttofioriMaintenanceAssignment } from './OttofioriMaintenanceAssignment';
 import { AttachmentUpload } from './AttachmentUpload';
 import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle, Paperclip, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -41,12 +46,17 @@ interface Ticket {
   room_number: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'in_progress' | 'completed';
+  department?: string;
+  on_hold: boolean | null;
+  pending_supervisor_approval: boolean | null;
+  sla_due_date: string | null;
   created_at: string;
   updated_at: string;
   resolution_text?: string;
   closed_at?: string;
   hotel?: string;
-  attachment_urls?: string[];
+  attachment_urls?: string[] | null;
+  completion_photos?: string[] | null;
   closed_by?: {
     full_name: string;
   };
@@ -55,6 +65,7 @@ interface Ticket {
     role: string;
   };
   assigned_to?: {
+    id?: string;
     full_name: string;
   };
 }
@@ -85,7 +96,7 @@ interface TicketDetailDialogProps {
 
 export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated }: TicketDetailDialogProps) {
   const { profile } = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [maintenanceStaff, setMaintenanceStaff] = useState<Profile[]>([]);
@@ -103,7 +114,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
   useEffect(() => {
     if (open) {
       fetchComments();
-      if (canAssign) {
+      if (canAssign && !isOttofiori(ticket.hotel)) {
         fetchMaintenanceStaff();
       }
     }
@@ -188,26 +199,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
       if (error) throw error;
 
-      // Send email notification to assigned staff if they have an email
-      try {
-        await supabase.functions.invoke('send-work-assignment-notification', {
-          body: {
-            staff_id: assignedToId,
-            assignment_type: 'ticket',
-            assignment_details: {
-              id: ticket.id,
-              title: ticket.title,
-              room_number: ticket.room_number,
-              priority: ticket.priority
-            },
-            hotel_name: ticket.hotel
-          }
-        });
-        console.log('Assignment notification sent successfully');
-      } catch (notificationError) {
-        console.log('Failed to send notification email:', notificationError);
-        // Don't throw error here - assignment was successful
-      }
+      // Assignment is shown in HotelCare; email recipients are managed only by top management.
 
       toast({
         title: t('common.success'),
@@ -241,7 +233,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
     if (slaInfo.isOverdue && !slaBreachReason.trim()) {
       toast({
         title: t('common.error'),
-        description: t('ticketDetail.slaBreachRequired'),
+        description: language === 'hu' ? 'Adja meg a késés okát.' : 'Please explain why the repair deadline was missed.',
         variant: 'destructive',
       });
       return;
@@ -264,23 +256,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
       if (error) throw error;
 
-      // Send email notification to managers
-      try {
-        await supabase.functions.invoke('notify-manager-ticket-closed', {
-          body: {
-            ticketId: ticket.id,
-            ticketNumber: ticket.ticket_number,
-            title: ticket.title,
-            resolutionText: resolutionText.trim(),
-            closedBy: profile?.full_name || 'Unknown User',
-            hotel: ticket.hotel,
-            roomNumber: ticket.room_number
-          }
-        });
-      } catch (emailError) {
-        console.error('Failed to send email notification:', emailError);
-        // Don't fail the entire operation if email fails
-      }
+      // Closing a maintenance ticket updates the dashboard without an all-manager email blast.
 
       toast({
         title: t('common.success'),
@@ -333,12 +309,13 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
     const now = new Date();
     const hoursElapsed = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60));
     
-    const slaHours = {
-      urgent: 2,
-      high: 8,
-      medium: 24,
-      low: 72
+    const deadline = ticket.sla_due_date ? new Date(ticket.sla_due_date).getTime() : NaN;
+    const configuredHours = {
+      urgent: 4, high: 12, medium: 24, low: 48
     }[priority] || 24;
+    const slaHours = Number.isFinite(deadline) && deadline > created.getTime()
+      ? Math.ceil((deadline - created.getTime()) / 3_600_000)
+      : configuredHours;
 
     const isOverdue = hoursElapsed > slaHours;
     const remainingHours = Math.max(0, slaHours - hoursElapsed);
@@ -404,7 +381,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="!fixed !inset-0 !left-0 !top-0 !h-[100dvh] !max-h-[100dvh] !w-screen !max-w-none !translate-x-0 !translate-y-0 overflow-y-auto overscroll-contain bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:!inset-auto sm:!left-1/2 sm:!top-1/2 sm:!h-auto sm:!max-h-[90dvh] sm:!w-full sm:!max-w-2xl sm:!translate-x-[-50%] sm:!translate-y-[-50%] sm:rounded-lg sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             <span>{ticket.ticket_number}</span>
@@ -437,7 +414,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                       <Clock className="h-4 w-4 text-blue-600" />
                     )}
                     <span className={`font-medium ${slaInfo.isOverdue ? 'text-red-700' : 'text-blue-700'}`}>
-                      SLA: {slaInfo.slaHours}h ({ticket.priority.toUpperCase()} priority)
+                      {language === 'hu' ? 'Javítási határidő' : 'Repair deadline'}: {slaInfo.slaHours}h ({ticket.priority.toUpperCase()} priority)
                     </span>
                   </div>
                   <div className="text-sm">
@@ -458,7 +435,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
             <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4" />
-                Room {ticket.room_number}
+                {maintenanceLocation(ticket.room_number, ticket.description, language)}
               </div>
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
@@ -492,22 +469,24 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               </div>
             )}
 
-            {/* Attachments */}
-            {ticket.attachment_urls && ticket.attachment_urls.length > 0 && (
-              <div className="mt-4" data-training="ticket-photos">
-                <h4 className="font-semibold mb-3 flex items-center gap-2">
-                  <Paperclip className="h-4 w-4" />
-                  {t('ticketDetail.attachments')}
-                </h4>
-                <AttachmentViewer attachments={ticket.attachment_urls} />
-              </div>
-            )}
+            {/* Both original and repair evidence belong to the same maintenance issue. */}
+            <MaintenanceIssueEvidence originalPhotos={ticket.attachment_urls} completionPhotos={ticket.completion_photos} />
+            {ticket.department === 'maintenance' && <MaintenanceManualEmail ticketId={ticket.id} />}
+            {ticket.department === 'maintenance' && isOttofiori(ticket.hotel) && <OttofioriMaintenanceAssignment ticket={ticket} onUpdated={onTicketUpdated} />}
           </div>
 
           {/* Actions */}
           <div className="space-y-4">
+            {ticket.department === 'maintenance' && (
+              <MaintenanceRoomCorrection ticket={ticket} language={language}
+                onUpdated={() => { onTicketUpdated(); onOpenChange(false); }} />
+            )}
+            {ticket.department === 'maintenance' && canManageMaintenance(profile?.role) && (
+              <MaintenanceManagerControls ticket={{ ...ticket, resolution_text: ticket.resolution_text || null }}
+                language={language} onUpdated={() => { onTicketUpdated(); onOpenChange(false); }} />
+            )}
             <div className="flex flex-wrap gap-2">
-              {canUpdateStatus && (
+              {canUpdateStatus && ticket.department !== 'maintenance' && (
                 <Select 
                   value={ticket.status} 
                   onValueChange={(value: 'open' | 'in_progress' | 'completed') => 
@@ -526,7 +505,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                 </Select>
               )}
 
-              {canAssign && (
+              {canAssign && !(ticket.department === 'maintenance' && isOttofiori(ticket.hotel)) && (
                 <Select 
                   value={ticket.assigned_to?.full_name || ''} 
                   onValueChange={handleAssignment}
@@ -546,7 +525,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               )}
 
               {/* Delete Ticket - Admin Only */}
-              {canDelete && (
+              {canDelete && ticket.department !== 'maintenance' && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button 
@@ -583,7 +562,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
             </div>
 
             {/* Close Ticket Section */}
-            {canClose && ticket.status !== 'completed' && (
+            {canClose && ticket.department !== 'maintenance' && ticket.status !== 'completed' && (
               <div className="p-4 border rounded-lg bg-slate-50">
                 <h4 className="font-semibold mb-3 flex items-center gap-2">
                   <CheckCircle className="h-4 w-4" />
@@ -606,12 +585,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                     const slaInfo = getSLAInfo(ticket.priority, ticket.created_at);
                     return slaInfo.isOverdue && (
                       <div>
-                        <Label htmlFor="slaBreachReason">{t('ticketDetail.slaBreachReason')} *</Label>
+                        <Label htmlFor="slaBreachReason">{language === 'hu' ? 'Késés oka' : 'Reason for delay'} *</Label>
                         <Textarea
                           id="slaBreachReason"
                           value={slaBreachReason}
                           onChange={(e) => setSlaBreachReason(e.target.value)}
-                          placeholder={t('ticketDetail.slaBreachPlaceholder')}
+                          placeholder={language === 'hu' ? 'Miért késett a javítás?' : 'Why was the repair late?'}
                           rows={3}
                         />
                       </div>

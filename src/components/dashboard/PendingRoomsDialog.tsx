@@ -9,7 +9,7 @@ import { Clock, MapPin, CheckCircle, AlertCircle, Calendar, Star, X, ArrowLeftRi
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
-import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { HotelMemoriesManagerStatusDialog } from './HotelMemoriesManagerStatusDialog';
 
 export type PendingRoomsMode = 'pending' | 'dnd_retry';
@@ -114,7 +114,8 @@ export function PendingRoomsDialog({
           rooms!inner(
             room_number,
             hotel,
-            is_checkout_room
+            is_checkout_room,
+            pms_metadata
           )
         `)
         .eq('assigned_to', staffId)
@@ -125,19 +126,29 @@ export function PendingRoomsDialog({
 
       if (error) throw error;
 
-      const pendingAssignments = (data || []).map((item: any) => ({
-        id: item.id,
-        room_number: item.rooms.room_number,
-        hotel: item.rooms.hotel,
-        assignment_type: item.assignment_type,
-        estimated_duration: item.estimated_duration,
-        ready_to_clean: item.ready_to_clean,
-        pms_hold: item.pms_hold,
-        is_checkout_room: item.rooms.is_checkout_room,
-        priority: item.priority,
-        notes: item.notes,
-        status: item.status,
-      }));
+      const pendingAssignments = (data || []).map((item: any) => {
+        // Prefer the same authoritative room/PMS state used by the Gozsdu
+        // overview when an assignment row is briefly stale. Backend polling
+        // reconciles the row as well; this prevents a manager/housekeeper split
+        // during the seconds between PMS confirmation and assignment refresh.
+        const pmsMetadata = item.rooms?.pms_metadata || {};
+        const authoritativeCheckout = item.rooms?.is_checkout_room === true
+          && pmsMetadata.manual_daily !== true;
+        return {
+          id: item.id,
+          room_number: item.rooms.room_number,
+          hotel: item.rooms.hotel,
+          assignment_type: authoritativeCheckout ? 'checkout_cleaning' : item.assignment_type,
+          estimated_duration: item.estimated_duration,
+          ready_to_clean: item.ready_to_clean
+            || (authoritativeCheckout && isPmsRtcToday(pmsMetadata)),
+          pms_hold: item.pms_hold,
+          is_checkout_room: item.rooms.is_checkout_room,
+          priority: item.priority,
+          notes: item.notes,
+          status: item.status,
+        };
+      });
 
       // Sort with unified priority matching housekeeper view
       const sortedAssignments = pendingAssignments.sort((a, b) => {
@@ -278,8 +289,8 @@ export function PendingRoomsDialog({
     ? (assignments.length === 1 ? 'room waiting for second attempt' : 'rooms waiting for second attempt')
     : t('manager.roomsPending');
 
-  const memoriesHotelName = !loading
-    ? assignments.find((assignment) => isHotelMemoriesBudapest(assignment.hotel))?.hotel || null
+  const selectedHotelName = !loading
+    ? assignments.find((assignment) => Boolean(assignment.hotel))?.hotel || null
     : null;
 
   if (loading) {
@@ -294,7 +305,7 @@ export function PendingRoomsDialog({
     );
   }
 
-  if (memoriesHotelName) {
+  if (selectedHotelName) {
     return (
       <HotelMemoriesManagerStatusDialog
         open={open}
@@ -302,7 +313,7 @@ export function PendingRoomsDialog({
         staffId={staffId}
         staffName={staffName}
         selectedDate={selectedDate}
-        hotelName={memoriesHotelName}
+        hotelName={selectedHotelName}
         status={isDndRetry ? 'dnd_pending_retry' : 'assigned'}
       />
     );
@@ -327,7 +338,7 @@ export function PendingRoomsDialog({
             {assignments.map((assignment) => (
               <div
                 key={assignment.id}
-                className="border rounded-lg p-4 space-y-3 hover:bg-gray-50 transition-colors"
+                className="border rounded-lg p-4 space-y-3 hover:bg-gray-50 dark:hover:bg-muted/40 transition-colors"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2">
@@ -391,7 +402,7 @@ export function PendingRoomsDialog({
                         size="sm"
                         variant="default"
                         onClick={() => markAsReadyToClean(assignment.id)}
-                        className="bg-green-600 hover:bg-green-700"
+                        className="bg-green-700 text-white hover:bg-green-800"
                       >
                         <CheckCircle className="h-3 w-3 mr-1" />
                         {t('manager.markReady')}
@@ -401,7 +412,7 @@ export function PendingRoomsDialog({
                 )}
 
                 {assignment.notes && (
-                  <div className="text-sm text-muted-foreground bg-gray-100 p-2 rounded">
+                  <div className="text-sm text-muted-foreground bg-gray-100 dark:bg-muted p-2 rounded">
                     <strong>{t('assignment.notes')}:</strong> {assignment.notes}
                   </div>
                 )}
@@ -414,7 +425,7 @@ export function PendingRoomsDialog({
                       size="sm"
                       variant={assignment.priority === 1 ? "default" : "outline"}
                       onClick={() => updatePriority(assignment.id, 1)}
-                      className={`h-7 text-xs ${assignment.priority === 1 ? 'bg-gray-500' : ''}`}
+                      className={`h-7 text-xs ${assignment.priority === 1 ? 'bg-gray-600 text-white' : ''}`}
                     >
                       Low
                     </Button>
@@ -422,7 +433,7 @@ export function PendingRoomsDialog({
                       size="sm"
                       variant={assignment.priority === 2 ? "default" : "outline"}
                       onClick={() => updatePriority(assignment.id, 2)}
-                      className={`h-7 text-xs ${assignment.priority === 2 ? 'bg-blue-500' : ''}`}
+                      className={`h-7 text-xs ${assignment.priority === 2 ? 'bg-blue-700 text-white' : ''}`}
                     >
                       Medium
                     </Button>
@@ -430,7 +441,7 @@ export function PendingRoomsDialog({
                       size="sm"
                       variant={assignment.priority === 3 ? "default" : "outline"}
                       onClick={() => updatePriority(assignment.id, 3)}
-                      className={`h-7 text-xs ${assignment.priority === 3 ? 'bg-red-500' : ''}`}
+                      className={`h-7 text-xs ${assignment.priority === 3 ? 'bg-red-700 text-white' : ''}`}
                     >
                       High
                     </Button>

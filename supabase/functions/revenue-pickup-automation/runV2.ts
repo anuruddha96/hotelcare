@@ -1,4 +1,6 @@
 // Engine V2 orchestrator.
+// deno-lint-ignore no-explicit-any
+declare const Deno: any;
 //
 // This is NOT a second pricing engine: it lives inside the same function, uses
 // the same lock, the same drafts table and the same background publisher. It
@@ -27,7 +29,9 @@ import {
   type OccupancyLiftBand,
   DEFAULT_OCCUPANCY_LIFT_LADDER,
   type WindowRule,
+  windowFor,
 } from "../_shared/engineV2.ts";
+import { observeAiPrice } from "../_shared/ottofioriAiSupervisor.ts";
 
 import {
   assertWholeEuro,
@@ -53,7 +57,28 @@ import {
 } from "../_shared/netRateFactor.ts";
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
 import { loadGuestStep, maxGuestGapFor, repairLadder } from "../_shared/rateSafety.ts";
-import { effectiveDateColumnBounds } from "../_shared/engineV2DateColumnLockstep.ts";
+import {
+  clampPaceBoundsToHotelSafety,
+  effectiveDateColumnBounds,
+  hotelDateSafetyBounds,
+} from "../_shared/engineV2DateColumnLockstep.ts";
+import { confirmedHighImpactEvent, decideRevenueDirector, committedMovement, MOVEMENT_HISTORY_STATUSES } from "../_shared/engineV2RevenueDirector.ts";
+import {
+  decidePaceRatchet,
+  localMinutesAt,
+  paceGridFloor,
+  paceQuietHours,
+  paceZoneFor,
+  expectedOccupancyPct,
+  resolvePaceSettings,
+  resolvePaceTier,
+  paceCurateEvents,
+  pacePeakEvent,
+  type PaceDecision,
+  type PaceEvent,
+  type PaceTier,
+} from "../_shared/engineV2PaceRatchet.ts";
+import { sendEmail } from "../_shared/emailSender.ts";
 
 
 
@@ -75,7 +100,7 @@ export interface V2Deps {
   queue: (
     payload: Array<Record<string, unknown>>,
     priority: number,
-    context?: { automationRunId: string; dateManifest: Record<string, unknown> },
+    context?: { automationRunId: string; dateManifest: Record<string, unknown>; budgetDayStartUtc?: string },
   ) => Promise<string | null>;
 }
 
@@ -152,6 +177,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
   // to another shadow review.
   const mode: "shadow" | "live" = rule.mode === "live" ? "live" : "shadow";
   const runBudgetMs = Math.max(5_000, Number(rule.run_budget_ms || 30_000));
+  // Pace ratchet policy: off, shadow (recorded beside the live decision, never
+  // published) or live (it IS the decision). Every value is clamped on read.
+  const pace = resolvePaceSettings(rule.pace_policy);
 
   if (rule.auto_publish !== (mode === "live")) {
     await admin.from("revenue_pickup_automation_rules").update({
@@ -222,6 +250,22 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
   };
 
   try {
+    let pmsPreflightConfirmed = false;
+    // Refresh the published rate universe as well as reservations. Otherwise
+    // external PMS edits can be overwritten using yesterday's cached prices.
+    if (rule.hotel_id === "ottofiori") {
+      const response = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/previo-revenue-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ hotelId: rule.hotel_id, horizonDays, mode: "automation_full" }),
+        signal: AbortSignal.timeout(90_000),
+      });
+      if (!response.ok) throw new Error(`Ottofiori PMS preflight failed (${response.status}); no price decisions published.`);
+      const result = await response.json();
+      if (result.success !== true || result.error || result.errors?.length || !(result.rates > 0)) throw new Error("Ottofiori PMS preflight did not confirm fresh reservations and published rates; publication held.");
+      pmsPreflightConfirmed = true;
+    }
+    const evaluationStartedAt = Date.now();
     // ---- 1. Refresh the discovery ledger ----------------------------------
     // Every booking night in the horizon gets a permanent "first seen" stamp.
     // A booking is only pickup on the run that first records it, so a full
@@ -237,7 +281,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     // Stale data must never become a price change.
     const freshest = nights.reduce<number>((max, n) => Math.max(max, Date.parse(n.captured_at ?? "") || 0), 0);
     const dataAgeHours = freshest > 0 ? (now.getTime() - freshest) / 3_600_000 : null;
-    if (dataAgeHours != null && dataAgeHours > 6) {
+    if (!pmsPreflightConfirmed && dataAgeHours != null && dataAgeHours > 6) {
       await finish({ status: "stopped_stale_data", failure_reason: `Booking data is ${Math.round(dataAgeHours)}h old.` });
       await notifyRun({
         severity: "warning",
@@ -307,7 +351,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         .gte("stay_date", today).lte("stay_date", horizonDate)
         .gte("captured_at", since(48)).order("stay_date").range(f, t)),
       deps.pagedAll((f, t) => admin.from("revenue_date_decisions")
-        .select("stay_date, direction, movement, created_at").eq("hotel_id", rule.hotel_id)
+        .select("stay_date, direction, movement, created_at, status").eq("hotel_id", rule.hotel_id)
+        .in("status", [...MOVEMENT_HISTORY_STATUSES])
         .gte("stay_date", today).neq("direction", "hold")
         .gte("created_at", since(96)).order("created_at", { ascending: false }).range(f, t)),
       // Manual protection: manager locks (hard) and ordinary human price edits
@@ -321,8 +366,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       admin.from("revenue_event_applications").select("event_key, stay_date")
         .eq("hotel_id", rule.hotel_id).gte("stay_date", today),
       admin.from("demand_events")
-        .select("id, title, city, venue, event_date, end_date, expected_impact, confidence, approved")
-        .eq("hotel_id", rule.hotel_id).gte("end_date", today).lte("event_date", horizonDate),
+        .select("id, title, city, venue, event_date, end_date, expected_impact, confidence, approved, url, source")
+        .eq("hotel_id", rule.hotel_id)
+        .or(`end_date.gte.${today},and(end_date.is.null,event_date.gte.${today})`).lte("event_date", horizonDate),
       admin.from("room_types")
         .select("name, num_rooms, is_sellable, counts_toward_inventory, base_price_eur, min_price_eur, max_price_eur")
         .eq("hotel_id", rule.hotel_id),
@@ -333,6 +379,113 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     ]);
 
     const typeAvail = await deps.loadTypeAvailability(admin, rule.hotel_id, today, horizonDate);
+    const aiPolicies = new Map<string, { created_at: string; valid_until: string }>();
+    if (rule.hotel_id === "ottofiori") {
+      const { data, error } = await admin.from("ottofiori_ai_price_policies")
+        .select("stay_date,created_at,valid_until").gt("valid_until", now.toISOString());
+      if (error) throw error; // Cannot coordinate safely without reading the AI layer.
+      for (const row of data ?? []) aiPolicies.set(row.stay_date, row);
+    }
+
+    // ---- Pace ratchet facts -------------------------------------------------
+    // Loaded apart from everything else and defensively: in shadow mode a
+    // failure here must never disturb the live decision; in live mode it holds
+    // every date for this run instead of silently pricing with other rules.
+    const paceTiers = new Map<string, { tier: PaceTier; status: string | null; ceilingEur: number | null }>();
+    const paceBase = new Map<string, { base: number; special: number | null }>();
+    const paceConverting = new Map<string, { price: number; at: string }>();
+    const paceEventsByDate = new Map<string, PaceEvent[]>();
+    // Peak candidates beyond the pricing horizon: flagged months ahead, never priced here.
+    const paceFarCandidates = new Map<string, { kind: string; title: string; detail: string }>();
+    let paceReady = pace.mode !== "off";
+    let paceLoadError: string | null = null;
+    if (pace.mode !== "off") {
+      try {
+        const farLimit = new Date(`${today}T00:00:00Z`);
+        farLimit.setUTCDate(farLimit.getUTCDate() + 365);
+        const farLimitDate = farLimit.toISOString().slice(0, 10);
+        const [tierRes, baseRes, convRes, farEventsRes] = await Promise.all([
+          admin.from("revenue_date_tiers").select("stay_date, tier, status, ceiling_eur")
+            .eq("hotel_id", rule.hotel_id).gte("stay_date", today).limit(1000),
+          admin.from("revenue_seasonal_base").select("stay_date, base_eur, special_ratio")
+            .eq("hotel_id", rule.hotel_id).gte("stay_date", today).lte("stay_date", farLimitDate).limit(1000),
+          admin.from("revenue_converting_prices").select("stay_date, price_eur, converted_at")
+            .eq("hotel_id", rule.hotel_id).gte("stay_date", today).limit(1000),
+          admin.from("demand_events")
+            .select("title, venue, event_date, end_date, expected_impact, confidence, approved, source")
+            .eq("hotel_id", rule.hotel_id).eq("approved", true)
+            .gt("event_date", horizonDate).lte("event_date", farLimitDate).limit(1000),
+        ]);
+        for (const res of [tierRes, baseRes, convRes, farEventsRes]) if (res.error) throw res.error;
+        for (const row of (tierRes.data ?? []) as any[]) {
+          if (!["normal", "high", "peak"].includes(String(row.tier))) continue;
+          const ceiling = Number(row.ceiling_eur);
+          paceTiers.set(row.stay_date, {
+            tier: row.tier as PaceTier,
+            status: row.status ?? null,
+            ceilingEur: Number.isFinite(ceiling) && ceiling > 0 ? ceiling : null,
+          });
+        }
+        for (const row of (baseRes.data ?? []) as any[]) {
+          const base = Number(row.base_eur);
+          if (!Number.isFinite(base) || base <= 0) continue;
+          const special = Number(row.special_ratio);
+          const ratio = Number.isFinite(special) && special > 0 ? special : null;
+          if (row.stay_date <= horizonDate) {
+            paceBase.set(row.stay_date, { base, special: ratio });
+          } else if (ratio != null && ratio >= pace.peak_special_ratio) {
+            const label = `Sister hotels priced ${Math.round(ratio * 10) / 10}× normal`;
+            paceFarCandidates.set(row.stay_date, {
+              kind: "peak_prices", title: label,
+              detail: `The sister hotels are priced ${Math.round(ratio * 10) / 10}× their normal for this date.`,
+            });
+          }
+        }
+        for (const row of (convRes.data ?? []) as any[]) {
+          const price = Number(row.price_eur);
+          if (Number.isFinite(price) && price > 0 && row.converted_at) {
+            paceConverting.set(row.stay_date, { price, at: row.converted_at });
+          }
+        }
+        // One curated event list for the whole year ahead, so a hand-entered
+        // event silences same-titled automatic copies wherever they were filed.
+        // An unreadable event feed must not quietly turn a Peak date into an
+        // ordinary one: without it the policy sits this run out.
+        if ((eventsRes as any)?.error) throw (eventsRes as any).error;
+        const eventRows = paceCurateEvents(
+          [...(((eventsRes as any)?.data ?? []) as any[]), ...((farEventsRes.data ?? []) as any[])]
+            .filter((ev) => ev?.event_date)
+            .map((ev) => ({
+              title: ev.title ?? null, venue: ev.venue ?? null, expectedImpact: ev.expected_impact ?? null,
+              confidence: ev.confidence == null ? null : Number(ev.confidence), approved: ev.approved ?? null,
+              source: ev.source ?? null,
+              from: String(ev.event_date), to: String(ev.end_date ?? ev.event_date),
+            })),
+        );
+        for (const ev of eventRows) {
+          const peak = pacePeakEvent(ev);
+          for (let d = new Date(`${ev.from}T00:00:00Z`), n = 0; d.toISOString().slice(0, 10) <= ev.to && n < 400; d.setUTCDate(d.getUTCDate() + 1), n++) {
+            const stayDate = d.toISOString().slice(0, 10);
+            if (stayDate < today) continue;
+            if (stayDate <= horizonDate) {
+              const list = paceEventsByDate.get(stayDate) ?? [];
+              list.push(ev);
+              paceEventsByDate.set(stayDate, list);
+            } else if (peak && stayDate <= farLimitDate && n < 14) {
+              const title = String(ev.title ?? "").trim();
+              paceFarCandidates.set(stayDate, {
+                kind: "peak_event", title,
+                detail: `${title}${ev.venue ? ` (${String(ev.venue).trim()})` : ""}: possible stadium-scale or citywide demand.`,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        paceReady = false;
+        paceLoadError = e instanceof Error ? e.message : String((e as any)?.message ?? e);
+        console.error("Pace ratchet facts could not be loaded", e);
+      }
+    }
 
     // Only real, sellable room types may ever be priced.
     const roomTypes = unwrap(roomTypesRes);
@@ -383,6 +536,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     const pickup1h = countIn(unspentLedger, "first_seen_at", 1);
     const pickup6h = countIn(unspentLedger, "first_seen_at", 6);
     const pickup24h = countIn(unspentLedger, "first_seen_at", 24);
+    const observedPickup6h = countIn(ledgerArr, "first_seen_at", 6);
     const pickup48h = countIn(ledgerArr, "first_seen_at", 48);
     const pickup7d = countIn(ledgerArr, "first_seen_at", 24 * 7);
     const lastPickupAt = new Map<string, string>();
@@ -500,7 +654,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
 
     const occByDate = new Map<string, {
-      pct: number | null; sold: number | null; left: number | null; revenue: number | null;
+      pct: number | null; sold: number | null; left: number | null; revenue: number | null; capturedAt?: string;
     }>();
     const prevOccByDate = new Map<string, number | null>();
     const snapshotRows = (unwrap(snapshotRes) as any[])
@@ -518,6 +672,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       const revenue = Number(row.revenue_eur);
       const adr = Number(row.adr_eur);
       occByDate.set(row.stay_date, {
+        capturedAt: row.captured_at,
         pct,
         sold: Number.isFinite(sold) ? sold : null,
         left: Number.isFinite(available) && Number.isFinite(sold) ? Math.max(0, available - sold) : null,
@@ -548,6 +703,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     const lastDecisionByDate = new Map<string, { direction: string; at: string }>();
     const lastDecreaseByDate = new Map<string, string>();
     for (const row of decisionHistory) {
+      if (!committedMovement(row)) continue;
       if (!lastDecisionByDate.has(row.stay_date)) {
         lastDecisionByDate.set(row.stay_date, { direction: row.direction, at: row.created_at });
       }
@@ -585,7 +741,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     // Movement already spent in the local day, per stay date and per direction.
     const { data: spentToday } = await deps.pagedAll((f, t) => admin
       .from("revenue_date_decisions").select("stay_date, movement, direction")
-      .eq("hotel_id", rule.hotel_id).in("status", ["published", "queued"])
+      .eq("hotel_id", rule.hotel_id).in("status", ["queued", "accepted", "confirmed", "published", "partial"])
       .gte("created_at", localDayStart).order("stay_date").range(f, t));
     const movedUpToday = new Map<string, number>();
     const movedDownToday = new Map<string, number>();
@@ -605,6 +761,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     // Events: approved, confident, readable, deduplicated, once per date.
     const appliedKeys = new Set(unwrap(appliedEventsRes).map((r: any) => `${r.event_key}|${r.stay_date}`));
     const eventUplift = new Map<string, { key: string; uplift: number }>();
+    const confirmedHighEvents = new Set<string>();
     const seenEventKeys = new Set<string>();
     for (const ev of unwrap(eventsRes) as any[]) {
       if (ev.approved === false) continue;
@@ -618,6 +775,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       for (let d = new Date(`${from}T00:00:00Z`); d.toISOString().slice(0, 10) <= to; d.setUTCDate(d.getUTCDate() + 1)) {
         const stayDate = d.toISOString().slice(0, 10);
         if (stayDate < today || stayDate > horizonDate) continue;
+        // Applied events remain demand context after their one-time uplift.
+        if (confirmedHighImpactEvent(ev)) confirmedHighEvents.add(stayDate);
         const key = eventKeyOf(ev, stayDate);
         if (seenEventKeys.has(key)) continue;      // duplicate listing of one event
         if (appliedKeys.has(`${key}|${stayDate}`)) continue; // already paid for
@@ -779,6 +938,29 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       : { byMonth: {}, floors: {}, frozenMonths: [] as string[] };
     const frozenMonths = new Set(monthGuard.frozenMonths);
 
+    // ADR is managed across the hotel: strong nights can fund soft shoulders.
+    // Calculate the remaining realised ADR need at 95% terminal occupancy,
+    // instead of forcing the same rolling seven-day floor onto every date.
+    const directorMonths = new Map<string, { sold: number; left: number; revenue: number }>();
+    let projectedRevenue = 0;
+    let projectedRooms = 0;
+    for (const [date, facts] of occByDate) {
+      if (dayDiff(today, date) > 93) continue;
+      const sold = facts.sold ?? 0;
+      const left = facts.left ?? 0;
+      const ref = (byDate.get(date) ?? []).filter((c) => c.occupancy === 2 && typeAvail.left(c.room_type_name, c.obk_id, date) !== 0)
+        .sort((a, b) => a.price - b.price)[0];
+      const month = date.slice(0, 7);
+      const totals = directorMonths.get(month) ?? { sold: 0, left: 0, revenue: 0 };
+      totals.sold += sold; totals.left += left; totals.revenue += facts.revenue ?? 0;
+      directorMonths.set(month, totals);
+      if (ref || left === 0) {
+        projectedRevenue += (facts.revenue ?? 0) + left * (ref?.price ?? 0) * netFactor;
+        projectedRooms += sold + left;
+      }
+    }
+    const projectedHotelAdr = projectedRooms > 0 ? projectedRevenue / projectedRooms : null;
+
 
 
     // ---- 3. One decision per stay date -------------------------------------
@@ -790,9 +972,34 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     let budgetHit = false;
     let simulatedCells = 0;
 
+    // The pace ratchet may only take over a hotel whose date columns move in
+    // lockstep; anywhere else a "live" setting is treated as shadow.
+    const paceLive = pace.mode === "live" && dateColumnLockstepEnabled;
+    let paceLocalMinutes = 12 * 60;
+    if (pace.mode !== "off") {
+      try {
+        paceLocalMinutes = localMinutesAt(now, tz);
+      } catch (e) {
+        // Without the property's local time the selling-hours rule cannot be
+        // applied, so the policy sits this run out.
+        paceReady = false;
+        paceLoadError = paceLoadError ?? `Local time could not be resolved for ${tz}`;
+        console.error("Pace ratchet local time failed", e);
+      }
+    }
+    const paceLogRows: Array<Record<string, unknown>> = [];
+    const paceReviews = new Map<string, { kind: string; title: string; detail: string }>();
+    const paceConversions: Array<Record<string, unknown>> = [];
+    const paceTally = { increase: 0, decrease: 0, hold: 0, errors: 0 };
+    // A wave of cuts is spread over several runs (nearest dates first) so the
+    // PMS never receives more than the publisher has been proven to carry.
+    const PACE_MAX_CUTS_PER_RUN = 40;
+    let paceCutsThisRun = 0;
+    let paceCutsDeferred = 0;
+
     const dates = Array.from(byDate.keys()).sort();
     for (const stayDate of dates) {
-      if (Date.now() - startedAt > runBudgetMs) { budgetHit = true; break; }
+      if (Date.now() - evaluationStartedAt > runBudgetMs) { budgetHit = true; break; }
       const daysOut = dayDiff(today, stayDate);
       if (daysOut < 0 || daysOut > horizonDays) continue;
       const cells = byDate.get(stayDate)!;
@@ -804,13 +1011,28 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         : null;
 
       const occ = occByDate.get(stayDate) ?? { pct: null, sold: null, left: null, revenue: null };
+      // The €75 absolute boundary is deliberately ONLY for arrival today.
+      // Other nights retain Ottofiori's saved minimum ADR boundary. Resolve it
+      // once and reuse it for both the reference and every child cell so a
+      // cheaper guest-count sibling cannot slip below the whole-column floor.
+      const dateSafetyBounds = hotelDateSafetyBounds({
+        hotelId: String(rule.hotel_id),
+        daysOut,
+        hotelMin: hotelSafetyBounds.min,
+        hotelMax: hotelSafetyBounds.max,
+        ruleMinimumAdr: Number(rule.minimum_adr ?? 80),
+      });
       const refBounds = dateColumnLockstepEnabled
-        ? hotelSafetyBounds
+        ? dateSafetyBounds
         : boundsFor(reference?.room_type_name ?? null, 2);
       const pendingEvent = eventUplift.get(stayDate);
       const last = lastDecisionByDate.get(stayDate);
       const prevOcc = prevOccByDate.get(stayDate) ?? null;
       const lastPickup = lastPickupAt.get(stayDate) ?? null;
+      const quietHours = windowFor(daysOut, settings.windowRules).no_pickup_wait_hours ?? 6;
+      const freshUnspent = new Set(unspentLedger
+        .filter((r: any) => r.stay_date === stayDate && r.first_seen_at >= since(quietHours))
+        .map((r: any) => String(r.reservation_id))).size;
 
       const input: DecisionInput = {
         stayDate,
@@ -824,6 +1046,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         pickup24h: pickup24h.get(stayDate) ?? 0,
         pickup48h: pickup48h.get(stayDate) ?? 0,
         pickup7d: pickup7d.get(stayDate) ?? 0,
+        observedPickup6h: observedPickup6h.get(stayDate) ?? 0,
+        unspentPickupInQuietWindow: freshUnspent,
         cancellations24h: cancels24h.get(stayDate) ?? 0,
         hoursSinceLastPickup: lastPickup ? (now.getTime() - Date.parse(lastPickup)) / 3_600_000 : null,
         lastCancellationAt: lastCancel.get(stayDate) ?? null,
@@ -857,8 +1081,152 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       };
 
 
-      const decision = decideDate(input, settings);
+      let decision: Decision;
+      if (rule.hotel_id === "ottofiori") {
+        const month = directorMonths.get(stayDate.slice(0, 7));
+        const target = Number(rule.monthly_adr_targets?.[stayDate.slice(0, 7)] ?? rule.adr_target_eur ?? 140);
+        const neededRooms = month ? Math.max(0, Math.ceil((month.sold + month.left) * 0.95) - month.sold) : 0;
+        // revenue_latest_snapshots deliberately returns captured_date/rn, not
+        // captured_at. Freshness comes from this run's successful PMS probe;
+        // absence of a field outside that RPC contract is not stale evidence.
+        input.dataStale = !pmsPreflightConfirmed || occ.pct == null || occ.sold == null || occ.left == null;
+        decision = decideRevenueDirector(input, settings, {
+          targetAdr: target, minimumAdr: 130, projectedAdr: projectedHotelAdr,
+          requiredRemainingAdr: month && neededRooms > 0 ? Math.max(0, (target * (month.sold + neededRooms) - month.revenue) / neededRooms) : null,
+          netRateFactor: netFactor, confirmedHighEvent: confirmedHighEvents.has(stayDate),
+          microPriceTestEnabled: Number(rule.min_movement_eur) === 1,
+        });
+      } else {
+        decision = decideDate(input, settings);
+      }
+      // ---- Pace ratchet --------------------------------------------------
+      // Computed from exactly the facts the director just used. In shadow mode
+      // it is only recorded; in live mode it replaces the director's decision.
+      const directorDecision = decision;
+      let paceDecision: PaceDecision | null = null;
+      let paceCellBounds: { min: number; max: number } | null = null;
+      if (paceReady) {
+        try {
+          const zone = paceZoneFor(daysOut, pace);
+          const tier = resolvePaceTier({
+            manual: paceTiers.get(stayDate) ?? null,
+            events: paceEventsByDate.get(stayDate) ?? [],
+            specialRatio: paceBase.get(stayDate)?.special ?? null,
+            occupancyPct: occ.pct,
+            expectedPct: expectedOccupancyPct(daysOut, paceBands),
+            daysOut,
+          }, pace);
+          const quietCutoff = now.getTime() - paceQuietHours(zone, pace) * 3_600_000;
+          const freshPolicy = new Set(unspentLedger
+            .filter((r: any) => r.stay_date === stayDate && Date.parse(r.first_seen_at) >= quietCutoff)
+            .map((r: any) => String(r.reservation_id))).size;
+          const cellValues = cells.map((c) => whole(c.price)).filter((v) => Number.isFinite(v) && v > 0);
+          // Prices of room types that still have a room to sell on this date.
+          const sellableValues = cells
+            .filter((c) => typeAvail.left(c.room_type_name, c.obk_id, stayDate) !== 0)
+            .map((c) => whole(c.price)).filter((v) => Number.isFinite(v) && v > 0);
+          const conversion = paceConverting.get(stayDate);
+          paceDecision = decidePaceRatchet(input, settings, pace, {
+            tier: tier.tier,
+            tierSource: tier.source,
+            basePrice: paceBase.get(stayDate)?.base ?? null,
+            lowestCellPrice: cellValues.length > 0 ? Math.min(...cellValues) : null,
+            highestCellPrice: cellValues.length > 0 ? Math.max(...cellValues) : null,
+            lowestSellableCellPrice: sellableValues.length > 0 ? Math.min(...sellableValues) : null,
+            convertingPrice: conversion?.price ?? null,
+            convertedAt: conversion?.at ?? null,
+            freshPickup: freshPolicy,
+            localMinutes: paceLocalMinutes,
+            sellableRooms,
+            dateCeilingEur: tier.ceilingEur,
+            respectWindowCaps: paceLive,
+          });
+          paceCellBounds = {
+            min: paceGridFloor(pace),
+            max: Math.round(tier.ceilingEur ?? (tier.tier === "peak" ? pace.peak_ceiling_eur : pace.ceiling_eur)),
+          };
+          if (tier.review && !paceTiers.has(stayDate) && !paceReviews.has(stayDate)) {
+            paceReviews.set(stayDate, { kind: tier.review.kind, title: tier.review.title, detail: tier.detail });
+          }
+          // Remember the list price a fresh booking converted at.
+          if (lastPickup && input.currentPrice != null && input.currentPrice > 0) {
+            const pickedAt = Date.parse(lastPickup);
+            const knownAt = conversion ? Date.parse(conversion.at) : NaN;
+            if (Number.isFinite(pickedAt) && now.getTime() - pickedAt <= 3 * 3_600_000
+              && !(Number.isFinite(knownAt) && knownAt >= pickedAt)) {
+              paceConversions.push({
+                hotel_id: rule.hotel_id, stay_date: stayDate, price_eur: whole(input.currentPrice),
+                converted_at: new Date(pickedAt).toISOString(),
+                bookings: Math.max(1, observedPickup6h.get(stayDate) ?? 1),
+                updated_at: now.toISOString(),
+              });
+            }
+          }
+        } catch (e) {
+          paceDecision = null;
+          paceTally.errors += 1;
+          if (paceTally.errors <= 3) console.error(`Pace ratchet failed for ${stayDate}`, e);
+        }
+      }
+      if (paceLive) {
+        if (paceDecision) {
+          const { trace: _trace, ...plain } = paceDecision;
+          decision = plain;
+          if (!decision.blocked && decision.direction === "decrease") {
+            if (paceCutsThisRun >= PACE_MAX_CUTS_PER_RUN) {
+              paceCutsDeferred += 1;
+              decision = {
+                ...decision, direction: "hold", movement: 0, targetPrice: input.currentPrice, blocked: true,
+                capApplied: null, reason: "run_throttle",
+                reasonDetail: `Held for this run only: ${PACE_MAX_CUTS_PER_RUN} nearer dates were lowered first; this date follows in the next run.`,
+              };
+            } else {
+              paceCutsThisRun += 1;
+            }
+          }
+        } else {
+          decision = {
+            ...directorDecision, direction: "hold", movement: 0, targetPrice: input.currentPrice, blocked: true,
+            capApplied: null, reason: "pace_policy_unavailable",
+            reasonDetail: "Held: the pricing policy could not be evaluated for this date in this run; no price was changed.",
+          };
+        }
+      }
+
+      if (rule.hotel_id === "ottofiori" && daysOut > 0 && observeAiPrice(aiPolicies.get(stayDate), now, lastPickup, lastCancel.get(stayDate) ?? null)) {
+        decision = { ...decision, direction: "hold", movement: 0,
+          targetPrice: input.currentPrice, blocked: true, reason: "ai_supervisor_observation",
+          reasonDetail: "The AI supervisor's current offer is being observed for up to four hours. A new genuine booking or cancellation releases the fast engine to respond." };
+      }
       decisions.push(decision);
+      if (paceDecision) {
+        paceTally[paceDecision.direction] += 1;
+        // "live_*" is always the other set of rules: what was published while
+        // the policy is in shadow, and what the director would have done once
+        // the policy is live.
+        const other = paceLive ? directorDecision : decision;
+        // The log's money columns are integers; one stray fraction must not
+        // cost the whole batch.
+        const int = (value: unknown) => value == null || !Number.isFinite(Number(value)) ? null : Math.round(Number(value));
+        paceLogRows.push({
+          run_id: runId, hotel_id: rule.hotel_id, stay_date: stayDate, days_out: daysOut,
+          mode: paceLive ? "live" : "shadow",
+          tier: paceDecision.trace.tier, tier_source: paceDecision.trace.tierSource, zone: paceDecision.trace.zone,
+          current_price: int(input.currentPrice),
+          base_price: int(paceDecision.trace.basePrice),
+          converting_price: int(paceDecision.trace.convertingPrice),
+          occupancy_pct: occ.pct, rooms_remaining: int(occ.left),
+          expected_pct: paceDecision.trace.expectedPct, pace_gap: paceDecision.trace.paceGap,
+          pressure: paceDecision.trace.pressure,
+          floor_ref: int(paceDecision.trace.floorRef), ceiling_ref: int(paceDecision.trace.ceilingRef),
+          live_direction: other.direction, live_movement: int(other.movement) ?? 0, live_reason: other.reason,
+          policy_direction: paceDecision.direction, policy_movement: int(paceDecision.movement) ?? 0,
+          policy_target: int(paceDecision.targetPrice), policy_reason: paceDecision.reason,
+          policy_intent: paceDecision.trace.policyReason, policy_raw: int(paceDecision.trace.rawIntent),
+          policy_detail: String(paceDecision.reasonDetail ?? "").slice(0, 600),
+          cells: cells.length,
+        });
+      }
       const wasBlocked = decision.blocked;
       if (wasBlocked) skipReasons[decision.reason] = (skipReasons[decision.reason] ?? 0) + 1;
 
@@ -876,11 +1244,20 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       if (!decision.blocked) {
         const dir = Math.sign(decision.movement);
         const wanted = Math.abs(decision.movement);
+        // When the pace ratchet decides, its floor (what the hotel banks) and
+        // its tier ceiling are the limits for every cell of the date.
+        const paceDecides = paceLive && paceCellBounds != null;
+        const cellSafety = paceDecides
+          // A pace tier may be commercially stricter than the publisher, but
+          // it must never widen the hotel's persisted absolute ceiling.
+          ? clampPaceBoundsToHotelSafety(dateSafetyBounds, paceCellBounds!)
+          : dateSafetyBounds;
+        const minMove = paceDecides ? pace.min_step_eur : settings.minMovementEur;
         let boundsProblem: string | null = null;
         const prepared: Array<{ cell: typeof cells[number]; bounds: { min: number; max: number }; old: number; allowed: number }> = [];
         for (const cell of cells) {
           const old = whole(cell.price);
-          let resolvedBounds: { min: number; max: number; source: string } = hotelSafetyBounds;
+          let resolvedBounds: { min: number; max: number; source: string } = cellSafety;
 
           if (!dateColumnLockstepEnabled) {
             const cellBounds = boundsFor(cell.room_type_name, cell.occupancy);
@@ -895,8 +1272,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             lockstep: dateColumnLockstepEnabled,
             cellMin: resolvedBounds.min,
             cellMax: resolvedBounds.max,
-            globalMin: globalSafetyMin,
-            globalMax: globalSafetyMax,
+            globalMin: cellSafety.min,
+            globalMax: cellSafety.max,
           });
           const allowed = headroom(effectiveBounds, old, dir);
           prepared.push({
@@ -926,7 +1303,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           const uniform = uniformDateStep(
             prepared.map((p) => ({ room_type_name: p.cell.room_type_name, allowed: p.allowed })),
             wanted,
-            settings.minMovementEur,
+            minMove,
           );
           const step = uniform.step;
           const limitingCell = uniform.limitedBy;
@@ -979,7 +1356,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         if (cellViolations.length > 0) {
           // Hold only the affected date. Other safe date-columns can continue
           // to Previo in the same run.
-          violations.push(...cellViolations.map((v) => ({ stay_date: stayDate, ...v })));
+          violations.push(...cellViolations.map((v) => ({ ...v, stay_date: stayDate })));
           decision.blocked = true;
           decision.direction = "hold";
           decision.movement = 0;
@@ -996,7 +1373,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
 
 
-      const status = decision.blocked ? "held" : (mode === "live" ? "queued" : "shadow");
+      const status = decision.blocked ? "held" : (mode === "live" && !dryRun ? "queued" : "shadow");
       decisionRows.push({
         run_id: runId,
         hotel_id: rule.hotel_id,
@@ -1123,16 +1500,12 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           }
         }
       }
-      if (mode === "live" && !dryRun && ladderRepairs.length > 0) {
-        for (const repair of ladderRepairs) {
-          const key = `${repair.stay_date}|${repair.obk_id ?? ""}|${repair.room_type_name ?? ""}|${repair.occupancy}`;
-          const existing = payload.find((p) =>
-            `${p.stay_date}|${p.obk_id ?? ""}|${p.room_type_name ?? ""}|${p.occupancy}` === key
-          );
-          if (existing) existing.new_price = repair.new_price;
-          else payload.push(repair);
-        }
-      }
+      // Diagnostic only. The production database explicitly blocks these
+      // proactive ladder repairs. They are NOT demand-based pricing decisions:
+      // adding them to the publication payload causes suppressed INSERT rows,
+      // and overwriting a date decision breaks its uniform 13-cell movement.
+      // Preserve the diagnostic count but never enqueue or apply the repairs
+      // unless a separately approved workflow is implemented end-to-end.
     }
 
     const insertedDecisionIds = new Map<string, string>();
@@ -1166,14 +1539,14 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             }];
           }),
       );
-      pushRunId = await deps.queue(payload, 5, { automationRunId: runId, dateManifest });
+      pushRunId = await deps.queue(payload, 5, { automationRunId: runId, dateManifest, budgetDayStartUtc: localDayStart });
       const movedDates = Object.keys(dateManifest);
       for (const stayDate of movedDates) queuedDates.add(stayDate);
       await admin.from("revenue_date_decisions")
-        .update({ status: "queued" }).eq("run_id", runId).in("stay_date", movedDates);
+        .update({ status: "queued" }).eq("run_id", runId).in("stay_date", movedDates).eq("status", "queued");
       // Record event uplifts so an event can never lift the same date twice.
       const eventApplications = decisions
-        .filter((d) => queuedDates.has(d.stayDate) && eventUplift.has(d.stayDate))
+        .filter((d) => queuedDates.has(d.stayDate) && d.reason.includes("+event") && eventUplift.has(d.stayDate))
         .map((d) => ({
           hotel_id: rule.hotel_id,
           organization_slug: rule.organization_slug ?? "",
@@ -1199,9 +1572,132 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       }
     }
 
+    // ---- 4b. Pace ratchet bookkeeping ----------------------------------------
+    // Nothing below can change a price, so nothing below may fail the run.
+    let paceFlagged = 0;
+    if (pace.mode !== "off") {
+      try {
+        for (let i = 0; i < paceLogRows.length; i += 500) {
+          const { error } = await admin.from("revenue_pace_policy_log").insert(paceLogRows.slice(i, i + 500));
+          if (error) throw error;
+        }
+        if (paceConversions.length > 0) {
+          const { error } = await admin.from("revenue_converting_prices")
+            .upsert(paceConversions, { onConflict: "hotel_id,stay_date" });
+          if (error) throw error;
+        }
+        // Peak candidates beyond the pricing horizon still deserve a manager's
+        // attention months ahead.
+        for (const [stayDate, review] of paceFarCandidates) {
+          if (!paceTiers.has(stayDate) && !paceReviews.has(stayDate)) paceReviews.set(stayDate, review);
+        }
+        if (paceReviews.size > 0) {
+          const reviewRows = [...paceReviews].map(([stayDate, review]) => ({
+            hotel_id: rule.hotel_id,
+            organization_slug: rule.organization_slug ?? "",
+            stay_date: stayDate,
+            tier: "peak",
+            source: review.kind === "peak_event" ? "event" : "sister_prices",
+            status: "needs_review",
+            reason: review.detail.slice(0, 400),
+            event_title: review.title.slice(0, 200),
+          }));
+          const { data: flagged, error: flagError } = await admin.from("revenue_date_tiers")
+            .upsert(reviewRows, { onConflict: "hotel_id,stay_date", ignoreDuplicates: true })
+            .select("stay_date, event_title, reason");
+          if (flagError) throw flagError;
+          const fresh = ((flagged ?? []) as any[]).sort((a, b) => String(a.stay_date).localeCompare(String(b.stay_date)));
+          paceFlagged = fresh.length;
+          if (fresh.length > 0) {
+            const listed = fresh.slice(0, 8).map((row) => `${row.stay_date} (${row.event_title})`).join("; ");
+            const { error: notifyError } = await admin.from("revenue_automation_notifications").insert({
+              hotel_id: rule.hotel_id,
+              organization_slug: rule.organization_slug,
+              notification_type: "peak_review",
+              run_source: "automatic",
+              actor_name: "Automatic pricing",
+              actor_user_id: null,
+              rule_id: rule.id,
+              // No automation_run_id on purpose: this is a notice about dates,
+              // not a pricing run, and must not be shown with the run's figures.
+              action_ids: [],
+              pickups_count: 0, actions_count: fresh.length, pushed_count: 0, failed_count: 0,
+              currency: rule.currency ?? "EUR",
+              severity: "warning",
+              summary: `Manager review needed: ${fresh.length} possible Peak-demand date${fresh.length === 1 ? "" : "s"} — ${listed}${fresh.length > 8 ? "; and more" : ""}. Check the price, then confirm or dismiss each date in the Automation chat.`,
+              changes: fresh.map((row) => ({
+                stay_date: row.stay_date, change_type: "peak_review",
+                event_title: row.event_title, reason_detail: row.reason, status: "needs_review",
+              })),
+            });
+            if (notifyError) console.error("Peak review notification insert failed", notifyError);
+            // The owner's rule: Peak-demand dates go to top management for a
+            // manual review. One e-mail per newly found batch, never repeated.
+            try {
+              const { data: people } = await admin.from("profiles").select("email")
+                .eq("organization_slug", rule.organization_slug)
+                .in("role", ["top_management", "top_management_manager"])
+                .is("deleted_at", null);
+              const to = ((people ?? []) as any[])
+                .map((p) => String(p.email ?? "").trim())
+                .filter((email) => /\S+@\S+\.\S+/.test(email) && email.toLowerCase() !== "control@rdhotels.hu");
+              if (to.length > 0) {
+                const hotelLabel = rule.hotel_id === "ottofiori" ? "Hotel Ottofiori" : String(rule.hotel_id);
+                const esc = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (c) =>
+                  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+                const shown = fresh.slice(0, 40);
+                const mail = sendEmail({
+                  admin,
+                  organizationSlug: rule.organization_slug,
+                  to,
+                  kind: "transactional",
+                  subject: `${hotelLabel}: ${fresh.length} possible Peak-demand date${fresh.length === 1 ? "" : "s"} to review`,
+                  text: [
+                    `HotelCare found ${fresh.length} stay date${fresh.length === 1 ? "" : "s"} at ${hotelLabel} that may be worth far more than a normal night.`,
+                    ...shown.map((row) => `${row.stay_date}: ${row.reason}`),
+                    fresh.length > shown.length ? `...and ${fresh.length - shown.length} more.` : "",
+                    "Please check the prices. In Revenue > Automation, type for example \"Confirm 31 December as Peak\" or \"Dismiss 28 May\".",
+                    "Until you confirm a date, automatic pricing treats it carefully: it raises on bookings, it does not make large jumps on its own.",
+                  ].filter(Boolean).join("\n"),
+                  html: `
+                    <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111827">
+                      <h2 style="margin-bottom:8px">Possible Peak-demand dates to review</h2>
+                      <p>HotelCare found <strong>${fresh.length}</strong> stay date${fresh.length === 1 ? "" : "s"} at <strong>${esc(hotelLabel)}</strong> that may be worth far more than a normal night.</p>
+                      <table style="border-collapse:collapse;width:100%;margin:18px 0;font-size:14px">
+                        ${shown.map((row) => `<tr><td style="padding:7px;border-bottom:1px solid #e5e7eb;white-space:nowrap"><strong>${esc(row.stay_date)}</strong></td><td style="padding:7px;border-bottom:1px solid #e5e7eb">${esc(row.reason)}</td></tr>`).join("")}
+                      </table>
+                      ${fresh.length > shown.length ? `<p>…and ${fresh.length - shown.length} more.</p>` : ""}
+                      <p>Please check the prices. In <strong>Revenue → Automation</strong>, type for example <em>“Confirm 31 December as Peak”</em> or <em>“Dismiss 28 May”</em>.</p>
+                      <p style="color:#6b7280">Until you confirm a date, automatic pricing treats it carefully: it raises on bookings, it does not make large jumps on its own.</p>
+                      <p><a href="https://my.hotelcare.app" style="display:inline-block;background:#20aee5;color:white;text-decoration:none;padding:11px 18px;border-radius:7px">Open HotelCare</a></p>
+                    </div>`,
+                });
+                const result = await Promise.race([
+                  mail,
+                  new Promise<{ ok: false; error: string }>((resolve) =>
+                    setTimeout(() => resolve({ ok: false, error: "timed out" }), 10_000)),
+                ]);
+                if (!result.ok) console.error("Peak review e-mail not sent", result.error);
+              }
+            } catch (mailError) {
+              console.error("Peak review e-mail failed", mailError);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Pace ratchet bookkeeping failed", e);
+        paceLoadError = paceLoadError ?? (e instanceof Error ? e.message : String((e as any)?.message ?? e));
+      }
+    }
+
     const increases = decisions.filter((d) => d.direction === "increase" && (mode !== "live" ? !d.blocked : queuedDates.has(d.stayDate))).length;
     const decreases = decisions.filter((d) => d.direction === "decrease" && (mode !== "live" ? !d.blocked : queuedDates.has(d.stayDate))).length;
     const held = decisions.length - increases - decreases;
+    // The queue safety gate can reject a whole date after simulation. Only
+    // count cells in a real push run whose date survived that gate.
+    const queuedCellCount = pushRunId
+      ? payload.filter((cell) => queuedDates.has(String(cell.stay_date))).length
+      : 0;
 
     await finish({
       status: budgetHit ? "timed_out" : "completed",
@@ -1209,17 +1705,26 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       dates_increased: increases,
       dates_decreased: decreases,
       dates_held: held,
-      cells_queued: payload.length,
+      cells_queued: queuedCellCount,
       // The delivery batch this run produced, so the activity feed can show
       // real Previo outcomes instead of "queued and hope".
       push_run_id: pushRunId,
       skip_reasons: {
         ...skipReasons,
         simulated_cells: simulatedCells,
-        ladder_repairs: ladderRepairs.length,
+        ladder_repairs: 0,
+        ladder_repairs_suppressed: ladderRepairs.length,
         adr_guard: rule.adr_guard_enabled
           ? { required_rate: adrGuard.requiredRate, projected_adr: adrGuard.projectedAdr, feasible: adrGuard.feasible, reason: adrGuard.reason }
           : null,
+        pace_policy: pace.mode === "off" ? null : {
+          mode: paceLive ? "live" : "shadow",
+          ready: paceReady,
+          error: paceLoadError ? paceLoadError.slice(0, 200) : null,
+          increase: paceTally.increase, decrease: paceTally.decrease, hold: paceTally.hold,
+          date_errors: paceTally.errors, peak_reviews_flagged: paceFlagged,
+          cuts_deferred_to_next_run: paceCutsDeferred,
+        },
       },
     });
 
@@ -1230,7 +1735,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       last_run_at: new Date(startedAt).toISOString(),
       last_evaluation_status: budgetHit ? "timed_out" : (mode === "live" ? "ok" : "shadow_ok"),
       last_evaluation_error: budgetHit ? "run budget exhausted" : null,
-      next_run_at: new Date(now.getTime() + Math.max(60, Number(rule.evaluation_interval_minutes || 60)) * 60_000).toISOString(),
+      next_run_at: new Date(now.getTime() + Math.max(rule.hotel_id === "ottofiori" ? 15 : 60, Number(rule.evaluation_interval_minutes || 60)) * 60_000).toISOString(),
     }).eq("id", rule.id);
 
     // ---- 5. Automatic activation gate / live watchdog ----------------------
@@ -1241,24 +1746,35 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     const runStatus = budgetHit ? "Run reached its time limit" : "Run completed";
     const delivery = mode === "shadow" || dryRun
       ? `Shadow test only — ${simulatedCells} price cell${simulatedCells === 1 ? " was" : "s were"} simulated and none were sent to Previo.`
-      : payload.length > 0
-        ? `${payload.length} price cell${payload.length === 1 ? " was" : "s were"} queued for Previo.`
+      : queuedCellCount > 0
+        ? `${queuedCellCount} price cell${queuedCellCount === 1 ? " was" : "s were"} queued for Previo.`
         : "No prices needed to be sent to Previo.";
     const ladderNote = ladderRepairs.length > 0
-      ? ` Guest-price ladder repair: ${ladderRepairs.length} price${ladderRepairs.length === 1 ? " was" : "s were"} out of line with the higher occupancy prices and ${ladderRepairs.length === 1 ? "was" : "were"} lifted back into order.`
+      ? ` Guest-price ladder diagnostics found ${ladderRepairs.length} proposed adjustment${ladderRepairs.length === 1 ? "" : "s"}; automatic ladder repair is safety-blocked, so none were sent to Previo.`
       : "";
     const activation = gate.phase === "shadow" && gate.passed
       ? " The 24-hour safety review passed; live mode is enabled for the next run."
       : gate.phase === "live" && gate.paused
         ? ` Automation returned to shadow mode${gate.reason ? `: ${gate.reason}` : "."}`
         : "";
-    await notifyRun({
+    // Explain repeated zero-movement runs using the actual date decision ledger.
+    // These are informative holds, not failed Previo publishes; do not present
+    // them as confirmed price changes.
+    const holdExplanation = increases + decreases === 0 && held > 0
+      ? Object.entries(skipReasons)
+        .filter(([, count]) => typeof count === "number" && count > 0)
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .slice(0, 3)
+        .map(([reason, count]) => `${count} ${reason.replaceAll("_", " ")}`)
+        .join(", ")
+      : "";
+    if (!(rule.hotel_id === "ottofiori" && deps.isEngine && increases + decreases === 0 && !budgetHit && !gate.paused)) await notifyRun({
       severity: budgetHit ? "warning" : "info",
       pickups: decisions.filter((d) => d.reason.includes("pickup")).length,
       actions: increases + decreases,
       pushed: 0,
       failed: budgetHit ? 1 : 0,
-      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}${ladderNote}${activation}`,
+      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}${holdExplanation ? ` Top holds: ${holdExplanation}.` : ""}${ladderNote}${activation}`,
     });
 
     return {
@@ -1271,9 +1787,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       increases,
       decreases,
       held,
-      cells_queued: payload.length,
+      cells_queued: queuedCellCount,
       cells_simulated: simulatedCells,
-      ladder_repairs: ladderRepairs.length,
+      ladder_repairs: 0,
+      ladder_repairs_suppressed: ladderRepairs.length,
       skip_reasons: skipReasons,
       timed_out: budgetHit,
       gate,

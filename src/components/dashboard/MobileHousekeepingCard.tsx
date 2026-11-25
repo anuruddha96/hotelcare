@@ -6,10 +6,25 @@ import { Button } from '@/components/ui/button';
 import { HoldButton } from '@/components/ui/hold-button';
 import { Clock, MapPin, User, Camera, PlayCircle, AlertTriangle, Shirt, BedDouble, Info, Globe, Loader2 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useHousekeepingPresence } from '@/hooks/useHousekeepingPresence';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
+import { housekeeperVisibleAssignmentNote } from '@/lib/housekeeperVisibleAssignmentNote';
+import { ManagerRecheckEvidence } from './ManagerRecheckEvidence';
+import { RoomNoteProvenance } from './RoomNoteProvenance';
 import { parseRoomFlags } from '@/lib/room-service-flags';
+import { getRdFullCleanInstruction } from '@/lib/rdFullCleanInstruction';
+import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { getMemoriesRoomBoardNote, isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
+import { todayBudapest } from '@/lib/budapestTime';
+import {
+  effectiveCarryServiceFlags,
+  getActionableHousekeepingCarryForward,
+  isPortfolioCarryForwardHotel,
+} from '@/lib/housekeepingCarryForward';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
 
 interface MobileHousekeepingCardProps {
   assignment: any;
@@ -27,6 +42,7 @@ export function MobileHousekeepingCard({
   onOpenLinen 
 }: MobileHousekeepingCardProps) {
   const { t, language } = useTranslation();
+  useHousekeepingPresence('mobile_housekeeping_card');
 
   const getStatusBadge = () => {
     switch (assignment.status) {
@@ -58,25 +74,57 @@ export function MobileHousekeepingCard({
 
   // Parse room flags from notes
   const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
-  const hasManagerNotes = !!roomFlags.cleanNotes;
+  const managerVisibleNote = isHotelMemoriesBudapest(assignment.rooms?.hotel)
+    ? getMemoriesRoomBoardNote(assignment.rooms?.notes, assignment.rooms?.pms_metadata)
+    : roomFlags.cleanNotes;
+  const hasManagerNotes = !!managerVisibleNote;
+  const slntPrevioNote = assignment.rooms?.hotel === 'slnt-group'
+    ? String(assignment.rooms?.pms_metadata?.slntPrevioHousekeepingNote || '').trim()
+    : '';
+  const pmsOwnsVisibleNote = !!slntPrevioNote && slntPrevioNote === managerVisibleNote;
+  const hasSeparatePrevioNote = !!slntPrevioNote && !pmsOwnsVisibleNote;
 
   // Check for special instructions
   // Checkout cleans always include a full towel change — never show the
   // separate "Towel Change" instruction for them.
-  const isCheckoutClean = assignment.assignment_type === 'checkout_cleaning' || assignment.rooms?.is_checkout_room === true;
-  const towelChangeRequired = assignment.rooms?.towel_change_required && !isCheckoutClean;
-  // Checkout cleans always include full linen — don't repeat it as an instruction.
-  const linenChangeRequired = assignment.rooms?.linen_change_required && !isCheckoutClean;
-  const bedConfiguration = assignment.rooms?.bed_configuration;
-  const assignmentNotes = assignment.notes;
+  const pmsMeta = assignment.rooms?.pms_metadata;
+  const freshPms = pmsMeta?.pmsSyncDate === todayBudapest();
+  const pmsCheckout = assignment.rooms?.is_checkout_room === true || pmsMeta?.scheduledDepartureToday === true;
+  const isCheckoutClean = freshPms ? pmsCheckout : assignment.assignment_type === 'checkout_cleaning' || pmsCheckout;
+  // Use the same T/C source as the manager and the full-size housekeeper card.
+  // Completed carry-forward tasks must never reappear as new instructions.
+  const carryForward = !isCheckoutClean && isPortfolioCarryForwardHotel(assignment.rooms?.hotel)
+    ? getActionableHousekeepingCarryForward(assignment.previous_day_context, assignment)
+    : null;
+  const effectiveService = effectiveCarryServiceFlags({
+    towelChangeRequired: assignment.rooms?.towel_change_required,
+    linenChangeRequired: assignment.rooms?.linen_change_required,
+    carryForward,
+    isCheckout: isCheckoutClean,
+    forceTowelOnly: isHotelMemoriesBudapest(assignment.rooms?.hotel) && !!carryForward
+      && isMemoriesFinalOccupiedNight(pmsMeta, todayBudapest()),
+  });
+  const towelChangeRequired = effectiveService.towelChangeRequired;
+  const linenChangeRequired = effectiveService.linenChangeRequired;
+  const bedConfiguration = displayHousekeepingBedSetup(assignment.rooms?.bed_configuration, assignment.rooms?.hotel);
+  const assignmentNotes = housekeeperVisibleAssignmentNote(assignment.notes, assignment.rooms?.hotel);
   const guestNights = assignment.rooms?.guest_nights_stayed;
+  const fullCleanInstruction = getRdFullCleanInstruction({
+    hotel: assignment.rooms?.hotel,
+    isCheckout: isCheckoutClean,
+    linenChangeRequired,
+    fullRoomCleaningRequired: roomFlags.roomCleaning,
+    currentNight: guestNights,
+    language,
+  });
 
-  const hasSpecialInstructions = towelChangeRequired || linenChangeRequired || bedConfiguration || hasManagerNotes || assignmentNotes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [towelChangeRequired, linenChangeRequired, bedConfiguration, hasManagerNotes, assignmentNotes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+  const hasSpecialInstructions = towelChangeRequired || linenChangeRequired || bedConfiguration || hasManagerNotes || hasSeparatePrevioNote || assignmentNotes || Boolean(assignment.recheck_photos?.length) || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [towelChangeRequired, linenChangeRequired, bedConfiguration, hasManagerNotes, hasSeparatePrevioNote, assignmentNotes, Boolean(assignment.recheck_photos?.length), roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
   const [translatedManagerNote, setTranslatedManagerNote] = useState<string | null>(null);
+  const [translatedPrevioNote, setTranslatedPrevioNote] = useState<string | null>(null);
   const [translatedAssignmentNote, setTranslatedAssignmentNote] = useState<string | null>(null);
 
   const handleTranslateNote = async (noteText: string, setter: (val: string) => void) => {
@@ -122,10 +170,18 @@ export function MobileHousekeepingCard({
       </CardHeader>
 
       <CardContent className="space-y-4">
+        <GuestItemRecoveryNotice roomId={assignment.rooms?.id} />
+
         {/* === SPECIAL INSTRUCTIONS — TOP OF CARD === */}
         {hasSpecialInstructions && (
           <div className="space-y-2 -mt-1">
-            {towelChangeRequired && (
+            {fullCleanInstruction && (
+              <div role="status" className="p-3 rounded-lg border border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-100">
+                <p className="text-sm font-bold">🛏️🧺 {fullCleanInstruction.title}</p>
+                <p className="text-sm font-medium mt-1">{fullCleanInstruction.message}</p>
+              </div>
+            )}
+            {towelChangeRequired && !fullCleanInstruction && (
               <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🧺</span>
@@ -143,7 +199,7 @@ export function MobileHousekeepingCard({
               </div>
             )}
 
-            {linenChangeRequired && (
+            {linenChangeRequired && !fullCleanInstruction && (
               <div className="p-3 bg-purple-50 dark:bg-purple-950/30 border-2 border-purple-400 dark:border-purple-600 rounded-lg">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🛏️</span>
@@ -175,7 +231,7 @@ export function MobileHousekeepingCard({
               </div>
             )}
 
-            {roomFlags.roomCleaning && (
+            {roomFlags.roomCleaning && !fullCleanInstruction && (
               <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border-2 border-blue-400 dark:border-blue-600 rounded-lg">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🧹</span>
@@ -199,15 +255,16 @@ export function MobileHousekeepingCard({
                   <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
                   <div className="flex-1">
                     <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">
-                      {t('roomCard.managerNotes') || 'Manager Notes'}
+                      {pmsOwnsVisibleNote ? 'Previo housekeeping note' : (t('roomCard.managerNotes') || 'Manager Notes')}
                     </p>
                     <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
-                      {translatedManagerNote || roomFlags.cleanNotes}
+                      {translatedManagerNote || managerVisibleNote}
                     </p>
+                    <RoomNoteProvenance roomId={assignment.room_id} roomNotes={assignment.rooms?.notes} language={language} />
                     {!translatedManagerNote && (
                       <button
                         className="mt-1.5 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
-                        onClick={() => handleTranslateNote(roomFlags.cleanNotes, setTranslatedManagerNote)}
+                        onClick={() => handleTranslateNote(managerVisibleNote, setTranslatedManagerNote)}
                         disabled={translating}
                       >
                         {translating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
@@ -219,10 +276,27 @@ export function MobileHousekeepingCard({
               </div>
             )}
 
+            {hasSeparatePrevioNote && (
+              <div className="p-3 bg-sky-50 dark:bg-sky-950/30 border-2 border-sky-400 dark:border-sky-600 rounded-lg">
+                <p className="text-xs font-semibold text-sky-700 dark:text-sky-300 uppercase tracking-wide">Previo housekeeping note</p>
+                <p className="text-sm text-sky-900 dark:text-sky-100 mt-1">{translatedPrevioNote || slntPrevioNote}</p>
+                {!translatedPrevioNote && (
+                  <button className="mt-1.5 flex items-center gap-1 text-xs text-sky-700 hover:text-sky-900 font-medium"
+                    onClick={() => handleTranslateNote(slntPrevioNote, setTranslatedPrevioNote)} disabled={translating}>
+                    {translating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
+                    {t('roomCard.translateNote') || 'Translate'}
+                  </button>
+                )}
+              </div>
+            )}
             {assignmentNotes && (
-              <div className="p-3 bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/30 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-600 rounded-lg shadow-sm">
+              <div className={assignment.rooms?.hotel === 'slnt-group'
+                ? 'p-3 rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30'
+                : 'p-3 bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/30 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-600 rounded-lg shadow-sm'}>
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                  {assignment.rooms?.hotel === 'slnt-group'
+                    ? <Info className="h-4 w-4 text-slate-500 mt-0.5 flex-shrink-0" />
+                    : <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />}
                   <div className="flex-1">
                     <p className="text-[10px] font-semibold text-amber-900 dark:text-amber-300 uppercase tracking-wide">
                       📝 {t('housekeeping.assignmentNotes')}
@@ -244,6 +318,7 @@ export function MobileHousekeepingCard({
                 </div>
               </div>
             )}
+            <ManagerRecheckEvidence photos={assignment.recheck_photos} />
           </div>
         )}
 

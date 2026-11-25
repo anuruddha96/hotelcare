@@ -71,3 +71,16 @@ export function canSeeRevenuePortfolio(role: string | null | undefined): boolean
   return role === "admin";
 }
 
+/**
+ * Parking Tickets and Purchase Invoices are legacy back-office modules.
+ * They are intentionally retained only for the Anu_000 account regardless
+ * of organization or assigned hotel.
+ */
+export function canAccessLegacyModules(nickname: string | null | undefined): boolean {
+  return nickname?.trim().toLowerCase() === 'anu_000';
+}
+
+/** Channel Manager is restricted to admin accounts and the named Anu_000 account. */
+export function canAccessChannelManager(role: string | null | undefined, nickname: string | null | undefined, organizationSlug: string | null | undefined): boolean {
+  return role === 'admin' || (organizationSlug === 'rdhotels' && canAccessLegacyModules(nickname));
+}

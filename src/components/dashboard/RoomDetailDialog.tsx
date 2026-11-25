@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
+import { matchingRoomNoteHistory, describeRoomNoteTimestamp } from '@/lib/roomNoteProvenance';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { 
@@ -28,6 +29,8 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { DNDPhotosViewer } from './DNDPhotosViewer';
+import { isNoMinibarRoom } from '@/lib/gozsduNoMinibar';
+import { RoomStatePeriodManager } from './RoomStatePeriodManager';
 
 interface Room {
   id: string;
@@ -71,11 +74,23 @@ interface Ticket {
   created_at: string;
 }
 
+interface RoomNoteHistoryEntry {
+  id: string;
+  content: string;
+  created_at: string;
+  created_by: string;
+  created_by_name: string | null;
+  source?: 'manual' | 'system_change' | 'room_created' | 'first_seen';
+}
+
 interface RoomDetailDialogProps {
   room: Room | null;
+  hotelId?: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRoomUpdated?: () => void;
+  /** Show only the minibar panel when accessed from the housekeeping checklist. */
+  minibarOnly?: boolean;
   /**
    * When true, minibar items added/updated through this dialog are flagged as
    * "late additions" — added by housekeepers AFTER the cleaning was completed.
@@ -90,10 +105,17 @@ interface RoomDetailDialogProps {
   alreadyApproved?: boolean;
 }
 
-export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, lateAddition = false, alreadyApproved = false }: RoomDetailDialogProps) {
+export function RoomDetailDialog({ room, hotelId, open, onOpenChange, onRoomUpdated, minibarOnly = false, lateAddition = false, alreadyApproved = false }: RoomDetailDialogProps) {
   const { t } = useTranslation();
   const { profile } = useAuth();
+  const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, room?.hotel);
+  const canEditRoomNote = hasManagerPowers(profile?.role) || profile?.role === 'supervisor';
   const [loading, setLoading] = useState(false);
+  const [notesSaveState, setNotesSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [noteHistory, setNoteHistory] = useState<RoomNoteHistoryEntry[]>([]);
+  const notesSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedNotesRef = useRef('');
+  const lastPersistedNotesRef = useRef<string | null>(null);
   const [minibarItems, setMinibarItems] = useState<MinibarItem[]>([]);
   const [minibarUsage, setMinibarUsage] = useState<MinibarUsage[]>([]);
   const [minibarCategory, setMinibarCategory] = useState<string | null>(null);
@@ -106,18 +128,64 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   const [guestReportedItems, setGuestReportedItems] = useState<Set<string>>(new Set());
   const [perishableAlerts, setPerishableAlerts] = useState<any[]>([]);
 
+  const fetchRoomNoteHistory = useCallback(async (roomId: string) => {
+    try {
+      const { data, error } = await (supabase as any).rpc('get_room_note_history', {
+        p_room_id: roomId,
+        p_limit: 5,
+      });
+      if (error) throw error;
+      setNoteHistory((data || []) as RoomNoteHistoryEntry[]);
+    } catch (error) {
+      console.error('Error fetching room note history:', error);
+      setNoteHistory([]);
+    }
+  }, []);
+
+  // Initialize a note editor only when opening or switching rooms. A fresh
+  // parent room object must never reset an in-progress draft/autosave.
+  useEffect(() => {
+    if (notesSaveTimerRef.current) {
+      clearTimeout(notesSaveTimerRef.current);
+      notesSaveTimerRef.current = null;
+    }
+    if (!open || !room) return;
+    const initialNotes = room.notes || '';
+    setRoomNotes(initialNotes);
+    lastSavedNotesRef.current = initialNotes;
+    lastPersistedNotesRef.current = room.notes ?? null;
+    setNotesSaveState('idle');
+  }, [open, room?.id]);
+
   useEffect(() => {
     if (open && room) {
-      setRoomNotes(room.notes || '');
       setRoomSize(room.room_size_sqm?.toString() || '');
       setRoomCapacity(room.room_capacity?.toString() || '');
-      fetchMinibarItems();
-      fetchMinibarUsage();
+      fetchRoomNoteHistory(room.id);
+      if (!isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, room.hotel)) {
+        fetchMinibarItems();
+        fetchMinibarUsage();
+        fetchGuestReportedItems();
+        fetchPerishableAlerts();
+      } else {
+        // Drop any cached minibar details on a property switch.
+        setMinibarItems([]);
+        setMinibarUsage([]);
+        setGuestReportedItems(new Set());
+        setPerishableAlerts([]);
+      }
       fetchRecentTickets();
-      fetchGuestReportedItems();
-      fetchPerishableAlerts();
     }
-  }, [open, room]);
+  }, [open, room, profile?.assigned_hotel, fetchRoomNoteHistory]);
+
+  useEffect(() => {
+    return () => {
+      if (notesSaveTimerRef.current) {
+        clearTimeout(notesSaveTimerRef.current);
+        notesSaveTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const fetchGuestReportedItems = async () => {
     if (!room) return;
@@ -164,6 +232,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   };
 
   const handleCollectPerishable = async (placementId: string) => {
+    if (noMinibar) return;
     try {
       const { error } = await (supabase
         .from('minibar_placements' as any)
@@ -240,12 +309,15 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
   const handleStatusChange = async (newStatus: string) => {
     if (!room) return;
+    if (newStatus === 'out_of_order' || newStatus === 'out_of_service') {
+      toast({ title: t('ntak.phase4.title'), description: t('ntak.phase4.usePeriod') });
+      return;
+    }
 
     setLoading(true);
     try {
       const updateData: any = {
         status: newStatus,
-        notes: roomNotes,
         room_size_sqm: roomSize ? parseFloat(roomSize) : null,
         room_capacity: roomCapacity ? parseInt(roomCapacity) : null,
       };
@@ -255,12 +327,22 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
         updateData.last_cleaned_by = profile?.id;
       }
 
-      const { error } = await supabase
+      const { data: updatedRoom, error } = await supabase
         .from('rooms')
         .update(updateData)
-        .eq('id', room.id);
+        .eq('id', room.id)
+        .select('id,status')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!updatedRoom) {
+        throw new Error('Room update was not applied. Please refresh and verify your hotel access.');
+      }
+      if (updatedRoom.status !== newStatus) {
+        toast({ title: t('ntak.phase4.title'), description: t('ntak.phase4.activeOverride'), variant: 'destructive' });
+        onRoomUpdated?.();
+        return;
+      }
 
       toast({
         title: "Success",
@@ -280,8 +362,74 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
     }
   };
 
+  const handleSaveNotes = useCallback(async (nextNotes: string, showErrorToast = false) => {
+    if (!room || !canEditRoomNote) return false;
+
+    setNotesSaveState('saving');
+    try {
+      const { data, error } = await (supabase as any).rpc('save_room_note_if_unchanged', {
+        p_room_id: room.id,
+        p_notes: nextNotes,
+        p_expected_notes: lastPersistedNotesRef.current,
+      });
+      if (error) throw error;
+
+      const savedRow = Array.isArray(data) ? data[0] : data;
+      if (!savedRow?.room_id) {
+        throw new Error('Room note update was not applied');
+      }
+
+      lastSavedNotesRef.current = nextNotes;
+      lastPersistedNotesRef.current = savedRow.notes ?? null;
+      setNotesSaveState('saved');
+      await fetchRoomNoteHistory(room.id);
+      onRoomUpdated?.();
+      return true;
+    } catch (error: any) {
+      console.error('Could not autosave room notes:', error);
+      setNotesSaveState('error');
+      if (showErrorToast) {
+        toast({
+          title: 'Could not save notes',
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
+      return false;
+    }
+  }, [room, canEditRoomNote, fetchRoomNoteHistory, onRoomUpdated]);
+
+  const scheduleNotesAutosave = (nextNotes: string) => {
+    setRoomNotes(nextNotes);
+    if (notesSaveTimerRef.current) {
+      clearTimeout(notesSaveTimerRef.current);
+      notesSaveTimerRef.current = null;
+    }
+
+    if (nextNotes === lastSavedNotesRef.current) {
+      setNotesSaveState('saved');
+      return;
+    }
+
+    setNotesSaveState('idle');
+    notesSaveTimerRef.current = setTimeout(() => {
+      notesSaveTimerRef.current = null;
+      void handleSaveNotes(nextNotes);
+    }, 700);
+  };
+
+  const flushNotesAutosave = () => {
+    if (notesSaveTimerRef.current) {
+      clearTimeout(notesSaveTimerRef.current);
+      notesSaveTimerRef.current = null;
+    }
+    if (roomNotes !== lastSavedNotesRef.current) {
+      void handleSaveNotes(roomNotes, true);
+    }
+  };
+
   const updateMinibarUsage = async (itemId: string, change: number) => {
-    if (!room) return;
+    if (!room || noMinibar) return;
 
     const currentUsage = getCurrentUsage(itemId);
     const newQuantity = Math.max(0, currentUsage + change);
@@ -366,7 +514,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   };
 
   const clearMinibarUsage = async () => {
-    if (!room) return;
+    if (!room || noMinibar) return;
 
     try {
       const { error } = await supabase
@@ -400,6 +548,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       case 'dirty': return 'bg-orange-100 text-orange-800';
       case 'maintenance': return 'bg-blue-100 text-blue-800';
       case 'out_of_order': return 'bg-red-100 text-red-800';
+      case 'out_of_service': return 'bg-purple-100 text-purple-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -410,6 +559,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       case 'dirty': return <AlertTriangle className="h-4 w-4" />;
       case 'maintenance': return <Wrench className="h-4 w-4" />;
       case 'out_of_order': return <XCircle className="h-4 w-4" />;
+      case 'out_of_service': return <XCircle className="h-4 w-4" />;
       default: return <CheckCircle2 className="h-4 w-4" />;
     }
   };
@@ -465,19 +615,26 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
-        <DialogHeader className="flex-shrink-0 pb-4">
+      <DialogContent
+        data-testid={minibarOnly ? 'housekeeping-minibar-dialog' : 'room-details-dialog'}
+        className="flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] min-w-0 max-w-4xl flex-col gap-3 overflow-hidden p-3 sm:h-auto sm:max-h-[90dvh] sm:p-6"
+      >
+        <DialogHeader className="min-w-0 flex-shrink-0 pb-2 sm:pb-4">
           <div className="flex items-center justify-between">
             <div>
-              <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
-                <Hotel className="h-4 w-4 sm:h-5 sm:w-5" />
-                <span className="text-base sm:text-xl">
-                  Room {room.room_number} {room.room_name && `- ${room.room_name}`}
+              <DialogTitle className="flex min-w-0 items-center gap-2 pr-6 text-left text-lg sm:text-xl">
+                {minibarOnly
+                  ? <Wine className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
+                  : <Hotel className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />}
+                <span className="min-w-0 break-words text-base sm:text-xl">
+                  {minibarOnly
+                    ? `${t('actions.minibar')} · Room ${room.room_number}`
+                    : `Room ${room.room_number}${room.room_name ? ` - ${room.room_name}` : ''}`}
                 </span>
               </DialogTitle>
               <p className="text-xs sm:text-sm text-muted-foreground">{room.hotel}</p>
             </div>
-            {profile?.role === 'admin' && (
+            {!minibarOnly && profile?.role === 'admin' && (
               <Button
                 variant="outline"
                 size="sm"
@@ -493,9 +650,15 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto space-y-4 sm:space-y-6 pr-2">
+        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y pr-1 sm:space-y-6 sm:pr-2">
+          {!minibarOnly && room && (
+            <Card><CardContent className="pt-4">
+              <RoomStatePeriodManager hotelId={hotelId} roomId={room.id} roomNumber={room.room_number}
+                active={open} onChanged={onRoomUpdated} />
+            </CardContent></Card>
+          )}
           {/* Room Status Section - Hidden for housekeepers */}
-          {profile?.role !== 'housekeeping' && (
+          {!minibarOnly && profile?.role !== 'housekeeping' && (
             <Card>
               <CardHeader className="pb-3 sm:pb-4">
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
@@ -518,6 +681,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                       <SelectItem value="dirty">{t('room.status.dirty')}</SelectItem>
                       <SelectItem value="maintenance">{t('room.status.maintenance')}</SelectItem>
                       <SelectItem value="out_of_order">{t('room.status.out_of_order')}</SelectItem>
+                      <SelectItem value="out_of_service">{t('ntak.phase4.oos')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -552,14 +716,63 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                 )}
 
                 <div>
-                  <label className="text-sm font-medium">Notes</label>
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-sm font-medium">Notes</label>
+                    <span className={`text-xs ${
+                      notesSaveState === 'error'
+                        ? 'text-destructive'
+                        : notesSaveState === 'saved'
+                          ? 'text-emerald-600'
+                          : 'text-muted-foreground'
+                    }`}>
+                      {!canEditRoomNote ? 'Manager/supervisor edit only'
+                        : notesSaveState === 'saving'
+                        ? 'Saving automatically…'
+                        : notesSaveState === 'saved'
+                          ? 'Saved automatically'
+                          : notesSaveState === 'error'
+                            ? 'Save blocked — refresh to review latest room notes before retrying'
+                            : 'Autosaves while you type'}
+                    </span>
+                  </div>
                   <Textarea
                     value={roomNotes}
-                    onChange={(e) => setRoomNotes(e.target.value)}
+                    disabled={!canEditRoomNote}
+                    onChange={(e) => scheduleNotesAutosave(e.target.value)}
+                    onBlur={flushNotesAutosave}
                     placeholder="Add room notes..."
                     className="mt-1"
                     rows={2}
                   />
+
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {roomNotes !== lastSavedNotesRef.current
+                      ? 'Unsaved changes — the timestamp belongs to the last saved note'
+                      : (() => {
+                          const saved = matchingRoomNoteHistory(lastPersistedNotesRef.current, noteHistory);
+                          return saved
+                            ? describeRoomNoteTimestamp(saved)
+                            : 'Note date/time not recorded';
+                        })()}
+                  </div>
+
+                  <div className="mt-3 rounded-lg border bg-muted/20 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground mb-2">Last 5 note changes</div>
+                    {noteHistory.length > 0 ? (
+                      <div className="space-y-2">
+                        {noteHistory.map((entry) => (
+                          <div key={entry.id} className="rounded-md bg-background border px-3 py-2">
+                            <div className="text-sm whitespace-pre-wrap break-words">{entry.content}</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+                              <span>{describeRoomNoteTimestamp(entry)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground">No previous room notes yet.</div>
+                    )}
+                  </div>
                 </div>
 
                 {room.last_cleaned_at && (
@@ -588,16 +801,16 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
           {/* Perishable item alerts removed per product decision — collection now handled elsewhere. */}
 
-          {/* Minibar Section */}
-          <Card>
+          {/* Gozsdu has no minibar; all other properties retain existing usage tools. */}
+          {!noMinibar && <Card>
             <CardHeader className="pb-3 sm:pb-4">
-              <div className="flex items-center justify-between gap-2 w-full">
+              <div className="flex w-full min-w-0 flex-wrap items-start justify-between gap-2 sm:items-center">
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   <Wine className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                   <span>{t('minibar.usage')}</span>
                 </CardTitle>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <Badge className="text-base sm:text-lg font-bold px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Badge className="max-w-full break-words px-2 py-1 text-xs font-bold sm:px-3 sm:py-1.5 sm:text-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md">
                     {t('minibar.total')}: €{getTotalMinibarValue().toFixed(2)}
                   </Badge>
                   {minibarUsage.length > 0 && (
@@ -617,7 +830,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
             <CardContent>
               {minibarUsage.length > 0 && (
                 <div className="mb-4 space-y-2">
-                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/25 dark:text-amber-100">
                     {t('minibar.previoManualReminder')}
                   </div>
                   <div className="rounded-md border bg-muted/20 divide-y">
@@ -698,10 +911,10 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                   const currentUsage = getCurrentUsage(item.id);
                   const isGuestReported = guestReportedItems.has(item.id);
                   return (
-                    <div key={item.id} className={`flex flex-col gap-3 p-3 border rounded-xl transition-colors sm:flex-row sm:items-center sm:justify-between ${isGuestReported ? 'bg-amber-50 border-amber-200' : currentUsage > 0 ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-muted/20'}`}>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm sm:text-base">{item.name}</span>
+                    <div key={item.id} className={`flex flex-col gap-3 p-3 border rounded-xl transition-colors sm:flex-row sm:items-center sm:justify-between ${isGuestReported ? 'bg-amber-50 border-amber-200 dark:bg-amber-950/25 dark:border-amber-800' : currentUsage > 0 ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-muted/20'}`}>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="min-w-0 break-words font-medium text-sm sm:text-base">{item.name}</span>
                           {isGuestReported && (
                             <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] gap-1">
                               <User className="h-3 w-3" /> {t('minibar.guestReported')}
@@ -719,19 +932,19 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                       </div>
 
                       {isGuestReported ? (
-                        <div className="flex items-center gap-2 justify-center text-amber-700 text-xs font-medium">
+                        <div className="flex items-center gap-2 justify-center text-amber-700 dark:text-amber-200 text-xs font-medium">
                           <CheckCircle2 className="h-4 w-4" />
                           {t('minibar.alreadyRecordedByGuest')}
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2 justify-center">
+                        <div className="flex shrink-0 items-center justify-center gap-2">
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => updateMinibarUsage(item.id, -1)}
                             disabled={currentUsage === 0}
                             className="h-11 w-11 p-0 rounded-full"
-                            aria-label="Decrease"
+                            aria-label={`Decrease ${item.name}`}
                           >
                             <Minus className="h-5 w-5" />
                           </Button>
@@ -745,7 +958,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                             size="sm"
                             onClick={() => updateMinibarUsage(item.id, 1)}
                             className="h-11 w-11 p-0 rounded-full"
-                            aria-label="Increase"
+                            aria-label={`Increase ${item.name}`}
                           >
                             <Plus className="h-5 w-5" />
                           </Button>
@@ -763,11 +976,11 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                 )}
               </div>
             </CardContent>
-          </Card>
+          </Card>}
 
 
-          {/* Recent Tickets Section */}
-          <Card>
+          {/* Keep the minibar workflow focused; tickets appear under full room details. */}
+          {!minibarOnly && <Card>
             <CardHeader>
               <CardTitle className="text-lg">Recent Tickets</CardTitle>
             </CardHeader>
@@ -796,7 +1009,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                 )}
               </div>
             </CardContent>
-          </Card>
+          </Card>}
         </div>
       </DialogContent>
 

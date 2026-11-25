@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
+import { addRecheckPhotos, canSubmitRecheck, optimizeRecheckPhoto, RECHECK_PHOTO_BUCKET, recheckEvidencePath } from '@/lib/recheckEvidence';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { getGuestDeclinedServiceComment, isGuestDeclinedService } from '@/lib/hotel-memories-housekeeping';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,10 +42,14 @@ import {
   DoorClosed,
   Globe,
   Loader2 as LucideLoader,
-  MessageSquare
+  MessageSquare,
+  ImagePlus,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
+import { Link } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -54,6 +59,8 @@ import { ApprovalReviewContext } from './ApprovalReviewContext';
 import { ApprovalHistoryView } from './ApprovalHistoryView';
 import { LateMinibarApprovals } from './LateMinibarApprovals';
 import { ForwardedMaintenanceApprovals } from './ForwardedMaintenanceApprovals';
+import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
+import { latestMaintenanceSubmitters, type MaintenanceSubmissionAudit } from '@/lib/maintenanceCompletionAttribution';
 import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 
 interface LinenSummaryItem {
@@ -149,6 +156,7 @@ export function SupervisorApprovalView({
   breakRequestCount = 0,
 }: SupervisorApprovalViewProps = {}) {
   const { t, language } = useTranslation();
+  const { profile } = useAuth();
   const { showNotification } = useNotifications();
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   useEffect(() => {
@@ -161,6 +169,7 @@ export function SupervisorApprovalView({
   }, []);
   const [pendingAssignments, setPendingAssignments] = useState<PendingAssignment[]>([]);
   const [pendingMaintenanceTickets, setPendingMaintenanceTickets] = useState<any[]>([]);
+  const [approvingMaintenanceTicketId, setApprovingMaintenanceTicketId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -169,6 +178,24 @@ export function SupervisorApprovalView({
   const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null);
   const [selectedHousekeeper, setSelectedHousekeeper] = useState<string>('');
   const [reassignmentReason, setReassignmentReason] = useState('');
+  const [recheckFiles, setRecheckFiles] = useState<File[]>([]);
+  const [recheckPreviews, setRecheckPreviews] = useState<string[]>([]);
+  const [reassigning, setReassigning] = useState(false);
+  const [recheckUploadProgress, setRecheckUploadProgress] = useState('');
+
+  useEffect(() => {
+    const urls = recheckFiles.map(file => URL.createObjectURL(file));
+    setRecheckPreviews(urls);
+    return () => urls.forEach(url => URL.revokeObjectURL(url));
+  }, [recheckFiles]);
+
+  const resetReassign = () => {
+    setSelectedAssignment(null);
+    setSelectedHousekeeper('');
+    setReassignmentReason('');
+    setRecheckFiles([]);
+    setRecheckUploadProgress('');
+  };
   const [earlySignoutRequests, setEarlySignoutRequests] = useState<any[]>([]);
   const [signedPhotoUrls, setSignedPhotoUrls] = useState<{ [ticketId: string]: string[] }>({});
   const [completionPhotoUrls, setCompletionPhotoUrls] = useState<{ [assignmentId: string]: string[] }>({});
@@ -181,11 +208,10 @@ export function SupervisorApprovalView({
   const [translatedApprovalMsgs, setTranslatedApprovalMsgs] = useState<Record<string, string>>({});
   const [translatingApprovalMsg, setTranslatingApprovalMsg] = useState<string | null>(null);
 
-  // Minibar gate: when a manager tries to approve a room (or bulk of rooms)
-  // that has minibar consumption logged today, hold the approval and require
-  // confirmation of the Previo charge plus the physical refill outcome. For a
-  // single stayover room, "guest inside" is a valid outcome that carries the
-  // physical refill forward instead of forcing a false refill confirmation.
+  // HotelCare's minibar consumption is a staff/guest usage record, NOT a
+  // verified Previo folio charge. Gate housekeeping approval on the physical
+  // refill outcome only; billing must be checked separately in Previo.
+  // For a single stayover room, "guest inside" carries the refill forward.
   type MinibarGateItem = { room: string; qty: number; name: string; price: number };
   const [minibarGate, setMinibarGate] = useState<{
     title: string;
@@ -197,7 +223,6 @@ export function SupervisorApprovalView({
   } | null>(null);
   const [gateRefilled, setGateRefilled] = useState(false);
   const [gateGuestInside, setGateGuestInside] = useState(false);
-  const [gateAddedToPrevio, setGateAddedToPrevio] = useState(false);
   const [gateBusy, setGateBusy] = useState(false);
 
   const fetchMinibarForRooms = async (
@@ -242,9 +267,8 @@ export function SupervisorApprovalView({
     return { items, total, usageIds };
   };
 
-  // Physical refill completed now. Also record that the Previo charge was
-  // confirmed in this approval flow so the same consumption can never be
-  // charged again during a later follow-up.
+  // Mark physical refill completed. Never claim or record a verified Previo
+  // transaction here: housekeeping approval does not call the Previo billing API.
   const markMinibarUsageCleared = async (usageIds: string[]) => {
     if (!usageIds || usageIds.length === 0) return;
     const { data: authData } = await supabase.auth.getUser();
@@ -262,16 +286,14 @@ export function SupervisorApprovalView({
         refill_blocked_by: null,
         refill_resolved_at: now,
         refill_resolved_by: uid,
-        previo_charge_confirmed_at: now,
-        previo_charge_confirmed_by: uid,
       })
       .in('id', usageIds)
       .eq('is_cleared', false);
     if (error) throw error;
   };
 
-  // Guest/no-access outcome: approve the housekeeping completion and billing,
-  // but deliberately keep the physical refill unresolved. A DB trigger carries
+  // Guest/no-access outcome: approve housekeeping but deliberately leave
+  // the physical refill unresolved. A DB trigger carries
   // a reminder to the next room assignment and the minibar follow-up queue
   // remains visible until a manager later marks it refilled.
   const markMinibarRefillBlocked = async (usageIds: string[]) => {
@@ -292,8 +314,6 @@ export function SupervisorApprovalView({
         refill_blocked_by: uid,
         refill_resolved_at: null,
         refill_resolved_by: null,
-        previo_charge_confirmed_at: now,
-        previo_charge_confirmed_by: uid,
       })
       .in('id', usageIds);
     if (error) throw error;
@@ -303,7 +323,6 @@ export function SupervisorApprovalView({
     setMinibarGate(null);
     setGateRefilled(false);
     setGateGuestInside(false);
-    setGateAddedToPrevio(false);
     setGateBusy(false);
   };
 
@@ -456,8 +475,31 @@ export function SupervisorApprovalView({
 
       const { data, error } = await query;
       if (error) throw error;
-      setPendingMaintenanceTickets(data || []);
-      
+
+      // The assigned technician may be null (or someone different from the person
+      // who submitted the repair). The authenticated maintenance submission audit
+      // records the actual actor for both existing and future pending tickets.
+      let submitters: Record<string, string | null> = {};
+      if (data?.length) {
+        const { data: audits, error: auditError } = await (supabase as any)
+          .from('comments')
+          .select('ticket_id, content, created_at, submitter_profile:profiles!comments_user_id_fkey(full_name, nickname)')
+          .in('ticket_id', data.map(ticket => ticket.id))
+          .like('content', '[Maintenance team action: submit]%')
+          .order('created_at', { ascending: false })
+          .limit(1000);
+        if (auditError) {
+          // Keep the approval queue functional if audit history cannot be read.
+          console.warn('Could not load maintenance completion submitters:', auditError);
+        } else {
+          submitters = latestMaintenanceSubmitters((audits || []) as MaintenanceSubmissionAudit[]);
+        }
+      }
+      setPendingMaintenanceTickets((data || []).map(ticket => ({
+        ...ticket,
+        completion_submitter_name: submitters[ticket.id] ?? null,
+      })));
+
       loadSignedUrlsForTickets(data || []);
     } catch (error) {
       console.error('Error fetching maintenance tickets:', error);
@@ -480,31 +522,36 @@ export function SupervisorApprovalView({
   };
 
   const handleApproveTicket = async (ticketId: string) => {
-    setPendingMaintenanceTickets(prev => prev.filter(t => t.id !== ticketId));
+    if (approvingMaintenanceTicketId) return;
+    const ticket = pendingMaintenanceTickets.find(item => item.id === ticketId);
+    if (!ticket?.updated_at) {
+      toast.error('Ticket details are out of date. Refresh and try again.');
+      void fetchPendingMaintenanceTickets();
+      return;
+    }
+    setApprovingMaintenanceTicketId(ticketId);
     try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({
-          status: 'completed',
-          pending_supervisor_approval: false,
-          supervisor_approved: true,
-          supervisor_approved_at: new Date().toISOString(),
-          supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
-          closed_at: new Date().toISOString(),
-          closed_by: (await supabase.auth.getUser()).data.user?.id
-        })
-        .eq('id', ticketId)
-        .eq('department', 'maintenance')
-        .eq('pending_supervisor_approval', true);
-
+      // The server validates tenant, property, reviewer, pending state and
+      // optimistic concurrency, then closes the ticket and writes an audit entry.
+      // A direct UPDATE cannot safely handle overdue SLA rules across hotels.
+      const { error } = await (supabase as any).rpc('review_maintenance_completion', {
+        p_ticket_id: ticketId,
+        p_decision: 'approve',
+        p_note: '',
+        p_expected_updated_at: ticket.updated_at,
+      });
       if (error) throw error;
-
+      setPendingMaintenanceTickets(prev => prev.filter(item => item.id !== ticketId));
       toast.success('Maintenance ticket approved');
-      fetchPendingMaintenanceTickets();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error approving ticket:', error);
-      toast.error('Failed to approve ticket');
-      fetchPendingMaintenanceTickets();
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(message.includes('updated by another user')
+        ? 'This ticket has changed. Refresh and try again.'
+        : `Failed to approve ticket: ${message}`);
+    } finally {
+      setApprovingMaintenanceTicketId(null);
+      void fetchPendingMaintenanceTickets();
     }
   };
 
@@ -581,6 +628,7 @@ export function SupervisorApprovalView({
         `)
         .eq('status', 'completed')
         .or('supervisor_approved.eq.false,supervisor_approved.is.null')
+        .is('supervisor_review_outcome', null)
         .eq('assignment_date', dateStr)
         .eq('organization_slug', userOrgSlug)
         .order('completed_at', { ascending: false });
@@ -746,6 +794,8 @@ export function SupervisorApprovalView({
     try {
       const assignment = previousAssignments.find(a => a.id === assignmentId);
       const guestDeclined = isGuestDeclinedService(assignment?.service_result, assignment?.notes);
+      const towelChangeOnly = String(assignment?.notes || '').includes('[TOWEL_CHANGE_ONLY]');
+      const nonCleaningOutcome = guestDeclined || towelChangeOnly;
 
       const updateData: any = {
         supervisor_approved: true,
@@ -799,18 +849,20 @@ export function SupervisorApprovalView({
       // No Service means "handled, but not cleaned". Never mark that room clean
       // in Previo. The edge function also validates assignmentId as a second
       // safety barrier in case another caller accidentally tries the push.
-      const pmsResult = !guestDeclined && assignment?.room_id
+      const pmsResult = !nonCleaningOutcome && assignment?.room_id
         ? await pushCleanStatusToPrevio(assignment.room_id, assignment.id)
         : { status: 'skipped' as const };
 
-      toast.success(guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');
+      toast.success(towelChangeOnly ? 'Towel change approved' : guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');
       if (pmsResult.status === 'success') {
         showNotification('✓ Synced to PMS (Previo)', 'success');
       } else if (pmsResult.status === 'failed') {
         showNotification(`PMS sync failed: ${pmsResult.error ?? 'unknown error'}`, 'warning');
       }
 
-      if (guestDeclined) {
+      if (towelChangeOnly) {
+        showNotification('Towel change approved — room remains dirty / not marked as a full clean in PMS', 'success');
+      } else if (guestDeclined) {
         showNotification('No Service approved — room was not marked clean in PMS', 'success');
       } else {
         showNotification(t('supervisor.roomMarkedClean'), 'success');
@@ -831,7 +883,8 @@ export function SupervisorApprovalView({
 
     // Guest-declined/no-service rooms were not entered, so a cleaning approval
     // must not be blocked by a minibar refill confirmation.
-    if (isGuestDeclinedService(assignment.service_result, assignment.notes)) {
+    if (isGuestDeclinedService(assignment.service_result, assignment.notes)
+      || String(assignment.notes || '').includes('[TOWEL_CHANGE_ONLY]')) {
       return performApproval(assignmentId);
     }
 
@@ -844,7 +897,6 @@ export function SupervisorApprovalView({
     }
     setGateRefilled(false);
     setGateGuestInside(false);
-    setGateAddedToPrevio(false);
     setMinibarGate({
       title: `${t('common.room')} ${assignment.rooms?.room_number || ''} — ${t('minibarGate.minibarUsed')}`,
       items,
@@ -940,14 +992,16 @@ export function SupervisorApprovalView({
         if (!error) {
           approved++;
           const guestDeclined = isGuestDeclinedService(assignment.service_result, assignment.notes);
-          // Fire per-row so one failure doesn't break the batch. No Service
+          const towelChangeOnly = String(assignment.notes || '').includes('[TOWEL_CHANGE_ONLY]');
+          const nonCleaningOutcome = guestDeclined || towelChangeOnly;
+          // Fire per-row so one failure doesn't break the batch. Non-cleaning
           // outcomes count as intentionally skipped and never reach Previo.
-          if (assignment.room_id && !guestDeclined) {
+          if (assignment.room_id && !nonCleaningOutcome) {
             const pms = await pushCleanStatusToPrevio(assignment.room_id, assignment.id);
             if (pms.status === 'success') pmsSynced++;
             else if (pms.status === 'failed') pmsFailed++;
             else pmsSkipped++;
-          } else if (guestDeclined) {
+          } else if (nonCleaningOutcome) {
             pmsSkipped++;
           }
         }
@@ -972,7 +1026,8 @@ export function SupervisorApprovalView({
   const handleBulkApprove = async (hotelName: string) => {
     const assignments = hotelGroups[hotelName];
     if (!assignments || assignments.length === 0) return;
-    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes));
+    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes)
+      && !String(a.notes || '').includes('[TOWEL_CHANGE_ONLY]'));
     const roomIds = cleanAssignments.map(a => a.room_id).filter(Boolean) as string[];
     const roomNumberByRoomId: Record<string, string> = {};
     for (const a of cleanAssignments) {
@@ -984,7 +1039,6 @@ export function SupervisorApprovalView({
     }
     setGateRefilled(false);
     setGateGuestInside(false);
-    setGateAddedToPrevio(false);
     const uniqueMinibarRooms = new Set(items.map((item) => item.room));
     setMinibarGate({
       title: `${hotelName} — ${t('minibarGate.itemsAcrossRooms').replace('{count}', String(items.length))}`,
@@ -997,79 +1051,87 @@ export function SupervisorApprovalView({
   };
 
   const handleReassignment = async () => {
-    if (!selectedAssignment || !selectedHousekeeper) return;
-
-    const reason = reassignmentReason.trim();
-    if (!reason) {
-      toast.error('Please add a short reason for the recheck');
+    if (!selectedAssignment || !canSubmitRecheck(selectedHousekeeper, reassignmentReason, recheckFiles) || reassigning) {
+      toast.error('Select a housekeeper and add a photo or short reason.');
       return;
     }
 
+    const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
+    if (!assignment) {
+      toast.error('This approval is no longer pending. Refresh and try again.');
+      fetchPendingAssignments();
+      return;
+    }
+
+    const newAssignmentId = crypto.randomUUID();
+    const uploadedPaths: string[] = [];
+    let returnCommitted = false;
+    setReassigning(true);
+    setRecheckUploadProgress('');
+
     try {
-      const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
-      if (!assignment) return;
-
-      const { data: existingAssignments, error: checkError } = await supabase
-        .from('room_assignments')
-        .select('id, assigned_to, status')
-        .eq('room_id', assignment.room_id)
-        .eq('assignment_date', assignment.assignment_date)
-        .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
-        .neq('id', selectedAssignment);
-
-      if (checkError) throw checkError;
-
       const currentUserId = (await supabase.auth.getUser()).data.user?.id;
+      if (!currentUserId) throw new Error('Please sign in again to submit your findings.');
 
-      if (existingAssignments && existingAssignments.length > 0) {
-        const { error: updateError } = await supabase
-          .from('room_assignments')
-          .update({
-            status: 'completed',
-            supervisor_approved: true,
-            supervisor_approved_by: currentUserId,
-            supervisor_approved_at: new Date().toISOString(),
-            notes: 'Reassigned to another housekeeper'
-          })
-          .in('id', existingAssignments.map(a => a.id));
-
-        if (updateError) throw updateError;
+      // Manager photos support the recheck, but are never confused with the
+      // housekeeper's required cleaning-completion evidence.
+      for (let offset = 0; offset < recheckFiles.length; offset += 3) {
+        const batch = recheckFiles.slice(offset, offset + 3);
+        const outcomes = await Promise.allSettled(batch.map(async (file, index) => {
+          const optimized = await optimizeRecheckPhoto(file);
+          const path = recheckEvidencePath(currentUserId, newAssignmentId, optimized, offset + index);
+          const { error } = await supabase.storage
+            .from(RECHECK_PHOTO_BUCKET)
+            .upload(path, optimized, { upsert: false, contentType: optimized.type, cacheControl: '3600' });
+          if (error) throw error;
+          uploadedPaths.push(path);
+          setRecheckUploadProgress(`Uploaded ${uploadedPaths.length} of ${recheckFiles.length} photos…`);
+        }));
+        const failed = outcomes.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (failed) throw failed.reason;
       }
 
-      const { error } = await supabase
-        .from('room_assignments')
-        .insert({
-          room_id: assignment.room_id,
-          assigned_to: selectedHousekeeper,
-          assigned_by: currentUserId,
-          assignment_date: assignment.assignment_date,
-          assignment_type: assignment.assignment_type,
-          estimated_duration: assignment.estimated_duration,
-          priority: assignment.priority,
-          organization_slug: assignment.organization_slug,
-          notes: `[SUPERVISOR_RECHECK:${selectedHousekeeper === assignment.assigned_to ? 'same' : 'handover'}] ${reason}`
-        });
-
+      // One transaction decides whether this is still the latest completion.
+      // Never complete/approve another active assignment to clear a conflict:
+      // that invokes the normal daily-cleaning photo validation and can erase
+      // a housekeeper's work. The RPC preserves history and returns a result.
+      const { data, error } = await (supabase as any).rpc('return_housekeeping_room_for_recheck', {
+        p_assignment_id: selectedAssignment,
+        p_assigned_to: selectedHousekeeper,
+        p_reason: reassignmentReason.trim(),
+        p_evidence_paths: uploadedPaths,
+        p_new_assignment_id: newAssignmentId,
+      });
       if (error) throw error;
-
-      await supabase
-        .from('room_assignments')
-        .update({
-          supervisor_approved: true,
-          supervisor_approved_by: currentUserId,
-          supervisor_approved_at: new Date().toISOString()
-        })
-        .eq('id', selectedAssignment);
-
-      toast.success('Room reassigned successfully');
-      fetchPendingAssignments();
+      const action = (data as { action?: string } | null)?.action;
+      if (action !== 'reassigned' && action !== 'already_reassigned') {
+        throw new Error('Unexpected return-room response. Refresh the approval list.');
+      }
+      returnCommitted = action === 'reassigned';
+      if (action === 'already_reassigned') {
+        // The existing, newer assignment must remain in place. Evidence
+        // uploaded for the aborted duplicate return is no longer needed.
+        if (uploadedPaths.length) {
+          await supabase.storage.from(RECHECK_PHOTO_BUCKET).remove(uploadedPaths);
+        }
+        toast.info('Room already reassigned — outdated approval dismissed');
+      } else {
+        toast.success(recheckFiles.length ? 'Room returned with manager photos' : 'Room returned for recheck');
+      }
       setReassignDialogOpen(false);
-      setSelectedAssignment(null);
-      setSelectedHousekeeper('');
-      setReassignmentReason('');
+      resetReassign();
+      await fetchPendingAssignments();
     } catch (error: any) {
+      if (!returnCommitted && uploadedPaths.length) {
+        await supabase.storage.from(RECHECK_PHOTO_BUCKET).remove(uploadedPaths);
+      }
       console.error('Error reassigning room:', error);
-      toast.error(error?.message ? `Failed to reassign room: ${error.message}` : 'Failed to reassign room');
+      toast.error(error?.message ? `Failed to return room: ${error.message}` : 'Failed to return room for recheck');
+      // A stale request is safe to retry only after refreshing the queue.
+      await fetchPendingAssignments();
+    } finally {
+      setReassigning(false);
+      setRecheckUploadProgress('');
     }
   };
 
@@ -1122,6 +1184,7 @@ export function SupervisorApprovalView({
     const speedIndicator = !guestDeclined && assignment.started_at ? getSpeedIndicator(assignment.assignment_type, durationMins) : null;
     const SpeedIcon = speedIndicator?.icon || Timer;
     const isExpanded = expandedCards.has(assignment.id);
+    const detailsRegionId = `approval-details-${assignment.id}`;
     // Every real cleaning exposes its captured work details. No Service only
     // expands when optional door/evidence photos were captured.
     const hasDetails = !guestDeclined || Boolean(completionPhotoUrls[assignment.id]?.length);
@@ -1169,6 +1232,7 @@ export function SupervisorApprovalView({
                 variant="outline"
                 onClick={() => {
                   setSelectedAssignment(assignment.id);
+                  setSelectedHousekeeper(assignment.assigned_to);
                   setReassignDialogOpen(true);
                 }}
                 className="h-7 px-2 text-xs"
@@ -1237,15 +1301,29 @@ export function SupervisorApprovalView({
           {hasDetails && (
             <div>
               <button
+                type="button"
                 onClick={() => toggleCardExpand(assignment.id)}
+                aria-expanded={isExpanded}
+                aria-controls={detailsRegionId}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                {t('approvals.details')}
+                {/* Keep one icon node mounted. Browser translation can replace
+                    adjacent text nodes; swapping two different SVG components
+                    then makes React call insertBefore against a translated node
+                    that is no longer a direct child (notably on Android). */}
+                <ChevronRight
+                  aria-hidden="true"
+                  className={`h-3 w-3 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                />
+                <span>{t('approvals.details')}</span>
               </button>
 
               {isExpanded && (
-                <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
+                <div
+                  id={detailsRegionId}
+                  role="region"
+                  className="mt-2 space-y-2 pl-4 border-l-2 border-muted"
+                >
                   {/* Start/Complete times */}
                   <div className="text-xs text-muted-foreground">
                     {guestDeclined ? (
@@ -1315,15 +1393,12 @@ export function SupervisorApprovalView({
     <Dialog 
       open={reassignDialogOpen} 
       onOpenChange={(open) => {
+        if (!open && reassigning) return;
         setReassignDialogOpen(open);
-        if (!open) {
-          setSelectedAssignment(null);
-          setSelectedHousekeeper('');
-          setReassignmentReason('');
-        }
+        if (!open) resetReassign();
       }}
     >
-      <DialogContent>
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {t('supervisor.reassignRoomTitle')} {pendingAssignments.find(a => a.id === selectedAssignment)?.rooms?.room_number}
@@ -1349,7 +1424,7 @@ export function SupervisorApprovalView({
           </div>
           <div>
             <label className="text-sm font-medium text-foreground mb-2 block">
-              Why was the previous completion not approved? <span className="text-destructive">*</span>
+              What needs to be corrected? <span className="text-muted-foreground">(optional with photos)</span>
             </label>
             <Textarea
               value={reassignmentReason}
@@ -1359,26 +1434,65 @@ export function SupervisorApprovalView({
               maxLength={240}
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              This reason will be shown directly to the housekeeper so they know what to check again.
+              Add a short note or attach photos showing exactly what needs correcting. The housekeeper will see both.
             </p>
           </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-foreground">Manager photos · {recheckFiles.length}/10</label>
+            <input
+              id="manager-recheck-photo-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              multiple
+              className="sr-only"
+              disabled={reassigning}
+              onChange={event => {
+                const result = addRecheckPhotos(recheckFiles, Array.from(event.target.files || []));
+                setRecheckFiles(result.accepted);
+                if (result.error) toast.error(result.error);
+                event.target.value = '';
+              }}
+            />
+            <label htmlFor="manager-recheck-photo-input"
+              className={`flex min-h-14 cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary/40 p-3 text-sm font-medium text-primary hover:bg-primary/5 ${reassigning ? 'pointer-events-none opacity-50' : ''}`}>
+              <ImagePlus className="h-5 w-5" />
+              Add photos / use camera
+            </label>
+            {recheckPreviews.length > 0 && (
+              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2" aria-label="Selected manager photos">
+                {recheckPreviews.map((url, index) => (
+                  <div key={url} className="relative aspect-square overflow-hidden rounded-md border">
+                    <img src={url} alt={`Finding ${index + 1}`} className="h-full w-full object-cover" />
+                    <button type="button" aria-label={`Remove photo ${index + 1}`}
+                      disabled={reassigning}
+                      onClick={() => setRecheckFiles(current => current.filter((_, i) => i !== index))}
+                      className="absolute top-0.5 right-0.5 rounded-full bg-background/90 p-1 shadow">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">Up to 10 photos, 8 MB each. Large photos are optimized for faster uploading. Only authorized staff can view them.</p>
+          </div>
+          {recheckUploadProgress && <p role="status" className="text-xs text-primary">{recheckUploadProgress}</p>}
           <div className="flex justify-end gap-3">
             <Button 
               variant="outline" 
               onClick={() => {
+                if (reassigning) return;
                 setReassignDialogOpen(false);
-                setSelectedAssignment(null);
-                setSelectedHousekeeper('');
-                setReassignmentReason('');
+                resetReassign();
               }}
+              disabled={reassigning}
             >
               {t('common.cancel')}
             </Button>
             <Button 
               onClick={handleReassignment}
-              disabled={!selectedHousekeeper || !reassignmentReason.trim()}
+              disabled={!canSubmitRecheck(selectedHousekeeper, reassignmentReason, recheckFiles) || reassigning}
             >
-              {t('supervisor.confirmReassign')}
+              {reassigning ? 'Submitting…' : t('supervisor.confirmReassign')}
             </Button>
           </div>
         </div>
@@ -1395,6 +1509,13 @@ export function SupervisorApprovalView({
         <p className="text-muted-foreground">
           {t('supervisor.manageApprovals')}
         </p>
+        {profile?.organization_slug && <Link
+          to={`/${profile.organization_slug}/insuite`}
+          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          <MessageSquare className="h-4 w-4" />
+          Guest Services · In-Suite requests and approvals
+        </Link>}
       </div>
 
       <Tabs defaultValue="pending" className="space-y-6">
@@ -1773,7 +1894,7 @@ export function SupervisorApprovalView({
                   <div>
                     <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
                       <Wrench className="h-5 w-5 text-blue-600" />
-                      {t('supervisor.maintenanceApprovals') || 'Maintenance Ticket Approvals'}
+                      Maintenance issues awaiting approval
                       <Badge className="bg-blue-100 text-blue-800 border-blue-300">{pendingMaintenanceTickets.length}</Badge>
                     </h3>
                   </div>
@@ -1838,7 +1959,7 @@ export function SupervisorApprovalView({
                               <div>
                                 <p className="text-xs text-blue-600">{t('supervisor.fixedBy')}</p>
                                 <p className="text-sm font-semibold text-blue-800">
-                                  {ticket.assigned_to_profile?.full_name || 'Unknown'}
+                                  {ticket.completion_submitter_name || 'Not recorded'}
                                 </p>
                               </div>
                             </div>
@@ -1874,41 +1995,17 @@ export function SupervisorApprovalView({
                             </div>
                           )}
 
-                          {/* Completion Photos */}
-                          {signedPhotoUrls[ticket.id] && signedPhotoUrls[ticket.id].length > 0 && (
-                            <div className="space-y-2">
-                              <h4 className="font-semibold text-foreground flex items-center gap-2 text-sm">
-                                <Camera className="h-3.5 w-3.5" />
-                                Completion Photos
-                              </h4>
-                              <div className="flex flex-wrap gap-2">
-                                {signedPhotoUrls[ticket.id].map((photoUrl: string, idx: number) => (
-                                  <a 
-                                    key={idx} 
-                                    href={photoUrl} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="block"
-                                  >
-                                    <img 
-                                      src={photoUrl} 
-                                      alt={`Completion ${idx + 1}`}
-                                      className="w-20 h-20 object-cover rounded-lg border hover:opacity-80 transition-opacity"
-                                    />
-                                  </a>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                          <MaintenanceIssueEvidence originalPhotos={ticket.attachment_urls} completionPhotos={ticket.completion_photos} />
 
                           <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border">
                             <Button
-                              onClick={() => handleApproveTicket(ticket.id)}
+                              onClick={() => void handleApproveTicket(ticket.id)}
+                              disabled={approvingMaintenanceTicketId !== null}
                               className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
                               size="sm"
                             >
                               <CheckCircle className="h-4 w-4 mr-2" />
-                              Approve
+                              {approvingMaintenanceTicketId === ticket.id ? 'Approving…' : 'Approve'}
                             </Button>
                             
                             <Select onValueChange={(value) => handleReassignTicket(ticket.id, value)}>
@@ -1952,9 +2049,8 @@ export function SupervisorApprovalView({
       {/* Shared Reassign Dialog */}
       {renderReassignDialog()}
 
-      {/* Minibar confirmation gate — the Previo charge is always required. The
-          physical outcome can be either refilled now or, for a single room,
-          blocked by a guest/no-access condition and carried forward. */}
+      {/* This is a physical refill gate, not a Previo payment verification.
+          Billing is a separate workflow and must not block housekeeping. */}
       <Dialog open={!!minibarGate} onOpenChange={(o) => { if (!o && !gateBusy) resetMinibarGate(); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -2022,7 +2118,7 @@ export function SupervisorApprovalView({
                         Guest is inside — I cannot refill now
                       </span>
                       <span className="block text-xs text-muted-foreground mt-0.5">
-                        Approve the cleaned room but keep this minibar refill pending. The next assignment will show a reminder, and this consumption will not be charged in Previo again.
+                        Approve the cleaned room and carry this refill to the next assignment. HotelCare does not verify or send a Previo charge here; check billing separately.
                       </span>
                     </span>
                   </label>
@@ -2032,14 +2128,9 @@ export function SupervisorApprovalView({
                   </div>
                 )}
 
-                <label className="flex items-start gap-2 text-sm cursor-pointer rounded-md border border-border p-2.5">
-                  <Checkbox
-                    checked={gateAddedToPrevio}
-                    onCheckedChange={(v) => setGateAddedToPrevio(v === true)}
-                    className="mt-0.5"
-                  />
-                  <span>{t('minibarGate.confirmCharged')}</span>
-                </label>
+                <p className="rounded-md border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-700">
+                  <strong>Billing is separate:</strong> this records minibar usage in HotelCare, not a confirmed Previo charge. Check the guest folio in Previo before charging, and avoid posting a duplicate.
+                </p>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -2049,7 +2140,6 @@ export function SupervisorApprovalView({
                 <Button
                   size="sm"
                   disabled={
-                    !gateAddedToPrevio ||
                     (!gateRefilled && !(minibarGate.allowGuestInside && gateGuestInside)) ||
                     gateBusy
                   }

@@ -1,0 +1,264 @@
+/* Rate & Pickup only. Preserve native grid scroll, rate-cell dimensions and
+   legible minimum widths: this file changes presentation, never price data. */
+@media (min-width: 1024px) {
+  /* Use the whole available desktop workspace, not Tailwind's container cap. */
+  .container:has([data-training="revenue-grid"]) {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0;
+  }
+
+  /* Natural page height is deliberate; desktop uses the same pinned summary
+     as iPhone, rather than hiding rates inside a second vertical scrollbar. */
+}
+
+[data-training="revenue-grid"] {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+[data-training="revenue-grid"] > div,
+[data-training="revenue-grid"] > div > .relative,
+[data-training="revenue-grid"] .overscroll-x-contain {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* The original MONTH arrow was a sticky ::before INSIDE the horizontally
+   scrolling list. On iPhone it painted OVER the All/Sep buttons, obscuring
+   their text and pressed state. Put the label above (outside) that scroller
+   instead, leaving its first button fully visible even after a swipe. */
+[data-training="revenue-grid"] .relative:has(> div > button[title^="Show only "])::before,
+[data-training="revenue-grid"] .relative:has(> [data-rate-month-navigation])::before {
+  content: "MONTH VIEW · Select a month";
+  display: block;
+  padding: .4rem .8rem .1rem;
+  color: hsl(var(--primary));
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .025em;
+}
+
+[data-training="revenue-grid"] [data-rate-month-navigation],
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: center;
+  gap: .4rem;
+  padding: .55rem .7rem;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: .7rem;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  border-block: 1px solid hsl(var(--primary) / .25);
+  background: hsl(var(--primary) / .045);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* No sticky pseudo-element may cover the first or currently selected month. */
+[data-training="revenue-grid"] [data-rate-month-navigation]::before,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "])::before {
+  content: none !important;
+  display: none !important;
+}
+
+[data-training="revenue-grid"] [data-rate-month-navigation] > button,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button {
+  flex: 0 0 auto;
+  min-height: 38px;
+  min-width: 60px;
+  padding-inline: .7rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: .55rem;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 650;
+  box-shadow: 0 1px 2px hsl(var(--foreground) / .04);
+  scroll-snap-align: start;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+
+/* The native first button says All. Clarify it visually without replacing
+   React's button or altering its existing onClick/keyboard functionality. */
+[data-training="revenue-grid"] [data-rate-month-navigation] > button:first-child::after,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button:first-child::after {
+  content: " dates";
+}
+
+[data-training="revenue-grid"] [data-rate-month-navigation] > button:hover,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button:hover {
+  background: hsl(var(--primary) / .10);
+  border-color: hsl(var(--primary) / .65);
+}
+
+[data-training="revenue-grid"] [data-rate-month-navigation] > button[aria-pressed="true"],
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button.bg-primary,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button.bg-secondary {
+  background: hsl(var(--primary)) !important;
+  border-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  font-weight: 750;
+  box-shadow: 0 0 0 2px hsl(var(--primary) / .20);
+}
+
+[data-training="revenue-grid"] [data-rate-month-navigation] > button:focus-visible,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  [data-training="revenue-grid"] .relative:has(> div > button[title^="Show only "])::before,
+  [data-training="revenue-grid"] .relative:has(> [data-rate-month-navigation])::before {
+    content: "Choose month";
+    padding: .3rem .65rem .05rem;
+  }
+  [data-training="revenue-grid"] [data-rate-month-navigation],
+  [data-training="revenue-grid"] div:has(> button[title^="Show only "]) {
+    padding: .45rem .6rem;
+    gap: .35rem;
+  }
+  [data-training="revenue-grid"] [data-rate-month-navigation] > button,
+  [data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button {
+    min-height: 42px;
+    min-width: 66px;
+    font-size: 12px;
+  }
+}
+
+/* Root cause of the moving Demand + market / Events bands: the older
+   row-separation stylesheet puts overflow:hidden on the WHOLE flex row.
+   Overflow on a sticky element's containing block creates a clipping/scroll
+   ancestor; iOS Safari then scrolls the frozen left label away with dates.
+   Keep row wrappers overflow-visible, and clip only their date contents (the
+   existing row-separation rules already clip the individual market buttons
+   and the event timeline). This also preserves event-bar hit targets. */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-hc-competitor-pricing-row="1"],
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > [data-rate-event-row="true"] {
+  overflow: visible !important;
+}
+
+/* Every header metric's label must keep its allocated width while the date
+   rail pans; do not let flex-shrink compress it on narrow devices. Explicit
+   z-index/opaque background keep event bars behind the frozen label. */
+[data-training="revenue-grid"] [data-rate-grid-scroll="true"]
+  > div > .sticky.top-0.z-30 > .flex > .sticky.left-0 {
+  position: sticky !important;
+  left: 0 !important;
+  flex-shrink: 0 !important;
+  z-index: 60 !important;
+  background-color: hsl(var(--card)) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-training="revenue-grid"] [data-rate-month-navigation] > button {
+    transition: none;
+  }
+}
+
+
+/*
+ * Frozen rate summary — mobile Safari / desktop.
+ *
+ * The previous "height:auto !important" rules made the Pickup lane expand to
+ * its intrinsic minimum content height after the summary became position:fixed.
+ * Safari's text auto-sizing then inflated PU / Occ / Left, producing a ~100px
+ * Pickup lane that covered rate-plan prices. Force the same zoom-derived row
+ * dimensions in the normal and fixed states, with one-line labels.
+ *
+ * Scope narrowly: ordinary rate rows, Events and minimum stay must still
+ * size normally. Variables come from RateStrategyGrid's existing ROW_H / DAY_H.
+ */
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow: visible;
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex:first-child {
+  height: var(--rate-month-height) !important;
+  min-height: var(--rate-month-height) !important;
+  max-height: var(--rate-month-height) !important;
+}
+
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex:nth-child(2) {
+  height: var(--rate-day-height) !important;
+  min-height: var(--rate-day-height) !important;
+  max-height: var(--rate-day-height) !important;
+}
+
+/* iOS Safari will scroll a sticky left label away with the dates whenever
+   its flex ROW clips overflow. Keep the entire header-row containing block
+   visible and clip only individual date cells (below), not their sticky sibling.
+   This also works while the summary surface is position:fixed on page scroll. */
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex {
+  overflow: visible !important;
+}
+
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex:nth-child(n+3) {
+  height: var(--rate-metric-height) !important;
+  min-height: var(--rate-metric-height) !important;
+  max-height: var(--rate-metric-height) !important;
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+}
+
+/* Do not let the 46px collapsed room rail inflate or wrap onto 3 lines.
+   Fixed and in-flow headers must have identical measured height. */
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex > .sticky.left-0 {
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 65 !important;
+  flex-shrink: 0 !important;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding-inline: 4px !important;
+  font-size: 10px !important;
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+  text-overflow: ellipsis;
+}
+
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex > .sticky.left-0 > span {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap !important;
+}
+
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex:nth-child(n+3) > :not(.sticky.left-0) {
+  min-height: 0 !important;
+  max-height: 100%;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1 !important;
+}
+
+@media (max-width: 767px) {
+  #root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+    [data-rate-sticky-summary="true"] > .flex > .sticky.left-0 {
+    font-size: 10px !important;
+  }
+}

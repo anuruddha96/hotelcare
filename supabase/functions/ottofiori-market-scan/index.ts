@@ -1,3 +1,4 @@
+import { fetchGeminiFirstResponse } from "../_shared/geminiFirstResponses.ts";
 // Hotel Ottofiori daily market-rate scan.
 //
 // The 06:00 scheduler fans this function out once per active Hotel Authority
@@ -7,13 +8,16 @@
 // the market signal.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { checkAiBudget } from "../_shared/aiBudget.ts";
+import { ottofioriMarketDates } from "../_shared/ottofioriMarketDates.ts";
 
 const HOTEL_ID = "ottofiori";
 const DEFAULT_DAYS = 60;
 const MAX_DAYS = 60;
-const CHUNK_DAYS = 20;
+const CHUNK_DAYS = 7;
+const RETRY_CHUNK_DAYS = 4;
 const MODEL = "gpt-4o";
-const SEARCH_CONTEXT = "medium" as const;
+const SEARCH_CONTEXT = "medium" as const; // verified URLs still mandatory; avoid high-search surcharge
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -92,14 +96,14 @@ async function askRates(apiKey: string, c: Competitor, dates: string[], strict =
     `Return strict JSON only: {"currency":"EUR","rates":[{"date":"YYYY-MM-DD","price":123,"currency":"EUR","room_type":"Standard Double","board":"room_only","refundable":true,"source_url":"https://...","confidence":0.9}]}`,
   ].filter(Boolean).join(" ");
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetchGeminiFirstResponse("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(100_000),
+    signal: AbortSignal.timeout(35_000),
     body: JSON.stringify({
       model: MODEL,
       tools: [{ type: "web_search_preview", search_context_size: SEARCH_CONTEXT }],
-      max_output_tokens: 6500,
+      max_output_tokens: 4000,
       input: prompt,
     }),
   });
@@ -123,6 +127,8 @@ async function askRates(apiKey: string, c: Competitor, dates: string[], strict =
     currency: parsed?.currency ?? "EUR",
     inputTokens,
     outputTokens,
+    providerModel: String(payload?.model ?? MODEL),
+    providerCostUsd: Number(payload?.hc_gemini_estimated_cost_usd ?? estimateCost(inputTokens,outputTokens)),
   };
 }
 
@@ -133,11 +139,33 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+  // The scheduled invocation uses a Vault secret validated server-side;
+  // manual runs require an authenticated HotelCare revenue user.
+  const workerSecret = req.headers.get("x-market-scan-worker-secret");
+  let scheduled = false;
+  if (workerSecret) {
+    const { data: verified, error: verifyError } = await admin.rpc("verify_otto_market_worker_secret", { p_secret: workerSecret });
+    if (verifyError || verified !== true) return json({ error: "Unauthorized market scan worker" }, 401);
+    scheduled = true;
+  } else {
+    const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+    const { data: auth, error: authError } = await admin.auth.getUser(token);
+    if (authError || !auth?.user?.id) return json({ error: "Authentication required" }, 401);
+    const { data: revenueAllowed } = await admin.rpc("is_revenue_user", { _uid: auth.user.id });
+    const { data: hotelAllowed } = await admin.rpc("user_can_access_hotel", { _uid: auth.user.id, _hotel_id: HOTEL_ID });
+    if (revenueAllowed !== true || hotelAllowed !== true) return json({ error: "Revenue permission required" }, 403);
+  }
   const apiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured" }, 500);
+  if (!apiKey && !Deno.env.get("GEMINI_API_KEY")) return json({ error: "No AI provider configured" }, 500);
 
   const body = await req.json().catch(() => ({}));
   const days = Math.min(Math.max(Number(body.days ?? DEFAULT_DAYS), 1), MAX_DAYS);
+  const localToday = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Budapest" });
+  let selectedDates: string[] | null = null;
+  try {
+    if (body.dates !== undefined) selectedDates = ottofioriMarketDates(localToday, body.dates);
+    else if (scheduled) selectedDates = ottofioriMarketDates(localToday);
+  } catch (e) { return json({ error: e instanceof Error ? e.message : "Invalid market dates" }, 400); }
   const requestedCompetitorId = typeof body.competitorId === "string" && body.competitorId.length > 0
     ? body.competitorId
     : null;
@@ -167,6 +195,19 @@ Deno.serve(async (req) => {
       const list = (competitors ?? []) as Competitor[];
       if (!list.length) return;
 
+      // Each competitor needs its own runtime. A blocked source must not kill
+      // the parent's entire multi-hotel scan or leave every later run absent.
+      if (!requestedCompetitorId && list.length > 1) {
+        const dispatched = await Promise.allSettled(list.map(c => fetch(req.url, {
+          method: "POST", headers: { "Content-Type": "application/json",
+            ...(workerSecret ? { "x-market-scan-worker-secret": workerSecret } : { Authorization: req.headers.get("Authorization") ?? "" }) },
+          body: JSON.stringify({ competitorId: c.id, ...(selectedDates ? { dates: selectedDates } : { days }) }),
+          signal: AbortSignal.timeout(10_000),
+        }).then(async r => { if (!r.ok) throw new Error(`Market child ${c.id}: ${r.status}`); await r.text(); })));
+        for (const result of dispatched) if (result.status === "rejected") console.error("Market dispatch failed", result.reason);
+        return;
+      }
+
       const org = list[0].organization_slug;
       const { data: budgetRows } = await admin.rpc("ai_spend_snapshot", { _org: org });
       const budget = Array.isArray(budgetRows) ? budgetRows[0] : budgetRows;
@@ -176,8 +217,8 @@ Deno.serve(async (req) => {
       }
 
       const start = new Date();
-      const startIso = start.toISOString().slice(0, 10);
-      const dates = Array.from({ length: days }, (_, i) => isoAdd(start, i));
+      const dates = selectedDates ?? Array.from({ length: days }, (_, i) => isoAdd(start, i));
+      const startIso = dates[0];
       const endIso = dates[dates.length - 1] ?? startIso;
 
       for (const c of list) {
@@ -187,59 +228,97 @@ Deno.serve(async (req) => {
           competitor_id: c.id,
           window_from: startIso,
           window_to: endIso,
-          dates_requested: days,
+          dates_requested: dates.length,
           status: "running",
           model: MODEL,
         }).select("id").maybeSingle();
         const runId = run?.id ?? null;
         let observations = 0;
+        const observedDates = new Set<string>();
+        const deadline = Date.now() + 90_000;
         let error: string | null = null;
 
         try {
           for (let offset = 0; offset < dates.length; offset += CHUNK_DAYS) {
+            if (Date.now() + 35_000 > deadline) { error = "Partial scan: bounded runtime reached; unverified dates remain missing."; break; }
+            // Check actual reported spend on EVERY batch, not just at the
+            // beginning of a potentially long multi-competitor scan.
+            const spendGuard = await checkAiBudget(admin, c.organization_slug, { scheduled });
+            if (!spendGuard.allowed) {
+              error = spendGuard.reason || "AI spending budget reached";
+              break;
+            }
             const window = dates.slice(offset, offset + CHUNK_DAYS);
-            let answer;
+            let answer: Awaited<ReturnType<typeof askRates>>;
             try {
-              answer = await askRates(apiKey, c, window, false);
+              answer = await askRates(apiKey ?? '', c, window, false);
               await admin.from("ai_usage_log").insert({
                 organization_slug: c.organization_slug,
                 hotel_id: HOTEL_ID,
                 function_name: "ottofiori-market-scan",
-                model: MODEL,
+                model: answer.providerModel,
                 input_tokens: answer.inputTokens,
                 output_tokens: answer.outputTokens,
                 web_searches: 1,
-                estimated_cost_usd: estimateCost(answer.inputTokens, answer.outputTokens),
+                estimated_cost_usd: answer.providerCostUsd,
                 ok: true,
               });
             } catch (e) {
               error = e instanceof Error ? e.message : String(e);
-              answer = { rates: [], currency: "EUR", inputTokens: 0, outputTokens: 0 };
+              answer = { rates: [], currency: "EUR", inputTokens: 0, outputTokens: 0, providerModel: MODEL, providerCostUsd: 0 };
+              break; // Do not spend retry calls on a blocked/timed-out provider request.
             }
 
-            if (!answer.rates.some((r: Rate) => r?.price != null && String(r.currency ?? answer.currency ?? "").toUpperCase() === "EUR")) {
+            // A partially successful 20-day response used to leave many dates blank.
+            // Retry only the missing dates in small windows so every competitor/date
+            // gets another independent chance to return an exact 2-adult, 1-night
+            // EUR quote without replacing already verified observations.
+            const validDates = new Set(
+              answer.rates
+                .filter((r: Rate) => r?.price != null && String(r.currency ?? answer.currency ?? "").toUpperCase() === "EUR")
+                .map((r: Rate) => r.date),
+            );
+            const missingDates = window.filter((date) => !validDates.has(date));
+            const retryRates: Rate[] = [];
+            for (let retryOffset = 0; retryOffset < missingDates.length; retryOffset += RETRY_CHUNK_DAYS) {
+              if (Date.now() + 35_000 > deadline) { error = "Partial scan: no time left for another paid retry."; break; }
+              const retryWindow = missingDates.slice(retryOffset, retryOffset + RETRY_CHUNK_DAYS);
+              if (!retryWindow.length) continue;
+              const retryBudget = await checkAiBudget(admin, c.organization_slug, { scheduled });
+              if (!retryBudget.allowed) {
+                error = retryBudget.reason || "AI spending budget reached";
+                break;
+              }
               try {
-                const retry = await askRates(apiKey, c, window, true);
+                const retry = await askRates(apiKey ?? '', c, retryWindow, true);
                 await admin.from("ai_usage_log").insert({
                   organization_slug: c.organization_slug,
                   hotel_id: HOTEL_ID,
                   function_name: "ottofiori-market-scan-retry",
-                  model: MODEL,
+                  model: retry.providerModel,
                   input_tokens: retry.inputTokens,
                   output_tokens: retry.outputTokens,
                   web_searches: 1,
-                  estimated_cost_usd: estimateCost(retry.inputTokens, retry.outputTokens),
+                  estimated_cost_usd: retry.providerCostUsd,
                   ok: true,
                 });
-                answer = retry;
+                retryRates.push(...retry.rates);
               } catch (e) {
                 error = e instanceof Error ? e.message : String(e);
               }
             }
+            if (retryRates.length) {
+              const byDate = new Map<string, Rate>();
+              for (const rate of answer.rates) byDate.set(rate.date, rate);
+              for (const rate of retryRates) {
+                if (!byDate.has(rate.date) || byDate.get(rate.date)?.price == null) byDate.set(rate.date, rate);
+              }
+              answer = { ...answer, rates: Array.from(byDate.values()) };
+            }
 
             const rows = answer.rates
               .filter((r: Rate) => r && r.price != null && Number.isFinite(Number(r.price)))
-              .filter((r: Rate) => r.date >= startIso && r.date <= endIso)
+              .filter((r: Rate) => window.includes(r.date))
               .filter((r: Rate) => String(r.currency ?? answer.currency ?? "").toUpperCase() === "EUR")
               .filter((r: Rate) => r.confidence == null || Number(r.confidence) >= 0.45)
               .map((r: Rate) => ({
@@ -263,7 +342,8 @@ Deno.serve(async (req) => {
             if (rows.length) {
               const { error: insertError } = await admin.from("competitor_rate_observations").insert(rows);
               if (insertError) throw insertError;
-              observations += rows.length;
+              rows.forEach((r: any) => observedDates.add(r.stay_date));
+              observations = observedDates.size;
             }
           }
 
@@ -279,18 +359,20 @@ Deno.serve(async (req) => {
             reconciled = Number(count ?? 0);
           }
 
-          const status = reconciled > 0 ? "ok" : "no_prices_found";
+          const status = reconciled > 0 ? "ok" : error ? "failed" : "no_prices_found";
+          const coverageError = observations < dates.length
+            ? (error ?? `Partial scan: ${observations}/${dates.length} requested dates verified.`) : null;
           if (runId) await admin.from("competitor_scan_runs").update({
-            prices_found: reconciled,
+            prices_found: observations,
             status,
-            error: reconciled > 0 ? null : error,
+            error: coverageError,
             finished_at: new Date().toISOString(),
           }).eq("id", runId);
           await admin.from("competitor_properties").update({
             last_scan_at: new Date().toISOString(),
             last_scan_status: status,
-            last_scan_prices: reconciled,
-            last_scan_error: reconciled > 0 ? null : error,
+            last_scan_prices: observations,
+            last_scan_error: coverageError,
           }).eq("id", c.id);
         } catch (e) {
           error = e instanceof Error ? e.message : String(e);
@@ -307,7 +389,7 @@ Deno.serve(async (req) => {
         }
       }
     } finally {
-      await admin.rpc("release_competitor_scan_lease", { _id: leaseId }).catch(() => {});
+      try { await admin.rpc("release_competitor_scan_lease", { _id: leaseId }); } catch { /* stale lease expires */ }
     }
   })();
 

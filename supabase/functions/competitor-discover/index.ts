@@ -1,3 +1,4 @@
+import { fetchGeminiFirstResponse } from "../_shared/geminiFirstResponses.ts";
 // Suggests a competitive set with the hotel's own OpenAI key.
 //
 // The model searches the web for real, comparable hotels near the property and
@@ -5,6 +6,7 @@
 // Nothing is invented: a hotel it cannot find a public page for is dropped.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { logAiUsage, checkAiBudget } from "../_shared/aiBudget.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,7 +21,7 @@ function json(body: unknown, status = 200) {
 }
 
 // Best model first; the account may not have access to every one of them.
-const MODELS = ["gpt-5", "gpt-4.1"];
+const MODELS = ["gpt-4.1"]; // One verified web search; no speculative premium retry.
 
 function extractJson(text: string): unknown {
   const cleaned = (text ?? "").replace(/```json|```/g, "").trim();
@@ -59,8 +61,14 @@ Deno.serve(async (req) => {
     const { data: canAccess } = await admin.rpc("user_can_access_hotel", { _uid: user.id, _hotel_id: hotelId });
     if (canAccess === false) return json({ error: "No access to this hotel" }, 403);
 
+    const { data: profile } = await admin.from("profiles").select("organization_slug").eq("id", user.id).maybeSingle();
+    const orgSlug = profile?.organization_slug || null;
+    if (!orgSlug) return json({ error: "Organization not found" }, 403);
+    const budget = await checkAiBudget(admin, orgSlug, { scheduled: false });
+    if (!budget.allowed) return json({ error: "AI search budget reached" }, 429);
+
     const apiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured for this project." }, 500);
+    if (!apiKey && !Deno.env.get("GEMINI_API_KEY")) return json({ error: "No AI provider configured" }, 500);
 
     // hotelId may be a UUID (hotels.id) or a slug used in the app routes.
     let hotelName = "";
@@ -94,7 +102,7 @@ Deno.serve(async (req) => {
     let lastError = "";
 
     for (const model of MODELS) {
-      const res = await fetch("https://api.openai.com/v1/responses", {
+      const res = await fetchGeminiFirstResponse("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -112,6 +120,16 @@ Deno.serve(async (req) => {
       }
 
       const payload = await res.json();
+      await logAiUsage(admin, {
+        organizationSlug: orgSlug,
+        hotelId,
+        functionName: "competitor-discover",
+        model,
+        inputTokens: Number(payload?.usage?.input_tokens ?? 0),
+        outputTokens: Number(payload?.usage?.output_tokens ?? 0),
+        webSearches: 1,
+        searchContext: "medium",
+      });
       const text: string = payload.output_text
         ?? (payload.output ?? [])
           .flatMap((o: { content?: { text?: string }[] }) => o.content ?? [])

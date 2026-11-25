@@ -52,6 +52,83 @@
   box-shadow: 1px 0 0 hsl(var(--border)), 5px 0 10px -10px hsl(var(--foreground) / 0.35);
 }
 
+/*
+ * Mobile navigation surface.
+ *
+ * On a phone the frozen room/metric rail is also the easiest place to begin a
+ * horizontal swipe because it does not contain price cells. Remove the desktop
+ * divider shade there and turn the edge into a quiet, icon-only gesture cue.
+ * The rail itself stays opaque so room names never become unreadable over the
+ * moving rate matrix. No extra copy or coach-mark is needed: the opposing
+ * chevrons briefly move apart when the calendar appears, and the full frozen
+ * rail continues to pass native horizontal pan gestures to the scroll area.
+ */
+@media (max-width: 767px) {
+  [data-training="revenue-grid"] .overscroll-x-contain .sticky.left-0 {
+    box-shadow: none;
+    border-right-color: hsl(var(--primary) / 0.3) !important;
+    touch-action: pan-x pan-y;
+  }
+
+  /* One cue in the date-header corner is enough; repeating it on every room
+     row would add noise to the price list. */
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0 {
+    overflow: visible;
+  }
+
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::before,
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    z-index: 2;
+    width: 8px;
+    height: 8px;
+    pointer-events: none;
+    opacity: 0.9;
+  }
+
+  /* Left-facing chevron. */
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::before {
+    right: 13px;
+    border-left: 2px solid hsl(var(--primary));
+    border-bottom: 2px solid hsl(var(--primary));
+    transform: translateY(-50%) rotate(45deg);
+  }
+
+  /* Right-facing chevron. */
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::after {
+    right: 4px;
+    border-top: 2px solid hsl(var(--primary));
+    border-right: 2px solid hsl(var(--primary));
+    transform: translateY(-50%) rotate(45deg);
+  }
+
+  [data-training="revenue-grid"] .overscroll-x-contain .sticky.left-0:active {
+    border-right-color: hsl(var(--primary) / 0.8) !important;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::before {
+      animation: revenue-grid-swipe-cue-left 1.15s ease-in-out 3;
+    }
+
+    [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::after {
+      animation: revenue-grid-swipe-cue-right 1.15s ease-in-out 3;
+    }
+  }
+}
+
+@keyframes revenue-grid-swipe-cue-left {
+  0%, 100% { margin-right: 0; opacity: 0.65; }
+  50% { margin-right: 4px; opacity: 1; }
+}
+
+@keyframes revenue-grid-swipe-cue-right {
+  0%, 100% { margin-right: 0; opacity: 0.65; }
+  50% { margin-right: -4px; opacity: 1; }
+}
+
 /* Avoid browser scroll anchoring jumps when later price/history data arrives. */
 [data-training="revenue-grid"] {
   overflow-anchor: none;
@@ -118,4 +195,62 @@
   [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(3) > div:not(:first-child) > span[class*="max-w-"] {
     display: none;
   }
+}
+
+/* One vertical scroll surface for the ordinary Rate & Pickup page. The compact
+   height limits made iOS and desktop move the whole calendar out of view before
+   all rate plans had been read. Keep native horizontal panning, but let the
+   document scroll the full-height table; the real decision header follows the
+   page until the last rate-plan row (see RateStrategyGrid). Expanded mode still
+   uses its own bounded scroller. */
+[data-training="revenue-grid"]:not(.fixed) .overscroll-x-contain {
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overscroll-behavior-y: auto !important;
+  scrollbar-gutter: auto;
+}
+
+/* Keep grouped-room availability readable at narrow date-column widths.
+   The full sold-out price and guest count remain in each button's title. */
+@media (max-width: 767px) {
+  [data-training="revenue-grid"] [data-rate-grid-row-kind="group"] > button {
+    overflow: hidden !important;
+  }
+  [data-training="revenue-grid"] [data-rate-grid-row-kind="group"] > button > span {
+    max-width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+  }
+}
+
+/* The summary is independently horizontally pannable, but the whole sticky
+   SURFACE follows the browser's native vertical page scroll. Hide only its
+   scrollbar; never apply a transform/animation during the vertical gesture. */
+[data-training="revenue-grid"] [data-rate-grid-header-scroll="true"] {
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+[data-training="revenue-grid"] [data-rate-grid-header-scroll="true"]::-webkit-scrollbar {
+  display: none;
+}
+
+
+/*
+ * Multi-date selection must stay visible while the manager scrolls below the
+ * sticky day header. Tint each selected date's cells without replacing their
+ * occupancy, demand, inventory or price colors, and draw strong column edges.
+ * The selected header also carries an explicit checkmark for mobile users.
+ */
+[data-training="revenue-grid"] [data-rate-selected="true"] {
+  box-shadow:
+    inset 0 0 0 999px hsl(var(--primary) / 0.14),
+    inset 2px 0 0 hsl(var(--primary) / 0.85),
+    inset -2px 0 0 hsl(var(--primary) / 0.85);
+}
+
+[data-training="revenue-grid"] button[data-date][data-rate-selected="true"] {
+  box-shadow:
+    inset 0 0 0 999px hsl(var(--primary) / 0.24),
+    inset 0 0 0 2px hsl(var(--primary) / 0.95);
 }

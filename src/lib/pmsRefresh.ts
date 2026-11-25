@@ -4,18 +4,17 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
+import { todayBudapest } from "@/lib/budapestTime";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
-import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
-import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
-import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote } from "@/lib/previoHousekeepingNote";
-import { normalizeUnitName, isTechnicalRow, buildUnitResolver } from "@/lib/slntUnitMapping";
+import { pickPrevioHousekeepingNote } from "@/lib/previoHousekeepingNote";
+import { normalizeUnitName, isTechnicalRow, buildUnitResolver, isSlntInactiveOperationalUnit, isSlntWorkbookActiveUnit } from "@/lib/slntUnitMapping";
+import { normalizeInferredNoShowRow } from "../../supabase/functions/_shared/previoNoShowInference";
+import { reconcileContinuousStay } from "@/lib/stayContinuity";
 
-const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
-const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy|Syst[ée]m\s*-/i;
 const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_checkout", "manual_checkout_at", "manual_checkout_by",
   "manual_daily", "manual_daily_at", "manual_daily_by",
-  "manual_moved_at", "manual_moved_by",
+  "manual_moved_at", "manual_moved_date", "manual_moved_by",
   "manual_no_show", "manual_no_show_at", "manual_no_show_by",
 ];
 // Per-day PMS state that must be wiped when a new work day starts, so the
@@ -23,7 +22,7 @@ const MANUAL_ROOM_OVERRIDE_KEYS = [
 const STALE_DAY_METADATA_KEYS = [
   "checkedOutToday", "checkedOutAt", "readyToClean", "readyToCleanDate",
   "departureTime", "scheduledDepartureToday", "scheduledDepartureTomorrow",
-  "isNoShow", "notArrived", "arrivalToday", "occupiedToday", "stayThroughToday",
+  "isNoShow", "noShowSource", "notArrived", "arrivalToday", "occupiedToday", "stayThroughToday",
   "manualReadyToCleanAt",
 ];
 
@@ -32,10 +31,11 @@ const STALE_DAY_METADATA_KEYS = [
 const getDateOnly = (value: unknown): string | null => {
   if (!value) return null;
   const raw = String(value);
-  const direct = raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
-  if (direct) return direct;
+  // A date-only value is a business date; timestamps are instants and
+  // must be interpreted locally (22:12Z is already next day in Budapest).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().split("T")[0];
+  return Number.isNaN(parsed.getTime()) ? null : todayBudapest(parsed);
 };
 
 const hasManualRoomOverride = (meta?: Record<string, any> | null): boolean =>
@@ -79,6 +79,10 @@ export interface PmsSyncResult {
   reservationIssue?: Record<string, any> | null;
   proposedChanges?: ProposedRoomChange[];
   unmapped?: Array<{ pms_room_id: string; pms_room_name: string; room_kind_name: string; extracted_number: string }>;
+  syncedRooms?: string[];
+  missingRooms?: string[];
+  unmatchedRooms?: string[];
+  excludedRooms?: string[];
   accounts?: Array<{ id: string; label: string; status: "success" | "error"; rows: number; error?: string }>;
 }
 
@@ -212,6 +216,13 @@ export async function runPmsRefresh(
           consecutive_failures: 0,
         } as any).eq("id", acc.id);
       }
+      const accountBusinessDate = (accData as any)?.businessDate;
+      if (accountBusinessDate) {
+        if (merged.businessDate && merged.businessDate !== accountBusinessDate) {
+          throw new Error("Previo accounts returned snapshots for different business dates; retry the sync.");
+        }
+        merged.businessDate = accountBusinessDate;
+      }
       if ((accData as any)?.reservationDataAuthoritative === false) merged.reservationDataAuthoritative = false;
     }
     if (accountErrors.length === accounts.length) {
@@ -265,6 +276,7 @@ export async function runPmsRefresh(
   const keys = await resolveHotelKeys(hotelId);
   const hotelKeys = keys.length ? keys : [hotelId];
   const canonicalHotelKey = hotelKeys.find((key) => key !== hotelId) ?? hotelId;
+  const isSlntRoom = hotelKeys.includes("slnt-group") || hotelId === "slnt-group";
 
   // Portfolio tenants (SLNT) receive long Previo marketing names ("CityNest -
   // City center …") while `rooms.room_number` holds the canonical unit name.
@@ -272,6 +284,9 @@ export async function runPmsRefresh(
   // XLSX upload does. Other tenants have no rows here, so nothing changes.
   const aliasToRoomId = new Map<string, string>();
   const externalIdToRoomId = new Map<string, string>();
+  // For SLNT notes the external id must be qualified by its owning PMS account.
+  // A bare numeric room id is not unique across SLNT’s two Previo accounts.
+  const slntAccountRoomIds = new Map<string, string>();
   const resolverEntries: Array<{ roomId: string; names: Array<string | null | undefined>; externalIds?: Array<string | null | undefined> }> = [];
   const mappingIdByRoomId = new Map<string, string>();
   let portfolioMode = false;
@@ -279,10 +294,12 @@ export async function runPmsRefresh(
   // tenants (SLNT) this — not the number of Previo listing rows — is the
   // denominator of the "x/y rooms" counter.
   let appUnitCount = 0;
+  const activeRosterRoomIds = new Set<string>();
+  const activeRosterLabelById = new Map<string, string>();
   try {
     const { data: unitMaps } = await supabase
       .from("pms_unit_mappings")
-      .select("id, normalized_name, source_name, canonical_room_name, external_room_id, room_id")
+      .select("id, normalized_name, source_name, canonical_room_name, external_room_id, pms_account_id, organization_slug, status, room_id")
       .in("hotel_id", hotelKeys)
       .not("room_id", "is", null);
     for (const m of (unitMaps ?? []) as any[]) {
@@ -290,7 +307,12 @@ export async function runPmsRefresh(
       for (const name of [m.normalized_name, m.source_name, m.canonical_room_name]) {
         if (name) aliasToRoomId.set(normalizeUnitName(String(name)), roomId);
       }
-      if (m.external_room_id) externalIdToRoomId.set(String(m.external_room_id), roomId);
+      if (m.external_room_id) {
+        externalIdToRoomId.set(String(m.external_room_id), roomId);
+        if (m.pms_account_id && m.status === "applied" && m.organization_slug === "slnt") {
+          slntAccountRoomIds.set(`${m.pms_account_id}:${m.external_room_id}`, roomId);
+        }
+      }
       if (m.id && !mappingIdByRoomId.has(roomId)) mappingIdByRoomId.set(roomId, m.id as string);
       resolverEntries.push({
         roomId,
@@ -304,12 +326,17 @@ export async function runPmsRefresh(
       // after the mapping was made) still resolve by their canonical name.
       const { data: rosterRooms } = await supabase
         .from("rooms")
-        .select("id, room_number")
+        .select("id, room_number, status")
         .in("hotel", hotelKeys);
       for (const r of (rosterRooms ?? []) as any[]) {
         resolverEntries.push({ roomId: r.id as string, names: [r.room_number] });
+        const active = !isSlntRoom || isSlntWorkbookActiveUnit(String(r.room_number || ""), r.status);
+        if (active) {
+          activeRosterRoomIds.add(String(r.id));
+          activeRosterLabelById.set(String(r.id), String(r.room_number || r.id));
+        }
       }
-      appUnitCount = (rosterRooms ?? []).length;
+      appUnitCount = activeRosterRoomIds.size || (rosterRooms ?? []).length;
     }
   } catch (e) {
     console.warn("[pmsRefresh] unit alias map unavailable:", e);
@@ -334,9 +361,17 @@ export async function runPmsRefresh(
   const checkoutRoomNumbers: string[] = [];
   const dailyRoomNumbers: string[] = [];
   const unmatchedRoomNumbers: string[] = [];
+  const excludedRoomNumbers: string[] = [];
+  const syncedRoomNumbers = new Set<string>();
   const errors: string[] = [];
   const proposedChanges: ProposedRoomChange[] = [];
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayBudapest();
+  const snapshotBusinessDate = (data as any)?.businessDate;
+  // Do not apply a snapshot fetched across local midnight to another
+  // day, especially not before the destructive new-day housekeeping reset.
+  if (snapshotBusinessDate && snapshotBusinessDate !== today) {
+    throw new Error(`Previo snapshot is for ${snapshotBusinessDate}, but Budapest business date is ${today}. Please refresh again.`);
+  }
   const matchedRoomIds = new Set<string>();
   const protectedCheckoutAssignmentRoomIds = new Set<string>();
 
@@ -362,7 +397,7 @@ export async function runPmsRefresh(
   // on an earlier calendar day, clear all DND flags so the new day starts
   // fresh. Runs once per calendar day (subsequent same-day refreshes are
   // no-ops because lastPmsRefreshDate is already today).
-  if (!dryRun) {
+  if (!dryRun && reservationDataAuthoritative) {
     try {
       const { data: probe } = await supabase
         .from("rooms")
@@ -386,14 +421,12 @@ export async function runPmsRefresh(
           .in("hotel", hotelKeys)
           .eq("is_dnd", true);
 
-        // 2. Strip stale manual bucket overrides + stale note prefixes from
-        //    yesterday so today's PMS refresh can classify the room fresh.
-        //    Same-day manual moves are unaffected (they're written after this
-        //    block runs). We only touch rooms whose PMS metadata is older than
-        //    today.
+        // 2. Reset previous-day PMS classification markers only. Shared
+        //    room instructions are staff-owned across every venue: even the
+        //    cleanup path must never automatically rewrite or clear them.
         const { data: staleRooms } = await supabase
           .from("rooms")
-          .select("id, notes, pms_metadata, is_checkout_room")
+          .select("id, pms_metadata, is_checkout_room")
           .in("hotel", hotelKeys);
         const cleanupUpdates: Array<Promise<any>> = [];
         for (const r of staleRooms ?? []) {
@@ -402,11 +435,7 @@ export async function runPmsRefresh(
             : null;
           const oldSyncDate = meta?.pmsSyncDate ?? meta?.lastPmsRefreshDate ?? null;
           const isStale = !oldSyncDate || oldSyncDate < today;
-          const currentNotes = (r as any).notes as string | null;
-          const hasOtaBlob = !!currentNotes && RESERVATION_NOTE_BLOB.test(currentNotes);
-          // Process rooms that are stale OR still carry an OTA blob from a
-          // pre-fix refresh — we must scrub the blob now regardless of date.
-          if (!isStale && !hasOtaBlob) continue;
+          if (!isStale) continue;
 
           const patch: Record<string, any> = {};
           if (isStale && meta) {
@@ -427,28 +456,6 @@ export async function runPmsRefresh(
             }
           }
 
-          const notes = (r as any).notes as string | null;
-          if (notes) {
-            let cleanedNotes: string | null = notes;
-            if (STALE_NOTE_PREFIXES.test(cleanedNotes)) {
-              cleanedNotes = cleanedNotes.replace(STALE_NOTE_PREFIXES, "").trim();
-            }
-            // Also strip Previo OTA reservation blobs that older refreshes
-            // may have written into rooms.notes. Preserve any operational
-            // (Recepce/Kuchyně/Housekeeping) sections if present.
-            if (cleanedNotes && RESERVATION_NOTE_BLOB.test(cleanedNotes)) {
-              const flags = parseRoomFlags(cleanedNotes);
-              const rescued = extractHousekeepingSectionsFromRawNote(flags.cleanNotes);
-              cleanedNotes = buildRoomNotes(
-                {
-                  collectExtraTowels: flags.collectExtraTowels,
-                  roomCleaning: flags.roomCleaning,
-                },
-                rescued ?? "",
-              ) || null;
-            }
-            if (cleanedNotes !== notes) patch.notes = cleanedNotes || null;
-          }
           if (Object.keys(patch).length > 0) {
             patch.updated_at = new Date().toISOString();
             cleanupUpdates.push(
@@ -461,7 +468,7 @@ export async function runPmsRefresh(
         if (cleanupUpdates.length) await Promise.all(cleanupUpdates);
 
         console.log(
-          `[pmsRefresh] New-day reset for hotel ${hotelId} (last refresh ${lastRefresh ?? "never"}): DND cleared, ${cleanupUpdates.length} rooms cleaned of stale manual overrides / notes`,
+          `[pmsRefresh] New-day reset for hotel ${hotelId} (last refresh ${lastRefresh ?? "never"}): DND cleared, ${cleanupUpdates.length} rooms reset to current-day classification`,
         );
       }
     } catch (e) {
@@ -471,30 +478,41 @@ export async function runPmsRefresh(
 
 
 
-  for (const row of rows) {
+  for (const incomingRow of rows) {
+    let row = incomingRow;
     try {
       const rawRoomName = String(row.Room ?? "").trim();
       if (!rawRoomName) continue;
-      // Previo exports contain "Technikai" separator rows for portfolio
-      // accounts — they are not units and must not count as unmatched.
-      if (aliasToRoomId.size > 0 && isTechnicalRow(rawRoomName)) continue;
-      consideredRows++;
+      // Confirmed inactive SLNT inventory is retained for PMS identity/audit,
+      // but it is intentionally outside operational housekeeping coverage.
+      // Never count these rows as missing/unmapped warnings.
+      if (isSlntRoom && (isTechnicalRow(rawRoomName) || isSlntInactiveOperationalUnit(rawRoomName))) {
+        if (!excludedRoomNumbers.includes(rawRoomName)) excludedRoomNumbers.push(rawRoomName);
+        continue;
+      }
       const roomNumber = extractRoomNumber(rawRoomName);
 
       const previoRoomId = row.RoomId != null ? String(row.RoomId) : "";
 
       const lookup = async (matcher: (q: any) => any) => {
         const q = supabase.from("rooms")
-          .select("id, hotel, room_number, status, guest_count, is_checkout_room, pms_metadata, bed_configuration, notes")
+          .select("id, hotel, room_number, status, guest_count, guest_nights_stayed, is_checkout_room, pms_metadata, bed_configuration, notes, last_cleaned_at, towel_change_required, linen_change_required, last_towel_change, last_linen_change")
           .in("hotel", hotelKeys);
         return await matcher(q);
       };
 
       // Confirmed unit mapping wins when present (portfolio tenants only).
+      // For portfolio tenants the numeric Previo room id is only unique
+      // within its owning PMS account. Never use the global numeric-id lookup
+      // to choose an SLNT room; that can attach a reservation to another venue.
+      const accountMappedRoomId = isSlntRoom && previoRoomId && row.PmsAccountId
+        ? slntAccountRoomIds.get(`${row.PmsAccountId}:${previoRoomId}`)
+        : null;
       const mappedRoomId =
-        (previoRoomId && externalIdToRoomId.get(previoRoomId)) ||
+        accountMappedRoomId ||
+        (!isSlntRoom && previoRoomId && externalIdToRoomId.get(previoRoomId)) ||
         aliasToRoomId.get(normalizeUnitName(rawRoomName)) ||
-        (unitResolver ? unitResolver.resolve(rawRoomName, previoRoomId || null) : null) ||
+        (unitResolver ? unitResolver.resolve(rawRoomName, isSlntRoom ? null : previoRoomId || null) : null) ||
         null;
 
       let roomsFound: any[] | null = null;
@@ -520,6 +538,7 @@ export async function runPmsRefresh(
 
 
       if (!roomsFound || roomsFound.length === 0) {
+        consideredRows++;
         notFound++;
         if (unmatchedRoomNumbers.length < 200) unmatchedRoomNumbers.push(String(rawRoomName));
         if (dryRun) {
@@ -540,12 +559,25 @@ export async function runPmsRefresh(
           (candidate.is_checkout_room ? 5 : 0);
         return score(b) - score(a);
       })[0];
+      if (isSlntRoom && !isSlntWorkbookActiveUnit(String(room.room_number || rawRoomName), room.status)) {
+        if (!excludedRoomNumbers.includes(String(room.room_number || rawRoomName))) {
+          excludedRoomNumbers.push(String(room.room_number || rawRoomName));
+        }
+        continue;
+      }
+      consideredRows++;
       matchedRoomIds.add(room.id);
+      syncedRoomNumbers.add(String(room.room_number || rawRoomName));
+      const verifiedSlntNoteTarget = !isSlntRoom || (!!previoRoomId && !!row.PmsAccountId
+        && slntAccountRoomIds.get(`${row.PmsAccountId}:${previoRoomId}`) === room.id);
       if (portfolioMode && previoRoomId && !externalIdToRoomId.has(previoRoomId)) {
         learnedExternalIds.set(room.id, previoRoomId);
       }
 
 
+      // Normalize inferred no-show flags from an older edge deployment for
+      // every Previo venue, not just Mika. Inference cannot prove absence.
+      row = normalizeInferredNoShowRow(row, today, room.guest_count);
       const classification = classifyPmsHousekeepingRow(row, today);
       const departureParsed = classification.departureTime;
       const isScheduledDeparture = classification.isScheduledDeparture;
@@ -573,25 +605,21 @@ export async function runPmsRefresh(
         : rawExistingMetadata;
 
       const nightTotal = classification.nightTotal;
-      let guestNightsStayed = 0;
-      let towel = false;
-      let linen = false;
-      if (nightTotal) {
-        guestNightsStayed = nightTotal.currentNight;
-        if (guestNightsStayed >= 3) {
-          const cyc = (guestNightsStayed - 3) % 4;
-          if (cyc === 0) towel = true;
-          else if (cyc === 2) linen = true;
-        }
-      }
+      // Reservation-local nights are only a starting point. Reception may
+      // extend a guest by creating a second Previo reservation in the same
+      // physical room, so the durable continuous-stay layer below may replace
+      // this 1/N counter with the accumulated room stay.
+      const reservationGuestNightsStayed = nightTotal?.currentNight ?? 0;
 
       const previoStatusRaw = row.Status ? String(row.Status).trim().toLowerCase() : "";
       const mappedStatus =
         previoStatusRaw === "" ? null
         : previoStatusRaw.startsWith("clean") ? "clean"
         : "dirty";
+      // A suspected no-show is NOT a reason to mark an unclean room clean.
+      // Preserve the physical cleaning condition separately from occupancy.
       const pmsNeedsCleaning = reservationDataAuthoritative && (
-        shouldBeCheckoutRoom || classification.isDailyRoom || row.IsNoShow === true
+        shouldBeCheckoutRoom || classification.isDailyRoom
       );
       // A room that was already cleaned and approved TODAY must never be
       // pushed back to "dirty" by a later sync — the PMS row still says the
@@ -606,18 +634,14 @@ export async function runPmsRefresh(
         && new Date(existingMetadata.checkedOutAt as string).getTime() > new Date(lastCleanedAt).getTime();
       const cleanedToday =
         getDateOnly(lastCleanedAt) === today && room.status === "clean" && !checkedOutAfterClean;
-      // Portfolio tenants (SLNT) manage housekeeping status directly in Previo
-      // too: when Previo says the unit is Clean and no departure was confirmed
-      // after the last clean, that wins over "it's a checkout/daily unit today".
-      const trustPmsCleanFlag = accounts.length > 0
-        && mappedStatus === "clean"
-        && !checkedOutAfterClean;
+      // Previo's explicit cleaning status applies to every property, not only
+      // multi-account hotels. Checkout/stayover workload must not override a
+      // confirmed Clean value, unless checkout happened after the last cleaning.
+      const trustPmsCleanFlag = mappedStatus === "clean" && !checkedOutAfterClean;
       const effectiveStatus = trustPmsCleanFlag
         ? "clean"
         : pmsNeedsCleaning
-        ? row.IsNoShow === true
-          ? "clean"
-          : cleanedToday ? "clean" : "dirty"
+        ? cleanedToday ? "clean" : "dirty"
         : cleanedToday && mappedStatus === "dirty" ? "clean" : mappedStatus;
 
       const nextGuestCount = Number(row.People ?? 0);
@@ -641,17 +665,49 @@ export async function runPmsRefresh(
       // snaps straight back into Checkout Rooms on the next refresh.
       const manualDailyOverride = existingMetadata?.manual_daily === true
         || (existingMetadata && "manual_checkout" in existingMetadata && existingMetadata.manual_checkout === false);
-      const manualNoShowOverride = existingMetadata?.manual_no_show === true;
+      // A no-show belongs to a reservation, not permanently to a room.
+      // If today's arrival replaces an earlier reservation on this physical
+      // room, do not let the previous guest's manual NS override the new one.
+      const replacedPriorNoShow = !!row.ArrivalDate && String(row.ArrivalDate) === today
+        && !!existingMetadata?.arrivalDate
+        && String(existingMetadata.arrivalDate).slice(0, 10) < today
+        && !!row.ReservationId
+        && String(existingMetadata?.reservationId ?? "") !== String(row.ReservationId);
+      const manualNoShowOverride = existingMetadata?.manual_no_show === true
+        && getDateOnly(existingMetadata?.manual_no_show_at) === today
+        && !replacedPriorNoShow;
+      // Reception may confirm the guest actually arrived even if Previo is
+      // still Reserved. Respect today's explicit correction for inference only
+      // (never override Previo's confirmed status-8 no-show).
+      const managerClearedSuspectedNoShow = existingMetadata?.manual_no_show === false
+        && getDateOnly(existingMetadata?.manual_no_show_at) === today
+        && row.NoShowSource === "inferred_never_checked_in";
+
+      const stayContinuity = reconcileContinuousStay({
+        row,
+        existingMetadata,
+        storedGuestNights: (room as any).guest_nights_stayed ?? null,
+        manualDailyOverride,
+        businessDate: today,
+        nowIso: new Date().toISOString(),
+      });
+      const effectiveManualDailyOverride = manualDailyOverride && !stayContinuity.resetForDifferentGuest;
+      const guestNightsStayed = stayContinuity.currentNight || reservationGuestNightsStayed;
+      const guestTotalNights = stayContinuity.totalNights
+        || nightTotal?.totalNights
+        || Number(row.TotalNights ?? 0)
+        || guestNightsStayed;
+
       const hasProtectedCheckoutAssignment = protectedCheckoutAssignmentRoomIds.has(room.id);
-      // When PMS positively reports a stay-through guest (future departure
-      // date, no checkout today) nothing may keep the checkout flag alive —
-      // not even an in-progress checkout cleaning that was generated from
-      // yesterday's stale flag. Only an explicit manager checkout mark wins.
-      const pmsSaysStaying = classification.isStayThrough;
-      const preserveExistingCheckout = !manualDailyOverride && currentCheckoutFlag && !shouldBeCheckoutRoom && (
+      // A linked extension or a manager-confirmed Checkout -> Daily decision is
+      // occupancy, even while Previo still exposes the old checkout reservation.
+      const pmsSaysStaying = classification.isStayThrough
+        || stayContinuity.linkedExtension
+        || stayContinuity.managerConfirmedContinuation;
+      const preserveExistingCheckout = !effectiveManualDailyOverride && currentCheckoutFlag && !shouldBeCheckoutRoom && (
         manualOverride || (!pmsSaysStaying && (!reservationDataAuthoritative || hasProtectedCheckoutAssignment))
       );
-      const effectiveCheckoutFlag = manualDailyOverride
+      const effectiveCheckoutFlag = effectiveManualDailyOverride
         ? false
         : preserveExistingCheckout ? true : shouldBeCheckoutRoom;
 
@@ -682,20 +738,14 @@ export async function runPmsRefresh(
           category: "checkout",
         });
       }
-      if (reservationDataAuthoritative && (towel || linen)) {
-        changeFields.push({
-          field: "Linen/towel", before: "-", after: `${linen ? "linen" : ""}${towel && linen ? " + " : ""}${towel ? "towel" : ""}`, category: "linen",
-        });
-      }
-      const housekeepingNote = reservationDataAuthoritative ? cleanSyncedHousekeepingNote(row) : null;
+      const housekeepingNote = reservationDataAuthoritative && verifiedSlntNoteTarget ? cleanSyncedHousekeepingNote(row) : null;
       if (reservationDataAuthoritative && housekeepingNote) {
-        changeFields.push({ field: "Housekeeping note", before: "-", after: housekeepingNote, category: "note" });
+        changeFields.push({ field: "Previo source note (unverified, not shared)", before: "-", after: housekeepingNote, category: "note" });
       }
 
-      // Auto-detect bed configuration only from Previo's dedicated
-      // housekeeping/reception operational note. Never infer from OTA booking
-      // blobs or partner room-category labels.
-      const inferredBed = housekeepingNote ? inferBedConfigFromNote(housekeepingNote) : null;
+      // A PMS note may be stale or belong to an earlier reservation.
+      // Never turn it into an approved bed setup; previous inference metadata
+      // remains available for safe checkout cleanup.
       const currentBedConfig = (room as any).bed_configuration as string | null | undefined;
       const storedInferredValue = existingMetadata?.inferredBedConfig?.value as string | null | undefined;
       // Treat the stored auto-inferred marker as still valid only if the
@@ -703,16 +753,6 @@ export async function runPmsRefresh(
       // since edited bed_configuration to something else, the row is
       // manager-owned and must not be overwritten or cleared by PMS refresh.
       const currentWasAutoInferred = !!storedInferredValue && !!currentBedConfig && storedInferredValue === currentBedConfig;
-      const shouldSetBedConfig = !!inferredBed && (!currentBedConfig || currentWasAutoInferred);
-      if (shouldSetBedConfig) {
-        changeFields.push({
-          field: "Bed config (auto from housekeeping note)",
-          before: currentBedConfig ?? "-",
-          after: `${inferredBed!.value} (from housekeeping note)`,
-          category: "note",
-        });
-      }
-
 
       proposedChanges.push({
         roomKey: `id:${room.id}`,
@@ -738,6 +778,9 @@ export async function runPmsRefresh(
           ...(existingMetadata ?? {}),
           pmsSyncDate: today,
           lastPmsRefreshDate: today,
+          // This refresh path is Previo-specific. Stamp the provider so
+          // room-level extension continuity never leaks to another PMS.
+          pmsProvider: "previo",
           // Keep the Previo room id on the room so outbound status pushes
           // (supervisor approval -> "clean" in Previo) can address it.
           ...(previoRoomId ? { roomId: previoRoomId } : {}),
@@ -746,56 +789,118 @@ export async function runPmsRefresh(
         },
       };
 
+      if (replacedPriorNoShow) {
+        for (const key of ["manual_no_show", "manual_no_show_at", "manual_no_show_by"]) {
+          delete updateData.pms_metadata[key];
+        }
+      }
+
       if (reservationDataAuthoritative) {
-        updateData.guest_count = nextGuestCount;
-        updateData.guest_nights_stayed = guestNightsStayed;
+        // A booked date range is not proof of a physical check-in. Previo's
+        // positive check-in / checkout statuses and validated continuations
+        // override any manual or older inferred no-show.
+        const positivePmsPresence = [3, 5, 6, 9].includes(Number(row.RawReservationStatusId ?? row.ReservationStatusId))
+          || stayContinuity.linkedExtension || stayContinuity.managerConfirmedContinuation;
+        const effectiveNoShow = !positivePmsPresence
+          && !managerClearedSuspectedNoShow
+          && (manualNoShowOverride || classification.isNoShow);
+        updateData.guest_count = effectiveNoShow ? 0 : nextGuestCount;
+        updateData.guest_nights_stayed = effectiveNoShow
+          || classification.isNotArrived || classification.isCancelled ? 0 : guestNightsStayed;
         // Checkout cleans always include a full towel + linen change, so never
         // carry the separate "towel change required" flag on those rooms.
-        updateData.towel_change_required = towel && !effectiveCheckoutFlag;
-        updateData.linen_change_required = linen;
-        updateData.pms_metadata.scheduledDepartureToday = manualDailyOverride ? false : isScheduledDeparture;
+        // Preserve explicit manager/service requirements across PMS syncs;
+        // a new, unoccupied arrival never inherits the previous guest's work.
+        const newGuest = !stayContinuity.linkedExtension
+          && !stayContinuity.managerConfirmedContinuation
+          && (classification.isNotArrived || classification.isCancelled || classification.isNoShow);
+        updateData.towel_change_required = newGuest ? false : !!room.towel_change_required;
+        updateData.linen_change_required = newGuest ? false : !!room.linen_change_required;
+        updateData.pms_metadata.scheduledDepartureToday = effectiveManualDailyOverride ? false : isScheduledDeparture;
         updateData.pms_metadata.scheduledDepartureTomorrow = isDepartureTomorrow;
-        updateData.pms_metadata.departureTime = manualDailyOverride ? null : departureParsed;
-        updateData.pms_metadata.checkedOutToday = manualDailyOverride ? false : isCheckedOut;
+        updateData.pms_metadata.departureTime = effectiveManualDailyOverride ? null : departureParsed;
+        updateData.pms_metadata.checkedOutToday = effectiveManualDailyOverride ? false : isCheckedOut;
         updateData.pms_metadata.reservationStatusId = row.RawReservationStatusId ?? row.ReservationStatusId ?? null;
-        updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
-        updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
-        // A manager's manual no-show mark for today wins over the PMS snapshot —
-        // but only while the PMS shows no occupancy. Once the guest is in-house
-        // (PMS says occupied / mid-stay), the no-show flag is cleared.
-        const pmsShowsOccupancy = classification.isDailyRoom
-          || classification.isStayThrough
-          || effectiveCheckoutFlag;
-        updateData.pms_metadata.isNoShow = !pmsShowsOccupancy
-          && (manualNoShowOverride || classification.isNoShow);
+        updateData.pms_metadata.reservationId = row.ReservationId ?? existingMetadata?.reservationId ?? null;
+        updateData.pms_metadata.guestFingerprint = row.GuestFingerprint ?? existingMetadata?.guestFingerprint ?? null;
+        updateData.pms_metadata.guestIdentityStrength = row.GuestIdentityStrength ?? existingMetadata?.guestIdentityStrength ?? "none";
+        updateData.pms_metadata.arrivalDate = row.ArrivalDate ?? existingMetadata?.arrivalDate ?? null;
+        updateData.pms_metadata.departureDate = row.DepartureDate ?? existingMetadata?.departureDate ?? null;
+        updateData.pms_metadata.currentNight = effectiveNoShow
+          || classification.isNotArrived || classification.isCancelled ? 0 : guestNightsStayed || null;
+        updateData.pms_metadata.totalNights = guestTotalNights || null;
+        if (stayContinuity.continuousStay) {
+          updateData.pms_metadata.continuousStay = stayContinuity.continuousStay;
+        }
+        // Date-derived Occupied=Yes is NOT physical occupancy: allow a dated
+        // manager-confirmed absence on a still-Reserved booking. A true PMS
+        // check-in/checkout or verified continuation always clears it.
+        updateData.pms_metadata.isNoShow = effectiveNoShow;
+        updateData.pms_metadata.noShowSource = effectiveNoShow
+          ? (manualNoShowOverride ? "manager_manual" : "previo_status_8")
+          : null;
 
         updateData.pms_metadata.isCancelled = classification.isCancelled;
 
         // Arrival today (vacant room expecting a guest) — neither checkout nor
         // a daily stayover; surfaced in its own Arrivals bucket in Team View.
-        updateData.pms_metadata.arrivalToday = !effectiveCheckoutFlag && (
-          !!row.Arrival || (!!row.ArrivalDate && String(row.ArrivalDate) === today)
+        updateData.pms_metadata.arrivalToday = !effectiveNoShow && !effectiveCheckoutFlag
+          && !stayContinuity.managerConfirmedContinuation
+          && !stayContinuity.linkedExtension
+          && (
+            !!row.Arrival || (!!row.ArrivalDate && String(row.ArrivalDate) === today)
+          );
+        updateData.pms_metadata.occupiedToday = !effectiveNoShow && (
+          classification.isDailyRoom
+          || managerClearedSuspectedNoShow
+          || stayContinuity.managerConfirmedContinuation
+          || (stayContinuity.linkedExtension && !classification.isCancelled)
         );
-        updateData.pms_metadata.occupiedToday = classification.isDailyRoom;
         // Arrival that has not checked in yet — shown as "Not checked in" in
         // the Arrivals bucket. Never treated as a no-show on its own.
         updateData.pms_metadata.notArrived = !effectiveCheckoutFlag
           && !updateData.pms_metadata.isNoShow
           && classification.isNotArrived;
-        updateData.pms_metadata.stayThroughToday = classification.isStayThrough;
-        updateData.pms_metadata.noteOta = row.NoteOta ?? null;
-        updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
+        updateData.pms_metadata.stayThroughToday = !effectiveNoShow && (
+          classification.isStayThrough
+          || managerClearedSuspectedNoShow
+          || stayContinuity.managerConfirmedContinuation
+          || stayContinuity.linkedExtension
+        );
+
+        if (stayContinuity.resetForDifferentGuest) {
+          // A strongly identified different guest invalidates today's manual
+          // stayover bridge. The transient reset reason tells the database's
+          // same-day manual-override guard that this is a verified PMS turnover,
+          // not an ordinary sync trying to undo a manager decision.
+          updateData.pms_metadata.manualOverrideResetReason = "definitive_new_guest";
+          updateData.pms_metadata.manualOverrideResetAt = new Date().toISOString();
+          for (const key of [
+            "manual_daily", "manual_daily_at", "manual_daily_by",
+            "manual_checkout", "manual_checkout_at", "manual_checkout_by",
+            "manual_moved_at", "manual_moved_by", "extensionServiceSnapshot",
+            "roomTypeChangeNotice",
+          ]) delete updateData.pms_metadata[key];
+        }
+        if (verifiedSlntNoteTarget) {
+          updateData.pms_metadata.noteOta = row.NoteOta ?? null;
+          updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
+        }
+        if (isSlntRoom && verifiedSlntNoteTarget) {
+          updateData.pms_metadata.slntPrevioHousekeepingNote = housekeepingNote;
+          updateData.pms_metadata.slntPrevioNoteReservationKey = [
+            row.PmsAccountId, row.ArrivalDate ?? row.Arrival ?? "", row.RoomId
+          ].join(":");
+          updateData.pms_metadata.slntPrevioNoteSyncedAt = new Date().toISOString();
+        }
 
 
-        if (!inferredBed) {
-          delete updateData.pms_metadata.inferredBedConfig;
-          // The stay that the bed setup belonged to is over: once PMS confirms
-          // the guest departed, reset the bed configuration to default even if
-          // a manager had set it manually (same lifecycle as minibar).
-          if (currentWasAutoInferred || isCheckedOut) {
-            updateData.bed_configuration = null;
-            delete updateData.pms_metadata.manualBedConfig;
-          }
+        // Clear stale automatic inference metadata without interpreting fresh
+        // guest notes as today's human-approved bed instructions.
+        delete updateData.pms_metadata.inferredBedConfig;
+        if (currentWasAutoInferred || isCheckedOut) {
+          updateData.bed_configuration = null;
+          delete updateData.pms_metadata.manualBedConfig;
         }
         if (isCheckedOut) {
           updateData.pms_metadata.readyToClean = true;
@@ -811,18 +916,15 @@ export async function runPmsRefresh(
       }
       if (effectiveStatus) {
         updateData.status = effectiveStatus;
-        // Only stamp a new "cleaned at" when the room actually transitions to
-        // clean — never re-stamp a room that was already clean.
-        if (effectiveStatus === "clean" && room.status !== "clean") {
-          updateData.last_cleaned_at = new Date().toISOString();
-        }
+        // A PMS Clean signal is not a completed HotelCare housekeeping task.
+        // Preserve last_cleaned_at as the genuine cleaning-completion timestamp.
       }
       // PMS sync is authoritative for today's buckets only when the snapshot
       // contains reservation/departure data (live API or today's upload
       // fallback). Otherwise preserve checkout flags instead of wiping true
       // checkouts based on a status-only room roster.
       if (reservationDataAuthoritative) {
-        updateData.is_checkout_room = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+        updateData.is_checkout_room = effectiveCheckoutFlag;
       }
 
       // `checkout_time` is an actual departed timestamp, not the scheduled
@@ -830,24 +932,8 @@ export async function runPmsRefresh(
       // confirms the guest has checked out.
       if (reservationDataAuthoritative) {
         updateData.checkout_time = isCheckedOut ? new Date().toISOString() : null;
-        if (towel) updateData.last_towel_change = today;
-        if (linen) updateData.last_linen_change = today;
-        const currentFlags = parseRoomFlags((room as any).notes ?? null);
-        updateData.notes = buildRoomNotes(
-          {
-            collectExtraTowels: currentFlags.collectExtraTowels,
-            roomCleaning: currentFlags.roomCleaning,
-          },
-          housekeepingNote ?? "",
-        ) || null;
-      }
-      if (shouldSetBedConfig && inferredBed) {
-        updateData.bed_configuration = inferredBed.value;
-        updateData.pms_metadata.inferredBedConfig = {
-          value: inferredBed.value,
-          keyword: inferredBed.matchedKeyword,
-          at: new Date().toISOString(),
-        };
+        // All hotels: PMS notes stay in source metadata and cannot silently
+        // clear or replace a manager's shared instructions (including SLNT).
       }
 
       // Emit pms_change_events for material changes.
@@ -878,6 +964,62 @@ export async function runPmsRefresh(
       if (reservationDataAuthoritative && nowNoShow && !wasNoShow) {
         pushEvent("no_show_detected", { isNoShow: false }, { isNoShow: true }, false);
       }
+      if (reservationDataAuthoritative) {
+        const previousIds = Array.isArray(existingMetadata?.continuousStay?.reservationIds)
+          ? existingMetadata.continuousStay.reservationIds.map(String)
+          : [];
+        const nextIds = stayContinuity.continuousStay?.reservationIds || [];
+        const newlyLinked = nextIds.some((id) => !previousIds.includes(id));
+        const removedIds = previousIds.filter((id) => !nextIds.includes(id));
+        if (stayContinuity.linkedExtension
+            && (newlyLinked || existingMetadata?.continuousStay?.linkedBy !== stayContinuity.continuousStay?.linkedBy)) {
+          pushEvent("stay_extension_linked",
+            {
+              reservation_ids: previousIds,
+              current_night: existingMetadata?.continuousStay?.currentNight ?? (room as any).guest_nights_stayed ?? null,
+            },
+            {
+              reservation_ids: nextIds,
+              current_night: guestNightsStayed,
+              total_nights: guestTotalNights,
+              linked_by: stayContinuity.continuousStay?.linkedBy,
+              confidence: stayContinuity.continuousStay?.confidence,
+              original_arrival_date: stayContinuity.continuousStay?.originalArrivalDate ?? null,
+              final_departure_date: stayContinuity.continuousStay?.finalDepartureDate ?? null,
+              segments: stayContinuity.continuousStay?.segments ?? [],
+            },
+            false,
+          );
+        }
+        if (removedIds.length > 0 && !stayContinuity.resetForDifferentGuest) {
+          pushEvent("stay_extension_unlinked",
+            {
+              reservation_ids: previousIds,
+              removed_reservation_ids: removedIds,
+              segments: existingMetadata?.continuousStay?.segments ?? [],
+            },
+            {
+              reservation_ids: nextIds,
+              current_night: guestNightsStayed,
+              manager_continuation_active: stayContinuity.managerConfirmedContinuation,
+            },
+            false,
+          );
+        }
+      }
+      if (reservationDataAuthoritative && stayContinuity.resetForDifferentGuest) {
+        pushEvent("stay_continuity_reset_new_guest",
+          {
+            reservation_ids: existingMetadata?.continuousStay?.reservationIds ?? [],
+            guest_fingerprint: existingMetadata?.guestFingerprint ?? null,
+          },
+          {
+            reservation_id: row.ReservationId ?? null,
+            guest_fingerprint: row.GuestFingerprint ?? null,
+          },
+          false,
+        );
+      }
       if (reservationDataAuthoritative && !!updateData.pms_metadata && wasNoShow && !nowNoShow) {
         // Guest is in-house / PMS reports occupancy — the earlier no-show mark
         // was wrong or stale, so it is cleared automatically.
@@ -896,10 +1038,25 @@ export async function runPmsRefresh(
         );
       }
 
-      const { error: updErr } = await supabase
-        .from("rooms")
-        .update(updateData)
-        .eq("id", room.id);
+      let saveQuery = supabase.from("rooms").update(updateData).eq("id", room.id);
+      if (isSlntRoom && Object.prototype.hasOwnProperty.call(updateData, "notes")) {
+        saveQuery = room.notes == null
+          ? saveQuery.is("notes", null)
+          : saveQuery.eq("notes", room.notes);
+      }
+      const { data: saved, error: updErr } = isSlntRoom && Object.prototype.hasOwnProperty.call(updateData, "notes")
+        ? await saveQuery.select("id").maybeSingle()
+        : { data: null, error: (await saveQuery).error };
+      if (!updErr && isSlntRoom && Object.prototype.hasOwnProperty.call(updateData, "notes") && !saved) {
+        // Concurrent manager edit: retain the human note and still apply
+        // fresh PMS state. The note also remains available in metadata.
+        delete updateData.notes;
+        const fallback = await supabase.from("rooms").update(updateData).eq("id",room.id);
+        if (fallback.error) {
+          errors.push(`Room ${rawRoomName}: ${fallback.error.message}`);
+          continue;
+        }
+      }
       if (updErr) {
         errors.push(`Room ${rawRoomName}: ${updErr.message}`);
         continue;
@@ -1039,7 +1196,24 @@ export async function runPmsRefresh(
     }
   }
 
-  const status: PmsSyncStatus = errors.length ? "partial" : "success";
+  const sortLabels = (values: Iterable<string>) =>
+    Array.from(new Set(Array.from(values).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+    );
+  const missingActiveRooms = isSlntRoom && activeRosterRoomIds.size > 0
+    ? sortLabels(Array.from(activeRosterRoomIds)
+        .filter(roomId => !matchedRoomIds.has(roomId))
+        .map(roomId => activeRosterLabelById.get(roomId) || roomId))
+    : [];
+  const syncedOperationalRooms = isSlntRoom && activeRosterRoomIds.size > 0
+    ? sortLabels(Array.from(matchedRoomIds)
+        .filter(roomId => activeRosterRoomIds.has(roomId))
+        .map(roomId => activeRosterLabelById.get(roomId) || roomId))
+    : sortLabels(syncedRoomNumbers);
+  const operationalUnmatchedRooms = sortLabels(unmatchedRoomNumbers);
+  const excludedRooms = sortLabels(excludedRoomNumbers);
+  const coverageIncomplete = missingActiveRooms.length > 0 || operationalUnmatchedRooms.length > 0;
+  const status: PmsSyncStatus = errors.length || coverageIncomplete ? "partial" : "success";
 
   // Self-healing: remember the Previo room id for every unit we matched by
   // name, so subsequent syncs match by id even if Previo renames the listing.
@@ -1099,17 +1273,21 @@ export async function runPmsRefresh(
         error_message: errors.length ? errors.slice(0, 5).join(" | ") : null,
         data: {
           trigger,
-          updated,
-          notFound,
+          updated: portfolioMode && isSlntRoom ? syncedOperationalRooms.length : updated,
+          rawUpdated: updated,
+          notFound: operationalUnmatchedRooms.length,
           total: portfolioMode ? (appUnitCount || consideredRows) : rows.length,
           previoRows: portfolioMode ? consideredRows : rows.length,
-          unmappedListings: portfolioMode ? unmatchedRoomNumbers.length : undefined,
+          unmappedListings: portfolioMode ? operationalUnmatchedRooms.length : undefined,
+          syncedRooms: syncedOperationalRooms,
+          missingRooms: missingActiveRooms,
+          unmatchedRooms: operationalUnmatchedRooms,
+          excludedRooms,
 
           checkouts,
           dailyCount: dailyRoomNumbers.length,
           checkoutRooms: checkoutRoomNumbers,
           dailyRooms: dailyRoomNumbers,
-          unmatchedRooms: unmatchedRoomNumbers,
           reservationDataAuthoritative,
           managerFacingSuccess,
           reservationSource: (data as any)?.reservationSource ?? null,
@@ -1124,7 +1302,16 @@ export async function runPmsRefresh(
   }
 
   return {
-    status, updated, total: portfolioMode ? (appUnitCount || consideredRows) : rows.length, notFound, checkouts, errors,
+    status,
+    updated: portfolioMode && isSlntRoom ? syncedOperationalRooms.length : updated,
+    total: portfolioMode ? (appUnitCount || consideredRows) : rows.length,
+    notFound: operationalUnmatchedRooms.length,
+    checkouts,
+    errors,
+    syncedRooms: syncedOperationalRooms,
+    missingRooms: missingActiveRooms,
+    unmatchedRooms: operationalUnmatchedRooms,
+    excludedRooms,
     managerMessage: reservationManagerMessage,
     reservationDataAuthoritative,
     reservationIssue,

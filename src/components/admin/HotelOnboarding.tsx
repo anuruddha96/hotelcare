@@ -20,6 +20,8 @@ export const HotelOnboarding = () => {
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [hotelName, setHotelName] = useState('');
   const [hotelId, setHotelId] = useState('');
+  const [marketCity, setMarketCity] = useState('Budapest');
+  const [marketCountry, setMarketCountry] = useState('Hungary');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -37,19 +39,21 @@ export const HotelOnboarding = () => {
   };
 
   const handleCreateHotel = async () => {
-    if (!selectedOrgId || !hotelName || !hotelId) {
-      toast.error('Please fill in all fields');
+    if (!selectedOrgId || !hotelName || !hotelId || !marketCity.trim() || !marketCountry.trim()) {
+      toast.error('Please fill in all fields, including the hotel market location');
       return;
     }
 
     setLoading(true);
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('hotel_configurations')
         .insert({
           organization_id: selectedOrgId,
           hotel_name: hotelName,
           hotel_id: hotelId.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+          market_city: marketCity.trim(),
+          market_country: marketCountry.trim(),
           is_active: true,
           settings: {}
         });
@@ -63,6 +67,8 @@ export const HotelOnboarding = () => {
       setSelectedOrgId('');
       setHotelName('');
       setHotelId('');
+      setMarketCity('Budapest');
+      setMarketCountry('Hungary');
     } catch (error: any) {
       toast.error(error.message || 'Failed to create hotel');
       console.error(error);
@@ -151,13 +157,34 @@ export const HotelOnboarding = () => {
                 Used for filtering and identification
               </p>
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Market City</Label>
+                <Input
+                  placeholder="e.g., Budapest"
+                  value={marketCity}
+                  onChange={(e) => setMarketCity(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label>Market Country</Label>
+                <Input
+                  placeholder="e.g., Hungary"
+                  value={marketCountry}
+                  onChange={(e) => setMarketCountry(e.target.value)}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Required. Hotels in the same city and country share one demand-event calendar.
+            </p>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setStep(1)} className="flex-1">
                 Back
               </Button>
               <Button 
                 onClick={() => setStep(3)} 
-                disabled={!hotelName || !hotelId}
+                disabled={!hotelName || !hotelId || !marketCity.trim() || !marketCountry.trim()}
                 className="flex-1"
               >
                 Next <ArrowRight className="w-4 h-4 ml-2" />
@@ -182,6 +209,10 @@ export const HotelOnboarding = () => {
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Hotel ID:</span>
                 <span className="font-medium">{hotelId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-sm text-muted-foreground">Market:</span>
+                <span className="font-medium">{marketCity}, {marketCountry}</span>
               </div>
             </div>
 

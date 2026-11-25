@@ -26,7 +26,15 @@ export interface RateAuditRow {
     actual_previo_price?: number | null;
     confirmation_status?: string;
     push_run_id?: string | null;
+    draft_id?: string | null;
     origin?: string | null;
+    /** Human-readable actor for system-originated changes, e.g. HotelCare AI. */
+    actor_name?: string | null;
+    performed_by_name?: string | null;
+    /** Machine-readable decision code and the revenue-manager explanation. */
+    decision_reason?: string | null;
+    reason_detail?: string | null;
+    originating_draft_id?: string | null;
     /** Minimum-stay automation is surfaced in the same on-demand cell history. */
     change_type?: "minimum_stay" | string;
     old_min_stay?: number | null;

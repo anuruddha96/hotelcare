@@ -14,6 +14,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { pricesMatch } from "../_shared/pricingRules.ts";
+import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -205,6 +206,26 @@ interface Night {
   stay_to: string;
 }
 
+/**
+ * Gozsdu (and potentially other Previo properties) can expose source-less,
+ * multi-year reservation records used to hold apartment inventory. They are
+ * valid on-the-books inventory signals, but they are not a one-day commercial
+ * sale and must not create hundreds of pickup room-nights when first seen.
+ *
+ * A source/channel always wins, and normal source-less direct bookings are
+ * preserved. Only source-less stays longer than a full leap year are excluded
+ * from sales-created and pickup movement KPIs.
+ */
+const MAX_SOURCELESS_SALES_PICKUP_STAY_NIGHTS = 366;
+
+function countsTowardRevenueSalesPickup(
+  row: Pick<Night, "stay_from" | "stay_to" | "source_name">,
+): boolean {
+  if (row.source_name?.trim()) return true;
+  const span = daysBetween(row.stay_from, row.stay_to);
+  return !Number.isFinite(span) || span <= MAX_SOURCELESS_SALES_PICKUP_STAY_NIGHTS;
+}
+
 
 /**
  * Pull the ISO 4217 code out of whatever Previo returned ("9 HUF", "<code>EUR</code>", "eur").
@@ -351,6 +372,99 @@ async function chunkedCall(
 }
 
 
+interface PrevioAvailabilityRow {
+  stay_date: string;
+  room_kind_id: string;
+  availability: number;
+}
+
+function previoRestApiKey(creds: any): string | null {
+  if (!creds) return null;
+  if (creds.protocol === "xml") return String(creds.apiKey || "").trim() || null;
+  return String(creds.apiKey || creds.password || "").trim() || null;
+}
+
+/**
+ * Previo REST calendar/availability is the authoritative "rooms for sale"
+ * source. roomKindId is the REST name for XML obkId. The API permits at most a
+ * 365-day request, so longer Hotel Care horizons are split without changing the
+ * semantics.
+ */
+async function pullPrevioAvailability(
+  creds: unknown,
+  hotId: string,
+  from: string,
+  to: string,
+): Promise<{ rows: PrevioAvailabilityRow[]; error: string | null }> {
+  const apiKey = previoRestApiKey(creds as any);
+  if (!apiKey) return { rows: [], error: "REST API key unavailable" };
+
+  const byKey = new Map<string, PrevioAvailabilityRow>();
+  let cursor = from;
+  while (cursor <= to) {
+    // Previo measures the maximum range as the difference between the two
+    // dates (filterTo must be later than filterFrom). A 365-day horizon is
+    // therefore valid as from..from+365. Using +364 produced a final one-day
+    // request where from === to, which Previo rejects as an invalid range.
+    const maxEnd = addDays(cursor, 365);
+    const end = maxEnd > to ? to : maxEnd;
+    const params = new URLSearchParams({
+      filterFrom: cursor,
+      filterTo: end,
+      includeOfflineRooms: "true",
+    });
+    let response: Response;
+    try {
+      response = await fetch(`https://api.previo.app/rest/calendar/availability?${params.toString()}`, {
+        method: "GET",
+        headers: {
+          Authorization: `ApiKey ${apiKey}`,
+          "X-Previo-Hotel-Id": hotId,
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      return { rows: [], error: `network error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+
+    const text = await response.text();
+    if (!response.ok) {
+      return { rows: [], error: `[${response.status}] ${text.replace(/\s+/g, " ").slice(0, 240)}` };
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return { rows: [], error: "Previo availability returned malformed JSON" };
+    }
+
+    const ratePlans = Array.isArray(parsed) ? parsed : [parsed];
+    for (const plan of ratePlans) {
+      for (const day of (Array.isArray(plan?.availability) ? plan.availability : [])) {
+        const stayDate = String(day?.date ?? "").slice(0, 10);
+        if (!stayDate) continue;
+        for (const room of (Array.isArray(day?.roomKinds) ? day.roomKinds : [])) {
+          const id = room?.id ?? room?.roomKindId;
+          const available = Number(room?.availability);
+          if (id == null || !Number.isFinite(available)) continue;
+          const row: PrevioAvailabilityRow = {
+            stay_date: stayDate,
+            room_kind_id: String(id),
+            availability: Math.max(0, Math.trunc(available)),
+          };
+          byKey.set(`${row.room_kind_id}|${row.stay_date}`, row);
+        }
+      }
+    }
+    cursor = addDays(end, 1);
+  }
+
+  return { rows: Array.from(byKey.values()), error: null };
+}
+
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -367,6 +481,8 @@ serve(async (req) => {
   // whole rate universe and the draft reconciliation pass are skipped, which
   // turns a multi-minute full sync into a short reservation refresh.
   const probeOnly: boolean = body.mode === "automation_probe";
+  // Catalog-only refresh is lightweight: no rate writes, reservation pulls or availability deletes.
+  const catalogOnly: boolean = body.mode === "room_types_only";
   // A person pressed "Sync now" / "Pull rates": Previo is the final word for
   // this run. Whatever Previo publishes right now becomes the Hotel Care
   // price, and older Hotel Care requests are closed instead of re-sent.
@@ -453,7 +569,7 @@ serve(async (req) => {
       }]
     : [];
 
-  if (accounts.length === 0) return json({ error: `No Previo configuration for ${hotelId}` }, 404);
+  if (accounts.length === 0) return json({ success: true, skipped: true, reason: "no_previo_configuration", message: `No Previo configuration for ${hotelId}; sync skipped (non-Previo property)` }, 200);
   const missingCreds = accounts.filter((a) => !a.secretName || !a.hotId);
   if (missingCreds.length === accounts.length) {
     return json({
@@ -513,16 +629,99 @@ serve(async (req) => {
   const scopeObk = (acc: LiveAccount, obkId: string) => (multi ? `${acc.hotId}:${obkId}` : obkId);
 
   // ---------- 1. room types ----------
+  // getObjectKinds describes sellable kinds and rates; /rest/rooms describes
+  // *physical* room inventory. Previo may retain a room kind with zero rooms,
+  // or move physical rooms into a newly created category. XML's embedded
+  // <object> elements alone must not be treated as the live physical count.
+  type PhysicalRoom = {
+    roomId: number; roomKindId: number; roomKindName?: string;
+    capacity?: number; extraCapacity?: number; order?: number;
+    isHourlyBased?: boolean;
+  };
   const roomTypes: RoomTypeInfo[] = [];
+  const verifiedCatalogAccounts = new Set<string>();
   for (const acc of liveAccounts) {
-    const kindsRes = await callPrevioXml({ method: "getObjectKinds", creds: acc.creds as any, pmsHotelId: acc.hotId, extraXml: "" });
+    const kindsRes = await callPrevioXml({
+      method: "getObjectKinds", creds: acc.creds as any,
+      pmsHotelId: acc.hotId, extraXml: "",
+    });
+    const kinds = kindsRes.ok ? parseObjectKinds(kindsRes.text) : [];
     if (!kindsRes.ok) {
-      errors.push(`${acc.label} getObjectKinds: [${kindsRes.status}] ${kindsRes.errorMessage ?? "failed"}`);
+      softNotes.push(`${acc.label}: Previo room kinds XML unavailable; trying physical room catalog.`);
+    }
+
+    let physicalRooms: PhysicalRoom[] | null = null;
+    const configuredSecret = accounts[acc.idx]?.secretName;
+    if (configuredSecret) {
+      try {
+        const { response, source } = await fetchPrevioWithAuth({
+          credentialsSecretName: configuredSecret,
+          path: "/rest/rooms",
+          pmsHotelId: acc.hotId,
+        });
+        const rows = await safePrevioJson<PhysicalRoom[]>(response, { path: "/rest/rooms", source });
+        // Empty or malformed response is NOT proof that a hotel has lost all
+        // rooms. Fail safely, retaining known catalog counts for review.
+        if (!Array.isArray(rows) || !rows.some((r) => Number(r.roomId) > 0 && Number(r.roomKindId) > 0)) {
+          throw new Error("physical room list was empty or invalid");
+        }
+        physicalRooms = [...new Map(rows
+          .filter((r) => Number(r.roomId) > 0 && Number(r.roomKindId) > 0 && !r.isHourlyBased)
+          .map((r) => [String(r.roomId), r])).values()];
+        if (!physicalRooms.length) throw new Error("no usable physical accommodation rooms");
+        // The XML kind IDs and REST roomKindIds must describe the same hotel.
+        // If nothing overlaps, reject the REST result rather than clearing all
+        // older categories or importing rooms from the wrong PMS account.
+        if (kinds.length > 0 && !physicalRooms.some((room) =>
+          kinds.some((kind) => kind.obkId === String(room.roomKindId)))) {
+          throw new Error("REST roomKindIds do not match the XML room kinds");
+        }
+        verifiedCatalogAccounts.add(acc.hotId);
+      } catch (e) {
+        // Even if parsing produced an empty intermediate array, treat the
+        // physical inventory as UNVERIFIED. Never zero all categories on error.
+        physicalRooms = null;
+        softNotes.push(`${acc.label}: physical room inventory could not be verified (${String(e)}); keeping XML counts.`);
+      }
+    }
+
+    if (!physicalRooms && !kindsRes.ok) {
+      errors.push(`${acc.label}: neither physical rooms nor object kinds could be fetched`);
       continue;
     }
-    for (const rt of parseObjectKinds(kindsRes.text)) {
+
+    const byKind = new Map<string, PhysicalRoom[]>();
+    for (const r of physicalRooms ?? []) {
+      const id = String(r.roomKindId);
+      const list = byKind.get(id) ?? [];
+      list.push(r);
+      byKind.set(id, list);
+    }
+    const knownKinds = new Set(kinds.map((r) => r.obkId));
+    const mergedKinds: RoomTypeInfo[] = kinds.map((rt) => ({
+      ...rt,
+      numRooms: physicalRooms ? (byKind.get(rt.obkId)?.length ?? 0) : rt.numRooms,
+    }));
+    // A newly added sellable Previo category may appear in REST before XML
+    // rate plans are configured. Discover it, but never synthesize a price.
+    for (const [id, rooms] of byKind) {
+      if (knownKinds.has(id)) continue;
+      const first = rooms[0];
+      mergedKinds.push({
+        obkId: id,
+        name: first.roomKindName?.trim() || `Previo room type ${id}`,
+        numRooms: rooms.length,
+        maxOccupancy: Math.max(...rooms.map((room) =>
+          (Number(room.capacity) || 0) + (Number(room.extraCapacity) || 0))),
+        order: kinds.length + mergedKinds.length,
+      });
+    }
+    for (const rt of mergedKinds) {
       roomTypes.push({ ...rt, obkId: scopeObk(acc, rt.obkId), order: rt.order + acc.idx * 1000 });
     }
+  }
+  if (!roomTypes.length) {
+    return json({ success: false, errors: [...errors, "Previo returned no valid room type catalog; existing inventory was preserved"] }, 502);
   }
 
   const nameByObk = new Map(roomTypes.map((r) => [r.obkId, r.name]));
@@ -534,7 +733,11 @@ serve(async (req) => {
   // Summing everything triples the denominator and craters occupancy.
   const NON_ROOM = /breakfast|coffee|dessert|reggeli|parking|transfer|ticket|látógat|latogat|spa|massage|extra/i;
   const UNIT_GROUP = /^Room \(cap/i;
-  const isNonRoom = (name: string) => NON_ROOM.test(name);
+  // Previo SLNT uses "Technikai" for operational placeholder room kinds.
+  // They can have physical units but are not guest accommodation and must
+  // never re-enter the saleable revenue catalog on scheduled refresh.
+  const isTechnicalRoomKind = (name: string) => /^(?:technikai(?:\s+szoba)?|technical\s+rooms?)$/i.test(name.trim());
+  const isNonRoom = (name: string) => NON_ROOM.test(name) || isTechnicalRoomKind(name);
   // The auto-seeded "Room (cap N) — X units" rows describe the SAME physical
   // rooms as the hotel's real, named room types. When both exist, the named
   // types are the truth and the unit groups must not be counted again —
@@ -542,23 +745,38 @@ serve(async (req) => {
   const hasNamedTypes = roomTypes.some((r) => !UNIT_GROUP.test(r.name) && !isNonRoom(r.name));
   const countsForInventory = (name: string) =>
     !isNonRoom(name) && (hasNamedTypes ? !UNIT_GROUP.test(name) : true);
+  const { data: storedKindFlags, error: storedKindFlagsError } = await service
+    .from("room_types")
+    .select("pms_room_id,is_sellable,counts_toward_inventory")
+    .eq("hotel_id", hotelId);
+  if (storedKindFlagsError) {
+    return json({ success: false, errors: [...errors, `Cannot verify active Previo inventory: ${storedKindFlagsError.message}`] }, 502);
+  }
+  const previouslyDisabledKinds = new Set(
+    (storedKindFlags ?? []).filter((r) => r.pms_room_id && (r.is_sellable === false || r.counts_toward_inventory === false))
+      .map((r) => String(r.pms_room_id)),
+  );
+  const isActiveKind = (obkId: string | null | undefined): boolean =>
+    !obkId || !previouslyDisabledKinds.has(String(obkId));
   const totalRoomsFromKinds = roomTypes
-    .filter((r) => countsForInventory(r.name))
+    .filter((r) => countsForInventory(r.name) && isActiveKind(r.obkId))
     .reduce((s, r) => s + r.numRooms, 0);
   const { data: revSettings } = await service
     .from("hotel_revenue_settings")
     .select("sellable_rooms, base_currency, eur_conversion_rate")
     .eq("hotel_id", hotelId)
     .maybeSingle();
-  const totalRooms =
-    Number((revSettings as { sellable_rooms?: number } | null)?.sellable_rooms || 0) ||
-    totalRoomsFromKinds;
+  const configuredInventory = Number((revSettings as { sellable_rooms?: number } | null)?.sellable_rooms || 0);
+  const totalRooms = totalRoomsFromKinds || configuredInventory;
+  if (totalRoomsFromKinds > 0 && configuredInventory > 0 && totalRoomsFromKinds !== configuredInventory) {
+    softNotes.push(`inventory mismatch: configured ${configuredInventory}, active Previo room kinds ${totalRoomsFromKinds}; commercial KPIs use active inventory`);
+  }
 
 
   if (roomTypes.length && orgSlug) {
     const { data: existing } = await service
       .from("room_types")
-      .select("id, pms_room_id, name, num_rooms")
+      .select("id, pms_room_id, name, num_rooms, is_sellable, counts_toward_inventory")
       .eq("hotel_id", hotelId);
     const byPms = new Map(
       ((existing ?? []) as Array<{ id: string; pms_room_id: string | null }>)
@@ -566,21 +784,24 @@ serve(async (req) => {
         .map((r) => [String(r.pms_room_id), r]),
     );
     const hasReference = ((existing ?? []) as Array<{ id: string }>).length > 0;
+    const catalogIds = new Set(roomTypes.map((rt) => rt.obkId));
     for (const rt of roomTypes) {
       const match = byPms.get(rt.obkId);
       if (match) {
         // Keep manual pricing/derivation edits, refresh only PMS-owned facts.
-        await service.from("room_types")
+        const { error } = await service.from("room_types")
           .update({
             name: rt.name,
             num_rooms: rt.numRooms,
             sort_order: rt.order,
-            is_sellable: !isNonRoom(rt.name),
-            counts_toward_inventory: countsForInventory(rt.name),
+            // Manual inactive-kind decisions must survive routine Previo sync.
+            is_sellable: isActiveKind(rt.obkId) && !isNonRoom(rt.name),
+            counts_toward_inventory: isActiveKind(rt.obkId) && countsForInventory(rt.name),
           })
           .eq("id", match.id);
+        if (error) errors.push(`Room type ${rt.obkId}: ${error.message}`);
       } else {
-        await service.from("room_types").insert({
+        const { error } = await service.from("room_types").insert({
           hotel_id: hotelId,
           organization_slug: orgSlug,
           name: rt.name,
@@ -596,6 +817,135 @@ serve(async (req) => {
           max_price_eur: 500,
           sort_order: rt.order,
         });
+        if (error) errors.push(`New room type ${rt.obkId}: ${error.message}`);
+      }
+    }
+    // When *every* account returned a complete physical room list, old PMS
+    // kinds absent from Previo may be deactivated without erasing historical
+    // rate/reservation records or manually managed room types.
+    if (verifiedCatalogAccounts.size === liveAccounts.length) {
+      for (const stale of (existing ?? []) as Array<{ id: string; pms_room_id: string | null; num_rooms: number }>) {
+        if (!stale.pms_room_id || catalogIds.has(String(stale.pms_room_id)) || stale.num_rooms === 0) continue;
+        const { error } = await service.from("room_types").update({ num_rooms: 0 }).eq("id", stale.id);
+        if (error) errors.push(`Retired room type ${stale.pms_room_id}: ${error.message}`);
+      }
+    }
+  }
+
+  // A category with no rates is omitted by the generic getRates-based
+  // mapping sync. When a single-account hotel's verified physical catalog
+  // contains a new category and ALL existing default mappings agree on one
+  // pricelist, provision its exact roomKindId under that same hotel pricelist.
+  // Nothing is published: an operator must explicitly enter first prices.
+  if (liveAccounts.length === 1 && verifiedCatalogAccounts.has(liveAccounts[0].hotId)) {
+    const { data: mappingRows, error: mappingReadError } = await service
+      .from("previo_rate_plan_mapping")
+      .select("previo_room_type_id,previo_rate_plan_id,is_default")
+      .eq("hotel_id", hotelId);
+    if (mappingReadError) {
+      softNotes.push(`Could not verify rate mappings: ${mappingReadError.message}`);
+    } else {
+      const mapped = new Set(((mappingRows ?? []) as Array<{ previo_room_type_id: string }>)
+        .map((r) => String(r.previo_room_type_id)));
+      const plans = new Set(((mappingRows ?? []) as Array<{ previo_rate_plan_id: string; is_default: boolean }>)
+        .filter((r) => r.is_default && r.previo_rate_plan_id)
+        .map((r) => String(r.previo_rate_plan_id)));
+      if (plans.size === 1) {
+        const [defaultPlan] = [...plans];
+        const { data: physicalRows } = await service.from("room_types")
+          .select("id,pms_room_id,num_rooms,organization_slug")
+          .eq("hotel_id", hotelId);
+        const ownKinds = new Map(roomTypes
+          .filter((rt) => rt.numRooms > 0 && countsForInventory(rt.name))
+          .map((rt) => [rt.obkId, rt]));
+        for (const room of (physicalRows ?? []) as Array<{ id: string; pms_room_id: string | null; num_rooms: number; organization_slug: string }>) {
+          if (!room.pms_room_id || mapped.has(String(room.pms_room_id)) ||
+            !ownKinds.has(String(room.pms_room_id)) || Number(room.num_rooms) <= 0) continue;
+          const { error } = await service.from("previo_rate_plan_mapping").insert({
+            hotel_id: hotelId, organization_slug: orgSlug,
+            room_type_id: room.id, previo_room_type_id: String(room.pms_room_id),
+            previo_rate_plan_id: defaultPlan, is_default: true,
+          });
+          if (error) errors.push(`Rate mapping for ${room.pms_room_id}: ${error.message}`);
+          else mapped.add(String(room.pms_room_id));
+        }
+      } else if (plans.size > 1) {
+        softNotes.push("Multiple default Previo pricelists found; new room types require an explicit rate-plan mapping.");
+      }
+    }
+  }
+
+  if (catalogOnly) {
+    const summary = {
+      hotelId, roomTypes: roomTypes.length,
+      activeRoomTypes: roomTypes.filter((r) => r.numRooms > 0).length,
+      zeroInventoryTypes: roomTypes.filter((r) => r.numRooms === 0).length,
+      physicalRooms: totalRoomsFromKinds,
+      physicalCatalogVerified: verifiedCatalogAccounts.size === liveAccounts.length,
+      errors, notes: softNotes,
+    };
+    const { error: auditError } = await service.from("pms_sync_history").insert({
+      sync_type: "room_type_catalog", direction: "from_previo", hotel_id: hotelId,
+      sync_status: errors.length ? "partial" : "success",
+      error_message: errors.length ? errors.slice(0, 5).join(" | ") : null,
+      data: summary, synced_by_user_id: actorId, synced_by_name: actorName,
+    });
+    if (auditError) errors.push(`Room catalog audit: ${auditError.message}`);
+    return json({ success: errors.length === 0, ...summary });
+  }
+
+  // ---------- 1b. native rooms-for-sale availability ----------
+  // The reservation book tells us occupancy, but it cannot tell us that a
+  // manager manually closed an otherwise-empty room type in Previo. Mirror
+  // Previo's own calendar availability so the grid shows the same sellable
+  // inventory as the PMS. If this optional REST privilege is unavailable we
+  // deliberately clear the stale mirror and let the UI fall back to bookings.
+  let availabilityRowsStored = 0;
+  if (!probeOnly) {
+    for (const acc of liveAccounts) {
+      const clear = await service
+        .from("revenue_room_type_availability")
+        .delete()
+        .eq("hotel_id", hotelId)
+        .eq("pms_hotel_id", acc.hotId)
+        .gte("stay_date", from)
+        .lte("stay_date", to);
+      if (clear.error) {
+        errors.push(`${acc.label} availability clear: ${clear.error.message}`);
+        continue;
+      }
+
+      const availabilityPull = await pullPrevioAvailability(acc.creds, acc.hotId, from, to);
+      if (availabilityPull.error) {
+        softNotes.push(
+          `${acc.label}: Previo native availability unavailable (${availabilityPull.error}); Hotel Care will use reservation-derived rooms left.`,
+        );
+        continue;
+      }
+
+      const capturedAt = new Date().toISOString();
+      const rows = availabilityPull.rows.map((row) => ({
+        hotel_id: hotelId,
+        organization_slug: orgSlug,
+        pms_hotel_id: acc.hotId,
+        stay_date: row.stay_date,
+        obk_id: scopeObk(acc, row.room_kind_id),
+        availability: row.availability,
+        source: "previo_calendar_availability",
+        captured_at: capturedAt,
+      }));
+
+      for (let i = 0; i < rows.length; i += 500) {
+        const { error } = await service
+          .from("revenue_room_type_availability")
+          .upsert(rows.slice(i, i + 500), {
+            onConflict: "hotel_id,pms_hotel_id,stay_date,obk_id",
+          });
+        if (error) {
+          errors.push(`${acc.label} availability upsert: ${error.message}`);
+          break;
+        }
+        availabilityRowsStored += Math.min(500, rows.length - i);
       }
     }
   }
@@ -1439,6 +1789,20 @@ serve(async (req) => {
   // far-future cancelled rows that nothing would ever clean up.
   const cancelledNights = allNights.filter((n) => !!n.cancelled_at && n.stay_date <= to);
 
+  // Inventory-hold reservations remain in the on-the-books dataset so
+  // occupancy/revenue behavior is unchanged, but they must not enter
+  // booking-created sales or pickup movement math.
+  const salesPickupNights = nights.filter((n) => isActiveKind(n.obk_id) && countsTowardRevenueSalesPickup(n));
+  const salesPickupCancelledNights = cancelledNights.filter((n) => isActiveKind(n.obk_id) && countsTowardRevenueSalesPickup(n));
+  const suppressedPickupReservationIds = new Set(
+    nights.filter((n) => !countsTowardRevenueSalesPickup(n)).map((n) => n.res_id),
+  );
+  if (suppressedPickupReservationIds.size > 0) {
+    softNotes.push(
+      `sales/pickup excluded ${suppressedPickupReservationIds.size} source-less multi-year inventory hold reservation(s)`,
+    );
+  }
+
   // Room-nights that vanished since the previous sync. Previo's cancelled-status
   // filter is unreliable per property, so a disappearance is our primary signal
   // that a night was lost (cancellation, shortened stay, moved dates).
@@ -1460,8 +1824,8 @@ serve(async (req) => {
       }
       return counts;
     };
-    const presentCounts = countByStayKey(nights);
-    const cancelledCounts = countByStayKey(cancelledNights);
+    const presentCounts = countByStayKey(salesPickupNights);
+    const cancelledCounts = countByStayKey(salesPickupCancelledNights);
     const previousByStayKey = new Map<string, any[]>();
     // A partial read of the previous book makes every unread reservation look
     // brand new — that is how a large property printed +40 pickup on dates that
@@ -1492,6 +1856,7 @@ serve(async (req) => {
         }
         if (!prevRows?.length) break;
         for (const row of prevRows) {
+          if (!countsTowardRevenueSalesPickup(row as Pick<Night, "stay_from" | "stay_to" | "source_name">)) continue;
           const key = stayKeyOf(row as any);
           const rows = previousByStayKey.get(key) ?? [];
           rows.push(row);
@@ -1560,6 +1925,70 @@ serve(async (req) => {
 
     } catch (e) {
       errors.push(`loss diff: ${(e as Error).message}`);
+    }
+
+    // Previo can transiently omit an already-recorded reservation-night and
+    // report it again on the next read. This is NOT another cancellation.
+    // The durable loss ledger is authoritative for whether the disappearance
+    // has already been counted in pickup.
+    if (lostNights.length > 0) {
+      const knownLossKeys = new Set<string>();
+      let ledgerComplete = true;
+      const pageSize = 1000;
+      for (let offset = 0; offset < 100000; offset += pageSize) {
+        const { data: prior, error: ledgerErr } = await service
+          .from("revenue_cancelled_nights")
+          .select("id,res_id,room_key,stay_date")
+          .eq("hotel_id", hotelId)
+          .gte("stay_date", from)
+          .lte("stay_date", replaceTo)
+          .order("id", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (ledgerErr) {
+          errors.push(`loss ledger read: ${ledgerErr.message}`);
+          ledgerComplete = false;
+          break;
+        }
+        for (const row of prior ?? []) {
+          knownLossKeys.add(`${row.res_id}|${row.room_key}|${row.stay_date}`);
+        }
+        if ((prior ?? []).length < pageSize) break;
+        if (offset + pageSize >= 100000) {
+          ledgerComplete = false;
+          errors.push("loss ledger read: safety pagination limit reached");
+        }
+      }
+
+      if (!ledgerComplete) {
+        // Do not invent loss movement if its durable history cannot be checked.
+        for (const movement of movementByDate.values()) movement.lost = 0;
+        lostNights.length = 0;
+        softNotes.push("pickup loss withheld because cancellation history is unavailable");
+      } else {
+        const seenThisRun = new Set<string>();
+        const freshLosses: typeof lostNights = [];
+        const previouslySeenByDate = new Map<string, number>();
+        for (const lost of lostNights) {
+          const key = `${lost.res_id}|${lost.room_key}|${lost.stay_date}`;
+          if (knownLossKeys.has(key) || seenThisRun.has(key)) {
+            previouslySeenByDate.set(lost.stay_date, (previouslySeenByDate.get(lost.stay_date) ?? 0) + 1);
+          } else {
+            seenThisRun.add(key);
+            freshLosses.push(lost);
+          }
+        }
+        for (const [date, repeated] of previouslySeenByDate) {
+          const movement = movementByDate.get(date);
+          if (!movement) continue;
+          movement.lost = Math.max(0, movement.lost - repeated);
+          if (movement.gained === 0 && movement.lost === 0) movementByDate.delete(date);
+        }
+        const previouslyRecorded = lostNights.length - freshLosses.length;
+        lostNights.splice(0, lostNights.length, ...freshLosses);
+        if (previouslyRecorded) {
+          softNotes.push(`pickup: ignored ${previouslyRecorded} previously-recorded disappeared room-night(s), avoiding repeated phantom cancellations`);
+        }
+      }
     }
 
     // Full replace for the horizon so cancellations disappear immediately.
@@ -1645,7 +2074,7 @@ serve(async (req) => {
     for (let i = 0; i < cancelPayload.length; i += 500) {
       const { error } = await service
         .from("revenue_cancelled_nights")
-        .insert(cancelPayload.slice(i, i + 500));
+        .upsert(cancelPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,room_key,stay_date", ignoreDuplicates: true });
       if (error) errors.push(`cancelled nights insert: ${error.message}`);
     }
 
@@ -1679,7 +2108,7 @@ serve(async (req) => {
       for (let i = 0; i < lostPayload.length; i += 500) {
         const { error } = await service
           .from("revenue_cancelled_nights")
-          .insert(lostPayload.slice(i, i + 500));
+          .upsert(lostPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,room_key,stay_date", ignoreDuplicates: true });
         if (error) errors.push(`lost nights insert: ${error.message}`);
       }
     }
@@ -1696,18 +2125,28 @@ serve(async (req) => {
 
 
   // ---------- 4. daily snapshot ----------
-  const perDate = new Map<string, { sold: number; revenue: number; created: number }>();
+  const perDate = new Map<string, { sold: number; revenue: number; created: number; held: number; unpriced: number }>();
   for (let i = 0; i <= horizonDays; i++) {
-    perDate.set(addDays(from, i), { sold: 0, revenue: 0, created: 0 });
+    perDate.set(addDays(from, i), { sold: 0, revenue: 0, created: 0, held: 0, unpriced: 0 });
   }
   for (const n of nights) {
     const slot = perDate.get(n.stay_date);
-    if (!slot) continue;
+    if (!slot || !isActiveKind(n.obk_id)) continue;
+    if (!countsTowardRevenueSalesPickup(n)) {
+      // Inventory holds reduce sellable capacity, not commercial ADR.
+      slot.held += 1;
+      continue;
+    }
     slot.sold += 1;
     slot.revenue += n.nightly_price_eur ?? 0;
+    if (n.nightly_price_eur === null) slot.unpriced += 1;
     // Stored as UTC; a booking made at 01:00 Budapest is still "yesterday" in
     // UTC, so compare Budapest calendar days or early-morning pickup is lost.
-    if (n.created_at_pms && budapestDayOf(n.created_at_pms) === today) slot.created += 1;
+    if (
+      n.created_at_pms
+      && budapestDayOf(n.created_at_pms) === today
+      && countsTowardRevenueSalesPickup(n)
+    ) slot.created += 1;
   }
   const capturedAt = new Date().toISOString();
   const snapshots = Array.from(perDate.entries()).map(([stayDate, v]) => ({
@@ -1716,21 +2155,29 @@ serve(async (req) => {
     stay_date: stayDate,
     captured_date: today,
     rooms_sold: v.sold,
-    rooms_available: totalRooms,
-    occupancy_pct: totalRooms ? Math.round((v.sold / totalRooms) * 1000) / 10 : 0,
+    rooms_available: Math.max(0, totalRooms - v.held),
+    occupancy_pct: totalRooms > v.held ? Math.round((v.sold / (totalRooms - v.held)) * 1000) / 10 : 0,
     revenue_eur: Math.round(v.revenue * 100) / 100,
     adr_eur: v.sold ? Math.round((v.revenue / v.sold) * 100) / 100 : null,
     new_bookings: v.created,
     captured_at: capturedAt,
   }));
-  if (!resErrors.length) {
-    for (let i = 0; i < snapshots.length; i += 500) {
+  const invalidSnapshots = snapshots.filter((s) => s.rooms_available < s.rooms_sold || s.rooms_available < 1);
+  const missingPriceDays = Array.from(perDate.values()).filter((s) => s.unpriced > 0).length;
+  if (invalidSnapshots.length > 0) softNotes.push(`KPI validation: ${invalidSnapshots.length} days have sales above commercial inventory or zero inventory`);
+  if (missingPriceDays > 0) softNotes.push(`KPI validation: ${missingPriceDays} days contain missing room prices; verify in Previo`);
+  // Overbooked dates are a genuine Previo discrepancy, not a reason to suppress all dates.
+  // Preserve the true sold/available values (>100% occupancy flags an issue for review).
+  const publishableSnapshots = snapshots.filter((s) => s.rooms_available > 0);
+  if (publishableSnapshots.length === 0) errors.push("snapshot validation: no date has positive inventory");
+  if (!resErrors.length && publishableSnapshots.length > 0) {
+    for (let i = 0; i < publishableSnapshots.length; i += 500) {
       const { error } = await service
         .from("revenue_daily_snapshots")
-        .insert(snapshots.slice(i, i + 500));
+        .insert(publishableSnapshots.slice(i, i + 500));
       if (error) errors.push(`snapshot insert: ${error.message}`);
     }
-    const pickupRows = snapshots.map((snapshot) => {
+    const pickupRows = publishableSnapshots.map((snapshot) => {
       const movement = movementByDate.get(snapshot.stay_date) ?? { gained: 0, lost: 0 };
       return {
         hotel_id: hotelId,
@@ -1765,6 +2212,8 @@ serve(async (req) => {
     requeuedCells,
     divergentDrafts,
     bookingNights: nights.length,
+    salesPickupExcludedReservations: suppressedPickupReservationIds.size,
+    availabilityRows: availabilityRowsStored,
     // Loss instrumentation: how many room-nights Previo reported as cancelled
     // and how many simply vanished between two syncs. Without these counters a
     // property that never shows negative pickup is impossible to diagnose.

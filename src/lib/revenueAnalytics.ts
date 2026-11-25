@@ -31,6 +31,46 @@ export function daysBetween(a: string, b: string): number {
 }
 
 /**
+ * Previo can expose source-less multi-year reservation records that are used as
+ * apartment inventory holds rather than a normal hotel sale. They still belong
+ * in the on-the-books inventory picture, but treating the whole multi-year span
+ * as a booking created today makes sales and pickup explode by hundreds of
+ * room-nights in one sync.
+ *
+ * Keep normal direct bookings (which may also have no source) and every
+ * channel-attributed booking. Only suppress source-less stays longer than a
+ * full leap year from booking-created/pickup KPIs.
+ */
+export const MAX_SOURCELESS_SALES_PICKUP_STAY_NIGHTS = 366;
+
+/**
+ * Previo has long-running, source-less unit holds (some span several years).
+ * They remove a physical unit from sellable capacity but are NOT nightly hotel
+ * sales. This classification is deliberately narrow: ordinary source-less
+ * direct reservations and all channel bookings stay in the commercial book.
+ */
+export function isNonCommercialInventoryHold(row: {
+  stay_from?: string | null;
+  stay_to?: string | null;
+  source_name?: string | null;
+}): boolean {
+  if (row.source_name?.trim()) return false;
+  const from = row.stay_from?.slice(0, 10);
+  const to = row.stay_to?.slice(0, 10);
+  if (!from || !to) return false;
+  const span = daysBetween(from, to);
+  return Number.isFinite(span) && span > MAX_SOURCELESS_SALES_PICKUP_STAY_NIGHTS;
+}
+
+export function countsTowardRevenueSalesPickup(row: {
+  stay_from?: string | null;
+  stay_to?: string | null;
+  source_name?: string | null;
+}): boolean {
+  return !isNonCommercialInventoryHold(row);
+}
+
+/**
  * The pickup window the automation engine itself uses: a ROLLING 48 hours, not
  * a Budapest calendar day. Encoded as a negative number of hours so the single
  * `pickupWindowDays` value can carry either mode without a second prop.
@@ -40,17 +80,38 @@ export function daysBetween(a: string, b: string): number {
  * price rose against an empty pickup cell.
  */
 export const PICKUP_WINDOW_48H = -48;
+/** Management pickup view defaults to yesterday + today in Budapest time. */
+export const DEFAULT_PICKUP_WINDOW_DAYS = 2;
 
 /** True when the value means "the last N hours" rather than "the last N days". */
 export function isRollingPickupWindow(windowDays: number): boolean {
   return windowDays < 0;
 }
 
+/**
+ * Find Budapest's actual local midnight, including winter (UTC+1) and
+ * summer (UTC+2). A hard-coded two-hour offset counted an extra hour of
+ * the previous date in winter. Clock transitions happen after midnight.
+ */
+function budapestMidnightMs(day: string): number {
+  const utcMidnight = Date.parse(`${day}T00:00:00Z`);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: BUDAPEST_TZ,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date(utcMidnight));
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const localClock = Date.UTC(
+    value("year"), value("month") - 1, value("day"), value("hour"), value("minute"),
+  );
+  return utcMidnight - (localClock - utcMidnight);
+}
+
 /** Epoch ms at which the selected pickup window opens. */
 export function pickupWindowStartMs(windowDays: number, now: number = Date.now()): number {
   if (isRollingPickupWindow(windowDays)) return now - Math.abs(windowDays) * 3_600_000;
   const firstDay = addDays(budapestDayOf(new Date(now).toISOString()), -Math.max(0, windowDays - 1));
-  return Date.parse(`${firstDay}T00:00:00Z`) - 2 * 3_600_000; // Budapest midnight, DST-tolerant
+  return budapestMidnightMs(firstDay);
 }
 
 /** First Budapest calendar day the window can touch (used for day-keyed data). */
@@ -176,6 +237,12 @@ export interface DayMetrics {
   revparEur: number | null;
   /** Rooms still sellable on this date (inventory minus rooms sold). */
   roomsLeft: number;
+  /** Nightly inventory allocated to source-less multi-year non-commercial holds. */
+  excludedInventoryHolds?: number;
+  /** Booked nights belonging to explicitly inactive/non-inventory room kinds. */
+  excludedInactiveNights?: number;
+  /** Commercial stays without a nightly room price (do not present computed ADR as certified). */
+  missingPriceNights?: number;
   /** Bookings created inside the pickup window (never negative). */
   newBookings: number;
   /** Room-nights cancelled inside the pickup window (never negative). */
@@ -230,6 +297,8 @@ export function buildDayMetrics(params: {
   movements?: PickupMovement[];
   roomsAvailable: number;
   windowDays: number;
+  /** Known, explicitly disabled/non-inventory Previo room kinds. */
+  excludedRoomTypeIds?: Set<string>;
   /** Stay dates that have a published rate — evidence the sync reached them. */
   ratedDates?: Set<string>;
 }): DayMetrics[] {
@@ -256,22 +325,32 @@ export function buildDayMetrics(params: {
 
   const sold = new Map<string, number>();
   const revenue = new Map<string, number>();
-  // Rooms that actually carry a price. A group booking often puts the whole
-  // amount on one room and sends the others at 0, so those must not drag the
-  // ADR average down.
-  const pricedRooms = new Map<string, number>();
+  // Capacity holds are tracked per stay-date, separately from sellable sales.
+  const heldRooms = new Map<string, number>();
+  const excludedInactiveNights = new Map<string, number>();
+  const missingPriceNights = new Map<string, number>();
   // Pickup is counted in ROOMS per reservation, so a second room added to a
   // booking that already covered that night still reads as one pickup, while a
   // physical room-key change on the same room does not.
   const createdRes = new Map<string, Set<string>>();
   const createdRevenue = new Map<string, number>();
   for (const n of nights) {
+    // Explicitly disabled inventory is not part of the commercial property's
+    // room count, room revenue or pickup (particularly important for SLNT).
+    if (n.obk_id && params.excludedRoomTypeIds?.has(n.obk_id)) {
+      excludedInactiveNights.set(n.stay_date, (excludedInactiveNights.get(n.stay_date) ?? 0) + 1);
+      continue;
+    }
+    if (isNonCommercialInventoryHold(n)) {
+      heldRooms.set(n.stay_date, (heldRooms.get(n.stay_date) ?? 0) + 1);
+      continue;
+    }
+    if (n.nightly_price_eur === null || !Number.isFinite(n.nightly_price_eur)) {
+      missingPriceNights.set(n.stay_date, (missingPriceNights.get(n.stay_date) ?? 0) + 1);
+    }
     sold.set(n.stay_date, (sold.get(n.stay_date) ?? 0) + 1);
     revenue.set(n.stay_date, (revenue.get(n.stay_date) ?? 0) + (n.nightly_price_eur ?? 0));
-    if ((n.nightly_price_eur ?? 0) > 0) {
-      pricedRooms.set(n.stay_date, (pricedRooms.get(n.stay_date) ?? 0) + 1);
-    }
-    if (n.created_at_pms) {
+    if (n.created_at_pms && countsTowardRevenueSalesPickup(n)) {
       if (inWindow(n.created_at_pms)) {
 
         const set = createdRes.get(n.stay_date) ?? new Set<string>();
@@ -372,10 +451,12 @@ export function buildDayMetrics(params: {
     else net = bookingDelta;
 
 
-    // ADR averages only the rooms that carry a price: a group booking's €0
-    // companion rooms have no rate and must not dilute it.
-    const priced = pricedRooms.get(d) ?? 0;
-    const adr = priced ? rev / priced : null;
+    // All commercially occupied room-nights count in ADR, even if Previo
+    // allocates a multi-room booking's revenue to only one of its rooms.
+    const adr = rs ? rev / rs : null;
+    // Multi-year unit holds make a unit unavailable for sale without creating
+    // a hotel room-night sale. Exclude those holds from BOTH sides of Occ.
+    const commercialCapacity = Math.max(0, avail - (heldRooms.get(d) ?? 0));
     // Rooms lost: explicit cancellations, or whatever the snapshot says went
     // missing beyond the bookings we can see.
     const impliedLost = snapDelta !== null ? Math.max(0, -snapDelta) : 0;
@@ -384,13 +465,16 @@ export function buildDayMetrics(params: {
     return {
       stay_date: d,
       roomsSold: rs,
-      roomsAvailable: avail,
-      occupancyPct: avail ? Math.round((rs / avail) * 1000) / 10 : 0,
+      roomsAvailable: commercialCapacity,
+      occupancyPct: commercialCapacity ? Math.round((rs / commercialCapacity) * 1000) / 10 : 0,
       revenueEur: rev,
       adrEur: adr !== null ? Math.round(adr * 100) / 100 : null,
 
-      revparEur: avail ? Math.round((rev / avail) * 100) / 100 : null,
-      roomsLeft: Math.max(0, avail - rs),
+      revparEur: commercialCapacity ? Math.round((rev / commercialCapacity) * 100) / 100 : null,
+      roomsLeft: Math.max(0, commercialCapacity - rs),
+      excludedInventoryHolds: heldRooms.get(d) ?? 0,
+      excludedInactiveNights: excludedInactiveNights.get(d) ?? 0,
+      missingPriceNights: missingPriceNights.get(d) ?? 0,
       newBookings: createdN,
       cancelledBookings: cancelledN < 0 ? 0 : cancelledN,
       newRevenueEur: Math.round((createdRevenue.get(d) ?? 0) * 100) / 100,

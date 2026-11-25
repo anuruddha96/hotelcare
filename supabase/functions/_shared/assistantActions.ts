@@ -11,7 +11,10 @@ export type AssistantActionKind =
   | "assign_room_cleaning"
   | "update_ticket_status"
   | "set_min_stay"
-  | "edit_revenue_prices";
+  | "edit_revenue_prices"
+  | "create_guest_request"
+  | "set_bed_configuration"
+  | "adjust_revenue_prices";
 
 export type ActionField = { label: string; value: string };
 
@@ -37,16 +40,27 @@ const MANAGER_ROLES = [
 
 const REVENUE_WRITE_ROLES = ["admin", "top_management", "top_management_manager"];
 
+// The same permission levels as the tickets INSERT policy ("Secure ticket
+// creation"): Mira never offers a ticket the Report-issue form would refuse.
+export const TICKET_CREATOR_ROLES = [
+  "admin",
+  "top_management",
+  "top_management_manager",
+  "manager",
+  "housekeeping_manager",
+  "housekeeping",
+  "reception",
+  "front_office",
+  "maintenance",
+  "marketing",
+  "control_finance",
+  "hr",
+];
+/** May raise a ticket for any hotel of their organization (others: own hotel only). */
+const TICKET_ANY_HOTEL_ROLES = ["admin", "top_management", "top_management_manager"];
+
 const ACTION_ROLES: Record<AssistantActionKind, string[]> = {
-  // Anyone who works the floor may raise a maintenance ticket.
-  create_ticket: [
-    ...MANAGER_ROLES,
-    "housekeeping",
-    "maintenance",
-    "reception",
-    "front_office",
-    "breakfast_staff",
-  ],
+  create_ticket: TICKET_CREATOR_ROLES,
   // Only people who run the housekeeping board may hand a room to someone.
   assign_room_cleaning: ["admin", "manager", "top_management", "top_management_manager", "housekeeping_manager", "supervisor"],
   update_ticket_status: [...MANAGER_ROLES, "maintenance"],
@@ -54,6 +68,9 @@ const ACTION_ROLES: Record<AssistantActionKind, string[]> = {
   // publishing endpoints. The assistant never widens those permissions.
   set_min_stay: REVENUE_WRITE_ROLES,
   edit_revenue_prices: REVENUE_WRITE_ROLES,
+  adjust_revenue_prices: REVENUE_WRITE_ROLES,
+  create_guest_request: [...MANAGER_ROLES, "reception", "front_office", "housekeeping"],
+  set_bed_configuration: [...MANAGER_ROLES, "reception", "front_office"],
 };
 
 export const ACTION_LABEL: Record<AssistantActionKind, string> = {
@@ -62,6 +79,9 @@ export const ACTION_LABEL: Record<AssistantActionKind, string> = {
   update_ticket_status: "Change a ticket's status",
   set_min_stay: "Set Revenue calendar minimum stay and publish it to Previo",
   edit_revenue_prices: "Edit Revenue calendar prices through the safe Previo publishing queue",
+  adjust_revenue_prices: "Adjust verified Revenue calendar prices by a fixed euro amount",
+  create_guest_request: "Send a guest room-item request to housekeeping",
+  set_bed_configuration: "Update room bed setup for housekeeping",
 };
 
 export function actionsForRole(role: string | null | undefined): AssistantActionKind[] {
@@ -74,8 +94,34 @@ export function canRunAction(role: string | null | undefined, kind: string): kin
 }
 
 const PRIORITIES = ["low", "medium", "high", "urgent"];
+const PRIORITY_ALIASES: Record<string, string> = {
+  normal: "medium", standard: "medium", moderate: "medium",
+  minor: "low", cosmetic: "low",
+  critical: "urgent", emergency: "urgent", asap: "urgent", immediate: "urgent",
+};
+// Departments of the Report-issue form (CreateTicketDialog).
+export const TICKET_DEPARTMENTS: Record<string, string> = {
+  maintenance: "Maintenance",
+  housekeeping: "Housekeeping",
+  reception: "Reception",
+  marketing: "Marketing",
+  back_office: "Back Office",
+  control: "Control",
+  finance: "Finance",
+  top_management: "Top Management",
+};
+const DEPARTMENT_ALIASES: Record<string, string> = {
+  technical: "maintenance", technician: "maintenance", engineering: "maintenance", repair: "maintenance",
+  front_office: "reception", front_desk: "reception", frontdesk: "reception",
+  hk: "housekeeping", cleaning: "housekeeping",
+  backoffice: "back_office", management: "top_management",
+};
 const STATUSES = ["open", "in_progress", "completed"];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function capitalize(value: string): string {
+  return value ? value[0].toUpperCase() + value.slice(1) : value;
+}
 
 function text(value: unknown, max: number): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
@@ -224,29 +270,87 @@ export function validateAction(
   const hotelId = text(raw.hotelId, 120);
   if (!hotelId) return fail("Name the property this action applies to");
 
+  if (kind === "create_guest_request") {
+    const roomNumber = text(raw.roomNumber, 40);
+    const requestType = text(raw.requestType, 30) || "other";
+    const quantities = Number(raw.quantity ?? 1);
+    const detail = text(raw.detail, 500);
+    const labels: Record<string, string> = {
+      extra_towels: "Extra towels", extra_pillow: "Extra pillow", blanket: "Blanket",
+      baby_cot: "Baby cot", iron: "Iron", amenities: "Extra amenities", other: "Other request",
+    };
+    if (!roomNumber) return fail("Specify the room number.");
+    if (!labels[requestType]) return fail("Select an available guest request type.");
+    if (!Number.isInteger(quantities) || quantities < 1 || quantities > 20) return fail("Quantity must be 1–20.");
+    return { ok: true, action: {
+      kind: "create_guest_request", hotelId, title: "Guest room request",
+      input: { hotelId, roomNumber, requestType, quantity: quantities, detail },
+      fields: [{ label: "Room", value: roomNumber }, { label: "Items", value: `${labels[requestType]} ×${quantities}` }],
+    } };
+  }
+
+  if (kind === "set_bed_configuration") {
+    const roomNumber = text(raw.roomNumber, 40);
+    const configuration = text(raw.configuration, 50);
+    const values = ["Double Bed", "Twin Beds", "Twin Beds Separated", "Single Bed", "Baby Bed", "Sofa Bed", "Extra Cot Added"];
+    if (!roomNumber) return fail("Specify the room number.");
+    if (!values.includes(configuration)) return fail("Choose a supported bed setup; for beds together, use Double Bed.");
+    return { ok: true, action: {
+      kind: "set_bed_configuration", hotelId, title: "Update bed setup",
+      input: { hotelId, roomNumber, configuration },
+      fields: [{ label: "Room", value: roomNumber }, { label: "Bed setup", value: configuration }],
+    } };
+  }
+
+  if (kind === "adjust_revenue_prices") {
+    const from = validIsoDate(raw.fromDate);
+    const to = validIsoDate(raw.toDate);
+    const delta = Number(raw.deltaEur);
+    const dates = from && to ? expandDateRange(from, to, 7) : null;
+    if (!dates || dates.some(d => d < budapestToday())) return fail("Use an exact future date range of 1–7 days.");
+    if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 20) return fail("Use a whole euro adjustment between -20 and +20.");
+    return { ok: true, action: {
+      kind: "adjust_revenue_prices", hotelId, title: "Adjust daily prices",
+      input: { hotelId, fromDate: from, toDate: to, deltaEur: delta },
+      fields: [{ label: "Dates", value: displayDateSet(dates) }, { label: "Change", value: `${delta > 0 ? "+" : ""}${delta} EUR per eligible price cell` }],
+    } };
+  }
+
   if (kind === "create_ticket") {
     const title = text(raw.title, 200);
     const description = text(raw.description, 2000);
-    const roomNumber = text(raw.roomNumber, 40);
-    const priority = text(raw.priority, 20).toLowerCase() || "medium";
-    const department = text(raw.department, 40) || "maintenance";
+    let roomNumber = cleanRoomReference(text(raw.roomNumber ?? raw.room ?? raw.room_number, 40));
+    let location = text(raw.location ?? raw.area ?? raw.commonArea, 80);
+    // "Lobby" or "3rd floor corridor" in the room field is a common area.
+    if (roomNumber && !looksLikeRoomCode(roomNumber)) {
+      location = location || roomNumber;
+      roomNumber = "";
+    }
+    if (/^(?:n\/?a|none|-)$/i.test(location)) location = "";
+    const rawPriority = text(raw.priority, 20).toLowerCase();
+    const priority = PRIORITY_ALIASES[rawPriority] ?? (rawPriority || "medium");
+    const rawDepartment = text(raw.department, 40).toLowerCase().replace(/[\s-]+/g, "_");
+    const department = !rawDepartment ? "maintenance" : (DEPARTMENT_ALIASES[rawDepartment] ?? rawDepartment);
     if (!title) return fail("A short ticket title is required");
     if (!description) return fail("Describe the problem so the technician knows what to expect");
-    if (!roomNumber) return fail("A room or location is required");
+    if (!roomNumber && !location) return fail("Say which room, or which common area such as the lobby, has the problem");
     if (!PRIORITIES.includes(priority)) return fail(`Priority must be one of ${PRIORITIES.join(", ")}`);
+    if (!TICKET_DEPARTMENTS[department]) {
+      return fail(`Department must be one of ${Object.keys(TICKET_DEPARTMENTS).join(", ")}`);
+    }
     return {
       ok: true,
       action: {
         kind: "create_ticket",
         hotelId,
         title: "New maintenance ticket",
-        input: { hotelId, title, description, roomNumber, priority, department },
+        input: { hotelId, title, description, roomNumber, location, priority, department },
         fields: [
-          { label: "Room / location", value: roomNumber },
+          { label: roomNumber ? "Room" : "Location", value: roomNumber || `${location} (common area)` },
           { label: "Title", value: title },
           { label: "Description", value: description },
-          { label: "Priority", value: priority },
-          { label: "Department", value: department },
+          { label: "Priority", value: capitalize(priority) },
+          { label: "Department", value: TICKET_DEPARTMENTS[department] },
         ],
       },
     };
@@ -354,41 +458,323 @@ export function validateAction(
   return fail("That action is not available");
 }
 
+// ---------------------------------------------------------------------------
+// Maintenance tickets: where the problem is, and who may file it.
+// ---------------------------------------------------------------------------
+
+/** "Room 406" → "406". */
+export function cleanRoomReference(value: string): string {
+  return String(value ?? "").replace(/^(?:room|rm|szoba|apartment|apt|no\.?|nr\.?|#)\s*/i, "").trim();
+}
+
+/** "406", "A12", "1B-3/3/5" are rooms; "Lobby" or "3rd floor corridor" are common areas. */
+export function looksLikeRoomCode(value: string): boolean {
+  const cleaned = cleanRoomReference(value);
+  return cleaned.length > 0 && cleaned.length <= 24 && !/\s/.test(cleaned) && /^[\p{L}]{0,3}\d/u.test(cleaned);
+}
+
+/** Rooms that look like what the person meant, best first (for "did you mean"). */
+export function nearestRooms(input: string, labels: readonly string[], limit = 4): string[] {
+  const needle = cleanRoomReference(input).toLowerCase();
+  if (!needle) return [];
+  const needleDigits = needle.replace(/\D/g, "");
+  const scored = [...new Set(labels.map((l) => String(l ?? "").trim()).filter(Boolean))].map((label) => {
+    const value = label.toLowerCase();
+    let score = 0;
+    if (value.startsWith(needle) || needle.startsWith(value)) score += 3;
+    else if (value.includes(needle) || needle.includes(value)) score += 2;
+    let prefix = 0;
+    while (prefix < value.length && prefix < needle.length && value[prefix] === needle[prefix]) prefix += 1;
+    score += prefix * 0.5;
+    const digits = value.replace(/\D/g, "");
+    if (needleDigits && digits && digits.length === needleDigits.length) {
+      const distance = Math.abs(Number(digits) - Number(needleDigits));
+      if (distance <= 10) score += 2 - distance / 10;
+    }
+    return { label, score };
+  });
+  return scored
+    .filter((row) => row.score >= 1)
+    .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label, undefined, { numeric: true }))
+    .slice(0, limit)
+    .map((row) => row.label);
+}
+
+/** Mirrors the tickets INSERT policy: top management any hotel of the organization, others their own hotel. */
+export function ticketHotelAllowed(
+  profile: { role?: string | null; assigned_hotel?: string | null; is_super_admin?: boolean | null },
+  hotel: { hotel_id: string; hotel_name?: string | null },
+): boolean {
+  if (profile.is_super_admin === true) return true;
+  if (TICKET_ANY_HOTEL_ROLES.includes(String(profile.role ?? ""))) return true;
+  const home = String(profile.assigned_hotel ?? "").trim().toLowerCase();
+  if (!home) return false;
+  return [hotel.hotel_id, hotel.hotel_name].some((key) => String(key ?? "").trim().toLowerCase() === home);
+}
+
+export function formatChoices(values: readonly string[]): string {
+  if (values.length <= 1) return values[0] ?? "";
+  return `${values.slice(0, -1).join(", ")} or ${values[values.length - 1]}`;
+}
+
+export type TicketPlace =
+  | { ok: true; kind: "room"; roomId: string; roomNumber: string; hotelId: string; hotelName: string }
+  | { ok: true; kind: "area"; location: string; hotelId: string; hotelName: string }
+  | { ok: false; error: string; suggestions: string[] };
+
+const UNAVAILABLE_ROOM_STATUSES = new Set(["out_of_order", "unavailable", "decommissioned"]);
+const GOZSDU_HOTEL_KEYS = new Set(["gozsdu-court", "gozsdu court budapest"]);
+
 /**
- * Executes a validated non-revenue action with the service client. Caller MUST
- * already have verified the session, role and authorized property. Revenue
- * actions deliberately run in `assistant-apply-action` through the existing
- * authenticated Revenue/Previo Edge Functions, so their safety logic remains
- * the single source of truth.
+ * Resolves the hotel and the room (or common area) of a ticket exactly like the
+ * Report-issue form: the hotel's canonical name, operating Gozsdu rooms by
+ * their PMS name, and no out-of-order rooms. Read-only.
+ */
+export async function resolveTicketPlace(service: any, params: {
+  organizationSlug: string | null;
+  hotelId: string;
+  hotelName?: string | null;
+  roomNumber?: string | null;
+  location?: string | null;
+}): Promise<TicketPlace> {
+  const unavailable = (error: string): TicketPlace => ({ ok: false, error, suggestions: [] });
+  const org = params.organizationSlug;
+  if (!org) return unavailable("Your account has no organization, so HotelCare cannot file this ticket.");
+
+  const { data: orgRow, error: orgError } = await service.from("organizations").select("id").eq("slug", org).maybeSingle();
+  if (orgError || !orgRow?.id) return unavailable("HotelCare could not verify your organization just now. Try again.");
+  const { data: configs, error: configError } = await service.from("hotel_configurations")
+    .select("hotel_id,hotel_name").eq("organization_id", orgRow.id).eq("is_active", true);
+  if (configError) return unavailable("HotelCare could not verify the hotel just now. Try again.");
+  const wanted = [params.hotelId, params.hotelName].filter(Boolean).map((v) => String(v).trim().toLowerCase());
+  const hotel = (configs ?? []).find((h: any) =>
+    wanted.includes(String(h.hotel_id ?? "").toLowerCase()) || wanted.includes(String(h.hotel_name ?? "").toLowerCase()));
+  if (!hotel) return unavailable(`${params.hotelName || params.hotelId} is not an active hotel of your organization.`);
+  const hotelId = String(hotel.hotel_id);
+  const hotelName = String(hotel.hotel_name || hotel.hotel_id);
+
+  const roomText = cleanRoomReference(String(params.roomNumber ?? ""));
+  const areaText = String(params.location ?? "").replace(/\s+/g, " ").trim();
+  if (!roomText || !looksLikeRoomCode(roomText)) {
+    const area = (areaText || roomText).slice(0, 80);
+    if (!area || /^(?:n\/?a|none|-)$/i.test(area)) return unavailable("Say which room or which common area has the problem.");
+    return { ok: true, kind: "area", location: area, hotelId, hotelName };
+  }
+
+  const keys = [...new Set([hotel.hotel_id, hotel.hotel_name].filter(Boolean).map(String))];
+  const { data: rooms, error: roomError } = await service.from("rooms")
+    .select("id,hotel,room_number,status").eq("organization_slug", org).in("hotel", keys);
+  if (roomError) return unavailable("HotelCare could not read the room list just now. Try again.");
+
+  type Candidate = { id: string; label: string; alias: string; status: string };
+  let candidates: Candidate[];
+  if (GOZSDU_HOTEL_KEYS.has(hotelId.toLowerCase()) || GOZSDU_HOTEL_KEYS.has(hotelName.toLowerCase())) {
+    // Gozsdu rooms are known by their PMS name and must be in the operating inventory.
+    const ids = (rooms ?? []).map((r: any) => r.id);
+    const { data: registry, error: registryError } = ids.length
+      ? await service.from("gozsdu_housekeeping_room_registry").select("room_id,pms_room_name,service_status").in("room_id", ids)
+      : { data: [], error: null };
+    if (registryError) return unavailable("HotelCare could not read the Gozsdu room list just now. Try again.");
+    const byRoom = new Map((registry ?? []).map((g: any) => [g.room_id, g]));
+    candidates = (rooms ?? []).flatMap((r: any) => {
+      const entry: any = byRoom.get(r.id);
+      const name = String(entry?.pms_room_name ?? "").trim();
+      return entry?.service_status === "operating" && name
+        ? [{ id: r.id, label: name, alias: String(r.room_number ?? "").trim(), status: "operating" }]
+        : [];
+    });
+  } else {
+    candidates = (rooms ?? []).map((r: any) => ({
+      id: r.id,
+      label: String(r.room_number ?? "").trim(),
+      alias: "",
+      status: String(r.status ?? "").toLowerCase(),
+    })).filter((r: Candidate) => r.label);
+  }
+
+  const needle = roomText.toLowerCase();
+  const matches = [...new Map(candidates
+    .filter((r) => r.label.toLowerCase() === needle || (r.alias && r.alias.toLowerCase() === needle))
+    .map((r) => [r.id, r])).values()];
+  if (matches.length === 1) {
+    const room = matches[0];
+    if (UNAVAILABLE_ROOM_STATUSES.has(room.status)) {
+      return unavailable(`Room ${room.label} is marked ${room.status.replace(/_/g, " ")} in HotelCare, so it can't take a new maintenance ticket.`);
+    }
+    return { ok: true, kind: "room", roomId: room.id, roomNumber: room.label, hotelId, hotelName };
+  }
+  if (matches.length > 1) {
+    return { ok: false, error: `More than one room at ${hotelName} matches "${roomText}".`, suggestions: matches.slice(0, 4).map((r) => r.label) };
+  }
+  return {
+    ok: false,
+    error: `Room ${roomText} was not found at ${hotelName}.`,
+    suggestions: nearestRooms(roomText, candidates.filter((r) => !UNAVAILABLE_ROOM_STATUSES.has(r.status)).map((r) => r.label)),
+  };
+}
+
+/** A database refusal, said the way a colleague would say it. */
+export function ticketErrorMessage(error: { message?: string | null } | null | undefined, hotelName: string): string {
+  const message = String(error?.message ?? "").trim();
+  if (/row-level security/i.test(message)) {
+    return `Your HotelCare role can't create tickets for ${hotelName}. You can raise tickets for your own hotel; top management can raise them for any hotel.`;
+  }
+  if (!message) return "HotelCare did not confirm the ticket. Nothing was created; please try again.";
+  return `The ticket could not be created: ${message}`;
+}
+
+/**
+ * Executes a validated non-revenue action. Caller MUST already have verified
+ * the session, role and authorized property. Revenue actions deliberately run
+ * in `assistant-apply-action` through the existing authenticated Revenue/Previo
+ * Edge Functions, so their safety logic remains the single source of truth.
+ *
+ * Tickets are written with the person's own session (`userDb`), exactly like
+ * the Report-issue form: row-level security and the room-eligibility trigger
+ * (which requires auth.uid() to be the creator) decide as they do in the app.
  */
 export async function executeAction(
   service: any,
   ctx: { userId: string; role: string; organizationSlug: string | null; hotelId: string; hotelName: string },
   action: { kind: AssistantActionKind; input: Record<string, unknown> },
+  options: { userDb?: any } = {},
 ): Promise<{ ok: true; summary: string; recordId?: string } | { ok: false; error: string }> {
   const org = ctx.organizationSlug;
   const hotelKeys = [...new Set([ctx.hotelId, ctx.hotelName].filter(Boolean))] as string[];
 
+  if (action.kind === "create_guest_request" || action.kind === "set_bed_configuration") {
+    const roomNumber = String(action.input.roomNumber ?? "");
+    const { data: rooms, error: roomError } = await service.from("rooms")
+      .select("id,room_number,hotel,bed_configuration")
+      .eq("organization_slug", org).in("hotel", hotelKeys).eq("room_number", roomNumber).limit(2);
+    if (roomError) return fail(`Room lookup failed: ${roomError.message}`);
+    if (!rooms?.length) return fail(`Room ${roomNumber} was not found at this property.`);
+    if (rooms.length !== 1) return fail("Room number is ambiguous within this hotel; no action was taken.");
+    const room = rooms[0];
+
+    if (action.kind === "set_bed_configuration") {
+      const configuration = String(action.input.configuration);
+      if (room.bed_configuration === configuration)
+        return { ok: true, recordId: room.id, summary: `Room ${roomNumber} already has ${configuration} selected. No change needed.` };
+      // Optimistic compare-and-swap: never overwrite a change made by a manager mid-request.
+      let update = service.from("rooms").update({ bed_configuration: configuration })
+        .eq("id", room.id).eq("organization_slug", org);
+      update = room.bed_configuration === null ? update.is("bed_configuration", null)
+        : update.eq("bed_configuration", room.bed_configuration);
+      const { data: changed, error } = await update.select("id,bed_configuration").maybeSingle();
+      if (error) return fail(`Bed setup was not saved: ${error.message}`);
+      if (!changed || changed.bed_configuration !== configuration)
+        return fail("The room changed during this request. Refresh its current setup before retrying.");
+      return { ok: true, recordId: room.id,
+        summary: `Room ${roomNumber}: bed setup saved as ${configuration} for housekeeping.` };
+    }
+
+    const type = String(action.input.requestType);
+    const quantity = Number(action.input.quantity);
+    const labels: Record<string, string> = {
+      extra_towels: "Extra towels", extra_pillow: "Extra pillow", blanket: "Blanket",
+      baby_cot: "Baby cot", iron: "Iron", amenities: "Extra amenities", other: "Other request",
+    };
+    const day = budapestToday(), now = new Date().toISOString();
+    const { data: assignments, error: assignmentError } = await service.from("room_assignments")
+      .select("id,assigned_to,status,created_at").eq("room_id", room.id)
+      .eq("assignment_date", day).neq("status", "cancelled")
+      .order("created_at", { ascending: false }).limit(10);
+    if (assignmentError) return fail("Could not verify today's room assignment; the request was not sent.");
+    const assigned = assignments?.find((a: any) => a.assigned_to && a.status !== "completed")
+      ?? assignments?.find((a: any) => a.assigned_to) ?? null;
+    let workerName: string | null = null, attendanceStatus: string | null = null, active = false;
+    if (assigned?.assigned_to) {
+      const [{ data: person }, { data: attendance, error: attendanceError }] = await Promise.all([
+        service.from("profiles").select("full_name,nickname,organization_slug,deleted_at")
+          .eq("id", assigned.assigned_to).maybeSingle(),
+        service.from("staff_attendance").select("status,check_out_time")
+          .eq("user_id", assigned.assigned_to).eq("work_date", day)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      if (person && person.organization_slug === org && !person.deleted_at) {
+        workerName = person.nickname || person.full_name || "Assigned housekeeper";
+        if (!attendanceError && attendance) {
+          attendanceStatus = attendance.status ?? null;
+          active = !attendance.check_out_time && ["checked_in", "on_break"].includes(attendance.status);
+        }
+      }
+    }
+    const payload = {
+      version: 1, workDate: day, requestType: type, label: labels[type],
+      quantity, requiresReturn: !["amenities", "other"].includes(type),
+      status: "requested", detail: String(action.input.detail ?? ""),
+      events: [{ status: "requested", actorId: ctx.userId, at: now }],
+      targetAssignmentId: assigned?.id ?? null,
+      targetHousekeeperId: assigned?.assigned_to ?? null,
+      targetHousekeeperName: workerName,
+      targetAttendanceStatus: attendanceStatus,
+      targetWasActive: active,
+    };
+    const { data: saved, error } = await service.from("housekeeping_notes").insert({
+      room_id: room.id, assignment_id: assigned?.id ?? null, note_type: "guest_request",
+      content: JSON.stringify(payload), created_by: ctx.userId, is_resolved: false,
+    }).select("id").single();
+    if (error || !saved) return fail(`Guest request was not recorded: ${error?.message ?? "Unknown error"}`);
+    return { ok: true, recordId: saved.id,
+      summary: `${labels[type]} ×${quantity} recorded for room ${roomNumber}. ${active
+        ? `Routed to ${workerName}'s active housekeeping view; delivery has not yet been confirmed.`
+        : "No active assigned housekeeper could be verified; the request is saved, but an immediate notification is not confirmed."}` };
+  }
+
   if (action.kind === "create_ticket") {
-    const { title, description, roomNumber, priority, department } = action.input as Record<string, string>;
-    const { data, error } = await service
+    const { userDb } = options;
+    if (!userDb) return fail("HotelCare needs your own session to file this ticket. Refresh the page and try again.");
+    const input = action.input as Record<string, string>;
+    const place = await resolveTicketPlace(service, {
+      organizationSlug: org,
+      hotelId: ctx.hotelId,
+      hotelName: ctx.hotelName,
+      roomNumber: input.roomNumber,
+      location: input.location,
+    });
+    if (!place.ok) {
+      return fail(place.suggestions.length ? `${place.error} Did you mean ${formatChoices(place.suggestions)}?` : place.error);
+    }
+    const department = String(input.department || "maintenance");
+    // The same row the Report-issue form writes (CreateTicketDialog).
+    const { data, error } = await userDb
       .from("tickets")
       .insert({
-        ticket_number: `TKT-${Date.now()}`,
-        title,
-        description,
-        room_number: roomNumber,
-        priority,
+        title: input.title,
+        description: place.kind === "area" ? `Location: ${place.location}\n${input.description}` : input.description,
+        room_number: place.kind === "room" ? place.roomNumber : "N/A",
+        source_room_id: place.kind === "room" ? place.roomId : null,
+        priority: input.priority,
         department,
-        status: "open",
-        hotel: ctx.hotelName || ctx.hotelId,
+        hotel: place.hotelName,
         created_by: ctx.userId,
+        ticket_number: `TKT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        attachment_urls: null,
+        assigned_to: null,
         organization_slug: org,
+        source: "manual",
+        assignment_method: null,
       })
-      .select("id,ticket_number")
+      .select("id,ticket_number,assigned_to,assignment_method,room_number")
       .single();
-    if (error) return fail(`The ticket could not be created: ${error.message}`);
-    return { ok: true, recordId: data.id, summary: `Ticket ${data.ticket_number} created for room ${roomNumber}` };
+    if (error || !data) return fail(ticketErrorMessage(error, place.hotelName));
+
+    let routed = "";
+    if (data.assigned_to) {
+      const { data: person } = await service.from("profiles").select("full_name,nickname").eq("id", data.assigned_to).maybeSingle();
+      routed = ` Assigned to ${person?.full_name || person?.nickname || "a maintenance colleague"}.`;
+    } else if (department === "maintenance") {
+      routed = /no_staff|no_one|off_duty/i.test(String(data.assignment_method ?? ""))
+        ? " No maintenance colleague is signed in, so it waits in the maintenance queue."
+        : " It is in the maintenance queue.";
+    }
+    const where = place.kind === "room" ? `room ${data.room_number || place.roomNumber}` : place.location;
+    return {
+      ok: true,
+      recordId: data.id,
+      summary: `Ticket ${data.ticket_number} created for ${where} at ${place.hotelName}.${routed}`,
+    };
   }
 
   if (action.kind === "assign_room_cleaning") {

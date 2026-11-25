@@ -1,0 +1,204 @@
+import { describe, expect, it } from 'vitest';
+import {
+  buildSelectedDateHousekeepingWorkload,
+  isPotentialCheckoutRoom,
+  isUnsoldPlanningRoom,
+  nextDayRoomMatchTokens,
+  type DailyOverviewWorkRow,
+} from './nextDayHousekeepingSnapshot';
+
+const baseRoom = (id: string, room_number: string) => ({
+  id, room_number, hotel: 'mika-downtown', floor_number: null, room_size_sqm: null,
+  room_capacity: 2, is_checkout_room: false, pms_metadata: {}, status: 'clean',
+  towel_change_required: false, linen_change_required: false, wing: null,
+  elevator_proximity: null, room_category: null, bed_configuration: null,
+  notes: null, checkout_time: null,
+});
+const snapshot = (
+  room_number: string, status: 'departing' | 'ongoing',
+  arrival_date: string, departure_date: string,
+): DailyOverviewWorkRow => ({
+  room_label: room_number, room_number, arrival_date, departure_date, status,
+  housekeeping_dep: status === 'departing' ? 'DEP' : null,
+  housekeeping_stay: null, captured_at: '2026-09-09T19:45:02.001Z',
+});
+
+describe('next-day housekeeping selected-date snapshot', () => {
+  it('maps Mika apartment labels without collapsing them to the last digit', () => {
+    const rooms = [
+      baseRoom('r12', 'SUITE - 1/2'), baseRoom('r16', 'ST - 1/6'),
+      baseRoom('r17', 'DB - 1/7'), baseRoom('r18', '2B, SUITE - 1/8'),
+      baseRoom('r21', 'TRP - 2/1'), baseRoom('r22', 'SUITE - 2/2 (DB+Sofa)'),
+      baseRoom('r108', '108'),
+    ];
+    const rows = [
+      snapshot('1/2', 'ongoing', '2026-09-08', '2026-09-11'),
+      snapshot('1/6', 'departing', '2026-09-09', '2026-09-10'),
+      snapshot('1/7', 'ongoing', '2026-09-07', '2026-09-11'),
+      snapshot('1/8', 'departing', '2026-09-08', '2026-09-10'),
+      snapshot('2/1', 'ongoing', '2026-09-09', '2026-09-12'),
+      snapshot('2/2 (DB+Sofa)', 'departing', '2026-09-09', '2026-09-10'),
+      snapshot('108 (DB+SNG)', 'departing', '2026-09-07', '2026-09-10'),
+    ];
+    const workload = buildSelectedDateHousekeepingWorkload(rooms, rows, '2026-09-10');
+    expect(workload.rooms.map(room => room.id)).toEqual(['r12','r16','r17','r18','r21','r22','r108']);
+    expect(workload.checkoutCount).toBe(4);
+    expect(workload.dailyCount).toBe(3);
+    expect(nextDayRoomMatchTokens('SUITE - 1/2')).toContain('unit:1/2');
+    expect(nextDayRoomMatchTokens('SUITE - 2/2 (DB+Sofa)')).toContain('unit:2/2');
+    expect(nextDayRoomMatchTokens('108 (DB+SNG)')).toContain('room:108');
+    expect(nextDayRoomMatchTokens('SUITE - 1/2')).not.toContain('room:2');
+  });
+  it('reproduces the Mika 33-room workload as 19 checkouts and 14 daily rooms', () => {
+    const rooms = Array.from({ length: 33 }, (_, index) => baseRoom(`r${index + 1}`, String(101 + index)));
+    const rows = rooms.map((room, index) => index < 19
+      ? snapshot(room.room_number, 'departing', '2026-09-08', '2026-09-10')
+      : snapshot(room.room_number, 'ongoing', '2026-09-08', '2026-09-12'));
+    const workload = buildSelectedDateHousekeepingWorkload(rooms, rows, '2026-09-10');
+    expect(workload.rooms).toHaveLength(33);
+    expect(workload.checkoutCount).toBe(19);
+    expect(workload.dailyCount).toBe(14);
+  });
+  it('keeps tomorrow independent from today even when the same 33 rooms are occupied', () => {
+    const rooms = Array.from({ length: 33 }, (_, index) => baseRoom(`r${index + 1}`, String(101 + index)));
+    const todayRows = rooms.map((room, index) => index < 19
+      ? snapshot(room.room_number, 'departing', '2026-09-08', '2026-09-10')
+      : snapshot(room.room_number, 'ongoing', '2026-09-08', '2026-09-12'));
+    const tomorrowRows = rooms.map((room, index) => index < 11
+      ? snapshot(room.room_number, 'departing', '2026-09-09', '2026-09-11')
+      : snapshot(room.room_number, 'ongoing', '2026-09-08', '2026-09-13'));
+    const today = buildSelectedDateHousekeepingWorkload(rooms, todayRows, '2026-09-10');
+    const tomorrow = buildSelectedDateHousekeepingWorkload(rooms, tomorrowRows, '2026-09-11');
+    expect([today.checkoutCount, today.dailyCount]).toEqual([19, 14]);
+    expect([tomorrow.checkoutCount, tomorrow.dailyCount]).toEqual([11, 22]);
+    expect(tomorrow.rooms.every(room => room.pms_metadata?.plannedHousekeepingDate === '2026-09-11')).toBe(true);
+  });
+  it('clears old unsold markers when a Mika room receives a reservation', () => {
+    const room = {
+      ...baseRoom('rebooked', '101'),
+      pms_metadata: {
+        potentialCheckout: true, planningStatus: 'unsold_now',
+        unsoldAtPlanning: true, selectedDateSnapshotKind: 'potential_checkout',
+      },
+    };
+    const [booked] = buildSelectedDateHousekeepingWorkload(
+      [room], [snapshot('101', 'ongoing', '2026-09-08', '2026-09-12')], '2026-09-10',
+    ).rooms;
+    expect(booked.is_checkout_room).toBe(false);
+    expect(isPotentialCheckoutRoom(booked)).toBe(false);
+    expect(booked.pms_metadata?.unsoldAtPlanning).toBe(false);
+    expect(booked.pms_metadata?.planningStatus).toBe('booked');
+  });
+  it('adds rooms missing from the reservation snapshot as assignable unsold planning rooms', () => {
+    const rooms = [baseRoom('booked', '101'), baseRoom('vacant', '102')];
+    const workload = buildSelectedDateHousekeepingWorkload(
+      rooms,
+      [snapshot('101', 'ongoing', '2026-09-08', '2026-09-12')],
+      '2026-09-10',
+    );
+
+    expect(workload.rooms.map(room => room.id)).toEqual(['booked', 'vacant']);
+    expect(workload.dailyCount).toBe(1);
+    expect(workload.checkoutCount).toBe(1);
+    expect(workload.potentialCheckoutCount).toBe(1);
+
+    const vacant = workload.rooms.find(room => room.id === 'vacant')!;
+    expect(vacant.is_checkout_room).toBe(true);
+    expect(vacant.ready_to_clean).toBe(false);
+    expect(vacant.pms_metadata?.scheduledDepartureToday).toBe(false);
+    expect(vacant.pms_metadata?.selectedDateSnapshotKind).toBe('potential_checkout');
+    expect(vacant.pms_metadata?.planningStatus).toBe('unsold_now');
+    expect(vacant.pms_metadata?.unsoldAtPlanning).toBe(true);
+    expect(isUnsoldPlanningRoom(vacant)).toBe(true);
+    expect(isPotentialCheckoutRoom(vacant)).toBe(true);
+  });
+
+  it('does not create unsold planning work for held, out-of-order or no-show rooms', () => {
+    const rooms = [
+      { ...baseRoom('open', '101') },
+      { ...baseRoom('ooo', '102'), status: 'out_of_order' },
+      { ...baseRoom('held', '103'), pms_metadata: { manualHousekeepingHold: true } },
+      { ...baseRoom('noshow', '104'), pms_metadata: { isNoShow: true } },
+    ];
+    const workload = buildSelectedDateHousekeepingWorkload(rooms, [], '2026-09-10');
+    expect(workload.rooms.map(room => room.id)).toEqual(['open']);
+    expect(workload.potentialCheckoutCount).toBe(1);
+  });
+
+  it('only adds operating Gozsdu inventory as unsold planning work', () => {
+    const make = (id: string, short: string, full: string, status: string) => ({
+      ...baseRoom(id, short), hotel: 'gozsdu-court',
+      pms_metadata: { gozsduAvailability: { status, pmsRoomName: full } },
+    });
+    const workload = buildSelectedDateHousekeepingWorkload([
+      make('operating', '6', '2B-3/T/6', 'operating'),
+      make('inactive', '201', '2B-201', 'unavailable'),
+      make('office', '115', 'ST-115', 'non_guest'),
+    ], [], '2026-09-10');
+    expect(workload.rooms.map(room => room.id)).toEqual(['operating']);
+    expect(workload.potentialCheckoutCount).toBe(1);
+  });
+
+  it('fails closed when a selected-date Previo room cannot be mapped', () => {
+    expect(() => buildSelectedDateHousekeepingWorkload(
+      [baseRoom('r101', '101')], [snapshot('999', 'departing', '2026-09-09', '2026-09-10')], '2026-09-10',
+    )).toThrow(/mapping is incomplete/i);
+  });
+  it('does not treat arrival-day reservations as daily cleaning', () => {
+    const workload = buildSelectedDateHousekeepingWorkload(
+      [baseRoom('r101', '101')], [{ ...snapshot('101', 'ongoing', '2026-09-10', '2026-09-12'), status: null }], '2026-09-10',
+    );
+    expect(workload.rooms).toHaveLength(0);
+  });
+  it('uses full Gozsdu PMS building labels and omits unavailable and non-guest units', () => {
+    const make = (id: string, short: string, full: string, status: string) => ({
+      ...baseRoom(id, short), hotel: 'gozsdu-court',
+      pms_metadata: { gozsduAvailability: { status, pmsRoomName: full } },
+    });
+    const rooms = [
+      make('operating', '6', '2B-3/T/6', 'operating'),
+      make('inactive', '201', '2B-201', 'unavailable'),
+      make('office', '115', 'ST-115', 'non_guest'),
+    ];
+    const rows = [
+      snapshot('2B-3/T/6', 'departing', '2026-09-08', '2026-09-10'),
+      snapshot('2B-201', 'departing', '2026-09-08', '2026-09-10'),
+      snapshot('ST-115', 'departing', '2026-09-08', '2026-09-10'),
+    ];
+    expect(buildSelectedDateHousekeepingWorkload(rooms, rows, '2026-09-10').rooms.map(room => room.id)).toEqual(['operating']);
+  });
+  it('includes Gozsdu 4T2 in November 18 checkout planning after a November 17 same-day turnover', () => {
+    const make = (id: string, short: string, full: string) => ({
+      ...baseRoom(id, short), hotel: 'gozsdu-court',
+      pms_metadata: { gozsduAvailability: { status: 'operating', pmsRoomName: full } },
+    });
+    const rooms = [
+      make('113', '113', '1B-113'),
+      make('4T2', '1B-4/T/2', '1B-4/T/2'),
+    ];
+    const rows = [
+      { ...snapshot('1B-113', 'ongoing', '2026-11-17', '2026-11-20'), room_number: '113' },
+      { ...snapshot('1B-4/T/2', 'departing', '2026-11-17', '2026-11-18'), room_number: '4/T/2' },
+    ];
+    const workload = buildSelectedDateHousekeepingWorkload(rooms, rows, '2026-11-18');
+    expect(workload.rooms.map(room => room.id)).toContain('4T2');
+    const fourTTwo = workload.rooms.find(room => room.id === '4T2');
+    expect(fourTTwo?.is_checkout_room).toBe(true);
+    expect(fourTTwo?.pms_metadata?.selectedDateDeparture).toBe('2026-11-18');
+    expect(workload.rooms.find(room => room.id === '113')?.is_checkout_room).not.toBe(true);
+  });
+
+  it('respects Gozsdu 5/6 towel-only versus 5/7 Complete Textile Change on the selected date', () => {
+    const make = (id: string, number: string) => ({ ...baseRoom(id, number), hotel: 'gozsdu-court',
+      pms_metadata: { gozsduAvailability: { status: 'operating', pmsRoomName: number } } });
+    const rooms = [make('five', 'ST-101'), make('six', 'ST-102'), make('odd', 'ST-103')];
+    const rows = [snapshot('ST-101','ongoing','2026-09-06','2026-09-12'),
+      snapshot('ST-102','ongoing','2026-09-06','2026-09-13'),
+      snapshot('ST-103','ongoing','2026-09-07','2026-09-14')];
+    const workload = buildSelectedDateHousekeepingWorkload(rooms, rows, '2026-09-10');
+    expect(workload.rooms.map(room => room.id)).toEqual(['five','six']);
+    expect(workload.rooms[0].towel_change_required).toBe(true);
+    expect(workload.rooms[0].linen_change_required).toBe(false);
+    expect(workload.rooms[1].linen_change_required).toBe(true);
+  });
+});

@@ -1,8 +1,9 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { clearTabHotels, getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
 import { clearCachedRevenuePayloads } from '@/lib/revenuePayloadCache';
+import { clearDisplayedWelcomeQuote } from '@/lib/welcomeQuoteDisplay';
 import { retryTransient } from '@/lib/transientRetry';
 
 interface Profile {
@@ -13,6 +14,9 @@ interface Profile {
   profile_picture_url?: string;
   phone_number?: string;
   role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager' | 'breakfast_staff' | 'supervisor';
+  /** Role in the app (from the work schedule); null = derived from `role`. See src/lib/accessPolicy.ts. */
+  access_role?: string | null;
+  job_title?: string | null;
   created_at: string;
   updated_at: string;
   last_login?: string;
@@ -106,7 +110,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (!error && !allowedHotel) setTabHotel(organizationSlug, null);
             });
         }
-        setProfile(withTabHotel(profileData as any) as any);
+        // Operational staff use the server's current work hotel, not an old
+        // tab override. Managers still keep their independent tab selections.
+        const staffWorkRoles = ['housekeeping', 'maintenance', 'maintenance_manager'];
+        setProfile(staffWorkRoles.includes(profileData.role)
+          ? (profileData as Profile)
+          : (withTabHotel(profileData as any) as Profile));
         updateProfileStatus('ready');
         reconnectAttemptRef.current = 0;
         clearReconnectTimer();
@@ -159,6 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         const previousUserId = activeUserIdRef.current;
+        if (!session?.user || (previousUserId && previousUserId !== session.user.id)) clearDisplayedWelcomeQuote();
         activeUserIdRef.current = session?.user?.id ?? null;
         
         if (session?.user) {
@@ -229,6 +239,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(session.user);
           } else {
             console.warn('Session expired while tab was backgrounded');
+            clearDisplayedWelcomeQuote();
             setUser(null);
             setSession(null);
             setProfile(null);
@@ -346,6 +357,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    clearDisplayedWelcomeQuote();
     clearReconnectTimer();
     activeUserIdRef.current = null;
     profileRequestRef.current = null;
@@ -379,9 +391,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Switching property is a client-state change: move the in-memory profile so
   // every hook refetches for the new hotel without rebooting the whole app.
-  const applyAssignedHotel = (hotelId: string) => {
-    setProfile((p) => (p ? ({ ...p, assigned_hotel: hotelId } as any) : p));
-  };
+  const applyAssignedHotel = useCallback((hotelId: string) => {
+    setProfile((p) => p && p.assigned_hotel !== hotelId
+      ? ({ ...p, assigned_hotel: hotelId } as Profile)
+      : p);
+  }, []);
 
   return (
     <AuthContext.Provider value={{

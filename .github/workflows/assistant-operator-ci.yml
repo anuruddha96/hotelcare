@@ -1,0 +1,44 @@
+name: HotelCare AI Operator safety tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/assistantActions.ts'
+      - 'supabase/functions/_shared/assistantActions_test.ts'
+      - 'supabase/functions/_shared/assistantTickets_test.ts'
+      - 'supabase/functions/_shared/assistantClarify.ts'
+      - 'supabase/functions/_shared/assistantClarify_test.ts'
+      - 'supabase/functions/assistant-chat/**'
+      - 'supabase/functions/assistant-chat-router/**'
+      - 'supabase/functions/assistant-apply-action/**'
+      - '.github/workflows/assistant-operator-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/assistantActions.ts'
+      - 'supabase/functions/_shared/assistantActions_test.ts'
+      - 'supabase/functions/_shared/assistantTickets_test.ts'
+      - 'supabase/functions/_shared/assistantClarify.ts'
+      - 'supabase/functions/_shared/assistantClarify_test.ts'
+      - '.github/workflows/assistant-operator-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  action-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Validate operator role and action contracts
+        run: deno test supabase/functions/_shared/assistantActions_test.ts
+      - name: Maintenance tickets use the person's session, rooms and hotel rules
+        run: deno test supabase/functions/_shared/assistantTickets_test.ts
+      - name: Tap-to-answer questions and HotelCare-only branding
+        run: deno test supabase/functions/_shared/assistantClarify_test.ts
+      - name: Type-check the action endpoint
+        run: deno check --node-modules-dir=auto supabase/functions/assistant-apply-action/index.ts

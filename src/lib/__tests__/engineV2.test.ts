@@ -135,43 +135,47 @@ describe("lead-time windows follow the agreed Ottofiori strategy", () => {
   });
 
   it("0–2 days: tomorrow/day+2 prioritise sell-out while inventory remains", () => {
-  const noPickup = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 0 }), settings());
-  const onePickup = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 1 }), settings());
-  const strong = decideDate(input({ daysOut: 1, occupancyPct: 92, roomsRemaining: 2, pickup24h: 1 }), settings());
-  expect(noPickup.direction).toBe("decrease");
-  expect(noPickup.movement).toBe(-4);
-  expect(onePickup.direction).toBe("decrease");
-  expect(onePickup.movement).toBe(-3);
-  expect(onePickup.movement).toBeGreaterThan(noPickup.movement);
-  expect(strong.movement).toBe(-3);
-});
-
-it("0–2 days: tomorrow uses urgency and demand to size the final sell-out cut", () => {
-  const base = { daysOut: 1, hoursSinceLastPickup: 8 } as Partial<DecisionInput>;
-  expect(decideDate(input({ ...base, occupancyPct: 40 }), settings()).movement).toBe(-4);
-  expect(decideDate(input({ ...base, occupancyPct: 65 }), settings()).movement).toBe(-4);
-  expect(decideDate(input({ ...base, occupancyPct: 85, roomsRemaining: 3 }), settings()).movement).toBe(-3);
-});
-
-it("0–2 days: tomorrow/day+2 no longer wait for the old no-pickup window", () => {
-  const d = decideDate(input({ daysOut: 1, occupancyPct: 40, hoursSinceLastPickup: 2 }), settings());
-  expect(d.reason).toBe("final_3_day_fill");
-  expect(d.movement).toBe(-4);
-});
-
-  it("3–7 days: 12-hour wait, and 85% occupancy with pickup raises €8", () => {
-    expect(decideDate(input({ daysOut: 5, occupancyPct: 40, hoursSinceLastPickup: 6 }), settings()).reason)
-      .toBe("awaiting_no_pickup_window");
-    expect(decideDate(input({ daysOut: 5, occupancyPct: 40, hoursSinceLastPickup: 13 }), settings()).movement).toBe(-5);
-    expect(decideDate(input({ daysOut: 5, occupancyPct: 88, roomsRemaining: 3, pickup24h: 1 }), settings()).direction).toBe("increase");
+    const noPickup = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 0 }), settings());
+    const onePickup = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 1 }), settings());
+    const strong = decideDate(input({ daysOut: 1, occupancyPct: 92, roomsRemaining: 2, pickup24h: 1 }), settings());
+    expect(noPickup.direction).toBe("decrease");
+    expect(noPickup.movement).toBe(-5);
+    expect(onePickup.direction).toBe("decrease");
+    expect(onePickup.movement).toBe(-4);
+    expect(onePickup.movement).toBeGreaterThan(noPickup.movement);
+    expect(strong.movement).toBe(-3);
   });
 
-  it("8–30 days: the pickup ladder grows with the number of bookings", () => {
-    const one = decideDate(input({ daysOut: 20, pickup24h: 1 }), settings()).movement;
+  it("0–2 days: tomorrow uses urgency and demand to size the final sell-out cut", () => {
+    const base = { daysOut: 1, hoursSinceLastPickup: 8 } as Partial<DecisionInput>;
+    expect(decideDate(input({ ...base, occupancyPct: 40 }), settings()).movement).toBe(-5);
+    expect(decideDate(input({ ...base, occupancyPct: 65 }), settings()).movement).toBe(-5);
+    expect(decideDate(input({ ...base, occupancyPct: 85, roomsRemaining: 3 }), settings()).movement).toBe(-4);
+  });
+
+  it("0–2 days: tomorrow/day+2 no longer wait for the old no-pickup window", () => {
+    const d = decideDate(input({ daysOut: 1, occupancyPct: 40, hoursSinceLastPickup: 2 }), settings());
+    expect(d.reason).toBe("final_7_day_fill");
+    expect(d.movement).toBe(-5);
+  });
+
+  it("3–7 days: occupancy-first sell-out continues throughout the final week", () => {
+    const early = decideDate(input({ daysOut: 5, occupancyPct: 40, hoursSinceLastPickup: 6 }), settings());
+    expect(early.reason).toBe("final_7_day_fill");
+    expect(early.movement).toBe(-5);
+    expect(decideDate(input({ daysOut: 5, occupancyPct: 40, hoursSinceLastPickup: 13 }), settings()).movement).toBe(-5);
+    const strong = decideDate(input({ daysOut: 5, occupancyPct: 88, roomsRemaining: 3, pickup24h: 1 }), settings());
+    expect(strong.direction).toBe("decrease");
+    expect(strong.movement).toBe(-3);
+  });
+
+  it("8–30 days: a weak single pickup holds, then the pickup ladder grows with confirmed demand", () => {
+    const one = decideDate(input({ daysOut: 20, pickup24h: 1 }), settings());
     const two = decideDate(input({ daysOut: 20, pickup24h: 2 }), settings()).movement;
     const four = decideDate(input({ daysOut: 20, pickup24h: 4 }), settings()).movement;
-    expect(one).toBeGreaterThan(0);
-    expect(two).toBeGreaterThanOrEqual(one);
+    expect(one.reason).toBe("single_pickup_hold");
+    expect(one.movement).toBe(0);
+    expect(two).toBeGreaterThan(0);
     expect(four).toBeGreaterThanOrEqual(two);
   });
 
@@ -205,8 +209,10 @@ it("0–2 days: tomorrow/day+2 no longer wait for the old no-pickup window", () 
     expect(d.reason).toBe("occupancy_crossing");
   });
 
-  it("91–180 days: long-lead bookings pay a real surcharge, and no hourly markdown", () => {
-    expect(decideDate(input({ daysOut: 120, pickup24h: 1 }), settings()).movement).toBeGreaterThanOrEqual(12);
+  it("91–180 days: one soft pickup holds, while confirmed long-lead demand earns a surcharge", () => {
+    const one = decideDate(input({ daysOut: 120, pickup24h: 1 }), settings());
+    expect(one.reason).toBe("single_pickup_hold");
+    expect(one.movement).toBe(0);
     expect(decideDate(input({ daysOut: 120, pickup24h: 2 }), settings()).movement).toBeGreaterThanOrEqual(18);
     expect(decideDate(input({ daysOut: 120, occupancyPct: 5, hoursSinceLastPickup: 30 }), settings()).reason)
       .toBe("far_out_no_markdown");
@@ -214,13 +220,14 @@ it("0–2 days: tomorrow/day+2 no longer wait for the old no-pickup window", () 
       .toBe(-3);
   });
 
-  it("181+ days never marks down and pays the top of the ladder", () => {
+  it("181+ days never marks down; one weak pickup holds and confirmed demand pays the top ladder", () => {
     expect(decideDate(input({ daysOut: 240, occupancyPct: 0, hoursSinceLastPickup: 5000 }), settings()).reason)
       .toBe("far_out_no_markdown");
-    const one = decideDate(input({ daysOut: 240, pickup24h: 1 }), settings()).movement;
+    const one = decideDate(input({ daysOut: 240, pickup24h: 1 }), settings());
     const two = decideDate(input({ daysOut: 240, pickup24h: 2 }), settings()).movement;
-    expect(one).toBeGreaterThanOrEqual(20);
-    expect(two).toBeGreaterThanOrEqual(one);
+    expect(one.reason).toBe("single_pickup_hold");
+    expect(one.movement).toBe(0);
+    expect(two).toBeGreaterThanOrEqual(20);
   });
 });
 
@@ -238,8 +245,8 @@ describe("genuine pickup and cancellations", () => {
     expect(d.reason).toBe("cancellation_cooldown");
   });
 
-  it("pickup is always considered before any markdown branch", () => {
-    const d = decideDate(input({ daysOut: 20, occupancyPct: 20, hoursSinceLastPickup: 0.2, pickup24h: 1 }), settings());
+  it("confirmed pickup is considered before any markdown branch", () => {
+    const d = decideDate(input({ daysOut: 20, occupancyPct: 20, hoursSinceLastPickup: 0.2, pickup24h: 2 }), settings());
     expect(d.direction).toBe("increase");
   });
 });
@@ -255,10 +262,10 @@ describe("safety rails", () => {
     expect(d.reason).toBe("manual_hold");
   });
 
-  it("genuine pickup may still lift a softly held date", () => {
+  it("a manual edit remains authoritative even when pickup arrives", () => {
     const d = decideDate(input({ pickup24h: 3, manualHoldUntil: "2026-08-30T10:00:00Z" }), settings());
-    expect(d.reason).toBe("genuine_pickup");
-    expect(d.direction).toBe("increase");
+    expect(d.reason).toBe("manual_hold");
+    expect(d.direction).toBe("hold");
   });
 
   it("a hard lock blocks every move, pickup included", () => {
@@ -338,8 +345,8 @@ describe("safety rails", () => {
 
 describe("events and market validation", () => {
   it("an event lifts a date once and only upwards", () => {
-    const plain = decideDate(input({ daysOut: 20, pickup24h: 1 }), settings());
-    const up = decideDate(input({ daysOut: 20, pickup24h: 1, pendingEventUplift: 5 }), settings());
+    const plain = decideDate(input({ daysOut: 20, pickup24h: 2 }), settings());
+    const up = decideDate(input({ daysOut: 20, pickup24h: 2, pendingEventUplift: 5 }), settings());
     expect(up.movement).toBe(plain.movement + 5);
     expect(up.reason).toContain("event");
     const down = decideDate(input({ daysOut: 20, occupancyPct: 45, hoursSinceLastPickup: 100, pendingEventUplift: 10 }), settings());
@@ -367,7 +374,6 @@ describe("events and market validation", () => {
     expect(thin.median).toBeNull();
     expect(thin.rejected).toBe("too_few_competitors");
 
-    // The same competitor scraped ten times is still one competitor.
     const dupes = buildMarketSignal([obs("a", 200), obs("a", 205), obs("a", 210), obs("a", 215)], NOW);
     expect(dupes.median).toBeNull();
 
@@ -521,10 +527,6 @@ describe("a stay date moves as one block", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Fill mode: push occupancy near arrival without giving the rate away.
-// ---------------------------------------------------------------------------
-
 const FILL = { enabled: true, windowDays: 60, maxTotalDropPct: 15 };
 
 describe("fill mode", () => {
@@ -537,7 +539,7 @@ describe("fill mode", () => {
     expect(filling.direction).toBe("decrease");
   });
 
-  it("still lifts the price the moment a genuine booking lands", () => {
+  it("still lifts the price the moment confirmed demand lands", () => {
     const d = decideDate(
       input({ daysOut: 17, occupancyPct: 60, pickup24h: 2, pickup1h: 1, hoursSinceLastPickup: 0.5, campaignStartPrice: 180 }),
       settings({ fill: FILL }),
@@ -551,7 +553,6 @@ describe("fill mode", () => {
       input({ daysOut: 5, occupancyPct: 40, currentPrice: 155, campaignStartPrice: 180, hoursSinceLastPickup: 100 }),
       settings({ fill: FILL }),
     );
-    // Floor is 180 - 15% = 153, so at most €2 is left — under the minimum move.
     expect(d.blocked).toBe(true);
     expect(d.reason).toBe("below_min_movement");
   });
@@ -562,12 +563,14 @@ describe("fill mode", () => {
       .toEqual(decideDate(input(patch), settings()));
   });
 
-  it("protects a nearly full date even while filling", () => {
+  it("still makes a final-week sell-out move when one room remains", () => {
     const d = decideDate(
       input({ daysOut: 4, occupancyPct: 96, roomsRemaining: 1, hoursSinceLastPickup: 100, campaignStartPrice: 180 }),
       settings({ fill: FILL }),
     );
-    expect(d.blocked).toBe(true);
+    expect(d.blocked).toBe(false);
+    expect(d.direction).toBe("decrease");
+    expect(d.movement).toBe(-3);
   });
 
   it("is off unless the property switches it on", () => {

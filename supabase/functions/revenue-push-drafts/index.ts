@@ -11,6 +11,7 @@ import { writePrevioRate, readPrevioRateLevelsRange } from "../_shared/previoRat
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 import { pricesMatch } from "../_shared/pricingRules.ts";
 import { partitionByExactRateMappings, filterRoomHierarchy, liftHigherRooms, repairLadder } from "../_shared/rateSafety.ts";
+import { activePublicationDecision, guardOttofioriPublication, isDecisionPublicationDraft } from "../_shared/ottofioriPublicationGuard.ts";
 
 
 const corsHeaders = {
@@ -128,9 +129,11 @@ Deno.serve(async (req) => {
             ids.push(decisionId);
             statusBuckets.set(status, ids);
           }
-          await Promise.all(Array.from(statusBuckets.entries()).map(([status, ids]) =>
-            admin.from("revenue_date_decisions").update({ status }).in("id", ids)
-          ));
+          await Promise.all(Array.from(statusBuckets.entries()).map(([status, ids]) => {
+            const update = admin.from("revenue_date_decisions").update({ status }).in("id", ids);
+            // Delivery bookkeeping must not erase a database safety HOLD.
+            return hotelId === "ottofiori" ? update.neq("status", "held") : update;
+          }));
         })(),
       ]);
     };
@@ -211,7 +214,7 @@ Deno.serve(async (req) => {
     const SLICE = 400;
     let q = admin
       .from("revenue_rate_drafts")
-      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by, organization_slug, created_at")
+      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by, organization_slug, created_at, decision_id, intent_source, decision_reason")
       .eq("hotel_id", hotelId)
       // A newer intent for the same cell supersedes this one; never publish an
       // obsolete price.
@@ -284,6 +287,15 @@ Deno.serve(async (req) => {
       ? await admin.from("revenue_rate_push_runs").select("automation_run_id, date_manifest").eq("id", requestedRunId).maybeSingle()
       : { data: null };
     const dateAtomic = Boolean(pushRunMeta?.automation_run_id);
+    let publicationBlockedCount = 0;
+    const publicationBlockErrors: Array<{ stay_date: string; room_type_name: string; error: string }> = [];
+
+    if (hotelId === "ottofiori" && dateAtomic && loadedDrafts?.length === SLICE) {
+      // A 400-row page can end midway through a 13-cell date. Defer its entire
+      // tail date to the continuation; never publish or fail a page fragment.
+      const tailDate = loadedDrafts[loadedDrafts.length - 1].stay_date;
+      drafts = drafts.filter((d: any) => d.stay_date !== tailDate);
+    }
 
     // Revalidate immediately before delivery. This protects legacy callers and
     // queued work created before the enqueue-time safety checks existed. A
@@ -454,6 +466,78 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Database row triggers can hold a decision during the first draft insert,
+    // while later inserts survive. Re-read the durable decision and complete
+    // mapped column under the publisher lease before any Previo rate write.
+    if (hotelId === "ottofiori" && drafts.some(isDecisionPublicationDraft)) {
+      const dates = [...new Set(drafts.map((d: any) => d.stay_date))].sort();
+      const decisionIds = [...new Set(drafts.map((d: any) => d.decision_id).filter(Boolean))];
+      const [decisionResult, mirrorResult, manualResult, ruleResult] = await Promise.all([
+        admin.from("revenue_date_decisions")
+          .select("id, hotel_id, stay_date, status, direction, movement, cells_simulated, pickup_24h, cancellations_24h, occupancy_pct, pace_target_pct, rooms_remaining, days_out, decision_reason")
+          .eq("hotel_id", hotelId).in("id", decisionIds),
+        admin.from("revenue_room_type_rates")
+          .select("stay_date, obk_id, rate_plan_id, occupancy, price")
+          .eq("hotel_id", hotelId).in("stay_date", dates).eq("source", "previo").limit(1001),
+        admin.rpc("revenue_manual_hold_state", {
+          p_hotel_id: hotelId, p_since: new Date(Date.now() - 24 * 3_600_000).toISOString(),
+          p_sources: ["cell-edit", "cell-selection", "day-tool", "bulk", "bulk-edit", "manual", "quick-adjust"],
+        }),
+        admin.from("revenue_pickup_automation_rules").select("manual_hold_hours")
+          .eq("hotel_id", hotelId).eq("organization_slug", "rdhotels").single(),
+      ]);
+      if (decisionResult.error || mirrorResult.error || manualResult.error || ruleResult.error ||
+          (mirrorResult.data?.length ?? 0) > 1000 || (manualResult.data?.length ?? 0) > 5000) {
+        throw new Error("Ottofiori publication safety could not read a complete decision, rate or manager-hold state.");
+      }
+      const exactMaps = new Set(validMaps.map((m: any) => `${m.previo_room_type_id}|${m.previo_rate_plan_id}`));
+      const holdHours = Math.max(0, Number(ruleResult.data.manual_hold_hours ?? 4));
+      const protectedDates = new Set<string>();
+      const hardLockedDates = new Set<string>();
+      for (const row of manualResult.data ?? []) {
+        const until = Date.parse(row.hold_until) + (row.hold_kind === "hard" ? 0 : holdHours * 3_600_000);
+        if (!Number.isFinite(until)) throw new Error("Invalid Ottofiori manager hold timestamp.");
+        if (until <= Date.now()) continue;
+        (row.hold_kind === "hard" ? hardLockedDates : protectedDates).add(row.stay_date);
+      }
+      const guarded = guardOttofioriPublication({
+        hotelId, drafts: drafts as any[], decisions: decisionResult.data ?? [],
+        mappedCells: (mirrorResult.data ?? []).filter((r: any) => exactMaps.has(`${r.obk_id}|${r.rate_plan_id}`)),
+        manifest: pushRunMeta?.date_manifest ?? null, protectedDates, hardLockedDates,
+      });
+      for (const column of guarded.blocked) {
+        const ids = column.drafts.map((d) => d.id);
+        publicationBlockedCount += ids.length;
+        publicationBlockErrors.push({ stay_date: column.stayDate, room_type_name: "Whole date", error: column.reason });
+        const [draftUpdate, itemUpdate] = await Promise.all([
+          admin.from("revenue_rate_drafts").update({
+            status: "failed", confirmation_status: "blocked", push_error: column.reason,
+          }).eq("hotel_id", hotelId).in("id", ids),
+          admin.from("revenue_rate_push_items").update({ status: "failed", error: column.reason })
+            .eq("hotel_id", hotelId).in("draft_id", ids).in("status", ["queued", "processing"]),
+        ]);
+        if (draftUpdate.error || itemUpdate.error) throw new Error("Could not record Ottofiori's blocked price column.");
+      }
+      drafts = guarded.allowed;
+      if (drafts.length === 0) {
+        if (requestedRunId) {
+          const { data: counts, error: countsError } = await admin.from("revenue_rate_push_runs")
+            .select("processed_count, accepted_count, failed_count").eq("id", requestedRunId).maybeSingle();
+          if (countsError) throw countsError;
+          const { error: blockedRunError } = await admin.from("revenue_rate_push_runs").update({
+            status: Number(counts?.accepted_count ?? 0) > 0 ? "partial" : "failed",
+            processed_count: Number(counts?.processed_count ?? 0) + publicationBlockedCount,
+            failed_count: Number(counts?.failed_count ?? 0) + publicationBlockedCount,
+            finished_at: new Date().toISOString(), last_error: publicationBlockErrors[0]?.error,
+          }).eq("id", requestedRunId);
+          if (blockedRunError) throw blockedRunError;
+          await syncAutomationOutcome(requestedRunId);
+        }
+        return json({ ok: false, code: "ottofiori_publication_blocked", pushed: 0,
+          blockedDates: guarded.blocked.map(({ stayDate, reason }) => ({ stayDate, reason })) });
+      }
+    }
+
 
 
     // Credentials per Previo account — SLNT merges two profiles under one hotel,
@@ -524,9 +608,9 @@ Deno.serve(async (req) => {
     let pushed = 0;
     const pushedIds: string[] = [];
 
-    let failed = 0;
+    let failed = publicationBlockedCount;
     let verified = 0;
-    const errors: Array<{ stay_date: string; room_type_name: string; error: string }> = [];
+    const errors: Array<{ stay_date: string; room_type_name: string; error: string }> = [...publicationBlockErrors];
 
     // Previo rejects an occupancy level whose lower levels are absent from the
     // same message ("3092 … levels have to be created sequentially"). So one
@@ -630,6 +714,13 @@ Deno.serve(async (req) => {
      *  Previo's own maths, and re-sending those was the source of decimal
      *  prices appearing in the pricelist. */
     const ladderFor = (g: Group): Array<{ occupancy: number; price: number }> => {
+      // The explicit first-price form passes old_price=null. If a later Previo
+      // refresh has already published this kind/date, do not silently turn an
+      // initialization into an overwrite of newly configured prices.
+      const current = storedLevels.get(`${g.stay_date}|${g.obkId}`);
+      if (g.drafts.some((d: any) => d.old_price == null) && current && current.size > 0) {
+        throw new Error("Existing Previo prices were found since this first-price request. Sync rates and edit the published cells instead.");
+      }
       const wanted = new Map<number, number>();
       for (const [occupancy, price] of storedLevels.get(`${g.stay_date}|${g.obkId}`) ?? []) {
         wanted.set(occupancy, Math.round(Number(price)));
@@ -747,6 +838,16 @@ Deno.serve(async (req) => {
       const creds = b.account.creds;
       const pmsHotelId = b.account.hotId;
       try {
+        if (hotelId === "ottofiori" && b.drafts.some(isDecisionPublicationDraft)) {
+          // A HOLD applied after the complete-column preflight still wins.
+          const ids = [...new Set(b.drafts.map((d: any) => d.decision_id).filter(Boolean))];
+          const { data: decisionsNow, error: decisionsError } = await admin.from("revenue_date_decisions")
+            .select("id, hotel_id, stay_date, status, direction, movement, cells_simulated")
+            .eq("hotel_id", hotelId).in("id", ids);
+          if (decisionsError || b.drafts.some((d: any) => !activePublicationDecision(
+            (decisionsNow ?? []).find((decision: any) => decision.id === d.decision_id), d.stay_date,
+          ))) throw new Error("Ottofiori's pricing decision was held or changed before delivery.");
+        }
         const result = await writePrevioRate({
           creds,
           pmsHotelId,
@@ -905,7 +1006,7 @@ Deno.serve(async (req) => {
             stay_date: d.stay_date,
             old_rate_eur: d.old_price,
             new_rate_eur: d.new_price,
-            source: isEngine ? "pickup_automation" : "manual_push",
+            source: isEngine ? "autopilot" : "manual",
             notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · accepted by Previo · pushed by ${pusherLabel}`,
           })));
         return { pushedIds: successfulIds, failedIds: [], errors: [] };

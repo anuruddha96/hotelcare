@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { BellOff, Camera, CheckCircle2, DoorOpen, MessageSquare, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { BellOff, Camera, CheckCircle2, DoorOpen, Globe, History, Loader2, MessageSquare, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,11 +10,18 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
+import { dndRetryTimeLabel, getDndRetryWindow } from '@/lib/dndRetryPolicy';
+import { effectiveCarryServiceFlags } from '@/lib/housekeepingCarryForward';
+import { isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
-import { RoomCommunicationPanel } from './RoomCommunicationPanel';
+import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
+import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
+import { useTranslation } from '@/hooks/useTranslation';
+import { getCarryForwardHousekeeperCopy } from '@/lib/housekeepingCarryForward';
 import {
+  getMemoriesCarryForwardService,
   HOUSEKEEPING_SERVICE_RESULT_GUEST_DECLINED,
   LEGACY_NO_SERVICE_MARKER,
   MEMORIES_GREEN_BOARD_MARKER,
@@ -72,6 +79,7 @@ interface HotelMemoriesRoomGateProps {
  * straight through to the normal AssignedRoomCard unchanged.
  */
 export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemoriesRoomGateProps) {
+  const { language } = useTranslation();
   const initialGreenRequest = hasMemoriesGreenBoardRequest(assignment.notes);
   const [greenBoardReleased, setGreenBoardReleased] = useState(initialGreenRequest);
   const [updatedAssignmentNotes, setUpdatedAssignmentNotes] = useState<string | null>(null);
@@ -83,6 +91,16 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   const [savingNoCleaning, setSavingNoCleaning] = useState(false);
   const [secondDndOpen, setSecondDndOpen] = useState(false);
   const [savingSecondDnd, setSavingSecondDnd] = useState(false);
+  const [dndClock, setDndClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (assignment.status !== 'dnd_pending_retry') return;
+    const timer = window.setInterval(() => setDndClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [assignment.status]);
+  const dndRetry = getDndRetryWindow(assignment.dnd_first_attempt_at, new Date(dndClock));
+  const nextDndTime = dndRetry.availableAt ? dndRetryTimeLabel(dndRetry.availableAt, language) : null;
+  const [translatedCarryInstruction, setTranslatedCarryInstruction] = useState<string | null>(null);
+  const [translatingCarryInstruction, setTranslatingCarryInstruction] = useState(false);
 
   const roomFlags = useMemo(
     () => parseRoomFlags(assignment.rooms?.notes ?? null),
@@ -98,8 +116,28 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
 
   const isMemories = isHotelMemoriesBudapest(assignment.rooms?.hotel);
   const isDaily = assignment.assignment_type === 'daily_cleaning' && !isCheckout;
-  const hasTowelRequest = !!assignment.rooms?.towel_change_required;
-  const hasCleanRequest = roomFlags.roomCleaning || greenBoardReleased || initialGreenRequest;
+  const carryForward = isMemories && !isCheckout && assignment.service_result !== 'cleaned'
+    ? getMemoriesCarryForwardService(assignment.previous_day_context)
+    : null;
+  const carryForwardCopy = carryForward
+    ? getCarryForwardHousekeeperCopy(carryForward)
+    : null;
+  const effectiveService = effectiveCarryServiceFlags({
+    towelChangeRequired: assignment.rooms?.towel_change_required,
+    linenChangeRequired: assignment.rooms?.linen_change_required,
+    carryForward,
+    isCheckout,
+    forceTowelOnly: isMemories && !!carryForward && isMemoriesFinalOccupiedNight(
+      assignment.rooms?.pms_metadata, assignment.assignment_date || todayBudapest(),
+    ),
+  });
+  // An outstanding Change Room includes towels: never present simultaneous
+  // separate T + C instructions when the same guest has missed a full clean.
+  const hasTowelRequest = effectiveService.towelChangeRequired;
+  const hasCleanRequest = roomFlags.roomCleaning
+    || greenBoardReleased
+    || initialGreenRequest
+    || effectiveService.linenChangeRequired;
   const isOptionalDaily =
     isMemories &&
     isDaily &&
@@ -107,10 +145,89 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
     !hasTowelRequest &&
     !hasCleanRequest;
 
+  const guestRequestPanel = assignment.rooms?.room_number ? (
+    <div className="space-y-2">
+      <GuestItemRecoveryNotice roomId={assignment.room_id} memoriesMode />
+      <RoomGuestRequestsPanel
+      roomId={assignment.room_id}
+      roomNumber={assignment.rooms.room_number}
+      assignmentId={assignment.id}
+      workDate={assignment.assignment_date || todayBudapest()}
+      compact
+      hideWhenEmpty
+      excludeReturnableDeliveries
+    />
+    </div>
+  ) : null;
+
   const secondAttemptNumber = Math.max(2, (assignment.dnd_attempt_count ?? 1) + 1);
+
+  useEffect(() => {
+    setTranslatedCarryInstruction(null);
+  }, [carryForwardCopy?.message]);
+
+  const translateCarryInstruction = async () => {
+    if (!carryForwardCopy || translatingCarryInstruction) return;
+    setTranslatingCarryInstruction(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('translate-note', {
+        body: { text: carryForwardCopy.message, targetLanguage: language },
+      });
+      if (error) throw error;
+      setTranslatedCarryInstruction(data?.translatedText || carryForwardCopy.message);
+    } catch (error) {
+      console.error('Failed to translate carried Hotel Memories service instruction:', error);
+      toast.error('Translation failed');
+    } finally {
+      setTranslatingCarryInstruction(false);
+    }
+  };
+
+  const carryForwardBanner = carryForward && carryForwardCopy ? (
+    <Card className="border-2 border-amber-400 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 shadow-sm">
+      <CardContent className="p-3">
+        <div className="flex items-start gap-2">
+          <span className="text-xl leading-none" aria-hidden="true">{carryForwardCopy.icon}</span>
+          <div className="min-w-0 flex-1">
+            {translatedCarryInstruction ? (
+              <p className="whitespace-pre-wrap break-words text-sm font-bold leading-snug text-amber-950 dark:text-amber-100">
+                {translatedCarryInstruction}
+              </p>
+            ) : (
+              <>
+                <p className="text-sm font-bold leading-snug text-amber-950 dark:text-amber-100">
+                  {carryForwardCopy.action}
+                </p>
+                <p className="mt-0.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  {carryForwardCopy.reason}
+                </p>
+              </>
+            )}
+            {!translatedCarryInstruction && (
+              <button
+                type="button"
+                className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+                onClick={translateCarryInstruction}
+                disabled={translatingCarryInstruction}
+              >
+                {translatingCarryInstruction
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Globe className="h-3.5 w-3.5" />}
+                Translate
+              </button>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  ) : null;
 
   const finalizeSecondDnd = async () => {
     if (savingSecondDnd) return;
+    if (!getDndRetryWindow(assignment.dnd_first_attempt_at).allowed) {
+      toast.warning(language === 'hu' ? `Térj vissza később: ${nextDndTime ?? '14:00'}.` : `Come back later for the second DND attempt: ${nextDndTime ?? '2:00 PM'}.`);
+      return;
+    }
     setSavingSecondDnd(true);
     try {
       const now = new Date().toISOString();
@@ -160,6 +277,9 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   if (isMemories && assignment.status === 'dnd_pending_retry') {
     return (
       <div className="space-y-3">
+        {guestRequestPanel}
+        {carryForwardBanner}
+
         <Card className="border-2 border-orange-500 bg-orange-50 dark:bg-orange-950/30 shadow-md">
           <CardHeader className="pb-2">
             <div className="flex items-start justify-between gap-3">
@@ -178,17 +298,25 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-orange-900 dark:text-orange-100 leading-relaxed">
-              Please check the door again. If the DND sign is still there, use the large button below and take a fresh door photo. This sends the room to the supervisor for approval.
+              {dndRetry.allowed
+                ? (language === 'hu' ? 'Most újra ellenőrizheted az ajtót. Ha még mindig kint van a DND jelzés, készíts új fotót.' : 'Now revisit the door. If the DND sign is still there, take a new photo for supervisor approval.')
+                : (language === 'hu'
+                  ? `Az első és második DND-ellenőrzés nem történhet egyszerre. Térj vissza ${nextDndTime ?? 'később'} után. A második ellenőrzés legkésőbb 14:00-kor elérhető.`
+                  : `Do not take both DND photos at once. Return at ${nextDndTime ?? 'a later time'} for a genuine second visit (available no later than 2:00 PM).`)}
             </p>
             <Button
               size="lg"
-              onClick={() => setSecondDndOpen(true)}
+              onClick={() => {
+                if (dndRetry.allowed) setSecondDndOpen(true);
+                else toast.warning(language === 'hu' ? `A második DND-fotó csak ${nextDndTime ?? 'később'} után készíthető.` : `Second DND photo is too early. Please come back at ${nextDndTime ?? 'a later time'}.`);
+              }}
               disabled={savingSecondDnd}
+              aria-disabled={!dndRetry.allowed}
               className="w-full min-h-14 bg-orange-600 hover:bg-orange-700 text-white text-base font-bold whitespace-normal shadow-sm"
               data-training="memories-dnd-second-attempt-button"
             >
               <BellOff className="h-5 w-5 mr-2 shrink-0" />
-              DND still on door → Take 2nd attempt photo
+              {dndRetry.allowed ? 'DND still on door → Take 2nd attempt photo' : `Second attempt locked · ${nextDndTime ?? 'Later'}`}
             </Button>
             <p className="text-xs text-orange-800 dark:text-orange-200 text-center">
               If the DND sign has been removed, use “Start” on the room card below instead.
@@ -213,23 +341,36 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
 
   if (!isOptionalDaily) {
     const shouldShowGreenBoardAsCleanRequest = greenBoardReleased || initialGreenRequest;
-    const releasedAssignment = shouldShowGreenBoardAsCleanRequest
+    const needsEffectiveRoom = shouldShowGreenBoardAsCleanRequest || !!carryForward;
+    const releasedAssignment = needsEffectiveRoom
       ? {
           ...assignment,
           notes: updatedAssignmentNotes ?? assignment.notes,
           rooms: assignment.rooms
             ? {
                 ...assignment.rooms,
-                // Render the existing clean-room UI for this assignment only.
-                // Do not persist ROOM_CLEANING on the room itself because a
-                // physical green-board request is valid only for today's task.
-                notes: toggleFlag(assignment.rooms.notes ?? null, 'ROOM_CLEANING', true),
+                // Carry-forward requirements are assignment-scoped. They must
+                // behave like today's T/C instructions without rewriting the
+                // live room mirror or leaking into another guest's stay.
+                towel_change_required: effectiveService.towelChangeRequired,
+                linen_change_required: effectiveService.linenChangeRequired,
+                // A carried C is a scheduled obligation, NOT a new guest
+                // cleaning request: do not invent a green-door card.
+                notes: shouldShowGreenBoardAsCleanRequest
+                  ? toggleFlag(assignment.rooms.notes ?? null, 'ROOM_CLEANING', true)
+                  : assignment.rooms.notes,
               }
             : assignment.rooms,
         }
       : assignment;
 
-    return <AssignedRoomCard assignment={releasedAssignment} onStatusUpdate={onStatusUpdate} />;
+    return (
+      <div className="space-y-3">
+        {guestRequestPanel}
+        {carryForwardBanner}
+        <AssignedRoomCard assignment={releasedAssignment} onStatusUpdate={onStatusUpdate} />
+      </div>
+    );
   }
 
   const markGreenBoardSeen = async () => {
@@ -322,7 +463,9 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   const managerInstruction = String(assignment.manager_instruction_text || '').trim();
 
   return (
-    <>
+    <div className="space-y-3">
+      {guestRequestPanel}
+
       <Card className="border-l-4 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/10 shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
@@ -349,13 +492,6 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
               </div>
             </div>
           )}
-
-          <RoomCommunicationPanel
-            assignmentId={assignment.id}
-            roomId={assignment.room_id}
-            roomNumber={assignment.rooms?.room_number || 'N/A'}
-            hideWhenEmpty
-          />
 
           <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-background/80 p-4">
             <div className="flex items-start gap-3">
@@ -463,6 +599,6 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         assignmentId={assignment.id}
       />
-    </>
+    </div>
   );
 }

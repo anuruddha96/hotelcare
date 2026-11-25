@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sparkles, ShieldCheck, CreditCard } from 'lucide-react';
 import {
-  earlyBirdActive, formatMoney, listPriceFor, trialIsRunning, type BillingSummary,
+  effectivePriceFor, formatMoney, listPriceFor, promotionForModule, trialIsRunning, type BillingSummary,
 } from '@/hooks/useBilling';
+import { billingPathFor } from '@/lib/billingNavigation';
 
 /**
  * Shown when someone without an active Revenue subscription switches price
@@ -32,9 +33,10 @@ export function ActivateModuleDialog({
   const settings = summary?.settings;
   const currency = settings?.currency ?? 'EUR';
   const rooms = summary?.hotels.find((h) => h.hotel_id === hotelId)?.rooms ?? 0;
-  const unit = settings?.revenue_automation_price_cents ?? 0;
+  const unit = effectivePriceFor(settings, 'revenue_automation');
   const list = listPriceFor(settings, 'revenue_automation');
-  const promo = earlyBirdActive(settings) && list > unit;
+  const promotion = promotionForModule(settings, 'revenue_automation');
+  const promo = Boolean(promotion?.active && list > unit);
   const trial = trialIsRunning(summary);
 
   const goToPayments = () => {
@@ -42,7 +44,7 @@ export function ActivateModuleDialog({
     if (hotelId) params.set('hotel', hotelId);
     params.set('module', 'revenue_automation');
     onOpenChange(false);
-    navigate(`/billing?${params.toString()}`);
+    navigate(billingPathFor(settings?.organization_slug, params));
   };
 
   return (
@@ -72,7 +74,7 @@ export function ActivateModuleDialog({
                 <span className="font-semibold">{formatMoney(unit, currency)} / room</span>
                 {promo && (
                   <Badge variant="secondary" className="text-[10px]">
-                    {settings?.early_bird_label ?? 'Early bird'}
+                    {promotion?.label ?? 'Promotion'}
                   </Badge>
                 )}
               </span>
@@ -84,8 +86,8 @@ export function ActivateModuleDialog({
                 VAT
               </p>
             )}
-            {promo && settings?.early_bird_note && (
-              <p className="mt-1 text-xs text-primary">{settings.early_bird_note}</p>
+            {promo && promotion?.note && (
+              <p className="mt-1 text-xs text-primary">{promotion.note}</p>
             )}
           </div>
 

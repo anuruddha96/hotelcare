@@ -1,0 +1,1627 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  ArrowLeftRight,
+  BedDouble,
+  CalendarDays,
+  CalendarClock,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  ClipboardList,
+  Hotel,
+  Loader2,
+  MessageSquareText,
+  RefreshCw,
+  Sparkles,
+  UserRound,
+  Wine,
+} from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { unassignRoom } from '@/lib/hkAssignmentDnd';
+import { useAuth } from '@/hooks/useAuth';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
+import { hasManagerPowers } from '@/lib/roleAccess';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
+import { cleanName } from '@/lib/staffNames';
+import { todayBudapest } from '@/lib/budapestTime';
+import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { cleanMemoriesOperationalNotes, isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
+import { effectiveCarryServiceFlags, getActionableHousekeepingCarryForward, getCarryForwardManagerCopy, isRdCarryForwardHotel, type HousekeepingCarryForward } from '@/lib/housekeepingCarryForward';
+import {
+  buildDirectRoomTypeNotice,
+  buildRoomTypeTransition,
+  roomServiceLabel,
+  stripRoomTypeSystemNotes,
+  type RoomTypeNotice,
+} from '@/lib/roomTypeTransition';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
+import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
+import { RoomMinibarOperations } from './RoomMinibarOperations';
+import { RoomCommunicationPanel } from './RoomCommunicationPanel';
+import { RoomPlannedNotesCalendar } from './RoomPlannedNotesCalendar';
+import { RoomAssignmentHistory } from './RoomAssignmentHistory';
+import { RoomNoteProvenance } from './RoomNoteProvenance';
+import { toast } from 'sonner';
+
+type StaffMap = Record<string, string>;
+type Panel = 'main' | 'requests' | 'minibar';
+
+type RoomSelection = {
+  roomNumber: string;
+  roomId: string | null;
+  roomStatus: string | null;
+  roomNotes: string | null;
+  pmsMetadata: Record<string, any> | null;
+  roomType: string | null;
+  roomCategory: string | null;
+  roomSizeSqm: number | null;
+  floorNumber: number | null;
+  bedConfiguration: string | null;
+  isCheckout: boolean;
+  towelChangeRequired: boolean;
+  linenChangeRequired: boolean;
+  roomCleaning: boolean;
+  collectExtraTowels: boolean;
+  guestNightsStayed: number | null;
+  assignmentId: string | null;
+  assignedTo: string | null;
+  assignmentStatus: string | null;
+  assignmentType: string | null;
+  readyToClean: boolean;
+  pmsHold: boolean;
+  assignmentNotes: string | null;
+  assignmentServiceResult: string | null;
+  carryForward: HousekeepingCarryForward | null;
+  priority: number;
+  supervisorApproved: boolean;
+  lastCleanedAt: string | null;
+  minibarPendingUnits: number;
+  loading: boolean;
+  error: string | null;
+};
+
+interface RoomOperationsQuickHubProps {
+  selectedDate: string;
+  hotelName: string;
+  staffMap: StaffMap;
+  children: ReactNode;
+}
+
+function roomChipFromTarget(target: EventTarget | null, root: HTMLElement | null) {
+  let node = target instanceof HTMLElement ? target : null;
+  while (node && node !== root) {
+    const chipBox = node.firstElementChild instanceof HTMLElement ? node.firstElementChild : null;
+    const looksLikeRoomChip =
+      node.classList.contains('select-none') &&
+      node.classList.contains('items-center') &&
+      chipBox?.classList.contains('relative') &&
+      chipBox.classList.contains('text-center');
+
+    if (looksLikeRoomChip && chipBox) {
+      const roomTextNode = Array.from(chipBox.childNodes).find(
+        (child) => child.nodeType === Node.TEXT_NODE && !!child.textContent?.trim(),
+      );
+      const roomNumber = roomTextNode?.textContent?.trim();
+      if (roomNumber) {
+        return {
+          roomNumber,
+          roomId: node.dataset.roomId || null,
+          manageable: node.dataset.roomManageable === 'true',
+          outOfService: node.dataset.roomOutOfService === 'true',
+          element: node,
+        };
+      }
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function statusLabel(status: string | null) {
+  if (!status) return 'Not assigned';
+  if (status === 'in_progress') return 'Housekeeper is cleaning';
+  if (status === 'completed') return 'Cleaning completed';
+  if (status === 'pending_approval') return 'Supervisor approval pending';
+  if (status === 'clean') return 'Clean room';
+  if (status === 'out_of_order') return 'Out of Service';
+  if (status === 'dirty' || status === 'assigned') return 'Dirty room';
+  return status.replaceAll('_', ' ');
+}
+
+function statusTone(status: string | null) {
+  if (status === 'clean' || status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+  if (status === 'in_progress') return 'border-sky-200 bg-sky-50 text-sky-900';
+  if (status === 'pending_approval') return 'border-violet-200 bg-violet-50 text-violet-900';
+  if (status === 'out_of_order') return 'border-rose-300 bg-rose-100 text-rose-950';
+  return 'border-amber-200 bg-amber-50 text-amber-900';
+}
+
+/**
+ * Keep the original operational history while making it unambiguous that a
+ * supervisor later overrode a non-cleaning outcome. The Previo status function
+ * intentionally blocks exact [NO_SERVICE] / [TOWEL_CHANGE_ONLY] markers, so
+ * those markers must no longer remain active when a supervisor confirms that
+ * the room was in fact cleaned.
+ */
+function markNonCleaningOutcomeOverridden(notes: string | null | undefined) {
+  const next = String(notes || '')
+    .replaceAll('[NO_SERVICE]', '[OVERRIDDEN_NO_SERVICE]')
+    .replaceAll('[NO_BOARD_NO_CLEANING]', '[OVERRIDDEN_NO_BOARD_NO_CLEANING]')
+    .replaceAll('[TOWEL_CHANGE_ONLY]', '[OVERRIDDEN_TOWEL_CHANGE_ONLY]')
+    .trim();
+  return next || null;
+}
+
+export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, children }: RoomOperationsQuickHubProps) {
+  const { profile } = useAuth();
+  const { venuesEnabled, orgSlug } = useTenantFeatures();
+  const activeSlug = orgSlug?.toLowerCase() ?? '';
+  const isSlntTenant = venuesEnabled && (activeSlug === 'slnt' || activeSlug === 'slnt-group');
+  const isGozsdu = isGozsduCourtHotel(hotelName);
+  const isMemories = isHotelMemoriesBudapest(hotelName);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const requestRef = useRef(0);
+  const [open, setOpen] = useState(false);
+  const [panel, setPanel] = useState<Panel>('main');
+  const [selection, setSelection] = useState<RoomSelection | null>(null);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [noteSaveState, setNoteSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const notesSavedDraftRef = useRef('');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [plannedTodayNotes, setPlannedTodayNotes] = useState<string[]>([]);
+
+  const role = String(profile?.role || '').toLowerCase();
+  const canManage = hasManagerPowers(profile?.role) || role === 'supervisor';
+  const isReception = role === 'reception';
+  const canOpen = canManage || isReception;
+  // Every hotel's shared instructions are authored by a manager/supervisor.
+  // Reception's non-note operations remain available under their own gates.
+  const canWriteNotes = canManage;
+  const canCommunicate = canManage || (!isMemories && isReception);
+  const canManualRtc = (isGozsdu || isMemories) && (canManage || isReception);
+  const readOnlyForPast = selectedDate !== todayBudapest();
+  const textileChangeLabel = isGozsduCourtHotel(hotelName) ? 'Complete Textile Change' : 'Change Room';
+
+  const loadRoom = useCallback(async ({ roomNumber, roomId }: { roomNumber: string; roomId?: string | null }) => {
+    const requestId = ++requestRef.current;
+    setSelection({
+      roomNumber,
+      roomId: null,
+      roomStatus: null,
+      roomNotes: null,
+      pmsMetadata: null,
+      roomType: null,
+      roomCategory: null,
+      roomSizeSqm: null,
+      floorNumber: null,
+      bedConfiguration: null,
+      isCheckout: false,
+      towelChangeRequired: false,
+      linenChangeRequired: false,
+      roomCleaning: false,
+      collectExtraTowels: false,
+      guestNightsStayed: null,
+      assignmentId: null,
+      assignedTo: null,
+      assignmentStatus: null,
+      assignmentType: null,
+      readyToClean: false,
+      pmsHold: false,
+      assignmentNotes: null,
+      assignmentServiceResult: null,
+      carryForward: null,
+      priority: 1,
+      supervisorApproved: false,
+      lastCleanedAt: null,
+      minibarPendingUnits: 0,
+      loading: true,
+      error: null,
+    });
+    notesSavedDraftRef.current = '';
+    setNotesDraft('');
+    setPlannedTodayNotes([]);
+    setNoteSaveState('idle');
+
+    try {
+      const resolvedKeys = await resolveHotelKeys(hotelName);
+      const hotelKeys = resolvedKeys.length ? resolvedKeys : [hotelName];
+      let roomQuery = supabase
+        .from('rooms')
+        .select('id, hotel, room_number, status, notes, pms_metadata, room_type, room_category, room_size_sqm, floor_number, bed_configuration, is_checkout_room, towel_change_required, linen_change_required, guest_nights_stayed, last_cleaned_at')
+        .in('hotel', hotelKeys);
+      roomQuery = roomId
+        ? roomQuery.eq('id', roomId)
+        : roomQuery.eq('room_number', roomNumber);
+      const { data: roomRows, error: roomError } = await roomQuery;
+      if (roomError) throw roomError;
+      if (requestRef.current !== requestId) return;
+
+      const room = (roomRows || []).find((candidate) => candidate.hotel === hotelName) || roomRows?.[0];
+      if (!room) throw new Error(`Room ${roomNumber} could not be found.`);
+
+      const [{ data: assignmentRows, error: assignmentError }, { data: minibarRows }] = await Promise.all([
+        supabase
+          .from('room_assignments')
+          .select('id, assigned_to, status, priority, assignment_type, supervisor_approved, ready_to_clean, pms_hold, notes, service_result, previous_day_context')
+          .eq('room_id', room.id)
+          .eq('assignment_date', selectedDate)
+          .order('created_at', { ascending: false })
+          .limit(5),
+        supabase
+          .from('room_minibar_usage')
+          .select('quantity_used, is_cleared')
+          .eq('room_id', room.id)
+          .limit(50),
+      ]);
+      if (assignmentError) throw assignmentError;
+      if (requestRef.current !== requestId) return;
+
+      const assignment = (assignmentRows || []).find((candidate) => candidate.status !== 'completed') || assignmentRows?.[0] || null;
+      // Never surface legacy implementation/audit lines in the shared human
+      // note editor. The DB migration removes them permanently; this also makes
+      // old rows clear immediately before that migration reaches production.
+      const typeSafeNotes = stripRoomTypeSystemNotes(room.notes || null);
+      const humanRoomNotes = isMemories
+        ? cleanMemoriesOperationalNotes(typeSafeNotes, (room.pms_metadata as Record<string, unknown> | null) || null)
+        : typeSafeNotes;
+      const flags = parseRoomFlags(humanRoomNotes);
+      const minibarPendingUnits = (minibarRows || [])
+        .filter((row) => !row.is_cleared)
+        .reduce((sum, row) => sum + Number(row.quantity_used || 0), 0);
+
+      notesSavedDraftRef.current = flags.cleanNotes;
+      setNotesDraft(flags.cleanNotes);
+      setNoteSaveState('idle');
+      setSelection({
+        roomNumber: room.room_number,
+        roomId: room.id,
+        roomStatus: room.status || null,
+        roomNotes: room.notes || null,
+        pmsMetadata: (room.pms_metadata as Record<string, any> | null) || null,
+        roomType: room.room_type || null,
+        roomCategory: room.room_category || null,
+        roomSizeSqm: room.room_size_sqm || null,
+        floorNumber: room.floor_number ?? null,
+        bedConfiguration: room.bed_configuration || null,
+        isCheckout: !!room.is_checkout_room || (room.pms_metadata as any)?.scheduledDepartureToday === true || (
+          (room.pms_metadata as any)?.pmsSyncDate !== selectedDate && assignment?.assignment_type === 'checkout_cleaning'
+        ),
+        towelChangeRequired: !!room.towel_change_required,
+        linenChangeRequired: !!room.linen_change_required,
+        roomCleaning: !!flags.roomCleaning,
+        collectExtraTowels: !!flags.collectExtraTowels,
+        guestNightsStayed: room.guest_nights_stayed ?? null,
+        assignmentId: assignment?.id || null,
+        assignedTo: assignment?.assigned_to || null,
+        assignmentStatus: assignment?.status || null,
+        assignmentType: assignment?.assignment_type || null,
+        readyToClean: !!assignment?.ready_to_clean,
+        pmsHold: !!assignment?.pms_hold,
+        assignmentNotes: assignment?.notes || null,
+        assignmentServiceResult: assignment?.service_result || null,
+        carryForward: getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment),
+        priority: Number(assignment?.priority) >= 3 ? 3 : Number(assignment?.priority) === 2 ? 2 : 1,
+        supervisorApproved: !!assignment?.supervisor_approved,
+        lastCleanedAt: room.last_cleaned_at || null,
+        minibarPendingUnits,
+        loading: false,
+        error: null,
+      });
+    } catch (error: any) {
+      console.error('Failed to load room operations:', error);
+      if (requestRef.current !== requestId) return;
+      setSelection((current) => current ? { ...current, loading: false, error: error?.message || 'Could not load this room.' } : current);
+    }
+  }, [hotelName, selectedDate, isMemories]);
+
+  const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement)?.closest?.('[data-room-journey-trigger]')) return;
+    if (!canOpen) return;
+    const chip = roomChipFromTarget(event.target, rootRef.current);
+    if (!chip) return;
+
+    // Venue-enabled boards normally reserve tap/click for assignment. SLNT is
+    // the exception once the unit is already assigned or blocked OOS: those
+    // chips open the same manager operations used by RD Hotels.
+    if (venuesEnabled && !isGozsdu && (!isSlntTenant || !chip.manageable)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    setPanel('main');
+    setMoreOpen(false);
+    setOpen(true);
+    void loadRoom({ roomNumber: chip.roomNumber, roomId: chip.roomId });
+  }, [canOpen, isGozsdu, isSlntTenant, loadRoom, venuesEnabled]);
+
+  const refresh = async () => {
+    if (!selection?.roomNumber) return;
+    await loadRoom({ roomNumber: selection.roomNumber, roomId: selection.roomId });
+  };
+
+  const patchRoom = async (patch: Record<string, any>, localPatch: Partial<RoomSelection>, success: string) => {
+    if (!selection?.roomId) return;
+    setActionLoading(success);
+    try {
+      let query = supabase.from('rooms').update(patch as any).eq('id', selection.roomId);
+      // Service flag toggles must not overwrite instructions changed in another session.
+      if (Object.prototype.hasOwnProperty.call(patch, 'notes')) {
+        query = selection.roomNotes == null
+          ? query.is('notes', null)
+          : query.eq('notes', selection.roomNotes);
+      }
+      const { data, error } = await query.select('id, notes').maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('Room notes changed. Refresh and review the latest instructions.');
+      setSelection((current) => current ? { ...current, ...localPatch, roomNotes: data.notes ?? null } : current);
+      toast.success(success);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      console.error(success, error);
+      toast.error('Could not update this room.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const markReadyToClean = async () => {
+    if (!canManualRtc || readOnlyForPast || !selection?.roomId || !selection.assignmentId) return;
+    if (selection.assignmentType !== 'checkout_cleaning' || !selection.isCheckout) {
+      toast.warning('RTC can only be released for an active checkout-cleaning assignment.');
+      return;
+    }
+    if (selection.assignmentStatus === 'completed') {
+      toast.info(`Room ${selection.roomNumber} cleaning is already completed.`);
+      return;
+    }
+    if (selection.readyToClean) {
+      toast.info(`Room ${selection.roomNumber} is already Ready to Clean.`);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Confirm the guest has physically checked out from room ${selection.roomNumber}.\n\nThis will manually release the room to housekeeping as Ready to Clean (RTC). It will not change or fake the checkout status in Previo.`,
+    );
+    if (!confirmed) return;
+
+    const roomId = selection.roomId;
+    const assignmentId = selection.assignmentId;
+    const roomNumber = selection.roomNumber;
+    const now = new Date().toISOString();
+    const source = isReception ? 'reception_ui' : 'manager_ui';
+    setActionLoading('mark-rtc');
+
+    try {
+      const { data: updatedAssignment, error: assignmentError } = await supabase
+        .from('room_assignments')
+        .update({
+          ready_to_clean: true,
+          pms_hold: false,
+          pms_hold_reason: null,
+        } as any)
+        .eq('id', assignmentId)
+        .eq('assignment_date', selectedDate)
+        .eq('assignment_type', 'checkout_cleaning')
+        .neq('status', 'completed')
+        .select('id, ready_to_clean, pms_hold')
+        .maybeSingle();
+      if (assignmentError) throw assignmentError;
+      if (!updatedAssignment?.id) {
+        throw new Error('The checkout assignment changed. Refresh the room and try again.');
+      }
+
+      // Preserve the PMS payload exactly as received and add a HotelCare-only
+      // operational override marker. This records who released the room without
+      // pretending that Previo confirmed the checkout.
+      const { data: freshRoom, error: roomReadError } = await supabase
+        .from('rooms')
+        .select('pms_metadata')
+        .eq('id', roomId)
+        .maybeSingle();
+      if (roomReadError) throw roomReadError;
+
+      const nextMetadata = {
+        ...(((freshRoom as any)?.pms_metadata as Record<string, any> | null) || selection.pmsMetadata || {}),
+        manualReadyToCleanAt: now,
+        manualReadyToCleanBy: profile?.id || null,
+        manualReadyToCleanSource: source,
+      };
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({ pms_metadata: nextMetadata } as any)
+        .eq('id', roomId);
+      if (roomError) throw roomError;
+
+      // Best-effort audit event. RTC remains released even if the audit table
+      // is temporarily unavailable; the metadata marker above is also durable.
+      const { error: auditError } = await supabase.from('pms_change_events').insert({
+        hotel_id: hotelName,
+        room_id: roomId,
+        room_label: roomNumber,
+        event_type: 'rtc_released_manual',
+        source,
+        before: {
+          ready_to_clean: false,
+          pms_hold: selection.pmsHold,
+          previo_checked_out_today: selection.pmsMetadata?.checkedOutToday === true,
+        },
+        after: {
+          ready_to_clean: true,
+          pms_hold: false,
+          previo_checked_out_today: selection.pmsMetadata?.checkedOutToday === true,
+        },
+        is_conflict: selection.pmsMetadata?.checkedOutToday !== true,
+      } as any);
+      if (auditError) console.warn('Manual RTC audit event could not be written', auditError);
+
+      setSelection((current) => current ? {
+        ...current,
+        readyToClean: true,
+        pmsHold: false,
+        pmsMetadata: nextMetadata,
+      } : current);
+      toast.success(`Room ${roomNumber} manually released as Ready to Clean (RTC)`);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      console.error('Failed to manually release RTC', error);
+      toast.error((error as any)?.message || 'Could not mark this room Ready to Clean.');
+      await loadRoom({ roomNumber, roomId });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const markRoomDirty = async () => {
+    if (!canManage || readOnlyForPast || !selection?.roomId || selection.roomStatus === 'out_of_order') return;
+    if (!isMemories) {
+      await patchRoom({ status: 'dirty' }, { roomStatus: 'dirty' }, `Room ${selection.roomNumber} marked dirty`);
+      return;
+    }
+
+    const roomId = selection.roomId;
+    const roomNumber = selection.roomNumber;
+    setActionLoading('mark-dirty');
+    try {
+      // The authenticated RPC updates the physical room status and, when
+      // needed, creates a NEW active task. Approved photos/history stay intact.
+      // The existing Memories room-status trigger queues the Previo dirty push.
+      const { data, error } = await (supabase as any).rpc('memories_mark_room_dirty', {
+        p_room_id: roomId,
+        p_expected_assignment_date: selectedDate,
+        p_source: 'room_operations',
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error('Room status was not saved.');
+
+      toast.success(data.reopened
+        ? `Room ${roomNumber} is dirty. A new cleaning task was assigned to the same housekeeper.`
+        : `Room ${roomNumber} marked dirty.`);
+      if (data.pms_queued) toast.info('Dirty status queued for Previo. Sync delivery is tracked separately.');
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+      await loadRoom({ roomNumber, roomId });
+    } catch (error) {
+      console.error('Failed to mark Memories room dirty', error);
+      toast.error((error as Error)?.message || 'Could not mark the room dirty. Please refresh.');
+      await loadRoom({ roomNumber, roomId });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const markRoomClean = async () => {
+    if (!canManage || readOnlyForPast || !selection?.roomId) return;
+    if (isSlntTenant && selection.roomStatus === 'out_of_order') {
+      toast.warning('Release this room from Out of Service before changing its housekeeping status.');
+      return;
+    }
+    if (isMemories) {
+      const roomId = selection.roomId;
+      const roomNumber = selection.roomNumber;
+      setActionLoading('mark-clean');
+      try {
+        // The existing manager RPC is atomic, permission-scoped and audited.
+        // Its room update queues the Previo status through the DB trigger.
+        const { data, error } = await (supabase as any).rpc('manager_mark_room_clean', {
+          p_room_id: roomId,
+          p_assignment_id: selection.assignmentId || null,
+          p_expected_assignment_date: selectedDate,
+          p_source: 'room_operations',
+        });
+        if (error) throw error;
+        if (!data?.success) throw new Error('Clean status was not saved.');
+        toast.success(`Room ${roomNumber} marked clean in HotelCare.`);
+        toast.info('Previo status delivery is queued or already processed. Check the sync history for confirmation.');
+        window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+        await loadRoom({ roomNumber, roomId });
+      } catch (error) {
+        console.error('Failed to mark Memories room clean', error);
+        toast.error((error as Error)?.message || 'Could not mark the room clean.');
+        await loadRoom({ roomNumber, roomId });
+      } finally {
+        setActionLoading(null);
+      }
+      return;
+    }
+    const roomId = selection.roomId;
+    const assignmentId = selection.assignmentId;
+    const roomNumber = selection.roomNumber;
+    const now = new Date().toISOString();
+    setActionLoading('mark-clean');
+
+    try {
+      let nextAssignmentNotes = selection.assignmentNotes;
+
+      if (assignmentId) {
+        // Read the newest notes first so a manager override never clobbers a
+        // housekeeper note that arrived after the dialog was opened.
+        const { data: freshAssignment, error: assignmentReadError } = await supabase
+          .from('room_assignments')
+          .select('notes')
+          .eq('id', assignmentId)
+          .maybeSingle();
+        if (assignmentReadError) throw assignmentReadError;
+
+        nextAssignmentNotes = markNonCleaningOutcomeOverridden(
+          freshAssignment?.notes ?? selection.assignmentNotes,
+        );
+
+        const { error: assignmentError } = await supabase
+          .from('room_assignments')
+          .update({
+            status: 'completed',
+            completed_at: now,
+            supervisor_approved: true,
+            supervisor_approved_by: profile?.id || null,
+            supervisor_approved_at: now,
+            service_result: 'cleaned',
+            is_dnd: false,
+            dnd_marked_at: null,
+            dnd_marked_by: null,
+            notes: nextAssignmentNotes,
+          } as any)
+          .eq('id', assignmentId);
+        if (assignmentError) throw assignmentError;
+      }
+
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({
+          status: 'clean',
+          last_cleaned_at: now,
+          last_cleaned_by: profile?.id || null,
+          is_dnd: false,
+          dnd_marked_at: null,
+          dnd_marked_by: null,
+        } as any)
+        .eq('id', roomId);
+      if (roomError) throw roomError;
+
+      setSelection((current) => current ? {
+        ...current,
+        roomStatus: 'clean',
+        lastCleanedAt: now,
+        assignmentStatus: assignmentId ? 'completed' : current.assignmentStatus,
+        assignmentNotes: assignmentId ? nextAssignmentNotes : current.assignmentNotes,
+        assignmentServiceResult: assignmentId ? 'cleaned' : current.assignmentServiceResult,
+        supervisorApproved: assignmentId ? true : current.supervisorApproved,
+      } : current);
+
+      // Push only after the local assignment has been converted from a
+      // No-Service/DND outcome to a real clean outcome. The edge function has
+      // a safety gate that correctly refuses clean pushes while [NO_SERVICE]
+      // or service_result='guest_declined' is still active.
+      try {
+        const { data: pmsData, error: pmsError } = await supabase.functions.invoke('previo-update-room-status', {
+          body: { roomId, status: 'clean', assignmentId: assignmentId || undefined },
+        });
+        if (pmsError) throw pmsError;
+        if (pmsData?.success === false) throw new Error(pmsData?.error || 'PMS returned an unsuccessful response');
+
+        if (pmsData?.skipped) {
+          toast.warning(`Room ${roomNumber} marked clean in HotelCare. PMS sync skipped: ${pmsData?.message || 'not configured for this room'}`, { duration: 9000 });
+        } else {
+          toast.success(`Room ${roomNumber} marked clean and synced to PMS`);
+        }
+      } catch (pmsError) {
+        console.error('Room clean saved but PMS sync failed', pmsError);
+        toast.warning(`Room ${roomNumber} is clean in HotelCare, but PMS sync failed. Tap “Mark Clean & Sync PMS” again to retry.`, { duration: 10000 });
+      }
+
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+      await loadRoom({ roomNumber, roomId });
+    } catch (error) {
+      console.error('Failed to manually mark room clean', error);
+      toast.error('Could not mark this room clean.');
+      await loadRoom({ roomNumber, roomId });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const setPriority = async (priority: number) => {
+    if (!canManage || !selection?.assignmentId || selection.assignmentStatus === 'completed') return;
+    setActionLoading(`priority-${priority}`);
+    const previous = selection.priority;
+    setSelection((current) => current ? { ...current, priority } : current);
+    try {
+      const { error } = await supabase.from('room_assignments').update({ priority }).eq('id', selection.assignmentId);
+      if (error) throw error;
+      toast.success(`Room ${selection.roomNumber} priority updated`);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch {
+      setSelection((current) => current ? { ...current, priority: previous } : current);
+      toast.error('Could not update priority.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const switchService = async () => {
+    if (!canManage || readOnlyForPast || !selection?.roomId) return;
+    const nextCheckout = !selection.isCheckout;
+    const roomId = selection.roomId;
+    const assignmentId = selection.assignmentId;
+    setActionLoading('service');
+
+    let originalRoom: any = null;
+    let originalAssignment: any = null;
+    let roomChanged = false;
+    let assignmentChanged = false;
+
+    try {
+      const [{ data: freshRoom, error: roomReadError }, { data: freshAssignment, error: assignmentReadError }] = await Promise.all([
+        supabase.from('rooms')
+          .select('id,hotel,room_number,is_checkout_room,notes,pms_metadata,guest_nights_stayed,towel_change_required,linen_change_required')
+          .eq('id', roomId)
+          .maybeSingle(),
+        assignmentId
+          ? supabase.from('room_assignments')
+              .select('id,status,assignment_type,ready_to_clean,notes')
+              .eq('id', assignmentId)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null } as any),
+      ]);
+      if (roomReadError) throw roomReadError;
+      if (assignmentReadError) throw assignmentReadError;
+      if (!freshRoom?.id) throw new Error('Room changed or is no longer available. Refresh and retry.');
+      if (freshAssignment && ['in_progress', 'completed'].includes(freshAssignment.status)) {
+        throw new Error('Cleaning already started or finished. Resolve the current assignment before changing its type.');
+      }
+
+      originalRoom = freshRoom;
+      originalAssignment = freshAssignment;
+      const meta = freshRoom.pms_metadata && typeof freshRoom.pms_metadata === 'object'
+        ? freshRoom.pms_metadata as Record<string, any>
+        : {};
+      const nowIso = new Date().toISOString();
+      const transition = buildRoomTypeTransition({
+        metadata: meta,
+        target: nextCheckout ? 'checkout' : 'daily',
+        date: selectedDate,
+        roomNumber: freshRoom.room_number,
+        actorId: profile?.id || '',
+        actorName: profile?.full_name || 'Manager',
+        nowIso,
+        previousRoomNotes: freshRoom.notes,
+        serviceSnapshot: {
+          reservationId: meta.reservationId != null ? String(meta.reservationId) : null,
+          guestFingerprint: meta.guestFingerprint != null ? String(meta.guestFingerprint) : null,
+          guestIdentityStrength: meta.guestIdentityStrength === 'strong' || meta.guestIdentityStrength === 'name'
+            ? meta.guestIdentityStrength
+            : 'none',
+          arrivalDate: meta.arrivalDate != null ? String(meta.arrivalDate) : null,
+          departureDate: meta.departureDate != null ? String(meta.departureDate) : null,
+          guestNightsStayed: freshRoom.guest_nights_stayed,
+          currentNight: Number(meta.currentNight ?? 0) || null,
+          totalNights: Number(meta.totalNights ?? 0) || null,
+          towelChangeRequired: freshRoom.towel_change_required,
+          linenChangeRequired: freshRoom.linen_change_required,
+        },
+      });
+
+      const roomPatch: Record<string, unknown> = {
+        is_checkout_room: nextCheckout,
+        pms_metadata: transition.metadata,
+        notes: transition.note,
+      };
+      if (!nextCheckout && transition.continuedNight) {
+        roomPatch.guest_nights_stayed = transition.continuedNight;
+      }
+
+      const { data: persistedRows, error: roomWriteError } = await supabase.from('rooms')
+        .update(roomPatch as any)
+        .eq('id', roomId)
+        .select('id,pms_metadata,notes,guest_nights_stayed,towel_change_required,linen_change_required');
+      if (roomWriteError) throw roomWriteError;
+      if (persistedRows?.length !== 1) throw new Error('Room type update was not persisted.');
+      roomChanged = true;
+
+      const persistedRoom = persistedRows[0] as any;
+      const persistedMeta = persistedRoom.pms_metadata && typeof persistedRoom.pms_metadata === 'object'
+        ? persistedRoom.pms_metadata as Record<string, any>
+        : transition.metadata;
+      const finalServiceLabel = nextCheckout
+        ? null
+        : roomServiceLabel({
+            towelChangeRequired: persistedRoom.towel_change_required,
+            linenChangeRequired: persistedRoom.linen_change_required,
+          });
+      const finalNotice = buildDirectRoomTypeNotice({
+        date: selectedDate,
+        at: transition.notice.at,
+        from: nextCheckout ? 'daily' : 'checkout',
+        to: nextCheckout ? 'checkout' : 'daily',
+        by: profile?.full_name || 'Manager',
+        serviceLabel: finalServiceLabel,
+        nightsStayed: Number(
+          persistedMeta?.continuousStay?.currentNight
+            ?? persistedRoom.guest_nights_stayed
+            ?? persistedMeta.currentNight
+            ?? 0,
+        ) || null,
+      });
+      const finalMetadata = { ...persistedMeta, roomTypeChangeNotice: finalNotice };
+
+      const { error: noticeError } = await supabase.from('rooms')
+        .update({ pms_metadata: finalMetadata } as any)
+        .eq('id', roomId);
+      if (noticeError) throw noticeError;
+
+      if (freshAssignment?.id) {
+        const cleanedAssignmentNotes = stripRoomTypeSystemNotes(freshAssignment.notes);
+        const { data: changedRows, error: assignmentWriteError } = await supabase.from('room_assignments')
+          .update({
+            assignment_type: nextCheckout ? 'checkout_cleaning' : 'daily_cleaning',
+            ready_to_clean: !nextCheckout,
+            ...(cleanedAssignmentNotes !== freshAssignment.notes ? { notes: cleanedAssignmentNotes } : {}),
+          } as any)
+          .eq('id', freshAssignment.id)
+          .eq('status', freshAssignment.status)
+          .select('id');
+        if (assignmentWriteError) throw assignmentWriteError;
+        if (changedRows?.length !== 1) throw new Error('Assignment changed while the room type was being updated.');
+        assignmentChanged = true;
+      }
+
+      const cleanHumanNote = stripRoomTypeSystemNotes(persistedRoom.notes);
+      const cleanFlags = parseRoomFlags(cleanHumanNote);
+      notesSavedDraftRef.current = cleanFlags.cleanNotes;
+      setNotesDraft(cleanFlags.cleanNotes);
+      setSelection((current) => current ? {
+        ...current,
+        isCheckout: nextCheckout,
+        pmsMetadata: finalMetadata,
+        roomNotes: cleanHumanNote,
+        roomCleaning: !!cleanFlags.roomCleaning,
+        collectExtraTowels: !!cleanFlags.collectExtraTowels,
+        guestNightsStayed: persistedRoom.guest_nights_stayed ?? current.guestNightsStayed,
+        towelChangeRequired: !!persistedRoom.towel_change_required,
+        linenChangeRequired: !!persistedRoom.linen_change_required,
+        assignmentType: freshAssignment?.id
+          ? (nextCheckout ? 'checkout_cleaning' : 'daily_cleaning')
+          : current.assignmentType,
+        readyToClean: freshAssignment?.id ? !nextCheckout : current.readyToClean,
+        assignmentNotes: freshAssignment?.id
+          ? stripRoomTypeSystemNotes(freshAssignment.notes)
+          : current.assignmentNotes,
+      } : current);
+
+      void supabase.from('pms_change_events').insert({
+        hotel_id: freshRoom.hotel || hotelName,
+        room_id: roomId,
+        room_label: freshRoom.room_number,
+        event_type: 'room_type_switched_manual',
+        source: 'manager_ui',
+        before: {
+          is_checkout_room: !!freshRoom.is_checkout_room,
+          guest_nights_stayed: freshRoom.guest_nights_stayed,
+          towel_change_required: !!freshRoom.towel_change_required,
+          linen_change_required: !!freshRoom.linen_change_required,
+        },
+        after: {
+          is_checkout_room: nextCheckout,
+          date: selectedDate,
+          by: profile?.id || null,
+          guest_nights_stayed: persistedRoom.guest_nights_stayed,
+          required_service: finalServiceLabel,
+          manager_confirmed_guest_staying: !nextCheckout,
+        },
+        is_conflict: false,
+      } as any).then(({ error }) => {
+        if (error) console.warn('Room type audit event failed', error);
+      });
+
+      toast.success(nextCheckout
+        ? `Room ${selection.roomNumber} changed to Checkout cleaning`
+        : `Room ${selection.roomNumber}: guest staying · ${finalServiceLabel || 'Daily service'}`);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+      await loadRoom({ roomNumber: selection.roomNumber, roomId });
+    } catch (error) {
+      console.error('Failed to switch service', error);
+
+      // There is no single transaction RPC for this UI action. Compensate any
+      // partial write so housekeepers never see a half-switched room.
+      if (assignmentChanged && originalAssignment?.id) {
+        const { error: rollbackAssignmentError } = await supabase.from('room_assignments')
+          .update({
+            assignment_type: originalAssignment.assignment_type,
+            ready_to_clean: originalAssignment.ready_to_clean,
+            notes: originalAssignment.notes,
+          } as any)
+          .eq('id', originalAssignment.id);
+        if (rollbackAssignmentError) console.error('Assignment rollback failed', rollbackAssignmentError);
+      }
+      if (roomChanged && originalRoom?.id) {
+        const { error: rollbackRoomError } = await supabase.from('rooms')
+          .update({
+            is_checkout_room: originalRoom.is_checkout_room,
+            notes: originalRoom.notes,
+            pms_metadata: originalRoom.pms_metadata,
+            guest_nights_stayed: originalRoom.guest_nights_stayed,
+            towel_change_required: originalRoom.towel_change_required,
+            linen_change_required: originalRoom.linen_change_required,
+          } as any)
+          .eq('id', originalRoom.id);
+        if (rollbackRoomError) console.error('Room rollback failed', rollbackRoomError);
+      }
+
+      toast.error(error instanceof Error ? error.message : 'Could not change service type.');
+      await loadRoom({ roomNumber: selection.roomNumber, roomId });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const saveServiceFlags = async (next: { roomCleaning?: boolean; collectExtraTowels?: boolean }) => {
+    if (!canManage || !selection?.roomId) return;
+    const nextRoomCleaning = next.roomCleaning ?? selection.roomCleaning;
+    const nextExtraTowels = next.collectExtraTowels ?? selection.collectExtraTowels;
+    const nextNotes = buildRoomNotes(
+      { roomCleaning: nextRoomCleaning, collectExtraTowels: nextExtraTowels },
+      notesDraft,
+    );
+    await patchRoom(
+      { notes: nextNotes || null },
+      { roomNotes: nextNotes || null, roomCleaning: nextRoomCleaning, collectExtraTowels: nextExtraTowels },
+      `Room ${selection.roomNumber} instructions updated`,
+    );
+  };
+
+  const saveNotes = useCallback(async (silent = false) => {
+    if (!selection?.roomId || !profile?.id || !canWriteNotes) return;
+    setSavingNotes(true);
+    setNoteSaveState('saving');
+    try {
+      const nextNotes = buildRoomNotes(
+        { roomCleaning: selection.roomCleaning, collectExtraTowels: selection.collectExtraTowels },
+        notesDraft,
+      );
+      const { data, error } = await (supabase as any).rpc('save_room_note_if_unchanged', {
+        p_room_id: selection.roomId,
+        p_notes: nextNotes,
+        p_expected_notes: selection.roomNotes,
+      });
+      if (error) throw error;
+      const savedRow = Array.isArray(data) ? data[0] : data;
+      if (!savedRow?.room_id) throw new Error('Room note update was not applied');
+
+      // The database note-history trigger records this edit atomically.
+      notesSavedDraftRef.current = notesDraft;
+      setSelection((current) => current ? { ...current, roomNotes: savedRow.notes ?? null } : current);
+      setNoteSaveState('saved');
+      if (!silent) toast.success(`Note saved for room ${selection.roomNumber}`);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      console.error('Failed to save note', error);
+      // Stop automatic retry loops on a conflict/network error. A new edit
+      // will schedule auto-save again; the explicit Save note button can retry
+      // the current draft immediately.
+      notesSavedDraftRef.current = notesDraft;
+      setNoteSaveState('error');
+      if (!silent) toast.error((error as any)?.message || 'Could not save the note.');
+    } finally {
+      setSavingNotes(false);
+    }
+  }, [canWriteNotes, notesDraft, profile?.id, selection]);
+
+  useEffect(() => {
+    if (!isSlntTenant || !open || panel !== 'main' || !selection?.roomId || selection.loading || !canWriteNotes || savingNotes) return;
+    if (notesDraft === notesSavedDraftRef.current) return;
+
+    setNoteSaveState('saving');
+    const timer = window.setTimeout(() => {
+      void saveNotes(true);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [canWriteNotes, isSlntTenant, notesDraft, open, panel, saveNotes, savingNotes, selection?.loading, selection?.roomId]);
+
+  const assigneeName = selection?.assignedTo
+    ? cleanName(staffMap[selection.assignedTo]) || staffMap[selection.assignedTo] || 'Assigned housekeeper'
+    : 'Unassigned';
+
+  const takeBackFromHousekeeper = async () => {
+    if (!isSlntTenant || !canManage || readOnlyForPast || !selection?.roomId || !selection.assignmentId) return;
+    if (selection.assignmentStatus === 'completed') return;
+    setActionLoading('take-back');
+    try {
+      await unassignRoom(selection.roomId, selectedDate);
+      setSelection((current) => current ? {
+        ...current,
+        assignmentId: null,
+        assignedTo: null,
+        assignmentStatus: null,
+        assignmentType: null,
+        readyToClean: false,
+        pmsHold: false,
+        assignmentNotes: null,
+        assignmentServiceResult: null,
+        supervisorApproved: false,
+        priority: 1,
+      } : current);
+      toast.success(`Room ${selection.roomNumber} returned to the unassigned board`);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      console.error('Failed to take room back from housekeeper', error);
+      toast.error('Could not take this room back.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const setOutOfService = async (blocked: boolean) => {
+    if (!isSlntTenant || !canManage || readOnlyForPast || !selection?.roomId) return;
+    const roomId = selection.roomId;
+    const roomNumber = selection.roomNumber;
+    const previousStatus = selection.roomStatus || 'dirty';
+    const activeAssignment = !!selection.assignmentId && selection.assignmentStatus !== 'completed';
+    setActionLoading(blocked ? 'block-oos' : 'release-oos');
+
+    try {
+      const now = new Date().toISOString();
+      const nextMetadata = {
+        ...(selection.pmsMetadata || {}),
+        slntManualOutOfService: blocked,
+        ...(blocked
+          ? {
+              slntManualOutOfServiceAt: now,
+              slntManualOutOfServiceBy: profile?.id || null,
+            }
+          : {
+              slntManualOutOfServiceReleasedAt: now,
+              slntManualOutOfServiceReleasedBy: profile?.id || null,
+            }),
+      };
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({
+          status: blocked ? 'out_of_order' : 'dirty',
+          pms_metadata: nextMetadata,
+        } as any)
+        .eq('id', roomId);
+      if (roomError) throw roomError;
+
+      if (blocked && activeAssignment) {
+        try {
+          await unassignRoom(roomId, selectedDate);
+        } catch (unassignError) {
+          await supabase.from('rooms').update({
+            status: previousStatus,
+            pms_metadata: {
+              ...nextMetadata,
+              slntManualOutOfService: false,
+              slntManualOutOfServiceReleasedAt: new Date().toISOString(),
+              slntManualOutOfServiceReleasedBy: profile?.id || null,
+            },
+          } as any).eq('id', roomId);
+          throw unassignError;
+        }
+      }
+
+      setSelection((current) => current ? {
+        ...current,
+        roomStatus: blocked ? 'out_of_order' : 'dirty',
+        pmsMetadata: nextMetadata,
+        ...(blocked && activeAssignment ? {
+          assignmentId: null,
+          assignedTo: null,
+          assignmentStatus: null,
+          assignmentNotes: null,
+          assignmentServiceResult: null,
+          supervisorApproved: false,
+          priority: 1,
+        } : {}),
+      } : current);
+
+      toast.success(
+        blocked
+          ? `Room ${roomNumber} blocked Out of Service`
+          : `Room ${roomNumber} released from Out of Service`,
+      );
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      console.error('Failed to change Out of Service status', error);
+      toast.error(blocked ? 'Could not block this room.' : 'Could not release this room.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const priorityMeta = useMemo(() => {
+    if (selection?.priority === 3) return { label: 'High', className: 'border-rose-300 bg-rose-100 text-rose-800' };
+    if (selection?.priority === 2) return { label: 'Medium', className: 'border-amber-300 bg-amber-100 text-amber-800' };
+    return { label: 'Low', className: 'border-sky-300 bg-sky-100 text-sky-800' };
+  }, [selection?.priority]);
+
+  const hasNonCleaningOutcome = !!selection && (
+    selection.assignmentServiceResult === 'guest_declined'
+    || !!selection.assignmentNotes?.includes('[NO_SERVICE]')
+    || !!selection.assignmentNotes?.includes('[TOWEL_CHANGE_ONLY]')
+  );
+  const isSlntOutOfService = isSlntTenant && selection?.roomStatus === 'out_of_order';
+  // Physical room condition is authoritative for Clean/Dirty. A previous
+  // completed task must not make a now-dirty room appear cleaned.
+  const effectiveStatus = isSlntOutOfService
+    ? 'out_of_order'
+    : selection?.roomStatus || selection?.assignmentStatus || null;
+  const visibleStatusLabel = isSlntOutOfService
+    ? 'Out of Service'
+    : hasNonCleaningOutcome
+      ? 'No Service / DND outcome'
+      : statusLabel(effectiveStatus);
+  const visibleStatusTone = isSlntOutOfService
+    ? statusTone('out_of_order')
+    : hasNonCleaningOutcome
+      ? 'border-rose-200 bg-rose-50 text-rose-900'
+      : statusTone(effectiveStatus);
+
+  // Keep compact status badges unchanged, but avoid large bright summary cards in dark mode.
+  const summaryStatusTone = isSlntOutOfService || hasNonCleaningOutcome || effectiveStatus === 'out_of_order'
+    ? 'dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-100'
+    : effectiveStatus === 'clean' || effectiveStatus === 'completed'
+      ? 'dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'
+      : effectiveStatus === 'in_progress'
+        ? 'dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100'
+        : effectiveStatus === 'pending_approval'
+          ? 'dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100'
+          : 'dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100';
+
+  const activeRoomTypeNotice = selection?.pmsMetadata?.roomTypeChangeNotice as RoomTypeNotice | undefined;
+  const managerTypeNotice = activeRoomTypeNotice?.date === selectedDate
+    ? activeRoomTypeNotice
+    : null;
+  const currentContinuousNight = Number(
+    selection?.pmsMetadata?.continuousStay?.currentNight
+      ?? selection?.guestNightsStayed
+      ?? selection?.pmsMetadata?.currentNight
+      ?? managerTypeNotice?.nightsStayed
+      ?? 0,
+  ) || null;
+  const continuousTotalNights = Number(
+    selection?.pmsMetadata?.continuousStay?.totalNights
+      ?? selection?.pmsMetadata?.totalNights
+      ?? 0,
+  ) || null;
+  const previousReservationNights = Number(
+    selection?.pmsMetadata?.extensionServiceSnapshot?.guestNightsStayed ?? 0,
+  ) || null;
+  const linkedReservationCount = Array.isArray(selection?.pmsMetadata?.continuousStay?.reservationIds)
+    ? selection!.pmsMetadata!.continuousStay.reservationIds.length
+    : 0;
+  const effectiveRoomService = effectiveCarryServiceFlags({
+    towelChangeRequired: selection?.towelChangeRequired,
+    linenChangeRequired: selection?.linenChangeRequired,
+    carryForward: selection?.carryForward,
+    isCheckout: !!selection?.isCheckout,
+    forceTowelOnly: isMemories && !!selection?.carryForward
+      && isMemoriesFinalOccupiedNight(selection?.pmsMetadata, selectedDate),
+  });
+  const carryCopy = selection?.carryForward ? getCarryForwardManagerCopy(selection.carryForward) : null;
+  const currentRequiredService = selection?.isCheckout
+    ? 'Checkout'
+    : roomServiceLabel(effectiveRoomService);
+
+  const mainView = !selection ? null : (
+    <div className="space-y-4">
+      {carryCopy && !selection.isCheckout && (
+        <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100" role="status">
+          <p className="text-sm font-bold">{isRdCarryForwardHotel(hotelName) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-4 w-4" aria-hidden="true" /> Missed service · yesterday: {carryCopy.action}</span> : <>↪ Outstanding housekeeping service: {carryCopy.action}</>}</p>
+          <p className="mt-1 text-xs">{carryCopy.summary}{carryCopy.detail ? ` · ${carryCopy.detail}` : ''}</p>
+          <p className="mt-1 text-xs">This missed service is part of today's assignment; it may differ from the normal PMS service cycle below.</p>
+        </div>
+      )}
+      <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className={`rounded-xl border p-3 ${visibleStatusTone} ${summaryStatusTone}`}>
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Room condition</p>
+          <p className="mt-1 text-sm font-bold">{visibleStatusLabel}</p>
+        </div>
+        <div className={`rounded-xl border p-3 ${selection.isCheckout ? 'border-orange-200 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-100' : 'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-100'}`}>
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Service</p>
+          <p className="mt-1 text-sm font-bold">{currentRequiredService}</p>
+        </div>
+        <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-violet-900 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Housekeeper</p>
+          <p className="mt-1 truncate text-sm font-bold">{assigneeName}</p>
+        </div>
+        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-cyan-900 dark:border-cyan-800 dark:bg-cyan-950/30 dark:text-cyan-100">
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Room</p>
+          <p className="mt-1 text-sm font-bold">{selection.roomSizeSqm ? `${selection.roomSizeSqm} m²` : selection.roomCategory || '—'}</p>
+        </div>
+      </section>
+
+      {selection.assignmentStatus && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-white/80 px-3 py-2 text-xs dark:bg-muted/40">
+          <span className="font-semibold text-slate-700 dark:text-foreground">Housekeeping task:</span>
+          <Badge variant="outline">{statusLabel(selection.assignmentStatus)}</Badge>
+          {selection.roomStatus === 'dirty' && selection.assignmentStatus === 'completed' && (
+            <span className="text-amber-800 dark:text-amber-200">Previous cleaning is recorded, but this room is dirty again. Reopen it below.</span>
+          )}
+        </div>
+      )}
+
+      {selection.isCheckout && (
+        <div role="status" className={`rounded-xl border px-3 py-2.5 text-sm ${selection.readyToClean ? 'border-teal-300 bg-teal-50 text-teal-900 dark:border-teal-700 dark:bg-teal-950/30 dark:text-teal-100' : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-bold">{selection.readyToClean ? '✓ Ready to Clean (RTC)' : 'Awaiting verified guest checkout'}</span>
+            <span className="text-xs">{selection.readyToClean
+              ? isPmsRtcToday(selection.pmsMetadata) && selection.pmsMetadata?.checkedOutToday === true ? 'Auto · Previo checkout' : 'HotelCare manual release'
+              : 'Do not enter until checkout is confirmed'}</span>
+          </div>
+        </div>
+      )}
+
+      {isMemories && canManage && selection.roomStatus !== 'out_of_order' && (
+        <section className="rounded-2xl border-2 border-amber-200 bg-amber-50/50 dark:border-amber-500/50 dark:bg-amber-950/20 p-3 sm:p-4">
+          <p className="text-sm font-bold text-slate-900 dark:text-foreground">Room status & cleaning controls</p>
+          <p className="mt-1 text-xs text-slate-700 dark:text-muted-foreground">A dirty room updates Previo. If today's approved cleaning is already completed, a new task opens without deleting that work.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Button className="min-h-11 border-amber-400 bg-white text-amber-900 hover:bg-amber-100 dark:border-amber-500/60 dark:bg-card dark:text-amber-200 dark:hover:bg-amber-950/50" variant="outline" disabled={readOnlyForPast || !!actionLoading} onClick={() => void markRoomDirty()}>
+              {actionLoading === 'mark-dirty' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {selection.assignmentStatus === 'completed'
+                ? selection.roomStatus === 'dirty' ? 'Reopen cleaning task' : 'Mark Dirty & Reopen'
+                : 'Mark Dirty'}
+            </Button>
+            <Button className="min-h-11 bg-emerald-700 text-white hover:bg-emerald-800" disabled={readOnlyForPast || !!actionLoading} onClick={() => void markRoomClean()}>
+              {actionLoading === 'mark-clean' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Mark Clean & Sync Previo
+            </Button>
+          </div>
+        </section>
+      )}
+
+      {managerTypeNotice && (
+        <section className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-3 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
+          <div className="flex items-start gap-2">
+            <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-300">Manager update</p>
+              {managerTypeNotice.to === 'daily' ? (
+                <>
+                  <p className="mt-1 text-sm font-bold">Guest staying — Daily service</p>
+                  <p className="mt-1 text-sm"><strong>Required today:</strong> {currentRequiredService}</p>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs opacity-80">
+                    {previousReservationNights && <span>Previous reservation: {previousReservationNights} nights</span>}
+                    {currentContinuousNight && (
+                      <span>
+                        Continuous stay: night {currentContinuousNight}
+                        {continuousTotalNights && continuousTotalNights >= currentContinuousNight ? '/' + continuousTotalNights : ''}
+                      </span>
+                    )}
+                    {linkedReservationCount > 1 && <span>{linkedReservationCount} linked reservations</span>}
+                  </div>
+                  <p className="mt-1 text-xs opacity-80">Changed by {managerTypeNotice.by}. Housekeeping should follow the required service above.</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm font-bold">Checkout cleaning</p>
+                  <p className="mt-1 text-sm">Wait for <strong>Guest Checked Out</strong> before entering.</p>
+                  <p className="mt-1 text-xs opacity-80">Changed by {managerTypeNotice.by}.</p>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white dark:border-border dark:bg-none dark:bg-card p-3 sm:p-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-bold">Today’s essentials</p>
+            <p className="text-[11px] text-muted-foreground">The controls managers use most should stay visible.</p>
+          </div>
+          <Badge className={priorityMeta.className}>{priorityMeta.label} priority</Badge>
+        </div>
+
+        <div className="mb-3 grid grid-cols-3 gap-2">
+          {[
+            { value: 1, label: 'Low', active: 'border-sky-500 bg-sky-500 text-sky-950', idle: 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-100' },
+            { value: 2, label: 'Medium', active: 'border-amber-500 bg-amber-500 text-amber-950', idle: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100' },
+            { value: 3, label: 'High', active: 'border-rose-500 bg-rose-700 text-white', idle: 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-700 dark:bg-rose-950/30 dark:text-rose-100' },
+          ].map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              disabled={!canManage || !selection.assignmentId || selection.assignmentStatus === 'completed' || !!actionLoading}
+              onClick={() => void setPriority(item.value)}
+              className={`rounded-xl border px-2 py-2 text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${selection.priority === item.value ? item.active : item.idle}`}
+            >
+              {actionLoading === `priority-${item.value}` ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : item.label}
+            </button>
+          ))}
+        </div>
+
+        <Button
+          type="button"
+          className={`mb-3 w-full justify-between ${selection.isCheckout ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-orange-500 text-orange-950 hover:bg-orange-600'}`}
+          disabled={!canManage || readOnlyForPast || actionLoading === 'service'}
+          onClick={() => void switchService()}
+        >
+          <span className="flex items-center gap-2"><ArrowLeftRight className="h-4 w-4" /> Switch to {selection.isCheckout ? 'Daily' : 'Checkout'}</span>
+          <span className="text-xs opacity-90">Current: {selection.isCheckout ? 'Checkout' : 'Daily'}</span>
+        </Button>
+
+        {canManualRtc && selection.isCheckout && selection.assignmentId && selection.assignmentType === 'checkout_cleaning' && (
+          <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 p-2.5 dark:border-teal-800 dark:bg-teal-950/25">
+            {selection.readyToClean ? (
+              <div className="flex items-center justify-center gap-2 rounded-lg border border-teal-200 bg-white/80 px-3 py-2.5 text-sm font-bold text-teal-800 dark:border-teal-700 dark:bg-card dark:text-teal-200">
+                <CheckCircle2 className="h-4 w-4" />
+                Ready to Clean (RTC)
+              </div>
+            ) : (
+              <Button
+                type="button"
+                className="w-full bg-teal-700 font-bold text-white hover:bg-teal-800"
+                disabled={readOnlyForPast || !!actionLoading || selection.assignmentStatus === 'completed'}
+                onClick={() => void markReadyToClean()}
+              >
+                {actionLoading === 'mark-rtc'
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                Mark Ready to Clean (RTC)
+              </Button>
+            )}
+            <p className="mt-1.5 text-[10px] leading-snug text-teal-900/75 dark:text-teal-200">
+              {isMemories ? 'Hotel Memories checkout override.' : 'Gozsdu reception override.'} Use only after confirming the guest has physically left. Previo reservation/checkout data remains unchanged.
+            </p>
+            {selection.pmsHold && !selection.readyToClean && (
+              <p className="mt-1 text-[10px] font-semibold text-amber-800 dark:text-amber-200">
+                PMS is currently holding this room. Manual RTC will explicitly release that HotelCare hold after your confirmation.
+              </p>
+            )}
+          </div>
+        )}
+
+        {canManage && (
+          <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 dark:border-emerald-800 dark:bg-emerald-950/25">
+            <Button
+              type="button"
+              className="w-full bg-emerald-700 font-bold text-white hover:bg-emerald-800"
+              disabled={readOnlyForPast || !!actionLoading || (isSlntTenant && selection.roomStatus === 'out_of_order')}
+              onClick={() => void markRoomClean()}
+            >
+              {actionLoading === 'mark-clean'
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <CheckCircle2 className="mr-2 h-4 w-4" />}
+              {hasNonCleaningOutcome ? 'Override No Service → Mark Clean & Sync PMS' : 'Mark Clean & Sync PMS'}
+            </Button>
+            <p className="mt-1.5 text-[10px] leading-snug text-emerald-900/75 dark:text-emerald-200">
+              Supervisor override: confirms the room as cleaned, clears active DND / No Service state, approves the assignment and pushes Clean to the PMS.
+            </p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <button
+            type="button"
+            disabled={!canManage || !!actionLoading}
+            onClick={() => void patchRoom({ towel_change_required: !selection.towelChangeRequired }, { towelChangeRequired: !selection.towelChangeRequired }, `Towel change ${selection.towelChangeRequired ? 'removed' : 'required'} — room ${selection.roomNumber}`)}
+            className={`rounded-xl border p-3 text-left transition-all ${selection.towelChangeRequired ? 'border-blue-500 bg-blue-700 text-white shadow-sm' : 'border-blue-200 bg-blue-50 text-blue-900 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-100 dark:hover:bg-blue-950/60'}`}
+          >
+            <div className="text-lg">🔄</div><p className="mt-1 text-xs font-bold">Towel Change</p><p className="text-[10px] opacity-80">{selection.towelChangeRequired ? 'Required' : 'Not required'}</p>
+          </button>
+
+          <button
+            type="button"
+            disabled={!canManage || !!actionLoading}
+            onClick={() => void patchRoom({ linen_change_required: !selection.linenChangeRequired }, { linenChangeRequired: !selection.linenChangeRequired }, `${textileChangeLabel} ${selection.linenChangeRequired ? 'removed' : 'required'} — room ${selection.roomNumber}`)}
+            className={`rounded-xl border p-3 text-left transition-all ${selection.linenChangeRequired ? 'border-violet-500 bg-violet-700 text-white shadow-sm' : 'border-violet-200 bg-violet-50 text-violet-900 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-100 dark:hover:bg-violet-950/60'}`}
+          >
+            <div className="text-lg">🛏️</div><p className="mt-1 text-xs font-bold">{textileChangeLabel}</p><p className="text-[10px] opacity-80">{selection.linenChangeRequired ? 'Required' : 'Not required'}</p>
+          </button>
+
+          <button
+            type="button"
+            disabled={!canManage || !!actionLoading}
+            onClick={() => void saveServiceFlags({ roomCleaning: !selection.roomCleaning })}
+            className={`rounded-xl border p-3 text-left transition-all ${selection.roomCleaning ? 'border-emerald-500 bg-emerald-500 text-emerald-950 shadow-sm' : 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-100 dark:hover:bg-emerald-950/60'}`}
+          >
+            <div className="text-lg">🧹</div><p className="mt-1 text-xs font-bold">Room Cleaning</p><p className="text-[10px] opacity-80">{selection.roomCleaning ? 'Required' : 'Normal service'}</p>
+          </button>
+
+          <button
+            type="button"
+            disabled={!canManage || !!actionLoading}
+            onClick={() => void saveServiceFlags({ collectExtraTowels: !selection.collectExtraTowels })}
+            className={`rounded-xl border p-3 text-left transition-all ${selection.collectExtraTowels ? 'border-orange-500 bg-orange-500 text-orange-950 shadow-sm' : 'border-orange-200 bg-orange-50 text-orange-900 hover:bg-orange-100 dark:border-orange-700 dark:bg-orange-950/30 dark:text-orange-100 dark:hover:bg-orange-950/60'}`}
+          >
+            <div className="text-lg">🧺</div><p className="mt-1 text-xs font-bold">Collect Extra Towels</p><p className="text-[10px] opacity-80">{selection.collectExtraTowels ? 'Outstanding' : 'None'}</p>
+          </button>
+        </div>
+      </section>
+
+      {isMemories && selection.roomId && (
+        <section aria-label="Outstanding guest item collections">
+          <GuestItemRecoveryNotice roomId={selection.roomId} memoriesMode readOnly />
+        </section>
+      )}
+
+      {isMemories && selection.roomId && canWriteNotes && (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50/60 dark:border-blue-800 dark:bg-blue-950/20 p-3 sm:p-4">
+          <RoomCommunicationPanel
+            assignmentId={selection.assignmentId || ''}
+            roomId={selection.roomId}
+            roomNumber={selection.roomNumber}
+            hotelName={hotelName}
+            dateLabel={selectedDate}
+            readOnly={readOnlyForPast}
+          />
+        </section>
+      )}
+
+      <section className="rounded-2xl border border-indigo-200 bg-indigo-50/70 dark:border-indigo-800 dark:bg-indigo-950/20 p-3 sm:p-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2"><MessageSquareText className="h-4 w-4 text-indigo-700 dark:text-indigo-300" /><p className="text-sm font-bold text-indigo-950 dark:text-indigo-100">Housekeeper / manager note</p></div>
+          <Badge variant="outline" className="border-indigo-300 bg-white/70 text-indigo-700 dark:border-indigo-700 dark:bg-card dark:text-indigo-300">Shared</Badge>
+        </div>
+        {plannedTodayNotes.length > 0 && (
+          <div className="mb-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/25">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">Planned instructions active today</p>
+            {plannedTodayNotes.map((note, index) => (
+              <p key={`${note}-${index}`} className="mt-1 text-xs font-semibold text-emerald-950 dark:text-emerald-100">• {note}</p>
+            ))}
+            <p className="mt-1 text-[9px] text-emerald-800/70 dark:text-emerald-200">HotelCare calendar instruction · protected from PMS sync.</p>
+          </div>
+        )}
+        <Textarea
+          value={notesDraft}
+          onChange={(event) => setNotesDraft(event.target.value)}
+          placeholder="Example: single beds please, guest requested extra towels, check balcony…"
+          className="min-h-[74px] border-indigo-200 bg-white text-sm dark:border-input dark:bg-background dark:text-foreground"
+          disabled={!canWriteNotes}
+        />
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <p className="text-[10px] text-indigo-700/80 dark:text-indigo-200">
+            {isSlntTenant
+              ? noteSaveState === 'saving'
+                ? 'Saving…'
+                : noteSaveState === 'saved'
+                  ? '✓ Saved automatically'
+                  : noteSaveState === 'error'
+                    ? 'Auto-save failed — use Save note to retry'
+                    : 'Auto-saves while typing. Saved with user/time history.'
+              : 'Visible to the operational team. Saved with user/time history.'}
+          </p>
+          {canWriteNotes && (
+            <Button size="sm" className="bg-indigo-600 text-white hover:bg-indigo-700" disabled={savingNotes} onClick={() => void saveNotes()}>
+              {savingNotes ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1 h-3.5 w-3.5" />} Save note
+            </Button>
+          )}
+        </div>
+        <RoomNoteProvenance
+          roomId={selection.roomId}
+          roomNotes={selection.roomNotes}
+          draftChanged={notesDraft.trim() !== notesSavedDraftRef.current.trim()}
+          showHistory
+        />
+      </section>
+
+      {canManage && (selection.pmsMetadata?.slntPrevioHousekeepingNote || selection.pmsMetadata?.noteInternal) && (
+        <section className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/25 dark:text-amber-100">
+          <p className="font-semibold">Previo source note — not manager-approved</p>
+          <p className="mt-1 whitespace-pre-wrap break-words">
+            {String(selection.pmsMetadata.slntPrevioHousekeepingNote || selection.pmsMetadata.noteInternal)}
+          </p>
+          <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+            Unverified PMS information{selection.pmsMetadata.pmsSyncDate ? ` · snapshot ${selection.pmsMetadata.pmsSyncDate}` : ''}.
+            It is not sent as a manager instruction. Review it before entering any required instruction above.
+          </p>
+        </section>
+      )}
+      {selection.roomId && (
+        <RoomPlannedNotesCalendar
+          roomId={selection.roomId}
+          roomNumber={selection.roomNumber}
+          hotelName={hotelName}
+          canEdit={canWriteNotes}
+          onTodayNotesChange={(rows) => setPlannedTodayNotes(rows.map((row) => row.content))}
+        />
+      )}
+
+      {!isMemories && selection.roomId && canCommunicate && (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50/60 dark:border-blue-800 dark:bg-blue-950/20 p-3 sm:p-4">
+          <RoomCommunicationPanel
+            assignmentId={selection.assignmentId || ''}
+            roomId={selection.roomId}
+            roomNumber={selection.roomNumber}
+            hotelName={hotelName}
+            dateLabel={selectedDate}
+            readOnly={readOnlyForPast}
+          />
+        </section>
+      )}
+
+      {isSlntTenant && canManage && (
+        <section className={`rounded-2xl border p-3 sm:p-4 ${
+          selection.roomStatus === 'out_of_order'
+            ? 'border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/25'
+            : 'border-slate-200 bg-slate-50/70 dark:border-border dark:bg-card'
+        }`}>
+          <div className="mb-3">
+            <p className="text-sm font-bold">SLNT room control</p>
+            <p className="text-[11px] text-muted-foreground">
+              Take back assigned work or block the unit from housekeeping assignment until it is released.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {selection.assignmentId && selection.assignedTo && selection.assignmentStatus !== 'completed' && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={readOnlyForPast || !!actionLoading}
+                onClick={() => void takeBackFromHousekeeper()}
+              >
+                {actionLoading === 'take-back' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Take back from {assigneeName}
+              </Button>
+            )}
+
+            {selection.roomStatus === 'out_of_order' ? (
+              <Button
+                type="button"
+                className="bg-emerald-700 text-white hover:bg-emerald-800"
+                disabled={readOnlyForPast || !!actionLoading}
+                onClick={() => void setOutOfService(false)}
+              >
+                {actionLoading === 'release-oos' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Release Out of Service
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={readOnlyForPast || !!actionLoading}
+                onClick={() => void setOutOfService(true)}
+              >
+                {actionLoading === 'block-oos' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Block Out of Service
+              </Button>
+            )}
+
+            {selection.roomStatus !== 'out_of_order' && (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-200"
+                disabled={readOnlyForPast || !!actionLoading}
+                onClick={() => void patchRoom(
+                  { status: 'dirty' },
+                  { roomStatus: 'dirty' },
+                  `Room ${selection.roomNumber} marked dirty`,
+                )}
+              >
+                Mark Dirty
+              </Button>
+            )}
+          </div>
+          {selection.roomStatus === 'out_of_order' && (
+            <p className="mt-2 rounded-lg border border-rose-200 bg-white/70 p-2 text-[11px] font-medium text-rose-800 dark:border-rose-700 dark:bg-card dark:text-rose-200">
+              Out of Service is locked: this room cannot be assigned to housekeeping until a manager releases it.
+            </p>
+          )}
+        </section>
+      )}
+
+      {selection.roomId && hasManagerPowers(profile?.role) && (
+        <RoomAssignmentHistory hotel={hotelName} roomId={selection.roomId}
+          roomNumber={selection.roomNumber} selectedDate={selectedDate} />
+      )}
+
+      <section className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => setPanel('requests')}
+          className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-3 text-left transition-all hover:bg-fuchsia-100 dark:border-fuchsia-800 dark:bg-fuchsia-950/25 dark:hover:bg-fuchsia-950/50"
+        >
+          <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-sm font-bold text-fuchsia-950 dark:text-fuchsia-100"><ClipboardList className="h-4 w-4" /> Guest Requests</span><Badge className="bg-fuchsia-700 text-white">Open</Badge></div>
+          <p className="mt-1 text-xs text-fuchsia-800 dark:text-fuchsia-200">Extra towels, pillows and other requests with delivery / return history.</p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setPanel('minibar')}
+          className={`rounded-2xl border p-3 text-left transition-all ${selection.minibarPendingUnits > 0 ? 'border-rose-200 bg-rose-50 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/25 dark:hover:bg-rose-950/50' : 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/25 dark:hover:bg-emerald-950/50'}`}
+        >
+          <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-sm font-bold"><Wine className="h-4 w-4" /> Minibar</span><Badge className={selection.minibarPendingUnits > 0 ? 'bg-rose-700 text-white' : 'bg-emerald-700 text-white'}>{selection.minibarPendingUnits > 0 ? `${selection.minibarPendingUnits} pending` : 'Up to date'}</Badge></div>
+          <p className="mt-1 text-xs opacity-80">Usage, refill status and room-level history.</p>
+        </button>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-slate-50/70 dark:border-border dark:bg-card">
+        <button type="button" onClick={() => setMoreOpen((value) => !value)} className="flex w-full items-center justify-between p-3 text-left">
+          <span><span className="text-sm font-bold">More room details</span><span className="ml-2 text-xs text-muted-foreground">setup, activity & manual corrections</span></span>
+          {moreOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+        {moreOpen && (
+          <div className="border-t p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 text-xs">
+              <div className="rounded-lg bg-white p-2 dark:bg-background dark:text-foreground"><p className="text-[9px] uppercase text-muted-foreground">Type</p><p className="font-semibold">{selection.roomCategory || selection.roomType || 'Not set'}</p></div>
+              <div className="rounded-lg bg-white p-2 dark:bg-background dark:text-foreground"><p className="text-[9px] uppercase text-muted-foreground">Bed</p><p className="font-semibold">{displayHousekeepingBedSetup(selection.bedConfiguration, hotelName) || 'Not set'}</p></div>
+              <div className="rounded-lg bg-white p-2 dark:bg-background dark:text-foreground"><p className="text-[9px] uppercase text-muted-foreground">Floor</p><p className="font-semibold">{selection.floorNumber ?? '—'}</p></div>
+              <div className="rounded-lg bg-white p-2 dark:bg-background dark:text-foreground"><p className="text-[9px] uppercase text-muted-foreground">Last cleaned</p><p className="font-semibold">{selection.lastCleanedAt ? new Date(selection.lastCleanedAt).toLocaleString() : 'Not recorded'}</p></div>
+            </div>
+            {canManage && !isMemories && selection.roomStatus !== 'out_of_order' && (
+              <Button variant="outline" className="w-full border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-200" disabled={!!actionLoading} onClick={() => void patchRoom({ status: 'dirty' }, { roomStatus: 'dirty' }, `Room ${selection.roomNumber} marked dirty`)}>Mark Dirty</Button>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+
+  return (
+    <>
+      <div ref={rootRef} onClickCapture={handleClickCapture}>{children}</div>
+
+      {(!venuesEnabled || isSlntTenant) && canOpen && (
+        <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) { setPanel('main'); setMoreOpen(false); } }}>
+          <DialogContent className="flex max-h-[94vh] w-[calc(100vw-1.25rem)] max-w-3xl flex-col overflow-hidden bg-background text-foreground p-0">
+            <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-slate-50 via-white to-sky-50 dark:bg-none dark:bg-card text-foreground px-4 py-4 sm:px-5">
+              <div className="flex items-start gap-2 pr-8">
+                {panel !== 'main' && (
+                  <Button type="button" size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => setPanel('main')}>
+                    <ArrowLeftRight className="h-4 w-4 rotate-180" />
+                  </Button>
+                )}
+                <div className="min-w-0 flex-1">
+                  <DialogTitle className="flex flex-wrap items-center gap-2 text-lg">
+                    <BedDouble className="h-5 w-5" /> Room {selection?.roomNumber || ''}
+                    {selection && <Badge className={visibleStatusTone}>{visibleStatusLabel}</Badge>}
+                    {selection?.isCheckout && <Badge className={selection.readyToClean ? 'bg-teal-700 text-white' : 'bg-amber-500 text-amber-950'}>{selection.readyToClean ? 'RTC' : 'Waiting checkout'}</Badge>}
+                  </DialogTitle>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    <span className="flex items-center gap-1"><Hotel className="h-3.5 w-3.5" />{hotelName}</span>
+                    <span className="flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" />{selectedDate}</span>
+                    {selection?.assignedTo && <span className="flex items-center gap-1"><UserRound className="h-3.5 w-3.5" />{assigneeName}</span>}
+                  </div>
+                </div>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" disabled={selection?.loading} onClick={() => void refresh()}>
+                  <RefreshCw className={`h-4 w-4 ${selection?.loading ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+              {selection?.loading ? (
+                <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Loading room operations…</div>
+              ) : selection?.error ? (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{selection.error}</p>
+              ) : panel === 'requests' && selection?.roomId ? (
+                <div className="space-y-3"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-fuchsia-600" /><h3 className="font-bold">Guest requests — Room {selection.roomNumber}</h3></div><RoomGuestRequestsPanel roomId={selection.roomId} roomNumber={selection.roomNumber} assignmentId={selection.assignmentId} workDate={selectedDate} returnCollectionByHousekeeperOnly={isMemories} /></div>
+              ) : panel === 'minibar' && selection?.roomId ? (
+                <RoomMinibarOperations roomId={selection.roomId} roomNumber={selection.roomNumber} isCheckout={selection.isCheckout} readOnly={readOnlyForPast || !canOpen} onChanged={() => void refresh()} />
+              ) : mainView}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
+  );
+}

@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { UserPlus, Users, Edit, Key, Trash2, CheckCircle2, XCircle, Loader2, Wrench } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
+import { edgeFunctionError } from '@/lib/edgeFunctionError';
 import { useTranslation } from '@/hooks/useTranslation';
 import { TrainingAssignmentManager } from '@/components/training';
 
@@ -86,6 +87,7 @@ export function HousekeepingStaffManagement() {
   const [resetPasswordUserName, setResetPasswordUserName] = useState<string>('');
   const [newPassword, setNewPassword] = useState<string>('');
   const [generatedPassword, setGeneratedPassword] = useState<string>('');
+  const [resetFeedback, setResetFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   
   // Delete state
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -563,18 +565,23 @@ export function HousekeepingStaffManagement() {
     if (!editData.id) return;
     setLoading(true);
     try {
-      const payload: any = {
-        full_name: editData.full_name,
-        phone_number: editData.phone_number || null,
-        email: editData.email || '',
-        assigned_hotel: editData.assigned_hotel || null,
-        nickname: editData.nickname || null,
-      };
-      const { error } = await supabase
-        .from('profiles')
-        .update(payload)
-        .eq('id', editData.id);
-      if (error) throw error;
+      const { data, error } = await supabase.functions.invoke('admin-update-user', {
+        body: {
+          target_user_id: editData.id,
+          full_name: editData.full_name,
+          nickname: editData.nickname || null,
+          new_email: editData.email || null,
+          phone_number: editData.phone_number || null,
+          assigned_hotel: editData.assigned_hotel || null,
+        },
+      });
+      if (error) {
+        const serverMsg = (data as any)?.error || (data as any)?.message;
+        throw new Error(serverMsg || error.message || 'Failed to update staff member');
+      }
+      if ((data as any)?.success === false) {
+        throw new Error((data as any)?.error || 'Failed to update staff member');
+      }
       toast({ title: 'Updated', description: 'Staff member updated successfully' });
       setEditOpen(false);
       fetchHousekeepingStaff();
@@ -592,35 +599,35 @@ export function HousekeepingStaffManagement() {
     setResetPasswordUserName(member.full_name);
     setNewPassword('');
     setGeneratedPassword('');
+    setResetFeedback(null);
     setResetPasswordOpen(true);
   };
 
   const handleResetPassword = async () => {
+    setResetFeedback(null);
+    if (newPassword && (newPassword.length < 12 || newPassword.length > 128)) {
+      setResetFeedback({ kind: 'error', message: 'Custom passwords must contain 12–128 characters.' });
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('manager-reset-password', {
-        body: {
-          target_user_id: resetPasswordUserId,
-          new_password: newPassword || null,
-        },
+        body: { target_user_id: resetPasswordUserId, new_password: newPassword || null },
       });
-
-      if (error) throw new Error(error.message);
-      
-      const result = data as { success: boolean; password?: string; error?: string };
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to reset password');
-      }
+      if (error) throw new Error(await edgeFunctionError(error, 'Could not reset the password.'));
+      const result = data as { success?: boolean; password?: string; error?: string; message?: string } | null;
+      if (!result?.success) throw new Error(result?.error || 'Password reset was not confirmed by the server.');
 
       setGeneratedPassword(result.password || '');
-      toast({ 
-        title: 'Password Reset', 
-        description: `Password has been reset for ${resetPasswordUserName}` 
+      setResetFeedback({
+        kind: 'success',
+        message: result.message || 'Password reset successfully. Share the temporary password privately with the employee.',
       });
+      toast({ title: 'Password reset successful', description: result.message || resetPasswordUserName });
     } catch (err: any) {
-      console.error('Password reset failed:', err);
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      const message = err?.message || 'Password reset failed. No password change was confirmed.';
+      setResetFeedback({ kind: 'error', message });
+      toast({ title: 'Password reset failed', description: message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -639,7 +646,7 @@ export function HousekeepingStaffManagement() {
       const { data, error } = await supabase.functions.invoke('admin-delete-user', {
         body: {
           target_user_id: deleteUserId,
-          soft_delete: true, // Archive data for 30 days
+          soft_delete: true, // Archive the profile; retain historical records
         },
       });
 
@@ -653,7 +660,7 @@ export function HousekeepingStaffManagement() {
 
       toast({ 
         title: 'User Deleted', 
-        description: `${deleteUserName} has been removed. Data will be kept for 30 days.` 
+        description: `${deleteUserName} has been archived. An administrator can restore access.` 
       });
       setDeleteConfirmOpen(false);
       fetchHousekeepingStaff();
@@ -686,6 +693,7 @@ export function HousekeepingStaffManagement() {
           <h3 className="text-base sm:text-lg sm:text-xl font-semibold">{t('staff.staffManagement')}</h3>
         </div>
         <Button 
+          data-training="housekeeping-add-staff"
           onClick={() => setShowCreateForm(!showCreateForm)}
           className="w-full sm:w-auto text-sm"
         >
@@ -897,7 +905,7 @@ export function HousekeepingStaffManagement() {
               </div>
               
               <div className="flex gap-2 pt-4">
-                <Button type="submit" disabled={loading}>
+                <Button type="submit" data-training="housekeeping-create-staff" disabled={loading}>
                   {loading ? 'Creating...' : `Create ${newStaffData.role === 'maintenance' ? 'Maintenance Staff' : newStaffData.role === 'manager' ? 'Manager' : 'Housekeeper'}`}
                 </Button>
                 <Button 
@@ -1279,15 +1287,28 @@ export function HousekeepingStaffManagement() {
             <div className="space-y-2">
               <Label>New Password (leave empty to auto-generate)</Label>
               <Input
-                type="text"
+                type="password"
+                autoComplete="new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
+                disabled={loading || resetFeedback?.kind === "success"}
                 placeholder="Enter new password or leave empty"
               />
               <p className="text-xs text-muted-foreground">
-                Enter a custom password or leave empty to generate a secure one
+                Enter at least 12 characters, or leave empty to generate a secure temporary password.
               </p>
             </div>
+            {resetFeedback && (
+              <div
+                role={resetFeedback.kind === 'error' ? 'alert' : 'status'}
+                className={resetFeedback.kind === 'error'
+                  ? 'rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive'
+                  : 'rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-900 dark:border-green-700 dark:bg-green-950 dark:text-green-100'}
+              >
+                <strong>{resetFeedback.kind === 'success' ? 'Success: ' : 'Reset failed: '}</strong>
+                {resetFeedback.message}
+              </div>
+            )}
             {generatedPassword && (
               <div className="p-4 bg-green-50 dark:bg-green-950 rounded border border-green-200 dark:border-green-800">
                 <Label className="text-green-800 dark:text-green-200">New Password:</Label>
@@ -1304,7 +1325,7 @@ export function HousekeepingStaffManagement() {
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setResetPasswordOpen(false)}>Close</Button>
-            {!generatedPassword && (
+            {resetFeedback?.kind !== 'success' && (
               <Button onClick={handleResetPassword} disabled={loading}>
                 {loading ? 'Resetting...' : 'Reset Password'}
               </Button>
@@ -1319,8 +1340,8 @@ export function HousekeepingStaffManagement() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteUserName}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will archive the staff member's data for 30 days before permanent deletion.
-              Their room assignments and performance data will be preserved for reporting.
+              This will archive the staff member's account and prevent sign-in.
+              Their work and performance history will remain intact. An administrator can restore access later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -162,7 +162,8 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.process-purchase-invoice]
-verify_jwt = true
+# Internal auth: user JWT (module access + organization) or the Vault worker secret for OCR recovery.
+verify_jwt = false
 
 [functions.generate-rm-intelligence]
 verify_jwt = true
@@ -188,10 +189,30 @@ verify_jwt = false
 [functions.assistant-transcribe]
 verify_jwt = false
 
+[functions.assistant-priorities]
+verify_jwt = false
+
+[functions.assistant-mail]
+verify_jwt = false
+
+[functions.assistant-mail-oauth-callback]
+verify_jwt = false
+
+# Mira usage: the app's plan/usage status (JWT checked in code) and the daily
+# report worker (x-worker-secret from Vault).
+[functions.assistant-usage]
+verify_jwt = false
+
 [functions.previo-sync-daily-overview]
 verify_jwt = false
 
 [functions.previo-sync-daily-overview-all]
+verify_jwt = false
+
+[functions.previo-sync-reservations-all]
+verify_jwt = false
+
+[functions.previo-reservation-writeback]
 verify_jwt = false
 
 [functions.email-config]
@@ -204,6 +225,16 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.restaurant-reservation-status]
+verify_jwt = false
+
+# BB list cards can be acknowledged from shared service devices. The endpoint
+# validates reservation UUID and hotel scope, then rate-limits requests.
+[functions.restaurant-reservation-seen]
+verify_jwt = false
+
+# Manual booking creation verifies the signed-in user's token and assigned
+# hotel/role inside the function rather than trusting a client-supplied role.
+[functions.restaurant-reservation-create]
 verify_jwt = false
 
 [functions.demand-events-auto]
@@ -229,4 +260,134 @@ verify_jwt = true
 # Google redirects here without a HotelCare JWT. The callback validates a
 # short-lived one-time OAuth state before exchanging and encrypting tokens.
 [functions.google-business-oauth-callback]
+verify_jwt = false
+
+# Called by pg_cron/pg_net. The function validates a random Vault-backed
+# x-worker-secret before any alert query or e-mail can run.
+[functions.housekeeping-activity-watchdog]
+verify_jwt = false
+
+# The automatic next-day release path. This worker validates a Vault-backed
+# x-worker-secret and re-checks Previo before publishing work.
+[functions.housekeeping-next-day-release-worker]
+verify_jwt = false
+
+# Also used independently for pre-release room-state validation and the
+# per-property sync_hotel operation invoked by the portfolio morning worker.
+[functions.housekeeping-pms-preflight-worker]
+verify_jwt = false
+
+# SLNT portfolio account sync, dispatched after RD hotels by the protected
+# portfolio morning sequence; retains independent manual server test modes.
+[functions.slnt-pms-morning-sync]
+verify_jwt = false
+
+# Runs only from pg_cron, validates the existing Vault-backed worker secret,
+# and claims each physical hotel / SLNT account once per Budapest business day.
+[functions.hotelcare-pms-morning-sequence]
+verify_jwt = false
+
+# Called only by pg_cron. The function checks a separate Vault-backed
+# x-worker-secret before claiming or sending any parking email jobs.
+[functions.parking-email-worker]
+verify_jwt = false
+
+# Reception coordination worker. It accepts either a signed-in manager JWT or
+# a Vault-backed worker secret for database-triggered room type notifications.
+[functions.housekeeping-room-change-email]
+verify_jwt = false
+
+# Called by authenticated employees as stock runs low, or by the database
+# scheduler with a separate Vault-backed secret. Both paths check auth in code.
+[functions.welcome-quote-refill]
+verify_jwt = false
+
+# Maintenance creation and repair-deadline worker. Triggered immediately via pg_net
+# and backed up every minute using MAINTENANCE_ESCALATION_WORKER_SECRET
+# in the x-worker-secret header. Never place the service-role key in a scheduler.
+# Set HOTELCARE_APP_URL to the canonical signed-in app origin used in ticket links.
+[functions.maintenance-sla-escalation]
+verify_jwt = false
+
+[functions.pms-refresh-queue-worker]
+verify_jwt = false
+
+# Opt-in manual Számlázz invoicing worker. Must validate its private header.
+[functions.manual-billing-worker]
+verify_jwt = false
+
+# Manual manager emails use signed-in top-management JWTs and check hotel scope.
+[functions.maintenance-notify-manager]
+verify_jwt = true
+
+# Authenticated SLNT-only physical-room upcoming guest-count lookup.
+[functions.slnt-next-arrivals]
+verify_jwt = true
+
+# Checks a private Vault-backed worker secret, or a server-side service key.
+[functions.ottofiori-ai-supervisor]
+verify_jwt = false
+
+# In-Suite room tablets use device-bound tokens. Staff uses verified JWT.
+# The function itself must validate every request (no public table grants).
+[functions.insuite-api]
+verify_jwt = false
+
+# Channex channel manager. channex-admin requires a user JWT and re-checks hotel access + role.
+# Webhook and workers are called by Channex / pg_cron and authenticate with Vault secrets instead.
+[functions.channex-admin]
+verify_jwt = true
+
+[functions.channex-webhook]
+verify_jwt = false
+
+[functions.channex-booking-worker]
+verify_jwt = false
+
+[functions.channex-ari-worker]
+verify_jwt = false
+
+# Both invoicing functions authenticate the user with auth.getUser() and check
+# hotel permission/role server-side, like channex-admin. Keep the gateway
+# compatible with Supabase's current JWT signing formats.
+[functions.szamlazz-invoice]
+verify_jwt = false
+
+[functions.invoice-issuers-admin]
+verify_jwt = false
+
+# Website booking engine: guests are anonymous. The function rate-limits every
+# action per IP and calls service-role-only SQL functions (booking_engine_*).
+[functions.booking-engine]
+verify_jwt = false
+
+# Purchase invoices: NAV Online Számla read-only sync and reconciliation.
+# Every function authenticates internally (auth.getUser() + database checks such
+# as pi_module_access / fin_is_admin, or the Vault worker secret for pg_cron),
+# like the invoicing functions above, so the gateway stays compatible with
+# Supabase's current JWT signing formats.
+[functions.nav-sync]
+verify_jwt = false
+
+[functions.reconcile-purchase-invoices]
+verify_jwt = false
+
+[functions.pi-daily-summary]
+verify_jwt = false
+
+[functions.nav-connection-admin]
+verify_jwt = false
+
+[functions.pi-history-import]
+verify_jwt = false
+
+# Public sales chat on hotelcare.app: no user session. The function checks the
+# Origin, rate-limits per hashed IP, authenticates each chat with a random session
+# secret, the worker with a Vault secret, and e-mail links with signed tokens.
+[functions.website-sales-chat]
+verify_jwt = false
+
+# NTAK PMS v9: the cron worker authenticates with the Vault worker secret; UI
+# actions validate the user's JWT and hotel access inside the function.
+[functions.ntak-pms]
 verify_jwt = false

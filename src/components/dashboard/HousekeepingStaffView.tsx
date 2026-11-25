@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useHousekeepingLiveRefresh } from '@/hooks/useHousekeepingLiveRefresh';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, MapPin, Ban, BellOff } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
+import { HotelMemoriesRoomGate } from './HotelMemoriesRoomGate';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { MobileHousekeepingView } from './MobileHousekeepingView';
+import { UpcomingShiftCard } from './UpcomingShiftCard';
 import { PublicAreaTaskCard } from './PublicAreaTaskCard';
 import { HousekeeperWorkloadFilters, WorkloadFilter } from './HousekeeperWorkloadFilters';
 import { toast } from 'sonner';
@@ -17,6 +20,12 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useNotifications } from '@/hooks/useNotifications';
 import { PerformanceRaceGame } from './PerformanceRaceGame';
 import { getLocalDateString } from '@/lib/utils';
+import { parseRoomFlags } from '@/lib/room-service-flags';
+import { getMemoriesCarryForwardService, hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { todayBudapest } from '@/lib/budapestTime';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { getDndRetryWindow } from '@/lib/dndRetryPolicy';
+import { getHousekeepingCarryForward, isPortfolioCarryForwardHotel } from '@/lib/housekeepingCarryForward';
 
 interface Assignment {
   id: string;
@@ -39,8 +48,11 @@ interface Assignment {
     floor_number: number | null;
     bed_type?: string | null;
     bed_configuration?: string | null;
-      notes?: string | null;
-      pms_metadata?: any;
+    notes?: string | null;
+    pms_metadata?: any;
+    towel_change_required?: boolean | null;
+    linen_change_required?: boolean | null;
+    is_checkout_room?: boolean | null;
   } | null;
 }
 
@@ -52,7 +64,8 @@ interface Summary {
 }
 
 export function HousekeepingStaffView() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const isSlntStaff = ['slnt','slnt-group'].includes(profile?.organization_slug || '');
   const isMobile = useIsMobile();
   const { t } = useTranslation();
   const { showNotification } = useNotifications();
@@ -65,55 +78,70 @@ export function HousekeepingStaffView() {
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  // SLNT cleaner profile dates are actionable, on mobile and desktop.
+  useEffect(() => {
+    const showDate = (event: Event) => {
+      const date = (event as CustomEvent<{ date?: string }>).detail?.date;
+      if (date && /^\\d{4}-\\d{2}-\\d{2}$/.test(date)) setSelectedDate(date);
+    };
+    window.addEventListener('hotelcare:slnt-staff-date', showDate);
+    return () => window.removeEventListener('hotelcare:slnt-staff-date', showDate);
+  }, []);
+
   const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | 'no_service' | 'dnd' | null>('assigned');
 
+  // The mobile screen owns its own queries; do not duplicate subscriptions or polling here.
+  useHousekeepingLiveRefresh(
+    () => Promise.all([fetchAssignments(), fetchSummary()]),
+    !!user?.id && !isMobile,
+  );
+
   useEffect(() => {
-    if (user?.id) {
+    if (user?.id && !isMobile) {
       fetchAssignments();
       fetchSummary();
       fetchPublicTasks();
     }
-  }, [user?.id, selectedDate, statusFilter]);
+  }, [user?.id, selectedDate, statusFilter, isMobile]);
 
-  // Real-time subscription for assignment updates
+  // One Postgres Changes filter (instead of two identical UPDATE/INSERT
+  // subscriptions) preserves refreshes and new-assignment notifications while
+  // reducing Realtime subscription-check work.
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || isMobile) return;
 
     const channel = supabase
-      .channel('assignment-updates')
+      .channel(`assignment-updates-${user.id}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'room_assignments',
           filter: `assigned_to=eq.${user.id}`
         },
-        () => {
-          fetchAssignments();
-          fetchSummary();
+        (payload) => {
+          if (payload.eventType !== 'INSERT' && payload.eventType !== 'UPDATE') return;
+          void fetchAssignments();
+          void fetchSummary();
+          if (payload.eventType === 'INSERT') {
+            void showNotification(t('notifications.newAssignment'), 'info');
+          }
         }
       )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'room_assignments',
-          filter: `assigned_to=eq.${user.id}`
-        },
-        () => {
-          fetchAssignments();
-          fetchSummary();
-          showNotification(t('notifications.newAssignment'), 'info');
+      .subscribe((status) => {
+        // After a WebSocket reconnect, fetch the latest state even if the
+        // readiness UPDATE happened while this phone was disconnected.
+        if (status === 'SUBSCRIBED') {
+          void fetchAssignments();
+          void fetchSummary();
         }
-      )
-      .subscribe();
+      });
 
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
-  }, [user?.id, selectedDate, showNotification, t]);
+  }, [user?.id, selectedDate, showNotification, t, isMobile]);
 
   // NOTE: the mobile early-return lives further down, after all function
   // declarations, otherwise the effects above hit a TDZ error
@@ -182,30 +210,27 @@ export function HousekeepingStaffView() {
         }
       }
 
+      // A visiting RD Hotels worker sees ONLY the current work hotel's rooms,
+      // even if assignments from their usual hotel are still on their account.
+      if (profile?.organization_slug === 'rdhotels' && profile?.assigned_hotel) {
+        const selectedKeys = await resolveHotelKeys(profile.assigned_hotel);
+        assignmentsData = assignmentsData.filter((assignment: any) =>
+          assignment.rooms?.hotel && selectedKeys.includes(assignment.rooms.hotel));
+      }
+
       // Show ALL assignments including checkout rooms not ready
       // Checkout rooms will display a "waiting for checkout" indicator
 
-      // Auto-unlock DND retries: at/after 14:30, or when no other rooms remain active
-      try {
-        const now = new Date();
-        const isAfterCutoff = now.getHours() > 14 || (now.getHours() === 14 && now.getMinutes() >= 30);
-        const hasOtherActive = assignmentsData.some((a: any) =>
-          a.status === 'assigned' || a.status === 'in_progress'
-        );
-        const lockedRetries = assignmentsData.filter((a: any) =>
-          a.status === 'dnd_pending_retry' && !a.dnd_retry_unlocked_at
-        );
-        if (lockedRetries.length > 0 && (isAfterCutoff || !hasOtherActive)) {
-          const nowIso = now.toISOString();
-          await supabase
-            .from('room_assignments')
-            .update({ dnd_retry_unlocked_at: nowIso } as any)
-            .in('id', lockedRetries.map((r: any) => r.id));
-          lockedRetries.forEach((r: any) => { r.dnd_retry_unlocked_at = nowIso; });
-        }
-      } catch (unlockErr) {
-        console.warn('DND retry unlock check failed:', unlockErr);
-      }
+      // Presentation-only eligibility. Never unlock just because other rooms
+      // are finished, and never trust old dnd_retry_unlocked_at values.
+      // The database separately enforces the same waiting period.
+      const now = new Date();
+      assignmentsData = assignmentsData.map((item: any) => ({
+        ...item,
+        dnd_retry_unlocked_at: item.status === 'dnd_pending_retry'
+          ? (getDndRetryWindow(item.dnd_first_attempt_at, now).allowed ? now.toISOString() : null)
+          : item.dnd_retry_unlocked_at,
+      }));
 
 
       // Sort with unified priority: in_progress > high priority > ready checkouts (by floor) > daily (by floor) > waiting checkouts > completed
@@ -219,6 +244,38 @@ export function HousekeepingStaffView() {
             // Unlocked retries sit just above waiting checkouts; locked retries at the very bottom
             return x.dnd_retry_unlocked_at ? 4 : 5;
           }
+
+          if (isHotelMemoriesBudapest(x.rooms?.hotel)) {
+            const meta = x.rooms?.pms_metadata || {};
+            const fresh = meta?.pmsSyncDate === todayBudapest();
+            const pmsCheckout = !!x.rooms?.is_checkout_room || meta?.scheduledDepartureToday === true;
+            const checkout = fresh ? pmsCheckout : x.assignment_type === 'checkout_cleaning' || pmsCheckout;
+            const flags = parseRoomFlags(x.rooms?.notes ?? null);
+            const greenBoardRequest = hasMemoriesGreenBoardRequest(x.notes);
+            const carryForward = !checkout
+              ? getMemoriesCarryForwardService(x.previous_day_context)
+              : null;
+
+            if (checkout && x.ready_to_clean) return 1;
+            if (!checkout && (x.rooms?.towel_change_required || carryForward?.serviceType === 'towel_change')) return 2;
+            if (!checkout && (flags.roomCleaning || greenBoardRequest || carryForward?.serviceType === 'full_clean')) return 3;
+            if (!checkout && x.assignment_type === 'daily_cleaning') return 4;
+            if (checkout && !x.ready_to_clean) return 5;
+            return 4;
+          }
+
+          if (isPortfolioCarryForwardHotel(x.rooms?.hotel)) {
+            const meta = x.rooms?.pms_metadata || {};
+            const fresh = meta?.pmsSyncDate === todayBudapest();
+            const pmsCheckout = !!x.rooms?.is_checkout_room || meta?.scheduledDepartureToday === true;
+            const checkout = fresh ? pmsCheckout : x.assignment_type === 'checkout_cleaning' || pmsCheckout;
+            const carryForward = !checkout ? getHousekeepingCarryForward(x.previous_day_context) : null;
+            if (checkout && x.ready_to_clean) return 1;
+            if (carryForward?.serviceType === 'full_clean') return 2;
+            if (carryForward?.serviceType === 'towel_change') return 2;
+            if (checkout && !x.ready_to_clean) return 4;
+          }
+
           if ((x.priority ?? 1) >= 3) return 1; // high priority
           if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2;
           if (x.assignment_type === 'daily_cleaning') return 3;
@@ -260,6 +317,23 @@ export function HousekeepingStaffView() {
 
   const fetchSummary = async () => {
     try {
+      if (profile?.organization_slug === 'rdhotels' && profile?.assigned_hotel && user?.id) {
+        const selectedKeys = await resolveHotelKeys(profile.assigned_hotel);
+        const { data, error } = await supabase.from('room_assignments')
+          .select('id,status,rooms!inner(hotel)')
+          .eq('assigned_to', user.id)
+          .eq('assignment_date', selectedDate)
+          .in('rooms.hotel', selectedKeys);
+        if (error) throw error;
+        const work = data || [];
+        setSummary({
+          total_assigned: work.length,
+          completed: work.filter(item => item.status === 'completed').length,
+          in_progress: work.filter(item => item.status === 'in_progress').length,
+          pending: work.filter(item => item.status === 'assigned' || item.status === 'dnd_pending_retry').length,
+        });
+        return;
+      }
       const { data, error } = await supabase
         .rpc('get_housekeeping_summary', {
           user_id: user?.id,
@@ -320,7 +394,7 @@ export function HousekeepingStaffView() {
 
   // Keep the public-area counts/cards live when a manager reassigns work.
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || isMobile) return;
     const channel = supabase
       .channel(`public-tasks-${user.id}`)
       .on('postgres_changes', {
@@ -334,7 +408,7 @@ export function HousekeepingStaffView() {
       supabase.removeChannel(channel);
       window.removeEventListener('hk-assignments-changed', onChanged);
     };
-  }, [user?.id, selectedDate]);
+  }, [user?.id, selectedDate, isMobile]);
 
   if (isMobile) {
     return <MobileHousekeepingView />;
@@ -352,6 +426,7 @@ export function HousekeepingStaffView() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {isSlntStaff && <UpcomingShiftCard />}
       {/* Date Selector - Mobile Optimized */}
       <Card className="bg-gradient-to-r from-primary/5 to-accent/10 border-primary/20">
         <CardHeader className="pb-3">
@@ -551,17 +626,21 @@ export function HousekeepingStaffView() {
           <div className="space-y-3">
             {visibleAssignments
               .map((assignment) => (
+                <div key={assignment.id} data-training="assigned-room-card" data-training-room-status={assignment.status}>
+                <div data-training={assignment.status === 'in_progress' ? 'active-assigned-room' : undefined}>
                 <ErrorBoundary
-                  key={assignment.id}
                   context={`AssignedRoomCard:${assignment.id}`}
                   fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
                   fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
                 >
-                  <AssignedRoomCard
-                    assignment={assignment}
-                    onStatusUpdate={handleStatusUpdate}
-                  />
+                  {isHotelMemoriesBudapest(assignment.rooms?.hotel) ? (
+                    <HotelMemoriesRoomGate assignment={assignment} onStatusUpdate={handleStatusUpdate} />
+                  ) : (
+                    <AssignedRoomCard assignment={assignment} onStatusUpdate={handleStatusUpdate} />
+                  )}
                 </ErrorBoundary>
+                </div>
+                </div>
               ))}
           </div>
         )}
@@ -599,8 +678,13 @@ export function HousekeepingStaffView() {
       .select('*')
       .eq('assigned_to', user.id)
       .eq('assigned_date', today)
-      .then(({ data, error }) => {
-        if (!error) setPublicTasks(data || []);
+      .then(async ({ data, error }) => {
+        if (error) return;
+        const selectedKeys = profile?.organization_slug === 'rdhotels' && profile?.assigned_hotel
+          ? await resolveHotelKeys(profile.assigned_hotel) : null;
+        setPublicTasks(selectedKeys
+          ? (data || []).filter(task => !task.hotel || selectedKeys.includes(task.hotel))
+          : (data || []));
       });
   }
 }

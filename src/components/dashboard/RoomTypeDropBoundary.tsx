@@ -1,0 +1,512 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
+import { todayBudapest } from '@/lib/budapestTime';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { readRoomDragPayload } from '@/lib/hkAssignmentDnd';
+import { shouldRefreshRoomTypeNotices } from '@/lib/roomTypeNoticeRefresh';
+import { roomTypeNoticeDateFilter } from '@/lib/roomTypeNoticeDateFilter';
+import { getGozsduHousekeepingCycle, gozsduServiceLabel } from '@/lib/gozsdu-housekeeping';
+import { gozsduDropBucket } from '@/lib/gozsduRoomDropTarget';
+import {
+  buildDirectRoomTypeNotice,
+  buildRoomTypeTransition,
+  roomServiceLabel,
+  stripRoomTypeSystemNotes,
+  type RoomCleaningType,
+  type RoomTypeNotice,
+} from '@/lib/roomTypeTransition';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { toast } from 'sonner';
+
+type Pending = { roomId: string; roomNumber: string; from: RoomCleaningType; to: RoomCleaningType; gozsduBucket?: 'checkout' | 'service' | 'other' };
+type RoomRow = {
+  id: string; hotel: string | null; room_number: string; is_checkout_room: boolean | null;
+  status: string | null; notes: string | null; pms_metadata: any;
+  guest_nights_stayed: number | null;
+  towel_change_required: boolean | null;
+  linen_change_required: boolean | null;
+};
+type AssignmentRow = {
+  id: string; status: string; assignment_type: string;
+  ready_to_clean: boolean | null; notes: string | null;
+};
+type DisplayNotice = RoomTypeNotice & {
+  roomId: string;
+  roomNumber: string;
+  previousReservationNights?: number | null;
+  continuousTotalNights?: number | null;
+  reservationCount?: number;
+};
+
+async function hotelUsesPrevio(hotelKeys: string[], metadata?: Record<string, unknown> | null): Promise<boolean> {
+  if (metadata?.pmsProvider === 'previo') return true;
+  const [configurationResult, accountResult] = await Promise.all([
+    supabase.from('pms_configurations').select('hotel_id,pms_type').in('hotel_id', hotelKeys).eq('pms_type', 'previo').limit(1),
+    supabase.from('pms_accounts').select('hotel_id,pms_type,is_active').in('hotel_id', hotelKeys).eq('pms_type', 'previo').eq('is_active', true).limit(1),
+  ]);
+  if (configurationResult.error) console.warn('Could not confirm Previo PMS configuration', configurationResult.error);
+  if (accountResult.error) console.warn('Could not confirm Previo PMS account', accountResult.error);
+  return !!configurationResult.data?.length || !!accountResult.data?.length;
+}
+
+/** Capture only room type changes; preserve housekeeper assignment and all other drag paths. */
+export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozsdu }: {
+  children: React.ReactNode; selectedDate: string; hotelName: string; isGozsdu: boolean;
+}) {
+  const { user, profile } = useAuth();
+  const canChange = hasManagerPowers(profile?.role);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [notices, setNotices] = useState<DisplayNotice[]>([]);
+  const [flash, setFlash] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track all relevant room IDs, not only the five shown in the notice banner.
+  // This lets Realtime refresh a notice when a manager removes or edits it.
+  const noticeRoomIdsRef = useRef<Set<string>>(new Set());
+
+  const loadNotices = useCallback(async () => {
+    if (!canChange) return;
+    try {
+      const keys = await resolveHotelKeys(hotelName);
+      const hotelKeys = keys.length ? keys : [hotelName];
+      // A manager notice is rare. Filtering in PostgreSQL prevents fetching
+      // every room's potentially large PMS metadata on each refresh. Clearing
+      // or editing a notice still works: this query returns the new matching
+      // set, and a Realtime event triggers it for known notice room IDs.
+      const { data, error } = await supabase.from('rooms')
+        .select('id,hotel,room_number,pms_metadata,guest_nights_stayed,towel_change_required,linen_change_required')
+        .in('hotel', hotelKeys)
+        .contains('pms_metadata', roomTypeNoticeDateFilter(selectedDate));
+      if (error) throw error;
+      const noticeRooms = (data || []).filter(room => {
+        const notice = (room.pms_metadata as any)?.roomTypeChangeNotice as RoomTypeNotice | undefined;
+        return notice?.date === selectedDate && (notice.to === 'checkout' || notice.to === 'daily');
+      });
+      noticeRoomIdsRef.current = new Set(noticeRooms.map(room => room.id));
+      if (noticeRooms.length === 0) {
+        setNotices([]);
+        return;
+      }
+      const latest: DisplayNotice[] = [];
+      // An ordinary room update is not a reason to make two more PMS lookups.
+      // Check provider configuration only when a manager notice actually exists.
+      const isPrevioClient = await hotelUsesPrevio(hotelKeys);
+      const isSlnt = hotelKeys.some(key =>
+        String(key).trim().toLowerCase() === 'slnt-group' || String(key).trim().toLowerCase().includes('slnt')
+      );
+      for (const room of noticeRooms) {
+        const meta = room.pms_metadata as any;
+        const notice = meta?.roomTypeChangeNotice as RoomTypeNotice | undefined;
+        if (notice?.date === selectedDate && (notice.to === 'checkout' || notice.to === 'daily')) {
+          const isPrevioRoom = isPrevioClient || meta?.pmsProvider === 'previo';
+          latest.push({
+            ...notice,
+            ...(notice.to === 'daily' && !isGozsdu ? {
+              serviceLabel: roomServiceLabel({
+                towelChangeRequired: room.towel_change_required,
+                linenChangeRequired: room.linen_change_required,
+                routineDailyCleaning: !isSlnt,
+              }),
+              nightsStayed: isPrevioRoom
+                ? Number(meta?.continuousStay?.currentNight ?? room.guest_nights_stayed ?? meta?.currentNight ?? notice.nightsStayed ?? 0) || null
+                : null,
+            } : {}),
+            previousReservationNights: isPrevioRoom ? Number(meta?.extensionServiceSnapshot?.guestNightsStayed ?? 0) || null : null,
+            continuousTotalNights: isPrevioRoom ? Number(meta?.continuousStay?.totalNights ?? meta?.totalNights ?? 0) || null : null,
+            reservationCount: isPrevioRoom && Array.isArray(meta?.continuousStay?.reservationIds)
+              ? meta.continuousStay.reservationIds.length
+              : 0,
+            roomId: room.id,
+            roomNumber: room.room_number,
+          });
+        }
+      }
+      setNotices(latest.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5));
+    } catch (error) {
+      console.error('Could not refresh room-type change notices', error);
+    }
+  }, [canChange, hotelName, selectedDate, isGozsdu]);
+
+  useEffect(() => {
+    if (!canChange) return;
+    let cancelled = false;
+    let inFlight = false;
+    let refreshQueued = false;
+    let lastRefreshStartedAt = 0;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let hotelKeys = [hotelName];
+
+    // Resolve both canonical and legacy aliases once per mounted property.
+    void resolveHotelKeys(hotelName).then(keys => {
+      if (!cancelled) hotelKeys = keys.length ? keys : [hotelName];
+    }).catch(() => { /* periodic poll remains the recovery path */ });
+
+    const scheduleRefresh = () => {
+      if (cancelled || document.hidden || refreshTimer) return;
+      // During a noisy PMS sync, hundreds of UPDATEs must produce at most one
+      // coalesced request per five seconds, not one query bundle per row.
+      const delay = Math.max(150, 5_000 - (Date.now() - lastRefreshStartedAt));
+      refreshTimer = (window.setTimeout as any)(() => {
+        refreshTimer = null;
+        void refresh();
+      }, delay);
+    };
+    const refresh = async () => {
+      if (cancelled || document.hidden) return;
+      if (inFlight) {
+        refreshQueued = true;
+        return;
+      }
+      inFlight = true;
+      lastRefreshStartedAt = Date.now();
+      try {
+        await loadNotices();
+      } finally {
+        inFlight = false;
+        if (refreshQueued && !cancelled) {
+          refreshQueued = false;
+          scheduleRefresh();
+        }
+      }
+    };
+
+    void refresh();
+    const channel = supabase.channel(`room-type-notices:${hotelName}:${selectedDate}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms' }, (event: any) => {
+        if (shouldRefreshRoomTypeNotices(event, hotelKeys, selectedDate, noticeRoomIdsRef.current)) {
+          scheduleRefresh();
+        }
+      }).subscribe();
+
+    // Reconcile any missed messages after the app resumes; also retain a
+    // bounded fallback while visible, without polling when the tab sleeps.
+    const poll = window.setInterval(() => { if (!document.hidden) scheduleRefresh(); }, 180_000);
+    const onVisible = () => { if (!document.hidden) scheduleRefresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      window.clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
+      void supabase.removeChannel(channel);
+    };
+  }, [canChange, hotelName, selectedDate, loadNotices]);
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
+
+  const resolveDrop = (target: EventTarget | null): RoomCleaningType | 'unsupported' | null => {
+    if (!(target instanceof Element)) return null;
+    if (isGozsdu) {
+      const bucket = gozsduDropBucket(target);
+      return bucket === 'checkout' ? 'checkout' : bucket === 'service' || bucket === 'other' ? 'daily' : null;
+    }
+    // Only direct sections of the live board: Checkout is first, Daily is second.
+    let candidate: Element | null = target;
+    while (candidate) {
+      if (candidate.classList.contains('rounded-lg') && candidate.classList.contains('space-y-2')) {
+        const board = candidate.parentElement;
+        if (board?.classList.contains('pb-3') && board.classList.contains('space-y-3')) {
+          const sections = Array.from(board.children).filter(child =>
+            child.classList.contains('rounded-lg') && child.classList.contains('space-y-2'));
+          const index = sections.indexOf(candidate);
+          return index === 0 ? 'checkout' : index === 1 ? 'daily' : index > 1 ? 'unsupported' : null;
+        }
+      }
+      candidate = candidate.parentElement;
+    }
+    return null;
+  };
+
+  const onDropCapture = (event: React.DragEvent<HTMLDivElement>) => {
+    const payload = readRoomDragPayload(event);
+    if (!payload || payload.origin !== 'overview') return;
+    const target = resolveDrop(event.target);
+    if (!target) return;
+    if (target === 'unsupported') {
+      event.preventDefault(); event.stopPropagation();
+      toast.warning('Change cleaning type between Checkout and Daily; use room controls for other sections.');
+      return;
+    }
+    if (payload.sourceType === target) return;
+    event.preventDefault(); event.stopPropagation(); // Old optimistic drop must never run.
+    if (pending || saving) return;
+    if (!canChange) { toast.error('Only authorized managers can change the cleaning type.'); return; }
+    if (selectedDate !== todayBudapest()) {
+      toast.warning('Use today’s live overview to change cleaning type. Historical and future plans remain date-safe.');
+      return;
+    }
+    if (payload.bulk?.length && payload.bulk.length > 1) {
+      toast.warning('Move one room at a time so each change is confirmed and audited.');
+      return;
+    }
+    if (payload.sourceType !== 'checkout' && payload.sourceType !== 'daily') return;
+    const gozsduBucket = isGozsdu ? gozsduDropBucket(event.target) : null;
+    setPending({ roomId: payload.roomId, roomNumber: payload.roomNumber, from: payload.sourceType, to: target,
+      gozsduBucket: (gozsduBucket || undefined) as never });
+  };
+
+  const confirm = async () => {
+    if (!pending || saving || !canChange) return;
+    const change = pending;
+    setSaving(true);
+    let originalRoom: RoomRow | null = null;
+    let changedRoom = false;
+    const changedAssignments: AssignmentRow[] = [];
+    try {
+      if (selectedDate !== todayBudapest()) throw new Error('The business date changed. Reload and retry.');
+      const keys = await resolveHotelKeys(hotelName);
+      const hotelKeys = keys.length ? keys : [hotelName];
+      const [roomResult, assignmentResult] = await Promise.all([
+        supabase.from('rooms').select('id,hotel,room_number,is_checkout_room,status,notes,pms_metadata,guest_nights_stayed,towel_change_required,linen_change_required')
+          .eq('id', change.roomId).in('hotel', hotelKeys).maybeSingle(),
+        supabase.from('room_assignments').select('id,status,assignment_type,ready_to_clean,notes')
+          .eq('room_id', change.roomId).eq('assignment_date', selectedDate),
+      ]);
+      if (roomResult.error) throw roomResult.error;
+      if (assignmentResult.error) throw assignmentResult.error;
+      const room = roomResult.data as RoomRow | null;
+      if (!room) throw new Error('Room is no longer available in this hotel. Refresh the board.');
+      originalRoom = room;
+      if (room.status === 'out_of_order' || room.pms_metadata?.isNoShow === true || Number(room.pms_metadata?.reservationStatusId) === 8) {
+        throw new Error('Unavailable and no-show rooms cannot be reclassified by dragging.');
+      }
+      const assignments = (assignmentResult.data || []) as AssignmentRow[];
+      if (assignments.some(item => item.status === 'in_progress' || item.status === 'completed')) {
+        throw new Error('Cleaning started or finished. Resolve the current assignment with the supervisor before changing its type.');
+      }
+      const currentCheckout = room.pms_metadata?.manual_daily === true ? false
+        : room.is_checkout_room === true || room.pms_metadata?.scheduledDepartureToday === true
+          || room.pms_metadata?.manual_checkout === true;
+      if (!isGozsdu && currentCheckout !== (change.from === 'checkout')) {
+        throw new Error('The room changed since dragging. Refresh and check its latest type.');
+      }
+      if (isGozsdu) {
+        const { data: registered, error: registryError } = await (supabase as any)
+          .from('gozsdu_housekeeping_room_registry').select('room_id,service_status')
+          .eq('room_id', room.id).maybeSingle();
+        if (registryError) throw registryError;
+        if (registered?.service_status !== 'operating') throw new Error('This Gozsdu room is unavailable for housekeeping.');
+      }
+      const meta = room.pms_metadata && typeof room.pms_metadata === 'object' && !Array.isArray(room.pms_metadata)
+        ? room.pms_metadata as Record<string, unknown> : {};
+      const isSlnt = hotelKeys.some(key =>
+        String(key).trim().toLowerCase() === 'slnt-group' || String(key).trim().toLowerCase().includes('slnt')
+      );
+      const isPrevioClient = await hotelUsesPrevio(hotelKeys, meta);
+      const service = isGozsdu ? getGozsduHousekeepingCycle({
+        currentNight: Number(meta.currentNight ?? 0), totalNights: Number(meta.totalNights ?? 0), isCheckout: false,
+      }).service : 'none';
+      const gozsduPlan = isGozsdu ? change.to === 'checkout'
+        ? { bucket: 'checkout' as const, service: 'none' as const }
+        : change.gozsduBucket === 'other' || service === 'none'
+          ? { bucket: 'other' as const, service: 'none' as const }
+          : { bucket: 'service' as const, service } : undefined;
+      // Gozsdu has no routine Daily clean on a no-service day; don't leave a
+      // checkout assignment hidden in Other rooms. Its existing unassign flow is separate.
+      if (gozsduPlan?.bucket === 'other' && assignments.some(item => item.status !== 'cancelled')) {
+        throw new Error('Gozsdu has no daily service in Other rooms. Unassign this room first, then change its cleaning type.');
+      }
+      const transition = buildRoomTypeTransition({
+        metadata: meta,
+        target: change.to,
+        date: selectedDate,
+        roomNumber: room.room_number,
+        actorId: profile?.id || user?.id || '',
+        actorName: profile?.full_name || 'Manager',
+        nowIso: new Date().toISOString(),
+        gozsduPlan,
+        previousRoomNotes: room.notes,
+        continuousStayEnabled: isPrevioClient,
+        routineDailyCleaning: !isSlnt,
+        serviceSnapshot: {
+          reservationId: meta.reservationId != null ? String(meta.reservationId) : null,
+          guestFingerprint: meta.guestFingerprint != null ? String(meta.guestFingerprint) : null,
+          guestIdentityStrength: meta.guestIdentityStrength === 'strong' || meta.guestIdentityStrength === 'name'
+            ? meta.guestIdentityStrength
+            : 'none',
+          arrivalDate: meta.arrivalDate != null ? String(meta.arrivalDate) : null,
+          departureDate: meta.departureDate != null ? String(meta.departureDate) : null,
+          guestNightsStayed: room.guest_nights_stayed,
+          currentNight: Number(meta.currentNight ?? 0) || null,
+          totalNights: Number(meta.totalNights ?? 0) || null,
+          towelChangeRequired: room.towel_change_required,
+          linenChangeRequired: room.linen_change_required,
+        },
+      });
+
+      // Save the authoritative classification first. Hotel Memories' database
+      // trigger sees the continued stay-night and recalculates towel/Change Room
+      // requirements from the property policy before we build the staff notice.
+      const roomPatch: Record<string, unknown> = {
+        is_checkout_room: change.to === 'checkout',
+        pms_metadata: transition.metadata,
+        notes: transition.note,
+      };
+      if (isPrevioClient && change.to === 'daily' && transition.continuedNight) {
+        roomPatch.guest_nights_stayed = transition.continuedNight;
+      }
+      const { data: updatedRows, error: roomError } = await supabase.from('rooms')
+        .update(roomPatch as any)
+        .eq('id', room.id).in('hotel', hotelKeys)
+        .select('id,pms_metadata,notes,guest_nights_stayed,towel_change_required,linen_change_required');
+      if (roomError) throw roomError;
+      if (updatedRows?.length !== 1) throw new Error('Room update was not saved. Check your hotel access.');
+      changedRoom = true;
+
+      const persistedRoom = updatedRows[0] as any;
+      const persistedMeta = persistedRoom.pms_metadata && typeof persistedRoom.pms_metadata === 'object'
+        ? persistedRoom.pms_metadata
+        : transition.metadata;
+      const finalServiceLabel = change.to === 'daily'
+        ? isGozsdu && gozsduPlan
+          ? gozsduServiceLabel(gozsduPlan.service)
+          : roomServiceLabel({
+              towelChangeRequired: persistedRoom.towel_change_required,
+              linenChangeRequired: persistedRoom.linen_change_required,
+              routineDailyCleaning: !isSlnt,
+            })
+        : null;
+      const finalNotice = buildDirectRoomTypeNotice({
+        date: selectedDate,
+        at: transition.notice.at,
+        from: change.from,
+        to: change.to,
+        by: profile?.full_name || 'Manager',
+        serviceLabel: finalServiceLabel,
+        nightsStayed: isPrevioClient
+          ? Number(persistedRoom.guest_nights_stayed ?? persistedMeta.currentNight ?? 0) || null
+          : null,
+        continuousStayEnabled: isPrevioClient,
+      });
+      const finalMetadata = { ...persistedMeta, roomTypeChangeNotice: finalNotice };
+      const { error: noticeError } = await supabase.from('rooms')
+        .update({ pms_metadata: finalMetadata } as any)
+        .eq('id', room.id).in('hotel', hotelKeys);
+      if (noticeError) throw noticeError;
+
+      for (const assignment of assignments.filter(item => item.status !== 'cancelled')) {
+        const cleanedAssignmentNote = stripRoomTypeSystemNotes(assignment.notes);
+        const { data: saved, error: assignmentError } = await supabase.from('room_assignments')
+          .update({
+            assignment_type: change.to === 'checkout' ? 'checkout_cleaning' : 'daily_cleaning',
+            ready_to_clean: change.to === 'daily',
+            ...(cleanedAssignmentNote !== assignment.notes ? { notes: cleanedAssignmentNote } : {}),
+          } as any)
+          .eq('id', assignment.id).eq('room_id', room.id)
+          .eq('assignment_date', selectedDate).eq('status', assignment.status as never).select('id');
+        if (assignmentError) throw assignmentError;
+        if (saved?.length !== 1) throw new Error('Assignment changed during update. Refresh and retry.');
+        changedAssignments.push(assignment);
+      }
+
+      setPending(null);
+      setFlash(true);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setFlash(false), 1800);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+      void loadNotices();
+      toast.success(change.to === 'daily'
+        ? isPrevioClient
+          ? `Room ${room.room_number}: guest staying · ${finalServiceLabel || 'Daily service'}.`
+          : `Room ${room.room_number} changed to Daily cleaning.`
+        : `Room ${room.room_number} changed to Checkout cleaning.`);
+      void supabase.from('pms_change_events').insert({
+        hotel_id: room.hotel, room_id: room.id, room_label: room.room_number,
+        event_type: 'room_type_switched_manual', source: 'manager_ui',
+        before: {
+          is_checkout_room: change.from === 'checkout',
+          guest_nights_stayed: room.guest_nights_stayed,
+          towel_change_required: room.towel_change_required,
+          linen_change_required: room.linen_change_required,
+        },
+        after: {
+          is_checkout_room: change.to === 'checkout',
+          date: selectedDate,
+          by: profile?.id || user?.id || null,
+          guest_nights_stayed: persistedRoom.guest_nights_stayed,
+          required_service: finalServiceLabel,
+          manager_confirmed_guest_staying: isPrevioClient && change.to === 'daily',
+          continuous_stay_provider: isPrevioClient ? 'previo' : null,
+        },
+        is_conflict: false,
+      } as any).then(({ error }) => { if (error) console.warn('Room type audit event failed', error); });
+    } catch (error) {
+      console.error('Room type change failed', error);
+      // Existing schema has no transaction RPC; compensate for any partial write.
+      let restored = true;
+      for (const assignment of changedAssignments.reverse()) {
+        const { error: rollbackError } = await supabase.from('room_assignments')
+          .update({ assignment_type: assignment.assignment_type, ready_to_clean: assignment.ready_to_clean, notes: assignment.notes } as any)
+          .eq('id', assignment.id);
+        if (rollbackError) { restored = false; console.error('Assignment rollback failed', rollbackError); }
+      }
+      if (changedRoom && originalRoom) {
+        const { error: rollbackError } = await supabase.from('rooms')
+          .update({
+            is_checkout_room: originalRoom.is_checkout_room,
+            pms_metadata: originalRoom.pms_metadata,
+            notes: originalRoom.notes,
+            guest_nights_stayed: originalRoom.guest_nights_stayed,
+            towel_change_required: originalRoom.towel_change_required,
+            linen_change_required: originalRoom.linen_change_required,
+          } as any)
+          .eq('id', originalRoom.id);
+        if (rollbackError) { restored = false; console.error('Room rollback failed', rollbackError); }
+      }
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+      toast.error(restored
+        ? error instanceof Error ? error.message : 'The update failed; original room state restored.'
+        : 'Room update was only partially restored. A supervisor must check this room before cleaning.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div onDropCapture={onDropCapture} className={flash ? 'rounded-lg ring-2 ring-emerald-400/70 transition-all duration-500 motion-safe:animate-pulse' : 'transition-all duration-500'}>
+      {canChange && notices.length > 0 && (
+        <div className="mb-2 rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100" role="status" aria-live="polite">
+          <strong>Room cleaning type changes · {selectedDate}</strong>
+          {notices.map(notice => (
+            <p key={notice.roomId} className="mt-1">
+              <span className="font-semibold">Room {notice.roomNumber} · {notice.to === 'daily' ? 'Guest staying · Daily' : 'Checkout cleaning'}</span>
+              {' · '}{notice.by} · {new Date(notice.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {notice.to === 'daily'
+                ? <>
+                    {` · Required today: ${notice.serviceLabel || 'Daily service'}`}
+                    {notice.previousReservationNights ? ` · Previous reservation: ${notice.previousReservationNights} nights` : ''}
+                    {notice.nightsStayed
+                      ? ` · Continuous stay: night ${notice.nightsStayed}${notice.continuousTotalNights && notice.continuousTotalNights >= notice.nightsStayed ? `/${notice.continuousTotalNights}` : ''}`
+                      : ''}
+                    {notice.reservationCount && notice.reservationCount > 1 ? ` · ${notice.reservationCount} linked reservations` : ''}
+                  </>
+                : ' · Wait for Guest Checked Out before entry.'}
+            </p>
+          ))}
+        </div>
+      )}
+      {children}
+      <AlertDialog open={!!pending} onOpenChange={open => { if (!open && !saving) setPending(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change room {pending?.roomNumber} to {pending?.to === 'checkout' ? 'Checkout' : 'Daily'}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pending?.to === 'daily'
+                ? 'This confirms the guest is staying and changes Checkout to Daily. HotelCare keeps the room’s existing stay and service history, recalculates today’s required service, and shows the housekeeper a direct instruction.'
+                : 'This changes Daily to Checkout cleaning. The housekeeper must wait for Guest Checked Out before entering.'}
+              {' '}Only HotelCare’s cleaning plan changes; the PMS reservation is not edited.
+              {isGozsdu && pending?.to === 'daily' && ' Gozsdu’s service cycle determines whether cleaning is due. A room with no service due goes to Other rooms and must be unassigned first.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={saving} onClick={event => { event.preventDefault(); void confirm(); }}>
+              {saving ? 'Saving and notifying…' : `Confirm ${pending?.to === 'checkout' ? 'Checkout' : 'Daily'}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}

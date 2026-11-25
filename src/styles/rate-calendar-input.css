@@ -1,0 +1,69 @@
+/* Loaded after revenue-grid-performance.css. Only the Rate & Pickup card is affected. */
+[data-training="revenue-grid"]:not(.fixed) .overscroll-x-contain {
+  /* A nested calendar must never trap ordinary page scrolling at its edges. */
+  overscroll-behavior-x: contain !important;
+  overscroll-behavior-y: auto !important;
+}
+
+/* The default page mode must not create a second vertical scrolling surface.
+   RateStrategyGrid measures a viewport-sized height inline and the older
+   performance sheet capped the pane to 72dvh. Together they trapped the
+   wheel inside the table and hid the ADR/RevPAR rows below its fold. Allow
+   the document/dashboard to own Y while keeping native X on the table. */
+[data-training="revenue-grid"]:not(.fixed):not(:has(.rate-calendar-wheel-toggle[aria-pressed="true"])) .overscroll-x-contain {
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overscroll-behavior-y: auto !important;
+}
+
+/* Users who explicitly choose 'Scroll: rows' get the compact, vertically
+   scrolling table back. Full-screen mode keeps its existing internal scroll. */
+[data-training="revenue-grid"]:not(.fixed):has(.rate-calendar-wheel-toggle[aria-pressed="true"]) .overscroll-x-contain {
+  height: auto !important;
+  max-height: min(72dvh, calc(100dvh - 190px)) !important;
+  overscroll-behavior-y: auto !important;
+}
+@media (max-width: 767px) {
+  [data-training="revenue-grid"]:not(.fixed):has(.rate-calendar-wheel-toggle[aria-pressed="true"]) .overscroll-x-contain {
+    max-height: 68dvh !important;
+  }
+}
+
+/* Large (91-365 day) views should not force Chrome to paint thousands of
+   off-screen cells. Keep the sticky dates/metric headers fully painted and
+   restore native content-visibility only for the body cells. The original
+   explicit width/height + intrinsic sizes retain the grid's layout geometry. */
+[data-training="revenue-grid"][data-rate-calendar-long="true"]
+  .overscroll-x-contain > div > div:not(.sticky.top-0) [style*="content-visibility"] {
+  content-visibility: auto !important;
+}
+
+/* The switch lives alongside the existing toolbar controls, not over cells. */
+[data-training="revenue-grid"] .rate-calendar-wheel-toggle {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+[data-training="revenue-grid"] .rate-calendar-wheel-toggle:hover,
+[data-training="revenue-grid"] .rate-calendar-wheel-toggle[aria-pressed="true"] {
+  background: hsl(var(--accent));
+}
+[data-training="revenue-grid"] .rate-calendar-wheel-toggle:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+@media (max-width: 767px) {
+  [data-training="revenue-grid"] .rate-calendar-wheel-toggle {
+    min-height: 30px;
+    font-size: 11px;
+  }
+}

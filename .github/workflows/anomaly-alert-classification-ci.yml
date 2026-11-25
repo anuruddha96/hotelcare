@@ -1,0 +1,54 @@
+name: Anomaly alert classification CI
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/system-anomaly-monitor/**'
+      - 'supabase/migrations/20261017103000_rollback_alert_severity_guard.sql'
+      - 'supabase/tests/rollback_severity_*.sql'
+      - '.github/workflows/anomaly-alert-classification-ci.yml'
+permissions:
+  contents: read
+jobs:
+  edge-enrichment-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test supabase/functions/system-anomaly-monitor/rollbackClassification.test.mjs
+  sql-severity-guard-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_monitor_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_monitor_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Test classification, cooldown, metadata and grants
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/rollback_severity_fixture.sql \
+            -f supabase/migrations/20261017103000_rollback_alert_severity_guard.sql \
+            -f supabase/tests/rollback_severity_test.sql

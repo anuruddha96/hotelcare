@@ -25,6 +25,8 @@ interface HotelConfig {
   organization_id: string;
   is_active: boolean;
   created_at: string;
+  market_city?: string | null;
+  market_country?: string | null;
   organizations: {
     name: string;
     slug: string;
@@ -120,8 +122,8 @@ export const HotelManagementView = () => {
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          <strong>Data Isolation:</strong> Each hotel's data (rooms, assignments, tickets, PMS uploads) is completely isolated. 
-          Creating a new hotel or organization will NOT affect existing data. All data is scoped by organization_slug and hotel_id.
+          <strong>Data Isolation:</strong> Operational hotel data (rooms, assignments, tickets, PMS uploads) remains isolated by organization and hotel.
+          The demand-event calendar is intentionally shared only between hotels in the same configured city and country market.
         </AlertDescription>
       </Alert>
 
@@ -157,10 +159,20 @@ export const HotelManagementView = () => {
                 )}
               </div>
 
-              <div className="bg-muted p-3 rounded-lg">
-                <p className="text-xs text-muted-foreground">Organization</p>
-                <p className="text-sm font-medium">{hotel.organizations.name}</p>
-                <p className="text-xs text-muted-foreground">/{hotel.organizations.slug}</p>
+              <div className="bg-muted p-3 rounded-lg space-y-2">
+                <div>
+                  <p className="text-xs text-muted-foreground">Organization</p>
+                  <p className="text-sm font-medium">{hotel.organizations.name}</p>
+                  <p className="text-xs text-muted-foreground">/{hotel.organizations.slug}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Market event pool</p>
+                  <p className="text-sm font-medium">
+                    {hotel.market_city && hotel.market_country
+                      ? `${hotel.market_city}, ${hotel.market_country}`
+                      : 'Location not configured'}
+                  </p>
+                </div>
               </div>
 
               <div className="flex items-center justify-between pt-2">

@@ -5,7 +5,6 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
-import { MainTabsBar } from '@/components/layout/MainTabsBar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,7 +18,7 @@ import { toast } from 'sonner';
 import {
   Camera, Upload, Receipt, BarChart3, Download, Loader2, ShieldAlert,
   CheckCircle, AlertCircle, FileText, RefreshCw, AlertTriangle, Trash2, Eye,
-  ShieldCheck, Settings, Clock,
+  ShieldCheck, Settings, Clock, LayoutDashboard, GitCompare, FileWarning,
 } from 'lucide-react';
 
 import {
@@ -34,13 +33,24 @@ import { useFirstRunTour, TourReplayButton, type TourStep } from '@/components/t
 import { VerifyInvoiceDialog } from '@/components/purchase-invoices/VerifyInvoiceDialog';
 import { InvoiceSettingsPanel } from '@/components/purchase-invoices/InvoiceSettingsPanel';
 import { useFinanceAccess } from '@/hooks/useFinanceAccess';
+import { usePurchaseInvoiceAccess } from '@/hooks/usePurchaseInvoiceAccess';
 import { workflowLabel } from '@/lib/purchaseInvoiceWorkflow';
+import { OverviewPanel } from '@/components/purchase-invoices/OverviewPanel';
+import { ReconciliationPanel } from '@/components/purchase-invoices/ReconciliationPanel';
+import { MissingDocumentsPanel } from '@/components/purchase-invoices/MissingDocumentsPanel';
+import { NavStatusBadge } from '@/components/purchase-invoices/NavStatusBadge';
+import { ModuleRolloutPanel } from '@/components/purchase-invoices/ModuleRolloutPanel';
+import {
+  BLOCKING_NAV_STATUSES, MATCHED_NAV_STATUSES, exportWorkbook, formatMoney, totalsByCurrency,
+} from '@/lib/purchaseInvoiceNav';
 
 
-const ALLOWED_ROLES = ['admin','top_management','top_management_manager','control_finance','back_office','reception','front_office'];
+// Module access itself is decided by the database (pi_module_access); these only shape the tabs.
 const ANALYTICS_ROLES = ['admin','top_management','top_management_manager','control_finance'];
 const QUEUE_ROLES = ['admin','top_management','top_management_manager','control_finance','back_office'];
 const DELETE_ROLES = ['admin','top_management','top_management_manager'];
+const ACCEPTED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 const PI_TOUR: TourStep[] = [
   { titleKey: 'tour.pi.welcome.title', bodyKey: 'tour.pi.welcome.body' },
@@ -56,7 +66,7 @@ const PI_TOUR: TourStep[] = [
   { tab: 'analytics', selector: '[data-tour="pi-analytics"]', titleKey: 'tour.pi.analytics.title', bodyKey: 'tour.pi.analytics.body' },
   { tab: 'analytics', selector: '[data-tour="pi-kpis"]', titleKey: 'tour.pi.kpis.title', bodyKey: 'tour.pi.kpis.body' },
   { tab: 'analytics', selector: '[data-tour="pi-top"]', titleKey: 'tour.pi.top.title', bodyKey: 'tour.pi.top.body' },
-  { tab: 'export', selector: '[data-tour="pi-export-buttons"]', titleKey: 'tour.pi.export.title', bodyKey: 'tour.pi.export.body', placement: 'left' as any },
+  { tab: 'analytics', selector: '[data-tour="pi-export-buttons"]', titleKey: 'tour.pi.export.title', bodyKey: 'tour.pi.export.body', placement: 'left' as any },
   // Final step: no selector → centered card → Done button always reachable.
   { titleKey: 'tour.pi.replay.title', bodyKey: 'tour.pi.replay.body' },
 ];
@@ -103,7 +113,9 @@ export default function PurchaseInvoices() {
   const [verifyFilter, setVerifyFilter] = useState<VerifyFilter>('all');
   const [merchantFilter, setMerchantFilter] = useState<string>('all');
   const [minAmount, setMinAmount] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<string>('upload');
+  const [activeTab, setActiveTab] = useState<string>(() => (profile && QUEUE_ROLES.includes(profile.role) ? 'overview' : 'upload'));
+  const [analyticsCurrency, setAnalyticsCurrency] = useState<string>('HUF');
+  const [dragOver, setDragOver] = useState(false);
   // Keep errored jobs visible so the user can preview/fix or dismiss them.
   const visibleJobs = uploadJobs.filter(j => j.status !== 'done');
   const dismissJob = (id: string) => setUploadJobs(prev => prev.filter(j => j.id !== id));
@@ -118,7 +130,9 @@ export default function PurchaseInvoices() {
     return () => window.removeEventListener('tour:navigate', handler);
   }, []);
 
-  const canAccess = profile && ALLOWED_ROLES.includes(profile.role);
+  const piAccess = usePurchaseInvoiceAccess();
+  // Rollout is enforced by the database (RLS + pi_module_access); the UI mirrors it.
+  const canAccess = !!profile && piAccess.hasAccess;
   const canSeeAnalytics = profile && ANALYTICS_ROLES.includes(profile.role);
   const canSeeQueue = profile && QUEUE_ROLES.includes(profile.role);
   const canDelete = profile && DELETE_ROLES.includes(profile.role);
@@ -129,6 +143,7 @@ export default function PurchaseInvoices() {
     () => invoices.filter(i => i.review_status === 'pending_approval' && i.approval_status !== 'approved'),
     [invoices],
   );
+  const navExceptionCount = useMemo(() => invoices.filter(i => BLOCKING_NAV_STATUSES.has(i.nav_match_status)).length, [invoices]);
 
 
   useFirstRunTour('purchase_invoices_v2', PI_TOUR);
@@ -154,9 +169,9 @@ export default function PurchaseInvoices() {
 
   useEffect(() => { if (canAccess) reload(); }, [canAccess]);
 
-  const runOcr = async (invoiceId: string): Promise<{ ok: boolean; errorCode?: string; message?: string }> => {
+  const runOcr = async (invoiceId: string, force = false): Promise<{ ok: boolean; errorCode?: string; message?: string }> => {
     const { data, error } = await supabase.functions.invoke('process-purchase-invoice', {
-      body: { invoiceId },
+      body: { invoiceId, ...(force ? { force: true } : {}) },
     });
     if (error) {
       const msg = (error as any)?.message || '';
@@ -195,72 +210,108 @@ export default function PurchaseInvoices() {
   };
 
 
-  const handleFile = async (file: File) => {
+  // A light preview for large photos; the original file is always kept unchanged.
+  const makePreview = async (file: File): Promise<Blob | null> => {
+    if (!file.type.startsWith('image/') || file.size < 1_500_000 || typeof createImageBitmap !== 'function') return null;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.82));
+    } catch {
+      return null;
+    }
+  };
 
+  const processFile = async (file: File, autoOpen: boolean) => {
     if (!user || !profile?.organization_slug) return;
     const tid = crypto.randomUUID();
     const job: UploadJob = {
       id: tid, invoiceId: tid, name: file.name, size: file.size,
       status: 'uploading', progress: 10, startedAt: Date.now(),
     };
-    setUploadJobs(prev => [job, ...prev].slice(0, 12));
+    setUploadJobs(prev => [job, ...prev].slice(0, 20));
     const patch = (p: Partial<UploadJob>) =>
       setUploadJobs(prev => prev.map(j => j.id === tid ? { ...j, ...p } : j));
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const folder = `${profile.organization_slug}/${profile.assigned_hotel || 'unassigned'}`;
+      const path = `${folder}/${tid}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('purchase-invoices').upload(path, file, { contentType: file.type });
+      if (upErr) throw upErr;
+      let previewPath: string | null = null;
+      const preview = await makePreview(file);
+      if (preview) {
+        const candidate = `${folder}/${tid}.preview.jpg`;
+        const { error: pErr } = await supabase.storage.from('purchase-invoices').upload(candidate, preview, { contentType: 'image/jpeg' });
+        if (!pErr) previewPath = candidate;
+      }
+      patch({ progress: 40, status: 'digitizing' });
 
-    // Fire-and-forget — the user can switch tabs immediately. The job survives
-    // tab switches because state lives on the PurchaseInvoices component.
-    (async () => {
-      try {
-        const ext = file.name.split('.').pop() || 'jpg';
-        const path = `${profile.organization_slug}/${profile.assigned_hotel || 'unassigned'}/${tid}.${ext}`;
+      const { error: insErr } = await supabase.from('purchase_invoices').insert({
+        id: tid,
+        organization_slug: profile.organization_slug,
+        hotel_id: profile.assigned_hotel,
+        uploaded_by: user.id,
+        file_path: path,
+        file_mime: file.type,
+        file_size_bytes: file.size,
+        status: 'uploaded',
+        ...(previewPath ? { preview_path: previewPath } : {}),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- preview_path is not in the generated types yet
+      } as any);
+      if (insErr) throw insErr;
+      patch({ progress: 70, status: 'extracting' });
 
-        const { error: upErr } = await supabase.storage
-          .from('purchase-invoices').upload(path, file, { contentType: file.type });
-        if (upErr) throw upErr;
-        patch({ progress: 40, status: 'digitizing' });
-
-        const { error: insErr } = await supabase.from('purchase_invoices').insert({
-          id: tid,
-          organization_slug: profile.organization_slug,
-          hotel_id: profile.assigned_hotel,
-          uploaded_by: user.id,
-          file_path: path,
-          file_mime: file.type,
-          file_size_bytes: file.size,
-          status: 'uploaded',
-        });
-        if (insErr) throw insErr;
-        patch({ progress: 70, status: 'extracting' });
-
-        const res = await runOcr(tid);
-        await reload();
-        if (res.ok) {
-          patch({ status: 'done', progress: 100 });
+      const res = await runOcr(tid);
+      await reload();
+      if (res.ok) {
+        patch({ status: 'done', progress: 100 });
+        if (autoOpen) {
           toast.success(t('pi.upload.autoOpening') || 'Ready to review — please verify');
           // Auto-open the verify dialog so the user can review the extracted
           // data against the original document and explicitly save/verify.
-          // The processing card stays visible until the user dismisses it or
-          // verifies the invoice — no auto-dismiss.
           setVerifyId(tid);
-        } else {
-          const message = ocrErrorMessage(res);
-          patch({ status: 'error', progress: 100, error: message, errorCode: res.errorCode });
-          if (res.errorCode === 'processor_unavailable') toast.warning(t('pi.error.processor_unavailable'));
-          else toast.error(message);
         }
-      } catch (e: any) {
-        console.error(e);
-        patch({ status: 'error', progress: 100, error: e?.message });
-        toast.error(e?.message || t('pi.upload.failed'));
+      } else {
+        const message = ocrErrorMessage(res);
+        patch({ status: 'error', progress: 100, error: message, errorCode: res.errorCode });
+        if (res.errorCode === 'processor_unavailable') toast.warning(t('pi.error.processor_unavailable'));
+        else toast.error(message);
       }
-    })();
+    } catch (e: any) {
+      console.error(e);
+      patch({ status: 'error', progress: 100, error: e?.message });
+      toast.error(e?.message || t('pi.upload.failed'));
+    }
   };
+
+  // Several files at once (drag & drop or multi-select). Two run in parallel:
+  // fast for staff, gentle on the OCR provider. The page stays usable meanwhile.
+  const handleFiles = (list: FileList | File[]) => {
+    const files = Array.from(list);
+    const valid = files.filter((f) => {
+      if (!ACCEPTED_TYPES.includes(f.type)) { toast.error(`${f.name}: ${t('pi.upload.unsupported')}`); return false; }
+      if (f.size > MAX_UPLOAD_BYTES) { toast.error(`${f.name}: ${t('pi.upload.tooLarge')}`); return false; }
+      return true;
+    });
+    if (!valid.length) return;
+    const autoOpen = valid.length === 1;
+    const queue = [...valid];
+    const worker = async () => { while (queue.length) await processFile(queue.shift()!, autoOpen); };
+    void Promise.all([worker(), worker()]);
+  };
+  const handleFile = (file: File) => handleFiles([file]);
 
   const handleRetry = async (id: string) => {
     setRetryingId(id);
 
     toast.loading(t('pi.queue.retrying'), { id: `retry-${id}` });
-    const res = await runOcr(id);
+    const res = await runOcr(id, true);
     await reload();
     setRetryingId(null);
     if (res.ok) toast.success(t('pi.upload.success'), { id: `retry-${id}` });
@@ -274,12 +325,14 @@ export default function PurchaseInvoices() {
     if (!inv?.id) return;
     setDeletingId(inv.id);
     try {
-      // Best-effort storage cleanup first
-      if (inv.file_path) {
-        await supabase.storage.from('purchase-invoices').remove([inv.file_path]);
-      }
+      // Delete the record first (the database refuses approved invoices and archives the rest),
+      // then clean up the stored files — a refused delete never removes the original document.
       const { error } = await supabase.from('purchase_invoices').delete().eq('id', inv.id);
       if (error) throw error;
+      const objects = [inv.file_path, inv.preview_path].filter(Boolean);
+      if (objects.length) {
+        await supabase.storage.from('purchase-invoices').remove(objects);
+      }
       setInvoices(prev => prev.filter(x => x.id !== inv.id));
       setUploadJobs(prev => prev.filter(j => j.invoiceId !== inv.id));
       if (verifyId === inv.id) setVerifyId(null);
@@ -298,7 +351,7 @@ export default function PurchaseInvoices() {
     let list = invoices.filter(i => {
       if (statusFilter === 'all') return true;
       if (statusFilter === 'verified') return i.is_verified === true;
-      if (statusFilter === 'needs_review') return i.status === 'processed' && !i.is_verified;
+      if (statusFilter === 'needs_review') return i.status === 'processed' && !i.is_verified && i.source !== 'historical_import';
       if (statusFilter === 'duplicates') return i.duplicate_status === 'suspected' || i.duplicate_status === 'credit_note';
       if (statusFilter === 'credit_notes') return i.is_credit_note === true;
       return i.status === statusFilter;
@@ -318,7 +371,7 @@ export default function PurchaseInvoices() {
     return sorted;
   }, [invoices, search, statusFilter, sortMode]);
 
-  const rangedInvoices = useMemo(() => {
+  const rangedAllCurrencies = useMemo(() => {
     let list = filterByRange(invoices, range, customFrom, customTo);
     if (verifyFilter === 'verified') list = list.filter(i => i.is_verified === true);
     else if (verifyFilter === 'unverified') list = list.filter(i => !i.is_verified);
@@ -327,6 +380,45 @@ export default function PurchaseInvoices() {
     if (!isNaN(min) && min > 0) list = list.filter(i => Number(i.total_amount || 0) >= min);
     return list;
   }, [invoices, range, customFrom, customTo, verifyFilter, merchantFilter, minAmount]);
+
+  // Amounts are analysed one currency at a time — never summed across currencies.
+  const currencyTotals = useMemo(
+    () => totalsByCurrency(rangedAllCurrencies, (i) => i.total_amount, (i) => i.currency),
+    [rangedAllCurrencies],
+  );
+  const rangedInvoices = useMemo(
+    () => rangedAllCurrencies.filter((i) => (i.currency || 'HUF').toUpperCase() === analyticsCurrency),
+    [rangedAllCurrencies, analyticsCurrency],
+  );
+  const navKpis = useMemo(() => {
+    const checked = rangedAllCurrencies.filter((i) => i.nav_match_status && !['not_checked', 'not_expected', 'nav_sync_pending'].includes(i.nav_match_status));
+    const matched = checked.filter((i) => MATCHED_NAV_STATUSES.has(i.nav_match_status)).length;
+    const exceptions = rangedAllCurrencies.filter((i) => BLOCKING_NAV_STATUSES.has(i.nav_match_status)).length;
+    const approvedWithTimes = rangedAllCurrencies.filter((i) => i.approval_status === 'approved' && i.approved_at && (i.submitted_at || i.created_at));
+    const turnaround = approvedWithTimes.length
+      ? approvedWithTimes.reduce((sum: number, i) => sum + (Date.parse(i.approved_at) - Date.parse(i.submitted_at || i.created_at)) / 864e5, 0) / approvedWithTimes.length
+      : null;
+    return { matchRate: checked.length ? Math.round((matched / checked.length) * 1000) / 10 : null, checked: checked.length, matched, exceptions, turnaround };
+  }, [rangedAllCurrencies]);
+  const [vatBreakdown, setVatBreakdown] = useState<Array<{ kind: string; base: number; vat: number }>>([]);
+  useEffect(() => {
+    if (activeTab !== 'analytics') return;
+    let cancelled = false;
+    (async () => {
+      const ids = rangedInvoices.map((i) => i.id).slice(0, 3000);
+      const map = new Map<string, { kind: string; base: number; vat: number }>();
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data } = await supabase.from('purchase_invoice_vat_lines').select('vat_kind, vat_base, vat_amount').in('invoice_id', ids.slice(i, i + 200));
+        for (const l of data ?? []) {
+          const e = map.get(l.vat_kind) ?? { kind: l.vat_kind, base: 0, vat: 0 };
+          e.base += Number(l.vat_base || 0); e.vat += Number(l.vat_amount || 0);
+          map.set(l.vat_kind, e);
+        }
+      }
+      if (!cancelled) setVatBreakdown([...map.values()].map(v => ({ ...v, base: Math.round(v.base), vat: Math.round(v.vat) })).sort((a, b) => b.base - a.base));
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab, rangedInvoices]);
 
   const merchantOptions = useMemo(() => {
     const set = new Set<string>();
@@ -337,8 +429,26 @@ export default function PurchaseInvoices() {
   const stats = useMemo(() => computeStats(invoices, rangedInvoices), [invoices, rangedInvoices]);
   const anomalies = useMemo(() => detectAnomalies(invoices), [invoices]);
 
-  if (loading) {
+  if (loading || piAccess.loading) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  }
+  if (!canAccess && piAccess.isFinanceAdmin) {
+    // Module not enabled yet: organization admins can switch it on here.
+    return (
+      <div className="min-h-screen bg-background">
+        <Header /><PMSNavigation />
+        <div className="container mx-auto p-6 space-y-4 max-w-4xl">
+          <Alert>
+            <ShieldAlert className="h-4 w-4" />
+            <AlertDescription>
+              <div className="font-medium">{t('pi.module.setupTitle')}</div>
+              <div className="text-xs">{t('pi.module.setupHint')}</div>
+            </AlertDescription>
+          </Alert>
+          <ModuleRolloutPanel onSaved={() => window.location.reload()} />
+        </div>
+      </div>
+    );
   }
   if (!canAccess) {
     return (
@@ -347,7 +457,7 @@ export default function PurchaseInvoices() {
         <div className="container mx-auto p-6">
           <Alert variant="destructive">
             <ShieldAlert className="h-4 w-4" />
-            <AlertDescription>{t('pi.access.denied')}</AlertDescription>
+            <AlertDescription>{t('pi.module.disabled')}</AlertDescription>
           </Alert>
         </div>
       </div>
@@ -358,7 +468,6 @@ export default function PurchaseInvoices() {
     <div className="min-h-screen bg-background">
       <Header />
       <PMSNavigation />
-      <div className="container mx-auto px-3 sm:px-6 pt-3"><MainTabsBar current="purchase-invoices" /></div>
       <div className="container mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
@@ -373,13 +482,39 @@ export default function PurchaseInvoices() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="flex flex-wrap" data-tour="pi-tabs">
+          <TabsList className="flex flex-wrap h-auto" data-tour="pi-tabs">
+            {canSeeQueue && (
+              <TabsTrigger value="overview">
+                <LayoutDashboard className="h-4 w-4 mr-1.5" />{t('pi.tab.overview')}
+              </TabsTrigger>
+            )}
             <TabsTrigger value="upload">
               <Camera className="h-4 w-4 mr-1.5" />{t('pi.tab.upload')}
             </TabsTrigger>
             {canSeeQueue && (
               <TabsTrigger value="queue" data-tour="pi-queue">
-                <FileText className="h-4 w-4 mr-1.5" />{t('pi.tab.queue')}
+                <FileText className="h-4 w-4 mr-1.5" />{t('pi.tab.all')}
+              </TabsTrigger>
+            )}
+            {canSeeQueue && (
+              <TabsTrigger value="reconciliation">
+                <GitCompare className="h-4 w-4 mr-1.5" />{t('pi.tab.reconciliation')}
+                {navExceptionCount > 0 && (
+                  <Badge variant="destructive" className="ml-1.5 h-5 px-1.5 text-[10px]">{navExceptionCount}</Badge>
+                )}
+              </TabsTrigger>
+            )}
+            {canSeeQueue && (
+              <TabsTrigger value="missing">
+                <FileWarning className="h-4 w-4 mr-1.5" />{t('pi.tab.missing')}
+              </TabsTrigger>
+            )}
+            {canSeeQueue && (
+              <TabsTrigger value="approvals">
+                <ShieldCheck className="h-4 w-4 mr-1.5" />{t('pi.tab.approvals')}
+                {pendingApproval.length > 0 && (
+                  <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">{pendingApproval.length}</Badge>
+                )}
               </TabsTrigger>
             )}
             {canSeeAnalytics && (
@@ -387,25 +522,28 @@ export default function PurchaseInvoices() {
                 <BarChart3 className="h-4 w-4 mr-1.5" />{t('pi.tab.analytics')}
               </TabsTrigger>
             )}
-            {canSeeQueue && (
-              <TabsTrigger value="approvals">
-                <ShieldCheck className="h-4 w-4 mr-1.5" />Approvals
-                {pendingApproval.length > 0 && (
-                  <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">{pendingApproval.length}</Badge>
-                )}
-              </TabsTrigger>
-            )}
-            {canSeeAnalytics && (
-              <TabsTrigger value="export" data-tour="pi-export">
-                <Download className="h-4 w-4 mr-1.5" />{t('pi.tab.export')}
-              </TabsTrigger>
-            )}
             {financeAccess.canManageFinance && (
               <TabsTrigger value="settings">
-                <Settings className="h-4 w-4 mr-1.5" />Settings
+                <Settings className="h-4 w-4 mr-1.5" />{t('pi.tab.settings')}
               </TabsTrigger>
             )}
           </TabsList>
+
+          {canSeeQueue && (
+            <TabsContent value="overview">
+              <OverviewPanel invoices={invoices} canControlNav={piAccess.canControlNav} onNavigate={setActiveTab} onChanged={reload} />
+            </TabsContent>
+          )}
+          {canSeeQueue && (
+            <TabsContent value="reconciliation">
+              <ReconciliationPanel invoices={invoices} canControlNav={piAccess.canControlNav} onOpenInvoice={setVerifyId} onChanged={reload} />
+            </TabsContent>
+          )}
+          {canSeeQueue && (
+            <TabsContent value="missing">
+              <MissingDocumentsPanel canControlNav={piAccess.canControlNav} onUpload={() => setActiveTab('upload')} />
+            </TabsContent>
+          )}
 
 
           <TabsContent value="upload" className="space-y-4">
@@ -413,6 +551,14 @@ export default function PurchaseInvoices() {
               <CardHeader><CardTitle className="text-base">{t('pi.upload.heading')}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">{t('pi.upload.dropHint')}</p>
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files); }}
+                  className={`rounded-xl border-2 border-dashed p-4 text-center text-sm transition ${dragOver ? 'border-primary bg-primary/5' : 'border-border text-muted-foreground'}`}
+                >
+                  <Upload className="h-5 w-5 mx-auto mb-1" />{t('pi.upload.multi')}
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className="cursor-pointer" data-tour="pi-camera">
                     <input type="file" accept="image/*" capture="environment" hidden
@@ -426,9 +572,9 @@ export default function PurchaseInvoices() {
                     </div>
                   </label>
                   <label className="cursor-pointer" data-tour="pi-file">
-                    <input type="file" accept="image/*,application/pdf" hidden
+                    <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" multiple hidden
                       onChange={(e) => {
-                        const f = e.target.files?.[0]; if (f) handleFile(f);
+                        if (e.target.files?.length) handleFiles(e.target.files);
                         e.currentTarget.value = '';
                       }} />
                     <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:bg-accent transition">
@@ -566,6 +712,9 @@ export default function PurchaseInvoices() {
                               {inv.duplicate_status === 'credit_note' && (
                                 <Badge variant="outline" className="text-[9px] border-blue-500/50 text-blue-600">MATCHED CREDIT</Badge>
                               )}
+                              {inv.source === 'historical_import' && (
+                                <Badge variant="secondary" className="text-[9px]">{t('pi.upload.historical')}</Badge>
+                              )}
                             </div>
                             <div className="text-xs text-muted-foreground truncate">
                               {inv.invoice_date || inv.created_at?.slice(0, 10)} · {inv.invoice_number || '—'}
@@ -590,6 +739,9 @@ export default function PurchaseInvoices() {
                               {inv.total_amount != null ? `${Number(inv.total_amount).toLocaleString()} ${inv.currency || ''}` : '—'}
                             </div>
                             <div className="flex items-center gap-1 flex-wrap justify-end">
+                              {(inv.status === 'processed' || inv.status === 'verified' || inv.is_verified) && (
+                                <NavStatusBadge status={inv.nav_match_status} />
+                              )}
                               {inv.is_verified ? (
                                 <Badge variant="default" className="text-[10px] bg-emerald-600 hover:bg-emerald-600">
                                   {t('pi.status.verified')}
@@ -719,11 +871,40 @@ export default function PurchaseInvoices() {
                   >
                     Reset
                   </Button>
-                  <div className="ml-auto text-xs text-muted-foreground self-center">
-                    {rangedInvoices.length} matching invoices
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">{t('pi.f.currency')}</label>
+                    <Select value={analyticsCurrency} onValueChange={setAnalyticsCurrency}>
+                      <SelectTrigger className="w-[110px] h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {Array.from(new Set(['HUF', ...currencyTotals.map(c => c.currency)])).map(c => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="ml-auto flex items-center gap-2" data-tour="pi-export-buttons">
+                    <span className="text-xs text-muted-foreground">{rangedInvoices.length} matching invoices</span>
+                    <Button variant="outline" size="sm" className="h-9" onClick={() => exportCsv(rangedAllCurrencies)}>
+                      <Download className="h-4 w-4 mr-1" />{t('pi.export.csv')}
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-9" onClick={() => exportXlsx(rangedAllCurrencies)}>
+                      <Download className="h-4 w-4 mr-1" />{t('pi.export.xlsx')}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
+
+              {currencyTotals.length > 1 && (
+                <div className="flex flex-wrap gap-2">
+                  {currencyTotals.map(c => (
+                    <button key={c.currency} onClick={() => setAnalyticsCurrency(c.currency)}
+                      className={`rounded-md border px-3 py-1.5 text-xs ${analyticsCurrency === c.currency ? 'border-primary bg-primary/5' : ''}`}>
+                      <span className="font-semibold tabular-nums">{formatMoney(c.total, c.currency)}</span>
+                      <span className="text-muted-foreground"> · {c.count}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {rangedInvoices.length === 0 && invoices.length > 0 && (
                 <Alert>
@@ -738,15 +919,17 @@ export default function PurchaseInvoices() {
 
 
               <div data-tour="pi-kpis" className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Kpi label="Spend in selected period" value={`${stats.total.toLocaleString()} HUF`} sub={`${stats.count} invoices`} />
-                <Kpi label={t('pi.analytics.avgInvoice')} value={`${Math.round(stats.avg).toLocaleString()} HUF`} />
-                <Kpi label={t('pi.analytics.totalVat')} value={`${stats.vat.toLocaleString()} HUF`} />
+                <Kpi label="Spend in selected period" value={formatMoney(stats.total, analyticsCurrency)} sub={`${stats.count} invoices · ${analyticsCurrency}`} />
+                <Kpi label={t('pi.analytics.avgInvoice')} value={formatMoney(stats.avg, analyticsCurrency)} />
+                <Kpi label={t('pi.analytics.totalVat')} value={formatMoney(stats.vat, analyticsCurrency)} />
+                <Kpi label={t('pi.overview.matchRate')} value={navKpis.matchRate == null ? '—' : `${navKpis.matchRate}%`} sub={`${navKpis.matched}/${navKpis.checked} · ${t('pi.overview.navExceptions')}: ${navKpis.exceptions}`} />
+                <Kpi label={t('pi.analytics.turnaround')} value={navKpis.turnaround == null ? '—' : `${navKpis.turnaround.toFixed(1)} d`} sub={t('pi.analytics.turnaroundSub')} />
                 <Kpi label="Extraction success" value={`${stats.extractionRate}%`} sub="AI read the document" />
                 <Kpi label="Approval rate" value={`${stats.approvalRate}%`} sub={`${stats.approved} approved · ${stats.rejected} rejected`} />
                 <Kpi
                   label="Pending control"
                   value={String(stats.pendingApproval)}
-                  sub={`${Math.round(stats.pendingApprovalValue).toLocaleString()} HUF`}
+                  sub={formatMoney(stats.pendingApprovalValue, analyticsCurrency)}
                 />
                 <Kpi label={t('pi.analytics.uniqueMerchants')} value={String(stats.uniqueMerchants)} />
                 <Kpi label={t('pi.analytics.topMerchant')} value={stats.top} small />
@@ -796,6 +979,30 @@ export default function PurchaseInvoices() {
                 </CardContent>
               </Card>
 
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">{t('pi.f.vat_breakdown')} · {analyticsCurrency}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {vatBreakdown.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2">—</p>
+                  ) : (
+                    <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 text-sm">
+                      <span className="text-xs text-muted-foreground">VAT</span>
+                      <span className="text-xs text-muted-foreground text-right">{t('pi.f.net_amount')}</span>
+                      <span className="text-xs text-muted-foreground text-right">{t('pi.f.total_vat_amount')}</span>
+                      {vatBreakdown.map(v => (
+                        <div key={v.kind} className="contents">
+                          <span>{v.kind}</span>
+                          <span className="tabular-nums text-right">{formatMoney(v.base, analyticsCurrency)}</span>
+                          <span className="tabular-nums text-right">{formatMoney(v.vat, analyticsCurrency)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               <Card data-tour="pi-top">
                 <CardHeader><CardTitle className="text-base">{t('pi.analytics.topMerchants')}</CardTitle></CardHeader>
                 <CardContent style={{ height: 280 }}>
@@ -835,7 +1042,7 @@ export default function PurchaseInvoices() {
                                 </div>
                               </div>
                               <div className="text-right shrink-0">
-                                <div className="font-semibold tabular-nums text-sm">{net.toLocaleString()} HUF</div>
+                                <div className="font-semibold tabular-nums text-sm">{formatMoney(net, analyticsCurrency)}</div>
                                 <div className="text-[10px] text-muted-foreground">net</div>
                               </div>
                             </div>
@@ -910,32 +1117,12 @@ export default function PurchaseInvoices() {
             </TabsContent>
           )}
 
-          {canSeeAnalytics && (
-            <TabsContent value="export">
-              <Card>
-                <CardContent className="p-6 flex flex-col gap-3">
-                  <div data-tour="pi-export-buttons" className="flex gap-2 flex-wrap">
-                    <Button variant="outline" onClick={() => exportCsv(rangedInvoices)}>
-                      <Download className="h-4 w-4 mr-2" />{t('pi.export.csv')}
-                    </Button>
-                    <Button variant="outline" onClick={() => exportXlsx(rangedInvoices)}>
-                      <Download className="h-4 w-4 mr-2" />{t('pi.export.xlsx')}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {range === 'custom' ? `${customFrom || '—'} → ${customTo || '—'}` : t('pi.analytics.range.' + range)} · {rangedInvoices.length} {t('pi.queue.count').replace('{n}','').trim()}
-                  </p>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          )}
-
           {canSeeQueue && (
             <TabsContent value="approvals" className="space-y-4">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-primary" />Waiting for approval
+                    <ShieldCheck className="h-4 w-4 text-primary" />{t('pi.approvals.heading')}
                   </CardTitle>
                   <p className="text-xs text-muted-foreground">
                     {financeAccess.canApprove
@@ -960,6 +1147,10 @@ export default function PurchaseInvoices() {
                             {inv.is_credit_note && <Badge variant="outline" className="ml-2 text-[10px]">Credit note</Badge>}
                             {inv.duplicate_status === 'suspected' && (
                               <Badge variant="destructive" className="ml-2 text-[10px]">Possible duplicate</Badge>
+                            )}
+                            <NavStatusBadge status={inv.nav_match_status} className="ml-2" />
+                            {(BLOCKING_NAV_STATUSES.has(inv.nav_match_status) || inv.validation_status === 'error') && (
+                              <Badge variant="destructive" className="ml-1 text-[10px]">{t('pi.approvals.blocked')}</Badge>
                             )}
                           </div>
                           <div className="text-[11px] text-muted-foreground truncate">
@@ -1120,8 +1311,9 @@ function computeStats(all: any[], ranged: any[]) {
 
   // Awaiting review inside the selected period, plus the all-time backlog so a
   // narrow period can never make an outstanding backlog look like zero.
-  const unverified = ranged.filter(i => i.status === 'processed' && !i.is_verified).length;
-  const unverifiedAllTime = all.filter(i => i.status === 'processed' && !i.is_verified).length;
+  // Imported register rows have no document to verify, so they never count as a review backlog.
+  const unverified = ranged.filter(i => i.status === 'processed' && !i.is_verified && i.source !== 'historical_import').length;
+  const unverifiedAllTime = all.filter(i => i.status === 'processed' && !i.is_verified && i.source !== 'historical_import').length;
 
   return {
     total, vat, count, avg, top, uniqueMerchants,
@@ -1223,18 +1415,23 @@ function monthlyComparison(invoices: any[]) {
   });
   return months;
 }
+const EXPORT_COLUMNS = [
+  'invoice_date', 'merchant_name', 'merchant_tax_id', 'invoice_number', 'document_kind', 'buyer_name', 'buyer_tax_id',
+  'currency', 'net_amount', 'total_vat_amount', 'total_amount', 'amount_due', 'expense_category', 'payment_method',
+  'status', 'is_verified', 'review_status', 'approval_status', 'nav_match_status', 'nav_match_reason', 'source',
+];
+function exportRows(invoices: Array<Record<string, unknown>>) {
+  return invoices.map(i => Object.fromEntries(EXPORT_COLUMNS.map(h => [h, i[h] ?? ''])));
+}
 function exportCsv(invoices: any[]) {
-  const headers = ['invoice_date','merchant_name','merchant_tax_id','invoice_number','currency','net_amount','total_vat_amount','total_amount','expense_category','payment_method','status','is_verified'];
-  const rows = invoices.map(i => headers.map(h => JSON.stringify(i[h] ?? '')).join(','));
-  const csv = [headers.join(','), ...rows].join('\n');
-  download(new Blob([csv], { type: 'text/csv' }), `purchase-invoices-${Date.now()}.csv`);
+  const rows = exportRows(invoices);
+  const escape = (v: unknown) => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const csv = [EXPORT_COLUMNS.join(','), ...rows.map(r => EXPORT_COLUMNS.map(h => escape(r[h])).join(','))].join('\n');
+  download(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }), `purchase-invoices-${new Date().toISOString().slice(0, 10)}.csv`);
 }
 function exportXlsx(invoices: any[]) {
-  // simple TSV-as-xls fallback (no extra deps) — Excel opens .xls TSV transparently
-  const headers = ['invoice_date','merchant_name','merchant_tax_id','invoice_number','currency','net_amount','total_vat_amount','total_amount','expense_category','payment_method','status','is_verified'];
-  const rows = invoices.map(i => headers.map(h => String(i[h] ?? '').replace(/\t/g,' ')).join('\t'));
-  const tsv = [headers.join('\t'), ...rows].join('\n');
-  download(new Blob(['\ufeff' + tsv], { type: 'application/vnd.ms-excel' }), `purchase-invoices-${Date.now()}.xls`);
+  // Real .xlsx (one row per invoice; amounts stay in their own currency column).
+  exportWorkbook([{ name: 'Invoices', rows: exportRows(invoices) }], `purchase-invoices-${new Date().toISOString().slice(0, 10)}`);
 }
 function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);

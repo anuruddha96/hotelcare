@@ -35,11 +35,11 @@ describe('training v2 curricula shape', () => {
         }
       });
 
-      it('every selector step has route OR tab OR is a global anchor', () => {
+      it('every selector step declares a route, tab, preceding workflow, or global anchor', () => {
         for (const s of cur.steps) {
           if (!s.selector) continue;
           if (GLOBAL_ANCHORS.has(s.selector)) continue;
-          const hasNav = Boolean(s.route || s.tab);
+          const hasNav = Boolean(s.route || s.tab || (s.withinWorkflow && cur.steps[0] !== s));
           expect(
             hasNav,
             `${cur.slug}::${s.key} → selector "${s.selector}" needs route or tab`,
@@ -52,13 +52,6 @@ describe('training v2 curricula shape', () => {
           if (!s.selector) continue;
           const gated = DATA_GATED_PATTERNS.some((re) => re.test(s.selector!));
           if (!gated) continue;
-
-          const intentionalCoreAction =
-            cur.slug === 'v2_housekeeper_first_day' && s.key === 'my_tasks';
-          if (intentionalCoreAction) {
-            expect(s.optional).toBe(false);
-            continue;
-          }
 
           expect(
             s.optional,
@@ -84,7 +77,9 @@ describe('housekeeper first-shift curriculum', () => {
       'welcome',
       'signin',
       'breaks',
+      'open_my_tasks',
       'wait_for_assignment',
+      'room_overview',
       'my_tasks',
       'special_instructions',
       'room_photos',
@@ -102,8 +97,8 @@ describe('housekeeper first-shift curriculum', () => {
 
   it('has a complete but still mobile-manageable first-shift journey', () => {
     const n = hk?.steps.length ?? 0;
-    expect(n).toBeGreaterThanOrEqual(14);
-    expect(n).toBeLessThanOrEqual(16);
+    expect(n).toBeGreaterThanOrEqual(16);
+    expect(n).toBeLessThanOrEqual(19);
   });
 
   it('has no duplicate or malformed selectors', () => {
@@ -121,29 +116,38 @@ describe('housekeeper first-shift curriculum', () => {
     );
   });
 
-  it('waits visibly for a first assignment instead of silently skipping the room journey', () => {
+  it('uses the actual My Tasks tab, then waits visibly for an assignment', () => {
+    const openTasks = hk?.steps.find((s) => s.key === 'open_my_tasks');
+    expect(openTasks?.selector).toBe('[data-training="housekeeping-tab"]');
+    expect(openTasks?.advanceOnClick).toBe(true);
+    const roomOverview = hk?.steps.find((s) => s.key === 'room_overview');
+    expect(roomOverview?.selector).toBe('[data-training="assigned-room-card"]');
+    expect(roomOverview?.optional).toBe(true);
     const wait = hk?.steps.find((s) => s.key === 'wait_for_assignment');
     expect(wait).toBeTruthy();
+    expect(wait?.tab).toBe('housekeeping');
     expect(wait?.precondition).toBe('is_signed_in');
     expect(wait?.waitFor).toBe('has_any_assignment_today');
     expect(wait?.selector).toBeUndefined();
     expect(wait?.optional).not.toBe(true);
 
     const myTasks = hk?.steps.find((s) => s.key === 'my_tasks');
-    expect(myTasks?.optional).toBe(false);
+    expect(myTasks?.optional).toBe(true);
     expect(myTasks?.precondition).toBe('has_any_assignment_today');
+    expect(myTasks?.skipWhen).toBe('has_in_progress_cleaning');
+    expect(myTasks?.tab).toBe('housekeeping');
   });
 
   it('teaches every important in-room housekeeping function contextually', () => {
     const expectedSelectors: Record<string, string> = {
-      room_photos: '[data-training="room-photos-button"]',
-      dnd_photo: '[data-training="dnd-button"]',
-      dirty_linen: '[data-training="dirty-linen-button"]',
-      minibar: '[data-training="room-work-tools"]',
-      lost_found: '[data-training="lost-found-button"]',
-      maintenance: '[data-training="maintenance-button"]',
-      notes: '[data-training="notes-button"]',
-      messages: '[data-training="room-messages"]',
+      room_photos: '[data-training="active-assigned-room"] [data-training="room-photos-button"]',
+      dnd_photo: '[data-training="active-assigned-room"] [data-training="dnd-button"]',
+      dirty_linen: '[data-training="active-assigned-room"] [data-training="dirty-linen-button"]',
+      minibar: '[data-training="active-assigned-room"] [data-training="minibar-button"]',
+      lost_found: '[data-training="active-assigned-room"] [data-training="lost-found-button"]',
+      maintenance: '[data-training="active-assigned-room"] [data-training="maintenance-button"]',
+      notes: '[data-training="active-assigned-room"] [data-training="notes-button"]',
+      messages: '[data-training="active-assigned-room"] [data-training="room-messages"]',
     };
 
     for (const [key, selector] of Object.entries(expectedSelectors)) {
@@ -182,8 +186,11 @@ describe('housekeeper first-shift curriculum', () => {
     }
   });
 
-  it('requires real check-in, assignment arrival, room start and room completion actions', () => {
+  it('recognizes actions already completed before the training starts', () => {
     expect(hk?.steps.find((s) => s.key === 'signin')?.waitFor).toBe('is_signed_in');
+    expect(hk?.steps.find((s) => s.key === 'signin')?.skipWhen).toBe('is_signed_in');
+    expect(hk?.steps.find((s) => s.key === 'breaks')?.selector).toBe('[data-training="break-button"]');
+    expect(hk?.steps.find((s) => s.key === 'signout')?.selector).toBe('[data-training="sign-out-button"]');
     expect(hk?.steps.find((s) => s.key === 'wait_for_assignment')?.waitFor).toBe(
       'has_any_assignment_today',
     );
@@ -200,10 +207,207 @@ describe('housekeeper first-shift curriculum', () => {
   });
 
   it('only leaves situational or safely deferrable action gates optional', () => {
-    const requiredActionSteps = new Set(['signin', 'wait_for_assignment', 'my_tasks']);
+    const requiredActionSteps = new Set(['signin', 'wait_for_assignment']);
     for (const s of hk?.steps ?? []) {
       if (!s.waitFor || requiredActionSteps.has(s.key)) continue;
       expect(s.optional, `${s.key} is action-gated but not optional`).toBe(true);
     }
+  });
+});
+
+describe('housekeeper training interaction safety', () => {
+  const hk = ALL_CURRICULA.find((c) => c.slug === 'v2_housekeeper_first_day');
+  it('keeps the guide escapable with a skip for every step and no keyboard trap', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const overlay = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingOverlayV2.tsx'), 'utf8');
+    const engine = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingV2Provider.tsx'), 'utf8');
+    expect(overlay).toContain('isGuidedTour && (');
+    expect(overlay).toContain('onClick={skipForNow}');
+    expect(overlay).toContain('onClick={isGuidedTour ? pause : () => setConfirmExit(true)}');
+    expect(overlay).not.toContain("if (e.key === 'Tab'");
+    expect(engine).toContain('if (step.skipWhen && await evaluateGuard(step.skipWhen, guardCtx))');
+    expect(engine).toContain("active.slug.startsWith('v2_housekeeper_') || MANAGER_ROLES.includes(role || '')");
+    // Situational lessons are explained even when their control is absent,
+    // and the learner can still press Next on them.
+    expect(engine).toContain('managerTraining || step.explainWhenUnavailable === true');
+    expect(overlay).toContain('!explainsUnavailable && (waiting || requiresAction)');
+  });
+
+  it('anchors housekeeper training to currently active room cards in both layouts', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    for (const file of ['HousekeepingStaffView.tsx', 'MobileHousekeepingView.tsx']) {
+      const source = readFileSync(resolve(process.cwd(), 'src/components/dashboard', file), 'utf8');
+      expect(source).toContain('data-training="assigned-room-card"');
+      expect(source).toContain("assignment.status === 'in_progress' ? 'active-assigned-room'");
+    }
+    expect(hk?.steps.find((s) => s.key === 'complete_room')?.selector).toBe(
+      '[data-training="active-assigned-room"] [data-training="complete-room-button"]',
+    );
+  });
+});
+
+describe('housekeeper "At the door" unit', () => {
+  const door = ALL_CURRICULA.find((c) => c.slug === 'v2_housekeeper_at_the_door');
+
+  it('exists for housekeepers only, is never auto-started, and sits in the Housekeeping module', () => {
+    expect(door).toBeTruthy();
+    expect(door?.roles).toEqual(['housekeeping']);
+    expect(door?.category).toBe('feature_promo');
+    expect(door?.moduleKey).toBe('housekeeping');
+    expect(door?.isFullWalkthrough).not.toBe(true);
+  });
+
+  it('teaches the doorway decisions in working order', () => {
+    expect(door?.steps.map((s) => s.key)).toEqual([
+      'door_intro', 'door_read_card', 'door_dnd', 'door_no_service', 'door_checkout_waiting', 'door_towel_only',
+    ]);
+  });
+
+  it('anchors every lesson to the real room card controls', () => {
+    const selectors: Record<string, string> = {
+      door_read_card: '[data-training="assigned-room-card"]',
+      door_dnd: '[data-training="assigned-room-card"] [data-training="dnd-doorway-button"]',
+      door_no_service: '[data-training="assigned-room-card"] [data-training="no-service-button"]',
+      door_checkout_waiting: '[data-training="assigned-room-card"] [data-training="checkout-waiting-notice"]',
+      door_towel_only: '[data-training="active-assigned-room"] [data-training="towel-change-only-button"]',
+    };
+    for (const [key, selector] of Object.entries(selectors)) {
+      const step = door?.steps.find((s) => s.key === key);
+      expect(step?.selector, key).toBe(selector);
+      expect(step?.selector).toMatch(TRAINING_SELECTOR);
+      expect(step?.tab, key).toBe('housekeeping');
+    }
+    const doorway = ['door_dnd', 'door_no_service', 'door_checkout_waiting'];
+    for (const key of doorway) {
+      expect(door?.steps.find((s) => s.key === key)?.precondition, key).toBe('has_assigned_room_not_started');
+    }
+    expect(door?.steps.find((s) => s.key === 'door_towel_only')?.precondition).toBe('has_in_progress_cleaning');
+  });
+
+  it('never forces a real DND, refusal or limited service and is explained even when the control is absent', () => {
+    for (const step of door?.steps ?? []) {
+      expect(step.waitFor, step.key).toBeUndefined();
+      expect(step.advanceOnClick, step.key).toBeUndefined();
+      if (!step.selector) continue;
+      expect(step.optional, step.key).toBe(true);
+      expect(step.explainWhenUnavailable, step.key).toBe(true);
+      expect(step.unavailableNote?.en, `${step.key} needs an unavailableNote`).toBeTruthy();
+    }
+  });
+
+  it('has full content in every training language', () => {
+    expect(door).toBeTruthy();
+    if (!door) return;
+    for (const text of [door.name, door.description]) {
+      for (const lang of SUPPORTED_LANGS) expect(text[lang], `curriculum missing ${lang}`).toBeTruthy();
+    }
+    for (const step of door.steps) {
+      for (const field of ['title', 'body', 'phase', 'purpose'] as const) {
+        const text = step[field];
+        expect(text, `${step.key} missing ${field}`).toBeTruthy();
+        if (!text) continue;
+        for (const lang of SUPPORTED_LANGS) expect(text[lang], `${step.key}.${field} missing ${lang}`).toBeTruthy();
+      }
+      for (const field of ['tip', 'unavailableNote'] as const) {
+        const text = step[field];
+        if (!text) continue;
+        for (const lang of SUPPORTED_LANGS) expect(text[lang], `${step.key}.${field} missing ${lang}`).toBeTruthy();
+      }
+    }
+  });
+
+  it('is backed by real anchors in the room card', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const card = readFileSync(resolve(process.cwd(), 'src/components/dashboard/AssignedRoomCardLegacy.tsx'), 'utf8');
+    for (const anchor of ['dnd-doorway-button', 'no-service-button', 'checkout-waiting-notice', 'towel-change-only-button', 'minibar-button']) {
+      expect(card, anchor).toContain(`data-training="${anchor}"`);
+    }
+  });
+});
+
+describe('contextual manager learning path', () => {
+  const full = ALL_CURRICULA.find((c) => c.slug === 'v2_manager_complete_walkthrough');
+  const team = ALL_CURRICULA.find((c) => c.slug === 'v2_manager_team_and_assignments');
+
+  it('offers Team View first and separates later topics into independent modules', () => {
+    expect(full?.chain?.[0]).toBe('v2_manager_team_and_assignments');
+    expect(full?.chain?.length).toBeGreaterThan(3);
+    expect(team?.category).toBe('feature_promo');
+    for (const slug of full?.chain || []) {
+      expect(ALL_CURRICULA.some((c) => c.slug === slug)).toBe(true);
+    }
+  });
+
+  it('opens real Team View first, then follows its safe operational controls', () => {
+    const steps = team?.steps || [];
+    expect(steps.map((s) => s.key)).toEqual([
+      'open_team_view', 'team_view', 'work_date', 'room_board',
+      'legend', 'staff_cards', 'pms_refresh', 'auto_assign',
+      'manual_assignment', 'team_summary', 'open_approvals', 'approval_queue',
+    ]);
+    expect(steps[0].selector).toBe('[data-training="manager-team-tab"]');
+    expect(steps[0].advanceOnClick).toBe(true);
+    expect(steps[0].tab).toBe('housekeeping');
+    expect(steps[1].subTab).toBe('manage');
+    expect(steps.at(-1)?.subTab).toBe('supervisor');
+    expect(steps.at(-1)?.selector).toBe('#pending-approvals-list');
+    expect(steps.every((s) => s.optional)).toBe(true);
+    expect(steps.every((s) => !s.waitFor)).toBe(true);
+  });
+
+  it('never forces PMS refresh, room assignments or approvals during a guide', () => {
+    for (const step of team?.steps || []) {
+      expect(step.waitFor).toBeUndefined();
+      expect(step.optional).toBe(true);
+    }
+    const refresh = team?.steps.find((s) => s.key === 'pms_refresh');
+    const distribute = team?.steps.find((s) => s.key === 'auto_assign');
+    expect(refresh?.selector).toBe('[data-training-id="pms-refresh-btn"]');
+    expect(distribute?.selector).toBe('[data-training="auto-assign-btn"]');
+    expect(refresh?.advanceOnClick).toBeUndefined();
+    expect(distribute?.advanceOnClick).toBeUndefined();
+  });
+
+  it('has content in the six supported languages for new manager steps', () => {
+    for (const step of team?.steps || []) {
+      for (const lang of SUPPORTED_LANGS) {
+        expect(step.title[lang], `${step.key} title.${lang}`).toBeTruthy();
+        expect(step.body[lang], `${step.key} body.${lang}`).toBeTruthy();
+      }
+    }
+  });
+});
+
+describe('manager tour progression and real UI anchoring', () => {
+  it('recognizes nested manager tabs in Housekeeping and anchors real Team View', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const tab = readFileSync(resolve(process.cwd(), 'src/components/dashboard/HousekeepingTabLegacy.tsx'), 'utf8');
+    const team = readFileSync(resolve(process.cwd(), 'src/components/dashboard/HousekeepingManagerView.tsx'), 'utf8');
+    expect(tab).toContain("window.addEventListener('tour:navigate', onTrainingNavigate)");
+    expect(tab).toContain("'manager-team-tab'");
+    expect(tab).toContain('data-training="manager-approvals-tab"');
+    expect(team).toContain('data-training="manager-team-card"');
+    expect(team).toContain('data-training="manager-team-summary"');
+    expect(team).toContain('data-training="manager-team-date"');
+  });
+
+  it('filters future topics by role and asks before starting each module', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const provider = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingV2Provider.tsx'), 'utf8');
+    const transition = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingNextModulePrompt.tsx'), 'utf8');
+    const overlay = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingOverlayV2.tsx'), 'utf8');
+    expect(provider).toContain('linked.roles.includes(role as any)');
+    expect(provider).toContain('setPendingNextModule(nextCur)');
+    expect(provider).toContain('<TrainingNextModulePrompt');
+    expect(provider).toContain('chainRootRef.current');
+    expect(transition).toContain('onContinue');
+    expect(transition).toContain('onLater');
+    expect(overlay).toContain('isManagerTour');
+    expect(overlay).toContain('onClick={isGuidedTour ? pause : () => setConfirmExit(true)}');
   });
 });

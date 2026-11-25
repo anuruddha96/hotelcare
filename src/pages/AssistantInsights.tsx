@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import AssistantAccessRequests from "@/components/assistant/AssistantAccessRequests";
@@ -23,8 +24,30 @@ interface IssueRow {
   created_at: string;
 }
 
+interface UsageAlert {
+  id: string;
+  user_id: string;
+  message: string;
+  alert_type: string;
+  created_at: string;
+  emailed_at: string | null;
+}
+const OPERATOR_ACTIONS = [
+  { label: "Send guest items to housekeeping", example: "Send 3 extra towels to room 202.", mode: "Automatic", access: "Reception, housekeeping, managers" },
+  { label: "Change bed setup", example: "Room 108 beds together.", mode: "Automatic", access: "Reception and managers" },
+  { label: "Create maintenance tickets", example: "Create a maintenance ticket for the leaking sink in room 301.", mode: "Automatic", access: "Operations teams" },
+  { label: "Update ticket status", example: "Mark verified ticket as in progress.", mode: "Automatic", access: "Maintenance and managers" },
+  { label: "Adjust rates by whole euros", example: "Decrease every published rate by €2 for the next two days.", mode: "Automatic, verified PMS queue", access: "Admin and top management only" },
+  { label: "Set minimum stay", example: "Set a 2-night minimum stay for the weekend.", mode: "Confirmation required", access: "Admin and top management only" },
+  { label: "Assign housekeeping rooms", example: "Assign room 215 to the named housekeeper.", mode: "Confirmation required", access: "Housekeeping supervisors and managers" },
+  { label: "Change individual price cells", example: "Set room type and occupancy for a specific night.", mode: "Confirmation required", access: "Admin and top management only" },
+  { label: "Read hotel operations", example: "Show today's arrivals, open repairs or occupancy.", mode: "Verified read-only", access: "Role-scoped property data" },
+] as const;
+
 interface AuditRow {
   id: string;
+  user_id: string;
+  model: string | null;
   role: string | null;
   question: string;
   refused: boolean;
@@ -37,8 +60,11 @@ interface AuditRow {
 export default function AssistantInsights() {
   const { profile } = useAuth();
   const [rows, setRows] = useState<AuditRow[]>([]);
+  const [people, setPeople] = useState<Record<string, string>>({});
+  const [questionFilter, setQuestionFilter] = useState("");
   const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
   const [issues, setIssues] = useState<IssueRow[]>([]);
+  const [usageAlerts, setUsageAlerts] = useState<UsageAlert[]>([]);
   const allowed = profile?.role === "admin" || profile?.role?.startsWith("top_management");
 
   useEffect(() => {
@@ -46,10 +72,21 @@ export default function AssistantInsights() {
     if (!allowed) return;
     supabase
       .from("assistant_audit_log")
-      .select("id,role,question,refused,scopes_used,created_at,hotel_id")
+      .select("id,user_id,role,model,question,refused,scopes_used,created_at,hotel_id")
+      .eq("organization_slug", profile?.organization_slug ?? "")
       .order("created_at", { ascending: false })
       .limit(200)
-      .then(({ data }) => setRows((data ?? []) as AuditRow[]));
+      .then(async ({ data }) => {
+        const audits = (data ?? []) as AuditRow[];
+        setRows(audits);
+        const userIds = [...new Set(audits.map((row) => row.user_id).filter(Boolean))];
+        if (!userIds.length) return;
+        const { data: profileRows } = await supabase.from("profiles")
+          .select("id,full_name,nickname").in("id", userIds);
+        setPeople(Object.fromEntries((profileRows ?? []).map((person) =>
+          [person.id, person.full_name || person.nickname || person.id.slice(0, 8)]
+        )));
+      });
     supabase
       .from("assistant_feedback")
       .select("id,helpful,reason,created_at")
@@ -62,12 +99,23 @@ export default function AssistantInsights() {
       .order("created_at", { ascending: false })
       .limit(50)
       .then(({ data }) => setIssues((data ?? []) as IssueRow[]));
-  }, [allowed]);
+    if (profile?.role === "admin") {
+      (supabase as any).from("assistant_usage_alert_events")
+        .select("id,user_id,message,alert_type,created_at,emailed_at")
+        .order("created_at", { ascending: false }).limit(50)
+        .then(({ data }: { data: UsageAlert[] | null }) => setUsageAlerts(data ?? []));
+    }
+  }, [allowed, profile?.role, profile?.organization_slug]);
 
   if (!allowed) {
     return <div className="p-6 text-sm text-muted-foreground">This page is for administrators.</div>;
   }
 
+  const filter = questionFilter.toLowerCase().trim();
+  const visibleRows = filter
+    ? rows.filter((r) => [r.question, r.user_id, people[r.user_id] ?? "", r.hotel_id ?? ""]
+      .some((value) => value.toLowerCase().includes(filter)))
+    : rows;
   const refused = rows.filter((r) => r.refused).length;
   const helpful = feedback.filter((f) => f.helpful).length;
   const helpfulPct = feedback.length ? Math.round((helpful / feedback.length) * 100) : null;
@@ -76,11 +124,69 @@ export default function AssistantInsights() {
   return (
     <div className="p-3 sm:p-6 max-w-5xl mx-auto space-y-4">
       <div>
-        <h1 className="text-lg font-semibold">Assistant insights</h1>
+        <h1 className="text-lg font-semibold">HotelCare AI Operator · Admin centre</h1>
         <p className="text-xs text-muted-foreground">
-          What your teams are asking. Use it to spot training gaps — staff never see this page.
+          Administrator-only operational assistant usage, including employee questions. Inform staff of the logging and your retention policy.
         </p>
       </div>
+
+      {profile?.role === "admin" && (
+        <>
+          <Card className="p-3 sm:p-4 space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold">Available actions and access</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                HotelCare verifies the signed-in role and hotel again before every action. Automatic means no
+                extra confirmation; pricing still uses the safe publishing queue, not a direct PMS override.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead><tr className="border-b text-muted-foreground">
+                  <th className="px-2 py-2 font-medium">Action</th>
+                  <th className="px-2 py-2 font-medium">Execution</th>
+                  <th className="px-2 py-2 font-medium">Roles</th>
+                </tr></thead>
+                <tbody>{OPERATOR_ACTIONS.map((action) => (
+                  <tr key={action.label} className="border-b last:border-0">
+                    <td className="px-2 py-2 align-top"><span className="font-medium">{action.label}</span>
+                      <div className="mt-1 text-muted-foreground">{action.example}</div></td>
+                    <td className="px-2 py-2 align-top">{action.mode}</td>
+                    <td className="px-2 py-2 align-top">{action.access}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Message policy: 20 per user each calendar month, resetting on the 1st in Budapest time;
+              admin and Anu_000 accounts are exempt. Admins can select Auto / Fast / Balanced / Deep in chat.
+              Unverified results must not be presented as completed.
+            </p>
+          </Card>
+          <Card className="p-3 sm:p-4 space-y-2">
+            <h2 className="text-sm font-semibold">Monthly limits and token alerts</h2>
+            {usageAlerts.length === 0 && <p className="text-xs text-muted-foreground">No usage alerts recorded.</p>}
+            <div className="max-h-64 space-y-2 overflow-y-auto">
+              {usageAlerts.map((alert) => (
+                <div key={alert.id} className="rounded-lg border p-2 text-xs">
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <Badge variant="outline">{alert.alert_type.replaceAll("_", " ")}</Badge>
+                    <span className="text-muted-foreground">{new Date(alert.created_at).toLocaleString()}</span>
+                    <span className="text-muted-foreground">{alert.emailed_at ? "Email sent" : "Email not confirmed"}</span>
+                  </div>
+                  <p className="mt-1">{alert.message}</p>
+                  <div className="flex items-center justify-between gap-2 mt-1">
+                    <p className="text-muted-foreground">User: {people[alert.user_id] ?? alert.user_id}</p>
+                    <button type="button" className="underline text-primary" onClick={() => setQuestionFilter(alert.user_id)}>
+                      Review questions
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <Card className="p-3">
@@ -137,25 +243,41 @@ export default function AssistantInsights() {
 
       <Card className="p-3 space-y-2">
         <p className="text-sm font-medium">Recent questions</p>
+        <Input
+          aria-label="Filter assistant questions"
+          placeholder="Find employee, room, hotel, or question"
+          value={questionFilter}
+          onChange={(event) => setQuestionFilter(event.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          {visibleRows.length} of {rows.length} recent questions · search is limited to the latest 200.
+        </p>
         <div className="space-y-1 max-h-[60vh] overflow-y-auto">
-          {rows.map((r) => (
-            <div key={r.id} className="flex items-start gap-2 border-b py-1.5 last:border-0">
+          {visibleRows.map((r) => (
+            <div key={r.id} className="flex items-start gap-2 border-b py-2 last:border-0">
               <span className="text-xs text-muted-foreground w-28 shrink-0">
                 {new Date(r.created_at).toLocaleString()}
               </span>
-              <span className="text-sm flex-1">{r.question}</span>
-              <div className="flex gap-1 shrink-0">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm break-words">{r.question}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {people[r.user_id] ?? r.user_id.slice(0, 8)}
+                  {r.hotel_id ? ` · ${r.hotel_id}` : ""}
+                  {r.model ? ` · ${r.model}` : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1 justify-end max-w-40">
                 {r.role && <Badge variant="outline">{r.role}</Badge>}
                 {r.refused && <Badge variant="destructive">blocked</Badge>}
                 {(r.scopes_used ?? []).map((s) => (
-                  <Badge key={s} variant="secondary">
-                    {s}
-                  </Badge>
+                  <Badge key={s} variant="secondary">{s}</Badge>
                 ))}
               </div>
             </div>
           ))}
-          {rows.length === 0 && <p className="text-sm text-muted-foreground">Nothing yet.</p>}
+          {visibleRows.length === 0 && <p className="text-sm text-muted-foreground">
+            {rows.length ? "No questions match this filter." : "Nothing yet."}
+          </p>}
         </div>
       </Card>
     </div>

@@ -31,6 +31,16 @@ const handler = async (req: Request): Promise<Response> => {
   try {
     const { staff_id, assignment_type, assignment_details, hotel_name }: WorkAssignmentNotificationRequest = await req.json();
 
+    // Maintenance-ticket assignment belongs in the app, not in Resend.
+    // Only top-management-selected creation/L1/L2 recipients receive email
+    // through the dedicated escalation worker. Fail closed for legacy callers.
+    if (assignment_type === 'ticket') {
+      return new Response(JSON.stringify({ skipped: true, reason: 'maintenance_email_recipients_are_configured' }), {
+        status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
+
     // Initialize Supabase client
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',

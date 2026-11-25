@@ -1,8 +1,8 @@
 // Weekly automatic events sweep.
 //
 // Runs on a schedule so the events calendar stays current even when nobody
-// presses "Find events". It walks the next 12 months for every market a
-// property has configured and refreshes each month at most once a week.
+// presses "Find events". It walks the next 12 months once per configured
+// city/country market, regardless of how many hotels or organisations share it.
 //
 // Guard rails (this calls a paid AI endpoint):
 //   - bounded work: at most MAX_SLOTS AI searches per invocation,
@@ -43,7 +43,7 @@ serve(async (req) => {
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
   try {
-    if (!OPENAI_API_KEY) return json({ ok: false, error: "OPENAI_API_KEY is not configured" }, 200);
+    if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) return json({ ok: false, error: "No AI provider is configured" }, 200);
 
     // Single flight: another sweep is still working.
     const lockSince = new Date(Date.now() - LOCK_MINUTES * 60_000).toISOString();
@@ -54,33 +54,56 @@ serve(async (req) => {
       .gte("created_at", lockSince);
     if ((running ?? 0) > 0) return json({ ok: true, skipped: "another sweep ran recently" });
 
-    // Markets to cover: one per organisation + city.
-    const { data: settings } = await admin
-      .from("hotel_revenue_settings")
-      .select("hotel_id, organization_slug, market_city, market_country");
+    // Markets to cover: exactly one search pool per city + country, even when
+    // several organisations or hotels participate in that market.
+    const [{ data: hotels }, { data: orgs }] = await Promise.all([
+      admin
+        .from("hotel_configurations")
+        .select("hotel_id, organization_id, market_city, market_country, is_active")
+        .eq("is_active", true),
+      admin.from("organizations").select("id, slug"),
+    ]);
 
-    const markets = new Map<string, { organizationSlug: string; hotelId: string; city: string; country: string }>();
-    for (const s of (settings ?? []) as Array<Record<string, string | null>>) {
-      const organizationSlug = s.organization_slug ?? "";
-      if (!organizationSlug) continue;
-      const city = s.market_city || "Budapest";
-      const country = s.market_country || "Hungary";
-      const key = `${organizationSlug}|${city.toLowerCase()}`;
-      if (!markets.has(key)) {
-        markets.set(key, { organizationSlug, hotelId: s.hotel_id ?? "", city, country });
+    const orgById = new Map(
+      ((orgs ?? []) as Array<{ id: string; slug: string }>).map((o) => [o.id, o.slug]),
+    );
+    type MarketMember = { organizationSlug: string; hotelId: string };
+    type MarketPool = {
+      city: string;
+      country: string;
+      members: Map<string, MarketMember>;
+    };
+
+    const markets = new Map<string, MarketPool>();
+    for (const h of (hotels ?? []) as Array<Record<string, string | boolean | null>>) {
+      const organizationSlug = orgById.get(String(h.organization_id ?? "")) ?? "";
+      const city = String(h.market_city ?? "").trim();
+      const country = String(h.market_country ?? "").trim();
+      if (!organizationSlug || !city || !country) continue;
+
+      const key = `${country.toLowerCase()}|${city.toLowerCase()}`;
+      const market = markets.get(key) ?? { city, country, members: new Map<string, MarketMember>() };
+      if (!market.members.has(organizationSlug)) {
+        market.members.set(organizationSlug, {
+          organizationSlug,
+          hotelId: String(h.hotel_id ?? ""),
+        });
       }
+      markets.set(key, market);
     }
 
-    // Months already refreshed within the last week are skipped.
+    // A fresh search by any participant refreshes the whole market pool.
     const freshSince = new Date(Date.now() - REFRESH_DAYS * 86_400_000).toISOString();
     const { data: recent } = await admin
       .from("demand_event_search_runs")
-      .select("organization_slug, city, month")
+      .select("city, country, month")
       .gte("created_at", freshSince)
       .not("month", "is", null)
       .limit(5000);
     const done = new Set(
-      (recent ?? []).map((r: Record<string, string>) => `${r.organization_slug}|${(r.city ?? "").toLowerCase()}|${r.month}`),
+      (recent ?? []).map((r: Record<string, string | null>) =>
+        `${String(r.country ?? "").toLowerCase()}|${String(r.city ?? "").toLowerCase()}|${r.month ?? ""}`
+      ),
     );
 
     const now = new Date();
@@ -93,27 +116,44 @@ serve(async (req) => {
 
     outer:
     for (const market of markets.values()) {
+      const members = Array.from(market.members.values()).sort((a, b) => {
+        if (a.organizationSlug === "hotelcare" && b.organizationSlug !== "hotelcare") return -1;
+        if (b.organizationSlug === "hotelcare" && a.organizationSlug !== "hotelcare") return 1;
+        return a.organizationSlug.localeCompare(b.organizationSlug);
+      });
+
       for (let i = windowStart; i < windowStart + WINDOW_MONTHS; i++) {
         if (slots >= MAX_SLOTS) break outer;
         const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
         const month = monthKey(d);
-        const slotKey = `${market.organizationSlug}|${market.city.toLowerCase()}|${month}`;
+        const slotKey = `${market.country.toLowerCase()}|${market.city.toLowerCase()}|${month}`;
         if (done.has(slotKey)) continue;
 
-        // Spend guard: no paid search once the organisation is over budget or
-        // has switched the automatic sweep off.
-        const budget = await checkAiBudget(admin, market.organizationSlug, { scheduled: true });
-        if (!budget.allowed) {
-          results.push({ org: market.organizationSlug, city: market.city, month, skipped: budget.reason });
-          continue outer;
+        // Use one eligible participant for the paid search. The result is then
+        // mirrored by the database to every organisation in this market.
+        let runner: MarketMember | null = null;
+        let skipReason = "automatic event sweep is disabled or over budget";
+        for (const member of members) {
+          if (!(await aiFeatureEnabled(admin, member.organizationSlug, "event_sweep_enabled"))) continue;
+          const budget = await checkAiBudget(admin, member.organizationSlug, { scheduled: true });
+          if (!budget.allowed) {
+            skipReason = budget.reason ?? "AI spending budget reached";
+            continue;
+          }
+          runner = member;
+          break;
         }
-        if (!(await aiFeatureEnabled(admin, market.organizationSlug, "event_sweep_enabled"))) continue outer;
-        slots++;
 
+        if (!runner) {
+          results.push({ city: market.city, country: market.country, month, skipped: skipReason });
+          continue;
+        }
+
+        slots++;
         const result = await searchEvents({
           admin,
-          openaiKey: OPENAI_API_KEY,
-          organizationSlug: market.organizationSlug,
+          openaiKey: OPENAI_API_KEY ?? "",
+          organizationSlug: runner.organizationSlug,
           city: market.city,
           country: market.country,
           month,
@@ -121,31 +161,78 @@ serve(async (req) => {
 
         let added = 0;
         if (result.candidates.length > 0) {
-          const rows = result.candidates.map((c) => ({
-            organization_slug: market.organizationSlug,
-            hotel_id: market.hotelId || null,
-            city: c.city,
-            country: c.country,
-            title: c.title,
-            category: c.category,
-            venue: c.venue,
-            event_date: c.event_date,
-            end_date: c.end_date,
-            expected_impact: c.expected_impact,
-            recurs_annually: c.recurs_annually,
-            url: c.url,
-            confidence: c.confidence,
-            source: "ai_auto",
-            approved: true,
-          }));
-          const { data: ins, error } = await admin.from("demand_events").insert(rows).select("id");
-          if (error) console.error("auto event insert failed", error.message);
-          added = (ins ?? []).length;
+          for (const candidate of result.candidates) {
+            // searchEvents never returns an unsourced candidate. Keep this
+            // defensive guard so an automatic run can never publish one.
+            if (!candidate.url) continue;
+
+            const payload = {
+              organization_slug: runner!.organizationSlug,
+              hotel_id: runner!.hotelId || null,
+              city: candidate.city,
+              country: candidate.country,
+              title: candidate.title,
+              category: candidate.category,
+              venue: candidate.venue,
+              event_date: candidate.event_date,
+              end_date: candidate.end_date,
+              expected_impact: candidate.expected_impact,
+              recurs_annually: candidate.recurs_annually,
+              url: candidate.url,
+              confidence: candidate.confidence,
+              source: "ai_auto",
+              approved: true,
+            };
+
+            const { data: ins, error: insertError } = await admin
+              .from("demand_events")
+              .insert(payload)
+              .select("id");
+
+            if (!insertError) {
+              added += (ins ?? []).length;
+              continue;
+            }
+
+            // Legacy unsourced/unapproved rows may still own the expression
+            // unique key. Repair those rows in place with the verified result.
+            if (String(insertError.code ?? "") === "23505") {
+              const { data: existing, error: lookupError } = await admin
+                .from("demand_events")
+                .select("id")
+                .eq("organization_slug", runner!.organizationSlug)
+                .ilike("city", candidate.city)
+                .eq("event_date", candidate.event_date)
+                .ilike("title", candidate.title)
+                .limit(1)
+                .maybeSingle();
+
+              if (lookupError || !existing?.id) {
+                console.error("auto event repair lookup failed", lookupError?.message ?? candidate.title);
+                continue;
+              }
+
+              const { error: updateError } = await admin
+                .from("demand_events")
+                .update(payload)
+                .eq("id", existing.id);
+              if (updateError) {
+                console.error("auto event repair failed", updateError.message);
+                continue;
+              }
+              added += 1;
+              continue;
+            }
+
+            console.error("auto event insert failed", insertError.message);
+          }
         }
 
-        await admin.from("demand_event_search_runs").insert({
-          organization_slug: market.organizationSlug,
-          hotel_id: market.hotelId || null,
+        // Each tenant gets a local refresh record so existing RLS/UI continues
+        // to show the same market refresh status without cross-tenant reads.
+        const runRows = members.map((member) => ({
+          organization_slug: member.organizationSlug,
+          hotel_id: member.hotelId || null,
           city: market.city,
           country: market.country,
           month,
@@ -155,9 +242,20 @@ serve(async (req) => {
           source: "auto",
           run_by_name: "Hotel Care",
           error: result.error ?? null,
-        });
+        }));
+        const { error: runError } = await admin.from("demand_event_search_runs").insert(runRows);
+        if (runError) console.error("shared event run log failed", runError.message);
 
-        results.push({ org: market.organizationSlug, city: market.city, month, found: result.all.length, added, error: result.error ?? null });
+        done.add(slotKey);
+        results.push({
+          city: market.city,
+          country: market.country,
+          month,
+          organizations: members.length,
+          found: result.all.length,
+          added,
+          error: result.error ?? null,
+        });
 
         // Circuit breaker: a rejected key or exhausted quota will not fix itself
         // within this run, so stop instead of burning the remaining slots.

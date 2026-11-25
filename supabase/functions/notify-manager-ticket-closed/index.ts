@@ -60,7 +60,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Verify the user can view this ticket (using RLS)
     const { data: ticketCheck, error: ticketError } = await supabaseUser
       .from('tickets')
-      .select('id')
+.select('id, department')
       .eq('id', ticketId)
       .single();
 
@@ -68,6 +68,16 @@ const handler = async (req: Request): Promise<Response> => {
       console.error('User not authorized to access ticket:', ticketId);
       throw new Error('Unauthorized access to ticket');
     }
+
+    // This obsolete function previously emailed EVERY manager across EVERY
+    // hotel whenever a maintenance issue closed. Never bypass the explicit
+    // top-management recipient settings. Closing is visible in HotelCare.
+    if (ticketCheck.department === 'maintenance') {
+      return new Response(JSON.stringify({
+        skipped: true, reason: 'maintenance_emails_are_managed_by_configured_stages',
+      }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
 
     // Use service role to get managers (bypassing RLS for email functionality)
     const { data: managers, error: managersError } = await supabaseService

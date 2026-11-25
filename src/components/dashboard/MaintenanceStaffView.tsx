@@ -3,67 +3,81 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest } from '@/lib/budapestTime';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { sortMaintenanceTickets } from '@/lib/maintenanceQueue';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
+import { maintenanceStaffLanguageOverrides } from '@/lib/maintenanceStaffLanguageOverrides';
+import { MaintenanceTicketLanguagePanel } from './MaintenanceTicketLanguagePanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { AlertTriangle, Building2, Camera, CheckCircle2, Clock3, Eye, FileText, MapPin, MessageSquare, PauseCircle, Play, RefreshCw, User, Wrench } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertTriangle, Building2, Camera, CheckCircle2, Clock3, DoorOpen, Eye, LockKeyhole, MessageSquare, PauseCircle, Play, RefreshCw, ShieldCheck, User, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 
 type Ticket = {
   id: string; ticket_number: string; title: string; description: string; room_number: string; hotel: string | null;
   priority: 'low' | 'medium' | 'high' | 'urgent'; status: 'open' | 'in_progress' | 'completed';
-  created_at: string; updated_at: string; attachment_urls: string[] | null; completion_photos: string[] | null;
+  created_at: string; updated_at: string; sla_due_date: string | null; attachment_urls: string[] | null; completion_photos: string[] | null;
   pending_supervisor_approval: boolean | null; on_hold: boolean | null; hold_reason: string | null; resolution_text: string | null;
+  assigned_to: string | null; source_room_id: string | null;
   created_by_profile?: { full_name: string; role?: string } | null;
+  assigned_to_profile?: { full_name: string } | null;
 };
-
+type MaintenanceRoomAccess = {
+  applies: boolean; room_id: string | null; room_number: string | null; room_type: string | null;
+  stay_kind: 'checkout' | 'stayover' | 'vacant' | null; checkout_date: string | null;
+  expected_checkout_time: string | null; checked_out: boolean; checked_out_at: string | null;
+  access_state: 'waiting_for_checkout' | 'consent_required' | 'ready_to_fix' | 'room_unlinked' | 'status_unverified' | 'not_applicable';
+};
 type Copy = Record<string, string>;
 const EN: Copy = {
-  title: 'My Maintenance Tasks', subtitle: 'Work only on tickets assigned to you for this hotel.', signedIn: 'Signed in', notSignedIn: 'Sign in before starting work',
-  active: 'Active', approval: 'Awaiting approval', done: 'Done', noTasks: 'No maintenance tasks assigned to you.', room: 'Room', hotel: 'Hotel', reportedBy: 'Reported by',
-  issue: 'Issue', attachments: 'Attachments', start: 'Start work', note: 'Add note', hold: 'Pending / hold', resume: 'Resume work', complete: 'Complete work',
+  title: 'Maintenance Team Tasks', subtitle: 'Property team tickets and Hotel Ottofiori repairs specifically assigned to you. Only your own cross-property assignments appear.', signedIn: 'Attendance checked in', notSignedIn: 'Check in under Work Status before starting maintenance work',
+  active: 'Active', approval: 'Awaiting approval', done: 'Done', noTasks: 'No maintenance tasks in this section.', room: 'Room', hotel: 'Hotel',
+  attachments: 'Issue photos', completionPhotos: 'Completion photos', start: 'Start work', note: 'Add note', hold: 'Pending / hold', resume: 'Resume work', complete: 'Complete work',
   statusOpen: 'Open', statusProgress: 'In progress', statusHold: 'Pending', statusApproval: 'Awaiting approval', statusDone: 'Done',
   holdReason: 'Why is this pending?', parts: 'Waiting for parts', purchase: 'Purchase in progress', access: 'Waiting for room access', approvalReason: 'Waiting for approval', contractor: 'External contractor needed', other: 'Other',
   pendingDetails: 'Add details so the supervisor knows what is blocking the repair.', saveHold: 'Save pending reason', cancel: 'Cancel', saveNote: 'Save note', notePlaceholder: 'Write an update for the supervisor…',
-  resolution: 'What did you fix?', resolutionPlaceholder: 'Describe the repair and what was done…', photoRequired: 'Add one completion photo before submitting.', submitApproval: 'Submit for supervisor approval',
-  workStarted: 'Work started', holdSaved: 'Ticket marked pending', resumed: 'Work resumed', noteSaved: 'Note added', submitted: 'Submitted for supervisor approval', failed: 'Action failed', history: 'Recent completed work', refresh: 'Refresh',
+  resolutionPlaceholder: 'Describe the repair and what was done…', photoOptional: 'Completion photo (optional).', takePhoto: 'Take / choose photo', skipPhoto: 'Skip photo', photoSkipSelected: 'No photo will be attached. You can still submit the completed work.', photoChoice: 'Choose a photo or skip it if you do not have one.', photoInvalid: 'Choose an image file.', photoSkipped: 'Photo could not be uploaded. The work will be submitted without it.', submitApproval: 'Submit for supervisor approval',
+  approvalHint: 'Submitted. No further action is needed unless a supervisor returns the repair for correction.',
+  assignedTo: 'Assigned to', unassigned: 'Unassigned', sharedTicket: 'Shared property ticket',
+  roomAccess: 'Room access', checkoutRoom: 'Checkout room', stayoverRoom: 'Stayover room', vacantRoom: 'Vacant room',
+  guestInside: 'Guest may be in-house', waitingCheckout: 'Checkout pending · Confirm access', checkoutExpected: 'Expected checkout', readyToFix: 'RTF · Ready to Fix',
+  accessRequired: 'Guest in-house · Confirm access before entry', guestPermission: 'Guest gave permission', guestOut: 'Guest is out / room accessible',
+  confirmAccessTitle: 'Confirm room access', confirmAccessText: 'A guest may still be in-house or PMS information may be outdated. Confirm permission or room accessibility before entering.',
+  roomUnlinked: 'Room could not be matched safely. Check with reception.', statusUnverified: 'Room status not verified — check before entry', accessChecking: 'Checking room access…',
+  workStarted: 'Work started', holdSaved: 'Ticket marked pending', resumed: 'Work resumed', noteSaved: 'Note added', submitted: 'Submitted for supervisor approval', failed: 'Action failed', refresh: 'Refresh', retry: 'Retry', loadFailed: 'Maintenance tasks could not be loaded. Your last visible list has been kept.',
 };
 const HU: Copy = {
-  title: 'Karbantartási feladataim', subtitle: 'Csak az Önhöz rendelt, ehhez a hotelhez tartozó jegyeken dolgozzon.', signedIn: 'Bejelentkezve', notSignedIn: 'A munka megkezdése előtt jelentkezzen be',
-  active: 'Aktív', approval: 'Jóváhagyásra vár', done: 'Kész', noTasks: 'Nincs Önhöz rendelt karbantartási feladat.', room: 'Szoba', hotel: 'Hotel', reportedBy: 'Jelentette',
-  issue: 'Hiba', attachments: 'Mellékletek', start: 'Munka indítása', note: 'Jegyzet', hold: 'Függőben', resume: 'Munka folytatása', complete: 'Munka befejezése',
+  ...EN, title: 'Karbantartási csapat feladatai', subtitle: 'A saját hotel feladatai és az Önnek külön kiosztott Hotel Ottofiori javítások.', signedIn: 'Munkaidő: bejelentkezve', notSignedIn: 'Karbantartási munka indítása előtt jelentkezzen be a Munkaidő menüben',
+  active: 'Aktív', approval: 'Jóváhagyásra vár', done: 'Kész', noTasks: 'Ebben a részben nincs karbantartási feladat.', room: 'Szoba',
+  attachments: 'Hibafotók', completionPhotos: 'Befejezési fotók', start: 'Munka indítása', note: 'Jegyzet', hold: 'Függőben', resume: 'Munka folytatása', complete: 'Munka befejezése',
   statusOpen: 'Nyitott', statusProgress: 'Folyamatban', statusHold: 'Függőben', statusApproval: 'Jóváhagyásra vár', statusDone: 'Kész',
   holdReason: 'Miért van függőben?', parts: 'Alkatrészre vár', purchase: 'Beszerzés folyamatban', access: 'Szobahozzáférésre vár', approvalReason: 'Jóváhagyásra vár', contractor: 'Külső szakember szükséges', other: 'Egyéb',
   pendingDetails: 'Írjon részleteket, hogy a felügyelő lássa, mi akadályozza a javítást.', saveHold: 'Függő ok mentése', cancel: 'Mégse', saveNote: 'Jegyzet mentése', notePlaceholder: 'Írjon frissítést a felügyelőnek…',
-  resolution: 'Mit javított meg?', resolutionPlaceholder: 'Írja le a javítást és az elvégzett munkát…', photoRequired: 'A beküldés előtt adjon hozzá egy befejezési fotót.', submitApproval: 'Beküldés felügyelői jóváhagyásra',
-  workStarted: 'Munka elkezdve', holdSaved: 'Jegy függőben', resumed: 'Munka folytatva', noteSaved: 'Jegyzet hozzáadva', submitted: 'Jóváhagyásra beküldve', failed: 'A művelet sikertelen', history: 'Legutóbbi befejezett munkák', refresh: 'Frissítés',
+  resolutionPlaceholder: 'Írja le a javítást és az elvégzett munkát…', photoOptional: 'Befejezési fotó (opcionális).', takePhoto: 'Fotó készítése / kiválasztása', skipPhoto: 'Fotó kihagyása', photoSkipSelected: 'Nem lesz fotó csatolva. A befejezett munka így is beküldhető.', photoChoice: 'Válasszon fotót, vagy hagyja ki, ha nincs fotó.', photoInvalid: 'Válasszon képfájlt.', photoSkipped: 'A fotót nem sikerült feltölteni. A munka fotó nélkül kerül beküldésre.', submitApproval: 'Beküldés felügyelői jóváhagyásra',
+  approvalHint: 'Beküldve. Nincs további teendő, kivéve ha a felügyelő javításra visszaküldi.',
+  assignedTo: 'Hozzárendelve', unassigned: 'Nincs hozzárendelve', sharedTicket: 'Közös hotelfeladat',
+  roomAccess: 'Szobahozzáférés', checkoutRoom: 'Kijelentkező szoba', stayoverRoom: 'Bent maradó vendég', vacantRoom: 'Üres szoba',
+  guestInside: 'A vendég még a hotelben lehet', waitingCheckout: 'Kijelentkezésre vár · Ellenőrizze a belépést', checkoutExpected: 'Várható kijelentkezés', readyToFix: 'RTF · Javításra kész',
+  accessRequired: 'Bennlakó vendég · Belépés előtt egyeztetés szükséges', guestPermission: 'A vendég engedélyt adott', guestOut: 'A vendég nincs bent / a szoba hozzáférhető',
+  confirmAccessTitle: 'Szobahozzáférés megerősítése', confirmAccessText: 'A vendég még itt tartózkodhat, vagy a PMS-adatok elavultak. Belépés előtt ellenőrizze az engedélyt vagy a hozzáférést.',
+  roomUnlinked: 'A szoba nem azonosítható biztosan. Egyeztessen a recepcióval.', statusUnverified: 'A szoba állapota nem ellenőrzött – belépés előtt egyeztessen', accessChecking: 'Szobahozzáférés ellenőrzése…',
+  workStarted: 'Munka elkezdve', holdSaved: 'Jegy függőben', resumed: 'Munka folytatva', noteSaved: 'Jegyzet hozzáadva', submitted: 'Jóváhagyásra beküldve', failed: 'A művelet sikertelen', refresh: 'Frissítés', retry: 'Újra', loadFailed: 'A karbantartási feladatok betöltése sikertelen. Az előző lista megmaradt.',
 };
 const translations: Record<string, Copy> = {
   en: EN, hu: HU,
-  es: { ...EN, title: 'Mis tareas de mantenimiento', subtitle: 'Trabaje solo en los tickets asignados a usted para este hotel.', signedIn: 'Registrado', notSignedIn: 'Regístrese antes de comenzar', active: 'Activos', approval: 'Pendiente de aprobación', done: 'Hecho', noTasks: 'No tiene tareas de mantenimiento asignadas.', reportedBy: 'Reportado por', issue: 'Problema', attachments: 'Adjuntos', start: 'Iniciar trabajo', note: 'Añadir nota', hold: 'Pendiente / pausa', resume: 'Reanudar', complete: 'Completar', holdReason: '¿Por qué está pendiente?', pendingDetails: 'Añada detalles para que el supervisor sepa qué bloquea la reparación.', saveHold: 'Guardar motivo', saveNote: 'Guardar nota', resolution: '¿Qué reparó?', submitApproval: 'Enviar para aprobación', history: 'Trabajos completados recientes', refresh: 'Actualizar' },
-  vi: { ...EN, title: 'Công việc bảo trì của tôi', subtitle: 'Chỉ xử lý các phiếu được giao cho bạn tại khách sạn này.', signedIn: 'Đã đăng nhập', notSignedIn: 'Hãy đăng nhập trước khi bắt đầu', active: 'Đang hoạt động', approval: 'Chờ duyệt', done: 'Hoàn tất', noTasks: 'Không có công việc bảo trì được giao.', reportedBy: 'Người báo', issue: 'Sự cố', attachments: 'Tệp đính kèm', start: 'Bắt đầu', note: 'Thêm ghi chú', hold: 'Đang chờ', resume: 'Tiếp tục', complete: 'Hoàn tất công việc', holdReason: 'Vì sao đang chờ?', pendingDetails: 'Thêm chi tiết để giám sát biết điều gì đang cản trở việc sửa chữa.', saveHold: 'Lưu lý do', saveNote: 'Lưu ghi chú', resolution: 'Bạn đã sửa gì?', submitApproval: 'Gửi để giám sát duyệt', history: 'Công việc hoàn tất gần đây', refresh: 'Làm mới' },
-  mn: { ...EN, title: 'Миний засварын ажлууд', subtitle: 'Зөвхөн энэ зочид буудалд танд хуваарилсан ажлыг гүйцэтгэнэ.', signedIn: 'Нэвтэрсэн', notSignedIn: 'Ажил эхлэхийн өмнө нэвтэрнэ үү', active: 'Идэвхтэй', approval: 'Зөвшөөрөл хүлээж байна', done: 'Дууссан', noTasks: 'Танд хуваарилсан засварын ажил алга.', reportedBy: 'Мэдээлсэн', issue: 'Асуудал', attachments: 'Хавсралт', start: 'Ажил эхлэх', note: 'Тэмдэглэл', hold: 'Хүлээгдэж байна', resume: 'Үргэлжлүүлэх', complete: 'Ажил дуусгах', holdReason: 'Яагаад хүлээгдэж байна?', saveHold: 'Шалтгаан хадгалах', saveNote: 'Тэмдэглэл хадгалах', resolution: 'Юуг зассан бэ?', submitApproval: 'Хянагчид зөвшөөрүүлэхээр илгээх', history: 'Сүүлийн дууссан ажлууд', refresh: 'Шинэчлэх' },
-  az: { ...EN, title: 'Texniki xidmət tapşırıqlarım', subtitle: 'Yalnız bu oteldə sizə təyin edilmiş tapşırıqlar üzərində işləyin.', signedIn: 'Giriş edilib', notSignedIn: 'İşə başlamazdan əvvəl giriş edin', active: 'Aktiv', approval: 'Təsdiq gözləyir', done: 'Tamamlandı', noTasks: 'Sizə təyin edilmiş texniki xidmət tapşırığı yoxdur.', reportedBy: 'Bildirən', issue: 'Problem', attachments: 'Əlavələr', start: 'İşə başla', note: 'Qeyd əlavə et', hold: 'Gözləmədə', resume: 'Davam et', complete: 'İşi tamamla', holdReason: 'Niyə gözləmədədir?', saveHold: 'Səbəbi saxla', saveNote: 'Qeydi saxla', resolution: 'Nəyi təmir etdiniz?', submitApproval: 'Nəzarətçi təsdiqinə göndər', history: 'Son tamamlanan işlər', refresh: 'Yenilə' },
-  tl: { ...EN, title: 'Mga Maintenance Task Ko', subtitle: 'Gawin lamang ang mga ticket na naka-assign sa iyo para sa hotel na ito.', signedIn: 'Naka-sign in', notSignedIn: 'Mag-sign in bago magsimula', active: 'Aktibo', approval: 'Naghihintay ng approval', done: 'Tapos', noTasks: 'Walang maintenance task na naka-assign sa iyo.', reportedBy: 'Iniulat ni', issue: 'Problema', attachments: 'Mga attachment', start: 'Simulan ang trabaho', note: 'Magdagdag ng note', hold: 'Pending / hold', resume: 'Ipagpatuloy', complete: 'Tapusin ang trabaho', holdReason: 'Bakit pending?', saveHold: 'I-save ang dahilan', saveNote: 'I-save ang note', resolution: 'Ano ang inayos mo?', submitApproval: 'Ipadala para sa approval', history: 'Kamakailang natapos na trabaho', refresh: 'I-refresh' },
-  uk: { ...EN, title: 'Мої завдання з техобслуговування', subtitle: 'Працюйте лише із заявками, призначеними вам у цьому готелі.', signedIn: 'Вхід виконано', notSignedIn: 'Увійдіть перед початком роботи', active: 'Активні', approval: 'Очікує схвалення', done: 'Готово', noTasks: 'Немає призначених вам заявок.', reportedBy: 'Повідомив', issue: 'Проблема', attachments: 'Вкладення', start: 'Почати роботу', note: 'Додати нотатку', hold: 'Очікує / пауза', resume: 'Продовжити', complete: 'Завершити роботу', holdReason: 'Чому заявка очікує?', saveHold: 'Зберегти причину', saveNote: 'Зберегти нотатку', resolution: 'Що ви виправили?', submitApproval: 'Надіслати на схвалення', history: 'Нещодавно завершені роботи', refresh: 'Оновити' },
-  ru: { ...EN, title: 'Мои задачи по техобслуживанию', subtitle: 'Работайте только с заявками, назначенными вам в этом отеле.', signedIn: 'Вход выполнен', notSignedIn: 'Войдите перед началом работы', active: 'Активные', approval: 'Ожидает одобрения', done: 'Готово', noTasks: 'Нет назначенных вам заявок.', reportedBy: 'Сообщил', issue: 'Проблема', attachments: 'Вложения', start: 'Начать работу', note: 'Добавить заметку', hold: 'Ожидание / пауза', resume: 'Продолжить', complete: 'Завершить работу', holdReason: 'Почему заявка ожидает?', saveHold: 'Сохранить причину', saveNote: 'Сохранить заметку', resolution: 'Что вы исправили?', submitApproval: 'Отправить на одобрение', history: 'Недавно завершённые работы', refresh: 'Обновить' },
+  es: { ...EN, title: 'Mis tareas de mantenimiento', active: 'Activos', approval: 'Pendiente de aprobación', done: 'Hecho', start: 'Iniciar trabajo', note: 'Añadir nota', complete: 'Completar', refresh: 'Actualizar' },
+  vi: { ...EN, title: 'Công việc bảo trì của tôi', active: 'Đang hoạt động', approval: 'Chờ duyệt', done: 'Hoàn tất', start: 'Bắt đầu', note: 'Thêm ghi chú', refresh: 'Làm mới' },
+  mn: { ...EN, title: 'Миний засварын ажлууд', active: 'Идэвхтэй', approval: 'Зөвшөөрөл хүлээж байна', done: 'Дууссан', note: 'Тэмдэглэл', refresh: 'Шинэчлэх' },
+  az: { ...EN, title: 'Texniki xidmət tapşırıqlarım', active: 'Aktiv', approval: 'Təsdiq gözləyir', done: 'Tamamlandı', note: 'Qeyd əlavə et' },
+  tl: { ...EN, title: 'Mga Maintenance Task Ko', active: 'Aktibo', approval: 'Naghihintay ng approval', done: 'Tapos', note: 'Magdagdag ng note' },
+  uk: { ...EN, title: 'Мої завдання з техобслуговування', active: 'Активні', approval: 'Очікує схвалення', done: 'Готово', note: 'Додати нотатку' },
+  ru: { ...EN, title: 'Мои задачи по техобслуживанию', active: 'Активные', approval: 'Ожидает одобрения', done: 'Готово', note: 'Добавить заметку' },
+  si: EN,
 };
-
-
-const EXTRA_TRANSLATIONS: Record<string, Partial<Copy>> = {
-  es: { room: 'Habitación', hotel: 'Hotel', statusOpen: 'Abierto', statusProgress: 'En curso', statusHold: 'Pendiente', statusApproval: 'Esperando aprobación', statusDone: 'Hecho', parts: 'Esperando piezas', purchase: 'Compra en curso', access: 'Esperando acceso a la habitación', approvalReason: 'Esperando aprobación', contractor: 'Se necesita contratista externo', other: 'Otro', cancel: 'Cancelar', notePlaceholder: 'Escriba una actualización para el supervisor…', resolutionPlaceholder: 'Describa la reparación y el trabajo realizado…', photoRequired: 'Añada una foto final antes de enviar.', workStarted: 'Trabajo iniciado', holdSaved: 'Ticket marcado como pendiente', resumed: 'Trabajo reanudado', noteSaved: 'Nota añadida', submitted: 'Enviado para aprobación del supervisor', failed: 'La acción falló' },
-  vi: { room: 'Phòng', hotel: 'Khách sạn', statusOpen: 'Mở', statusProgress: 'Đang xử lý', statusHold: 'Đang chờ', statusApproval: 'Chờ duyệt', statusDone: 'Hoàn tất', parts: 'Đang chờ linh kiện', purchase: 'Đang mua hàng', access: 'Đang chờ vào phòng', approvalReason: 'Đang chờ phê duyệt', contractor: 'Cần nhà thầu bên ngoài', other: 'Khác', cancel: 'Hủy', notePlaceholder: 'Viết cập nhật cho giám sát…', resolutionPlaceholder: 'Mô tả việc sửa chữa đã thực hiện…', photoRequired: 'Thêm một ảnh hoàn tất trước khi gửi.', workStarted: 'Đã bắt đầu công việc', holdSaved: 'Phiếu đã chuyển sang chờ', resumed: 'Đã tiếp tục công việc', noteSaved: 'Đã thêm ghi chú', submitted: 'Đã gửi để giám sát duyệt', failed: 'Thao tác thất bại' },
-  mn: { room: 'Өрөө', hotel: 'Зочид буудал', statusOpen: 'Нээлттэй', statusProgress: 'Явагдаж байна', statusHold: 'Хүлээгдэж байна', statusApproval: 'Зөвшөөрөл хүлээж байна', statusDone: 'Дууссан', parts: 'Сэлбэг хүлээж байна', purchase: 'Худалдан авалт явагдаж байна', access: 'Өрөөнд нэвтрэхийг хүлээж байна', approvalReason: 'Зөвшөөрөл хүлээж байна', contractor: 'Гадны гүйцэтгэгч шаардлагатай', other: 'Бусад', pendingDetails: 'Засварыг юу саатуулж байгааг хянагчид тайлбарлана уу.', cancel: 'Цуцлах', notePlaceholder: 'Хянагчид зориулж шинэчлэлт бичнэ үү…', resolutionPlaceholder: 'Засвар болон хийсэн ажлыг тайлбарлана уу…', photoRequired: 'Илгээхийн өмнө нэг дууссан ажлын зураг нэмнэ үү.', workStarted: 'Ажил эхэлсэн', holdSaved: 'Тасалбар хүлээгдэж байна', resumed: 'Ажил үргэлжилсэн', noteSaved: 'Тэмдэглэл нэмэгдсэн', submitted: 'Хянагчийн зөвшөөрөлд илгээгдсэн', failed: 'Үйлдэл амжилтгүй' },
-  az: { room: 'Otaq', hotel: 'Otel', statusOpen: 'Açıq', statusProgress: 'İcradadır', statusHold: 'Gözləmədə', statusApproval: 'Təsdiq gözləyir', statusDone: 'Tamamlandı', parts: 'Ehtiyat hissələri gözlənilir', purchase: 'Satınalma davam edir', access: 'Otağa giriş gözlənilir', approvalReason: 'Təsdiq gözlənilir', contractor: 'Xarici podratçı lazımdır', other: 'Digər', pendingDetails: 'Təmirə nə mane olduğunu nəzarətçi üçün qeyd edin.', cancel: 'Ləğv et', notePlaceholder: 'Nəzarətçi üçün yeniləmə yazın…', resolutionPlaceholder: 'Təmiri və görülən işi təsvir edin…', photoRequired: 'Göndərməzdən əvvəl bir tamamlanma şəkli əlavə edin.', workStarted: 'İş başladı', holdSaved: 'Tapşırıq gözləməyə alındı', resumed: 'İş davam etdirildi', noteSaved: 'Qeyd əlavə edildi', submitted: 'Nəzarətçi təsdiqinə göndərildi', failed: 'Əməliyyat uğursuz oldu' },
-  tl: { room: 'Kuwarto', hotel: 'Hotel', statusOpen: 'Bukas', statusProgress: 'Ginagawa', statusHold: 'Pending', statusApproval: 'Naghihintay ng approval', statusDone: 'Tapos', parts: 'Naghihintay ng parts', purchase: 'May kasalukuyang pagbili', access: 'Naghihintay ng access sa kuwarto', approvalReason: 'Naghihintay ng approval', contractor: 'Kailangan ng external contractor', other: 'Iba pa', pendingDetails: 'Magdagdag ng detalye para malaman ng supervisor kung ano ang humahadlang sa repair.', cancel: 'Kanselahin', notePlaceholder: 'Sumulat ng update para sa supervisor…', resolutionPlaceholder: 'Ilarawan ang repair at ginawa…', photoRequired: 'Magdagdag ng isang completion photo bago isumite.', workStarted: 'Sinimulan ang trabaho', holdSaved: 'Minarkahang pending ang ticket', resumed: 'Ipinagpatuloy ang trabaho', noteSaved: 'Nagdagdag ng note', submitted: 'Isinumite para sa supervisor approval', failed: 'Nabigo ang aksyon' },
-  uk: { room: 'Кімната', hotel: 'Готель', statusOpen: 'Відкрита', statusProgress: 'У роботі', statusHold: 'Очікує', statusApproval: 'Очікує схвалення', statusDone: 'Готово', parts: 'Очікування запчастин', purchase: 'Закупівля триває', access: 'Очікування доступу до кімнати', approvalReason: 'Очікування схвалення', contractor: 'Потрібен зовнішній підрядник', other: 'Інше', pendingDetails: 'Додайте деталі, щоб керівник знав, що блокує ремонт.', cancel: 'Скасувати', notePlaceholder: 'Напишіть оновлення для керівника…', resolutionPlaceholder: 'Опишіть ремонт і виконані роботи…', photoRequired: 'Додайте одне фото завершення перед надсиланням.', workStarted: 'Роботу розпочато', holdSaved: 'Заявку переведено в очікування', resumed: 'Роботу продовжено', noteSaved: 'Нотатку додано', submitted: 'Надіслано на схвалення керівника', failed: 'Дія не вдалася' },
-  ru: { room: 'Комната', hotel: 'Отель', statusOpen: 'Открыта', statusProgress: 'В работе', statusHold: 'Ожидает', statusApproval: 'Ожидает одобрения', statusDone: 'Готово', parts: 'Ожидание запчастей', purchase: 'Закупка в процессе', access: 'Ожидание доступа в комнату', approvalReason: 'Ожидание одобрения', contractor: 'Нужен внешний подрядчик', other: 'Другое', pendingDetails: 'Добавьте детали, чтобы руководитель видел, что блокирует ремонт.', cancel: 'Отмена', notePlaceholder: 'Напишите обновление для руководителя…', resolutionPlaceholder: 'Опишите ремонт и выполненные работы…', photoRequired: 'Добавьте одно фото завершения перед отправкой.', workStarted: 'Работа начата', holdSaved: 'Заявка переведена в ожидание', resumed: 'Работа продолжена', noteSaved: 'Заметка добавлена', submitted: 'Отправлено на одобрение руководителя', failed: 'Действие не выполнено' },
-};
-
 const HOLD_REASONS = [
   ['parts_pending', 'parts'], ['purchase_in_progress', 'purchase'], ['waiting_for_access', 'access'],
   ['waiting_for_approval', 'approvalReason'], ['external_contractor', 'contractor'], ['other', 'other'],
@@ -72,13 +86,24 @@ const HOLD_REASONS = [
 export function MaintenanceStaffView() {
   const { user, profile } = useAuth();
   const { language } = useTranslation();
-  const c = { ...(translations[language] || EN), ...(EXTRA_TRANSLATIONS[language] || {}) };
+  const c: Copy = { ...(translations[language] || EN), ...(maintenanceStaffLanguageOverrides[language] || {}) };
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [completed, setCompleted] = useState<Ticket[]>([]);
   const [signedIn, setSignedIn] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [activeTab, setActiveTab] = useState<'active' | 'approval' | 'done'>('active');
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string[]>>({});
+  const [completionPhotoUrls, setCompletionPhotoUrls] = useState<Record<string, string[]>>({});
+  const [historyRevision, setHistoryRevision] = useState<Record<string, number>>({});
+  const [roomAccess, setRoomAccess] = useState<Record<string, MaintenanceRoomAccess>>({});
+  const [accessLoading, setAccessLoading] = useState<Record<string, boolean>>({});
+  const [accessTicket, setAccessTicket] = useState<Ticket | null>(null);
+  const [busyTicketId, setBusyTicketId] = useState<string | null>(null);
+  const previouslyAwaiting = useRef<Set<string>>(new Set());
+  const hotelScopeRef = useRef<Set<string>>(new Set());
+  const hasLoadedRef = useRef(false);
   const [selected, setSelected] = useState<Ticket | null>(null);
   const [dialog, setDialog] = useState<'note' | 'hold' | 'complete' | null>(null);
   const [note, setNote] = useState('');
@@ -86,177 +111,550 @@ export function MaintenanceStaffView() {
   const [holdDetails, setHoldDetails] = useState('');
   const [resolution, setResolution] = useState('');
   const [completionFile, setCompletionFile] = useState<File | null>(null);
+  const [completionPhotoSkipped, setCompletionPhotoSkipped] = useState(false);
+  const [isSubmittingCompletion, setIsSubmittingCompletion] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const loadAttachmentUrls = useCallback(async (rows: Ticket[]) => {
-    const map: Record<string, string[]> = {};
-    for (const ticket of rows) {
-      const direct: string[] = [];
-      const privatePaths: string[] = [];
-      for (const value of ticket.attachment_urls || []) {
-        if (value.startsWith('http://') || value.startsWith('https://')) direct.push(value);
-        else privatePaths.push(value);
-      }
-      const signed = privatePaths.length ? await getSignedPhotoUrls(privatePaths, 'ticket-attachments') : [];
-      map[ticket.id] = [...direct, ...signed];
+  const signValues = useCallback(async (values: string[] | null) => {
+    const direct: string[] = [];
+    const privatePaths: string[] = [];
+    for (const value of values || []) {
+      if (value.startsWith('http://') || value.startsWith('https://')) direct.push(value);
+      else privatePaths.push(value);
     }
-    setAttachmentUrls(map);
+    const signed = privatePaths.length ? await getSignedPhotoUrls(privatePaths, 'ticket-attachments') : [];
+    return [...direct, ...signed];
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (!user?.id) return;
-    setLoading(true);
-    try {
-      const today = todayBudapest();
-      const [{ data: attendance }, { data: activeData, error: activeError }, { data: completedData }] = await Promise.all([
-        supabase.from('staff_attendance').select('id').eq('user_id', user.id).eq('work_date', today).eq('status', 'checked_in').limit(1),
-        (supabase as any).from('tickets').select(`
-          id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
-          attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
-          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `).eq('assigned_to', user.id).eq('department', 'maintenance').neq('status', 'completed').order('priority', { ascending: false }).order('created_at', { ascending: false }),
-        (supabase as any).from('tickets').select(`
-          id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
-          attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
-          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `).eq('assigned_to', user.id).eq('department', 'maintenance').eq('status', 'completed').order('closed_at', { ascending: false }).limit(30),
+  const loadVisiblePhotoUrls = useCallback(async (rows: Ticket[]) => {
+    if (!rows.length) return;
+    const entries = await Promise.all(rows.map(async ticket => {
+      const [attachments, completionPhotos] = await Promise.all([
+        signValues(ticket.attachment_urls),
+        signValues(ticket.completion_photos),
       ]);
-      if (activeError) throw activeError;
+      return { id: ticket.id, attachments, completionPhotos };
+    }));
+    setAttachmentUrls(prev => ({ ...prev, ...Object.fromEntries(entries.map(entry => [entry.id, entry.attachments])) }));
+    setCompletionPhotoUrls(prev => ({ ...prev, ...Object.fromEntries(entries.map(entry => [entry.id, entry.completionPhotos])) }));
+  }, [signValues]);
+
+  const refresh = useCallback(async () => {
+    if (!user?.id || !profile?.assigned_hotel || !profile.organization_slug) {
+      setTickets([]);
+      setCompleted([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+    if (hasLoadedRef.current) setRefreshing(true); else setLoading(true);
+    setLoadError(false);
+    try {
+      const hotelKeys = Array.from(new Set([
+        profile.assigned_hotel,
+        ...(await resolveHotelKeys(profile.assigned_hotel)),
+      ].filter(Boolean)));
+      hotelScopeRef.current = new Set(hotelKeys);
+      const today = todayBudapest();
+      const ticketSelect = `
+        id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at, sla_due_date,
+        attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text, assigned_to, source_room_id,
+        created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
+      `;
+      const [
+        { data: attendance },
+        { data: activeData, error: activeError },
+        { data: completedData, error: completedError },
+        { data: teamData, error: teamError },
+        { data: foreignActive, error: foreignActiveError },
+        { data: foreignCompleted, error: foreignCompletedError },
+      ] = await Promise.all([
+        supabase.from('staff_attendance').select('id').eq('user_id', user.id).eq('work_date', today).eq('status', 'checked_in').limit(1),
+        (supabase as any).from('tickets').select(ticketSelect)
+          .eq('organization_slug', profile.organization_slug)
+          .eq('department', 'maintenance')
+          .in('hotel', hotelKeys)
+          .neq('status', 'completed')
+          .order('created_at', { ascending: false })
+          .limit(250),
+        (supabase as any).from('tickets').select(ticketSelect)
+          .eq('organization_slug', profile.organization_slug)
+          .eq('department', 'maintenance')
+          .in('hotel', hotelKeys)
+          .eq('status', 'completed')
+          .or('pending_supervisor_approval.is.null,pending_supervisor_approval.eq.false')
+          .order('closed_at', { ascending: false })
+          .limit(30),
+        (supabase as any).rpc('get_maintenance_property_teammates'),
+        // Only explicit Hotel Ottofiori assignments to the signed-in worker.
+        (supabase as any).from('tickets').select(ticketSelect)
+          .eq('organization_slug', profile.organization_slug)
+          .eq('department', 'maintenance').eq('assigned_to', user.id)
+          .in('hotel', ['ottofiori', 'Hotel Ottofiori']).neq('status', 'completed')
+          .order('created_at', { ascending: false }).limit(100),
+        (supabase as any).from('tickets').select(ticketSelect)
+          .eq('organization_slug', profile.organization_slug)
+          .eq('department', 'maintenance').eq('assigned_to', user.id)
+          .in('hotel', ['ottofiori', 'Hotel Ottofiori']).eq('status', 'completed')
+          .order('closed_at', { ascending: false }).limit(30),
+      ]);
+      if (activeError || completedError || teamError || foreignActiveError || foreignCompletedError)
+        throw activeError || completedError || teamError || foreignActiveError || foreignCompletedError;
       setSignedIn(!!attendance?.length);
-      const activeRows = (activeData || []) as Ticket[];
-      const completedRows = (completedData || []) as Ticket[];
+      const teamById = new Map<string, string>(
+        ((teamData || []) as Array<{ id: string; full_name: string }>).map(member => [member.id, member.full_name]),
+      );
+      const attachAssignee = (rows: unknown[]) => (rows as Ticket[]).map(ticket => ({
+        ...ticket,
+        assigned_to_profile: ticket.assigned_to && teamById.has(ticket.assigned_to)
+          ? { full_name: teamById.get(ticket.assigned_to)! }
+          : null,
+      }));
+      const mergedActive = [...new Map([...(activeData || []), ...(foreignActive || [])].map((row: Ticket) => [row.id, row])).values()];
+      const mergedCompleted = [...new Map([...(completedData || []), ...(foreignCompleted || [])].map((row: Ticket) => [row.id, row])).values()];
+      const activeRows = sortMaintenanceTickets(attachAssignee(mergedActive) as Ticket[]);
+      const completedRows = attachAssignee(mergedCompleted) as Ticket[];
+      for (const ticket of [...activeRows, ...completedRows]) {
+        if (ticket.assigned_to === user.id && !ticket.assigned_to_profile)
+          ticket.assigned_to_profile = { full_name: profile.full_name || 'You' };
+      }
+      for (const ticket of activeRows) {
+        if (previouslyAwaiting.current.has(ticket.id) && !ticket.pending_supervisor_approval && ticket.status === 'in_progress') {
+          toast.info(language === 'hu' ? `Javítás visszaküldve: ${ticket.ticket_number}. Nézze meg az előzményeket.` : `Repair returned for correction: ${ticket.ticket_number}. Check ticket history.`);
+          setHistoryRevision(prev => ({ ...prev, [ticket.id]: (prev[ticket.id] || 0) + 1 }));
+        }
+      }
+      previouslyAwaiting.current = new Set(activeRows.filter(ticket => ticket.pending_supervisor_approval).map(ticket => ticket.id));
       setTickets(activeRows);
       setCompleted(completedRows);
-      void loadAttachmentUrls([...activeRows, ...completedRows]);
+      hasLoadedRef.current = true;
     } catch (error) {
       console.error('Maintenance task load failed:', error);
+      setLoadError(true);
       toast.error(c.failed);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [user?.id, loadAttachmentUrls, c.failed]);
+  }, [user?.id, profile?.assigned_hotel, profile?.organization_slug, c.failed, language]);
 
   useEffect(() => {
     void refresh();
-    if (!user?.id) return;
+    if (!user?.id || !profile?.organization_slug) return;
     const channel = supabase.channel(`maintenance-staff-${user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `assigned_to=eq.${user.id}` }, () => void refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `organization_slug=eq.${profile.organization_slug}` }, (event: any) => {
+        const record = event.new || event.old;
+        if (
+          record?.department === 'maintenance'
+          && record?.organization_slug === profile?.organization_slug
+          && (!record?.hotel || hotelScopeRef.current.has(record.hotel)
+            || ((record.hotel === 'Hotel Ottofiori' || record.hotel === 'ottofiori')
+              && record.assigned_to === user.id))
+        ) void refresh();
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_attendance', filter: `user_id=eq.${user.id}` }, () => void refresh())
       .subscribe();
+    // Reconcile reassignment revocations even when the previous worker can no
+    // longer receive a Realtime update for the restricted ticket.
+    const interval = window.setInterval(() => void refresh(), 45000);
+    return () => { window.clearInterval(interval); supabase.removeChannel(channel); };
+  }, [refresh, user?.id, profile?.organization_slug]);
+
+  const filtered = useMemo(() => {
+    if (activeTab === 'approval') return sortMaintenanceTickets(tickets.filter(ticket => ticket.pending_supervisor_approval));
+    if (activeTab === 'done') return completed;
+    return sortMaintenanceTickets(tickets.filter(ticket => !ticket.pending_supervisor_approval));
+  }, [activeTab, tickets, completed]);
+
+  useEffect(() => { void loadVisiblePhotoUrls(filtered); }, [filtered, loadVisiblePhotoUrls]);
+
+  const loadRoomAccess = useCallback(async (rows: Ticket[]) => {
+    const roomTickets = rows.filter(ticket => !!ticket.source_room_id || (
+      !!ticket.room_number && !['N/A', 'NA', '-'].includes(ticket.room_number.trim().toUpperCase())
+    ));
+    if (!roomTickets.length) return;
+    setAccessLoading(prev => ({ ...prev, ...Object.fromEntries(roomTickets.map(ticket => [ticket.id, true])) }));
+    const results = await Promise.all(roomTickets.map(async ticket => {
+      const { data, error } = await (supabase as any).rpc('get_maintenance_room_access', { p_ticket_id: ticket.id });
+      if (error) { console.error('Room access lookup failed:', error); return [ticket.id, null] as const; }
+      return [ticket.id, Array.isArray(data) ? data[0] || null : data] as const;
+    }));
+    setRoomAccess(prev => {
+      const next = { ...prev };
+      for (const [id, access] of results) {
+        if (access) next[id] = access as MaintenanceRoomAccess;
+        else delete next[id]; // Never keep a stale reassuring state after failed refresh.
+      }
+      return next;
+    });
+    setAccessLoading(prev => {
+      const next = { ...prev };
+      for (const ticket of roomTickets) next[ticket.id] = false;
+      return next;
+    });
+  }, []);
+
+  useEffect(() => { void loadRoomAccess([...tickets, ...completed]); }, [tickets, completed, loadRoomAccess]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase.channel(`maintenance-room-access-${user.id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms' }, () => void loadRoomAccess([...tickets, ...completed]))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => void loadRoomAccess([...tickets, ...completed]))
+      .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [refresh, user?.id]);
+  }, [user?.id, tickets, completed, loadRoomAccess]);
 
   const addComment = async (ticketId: string, content: string) => {
     if (!user?.id || !content.trim()) return;
     const { error } = await supabase.from('comments').insert({ ticket_id: ticketId, user_id: user.id, content: content.trim() });
     if (error) throw error;
+    setHistoryRevision(prev => ({ ...prev, [ticketId]: (prev[ticketId] || 0) + 1 }));
   };
 
-  const startWork = async (ticket: Ticket) => {
+  const runTeamAction = async (
+    ticket: Ticket,
+    action: 'start' | 'hold' | 'resume' | 'submit',
+    note: string | null = null,
+    actionHoldReason: string | null = null,
+    completionPhoto: string | null = null,
+  ) => {
+    const { error } = await (supabase as any).rpc('work_maintenance_ticket', {
+      p_ticket_id: ticket.id,
+      p_action: action,
+      p_note: note,
+      p_expected_updated_at: ticket.updated_at,
+      p_hold_reason: actionHoldReason,
+      p_completion_photo: completionPhoto,
+    });
+    if (error) throw error;
+    setHistoryRevision(prev => ({ ...prev, [ticket.id]: (prev[ticket.id] || 0) + 1 }));
+  };
+
+  const startWork = async (ticket: Ticket, accessConfirmation?: 'guest_permission' | 'guest_out') => {
     if (!signedIn) { toast.error(c.notSignedIn); return; }
-    const { error } = await supabase.from('tickets').update({ status: 'in_progress', on_hold: false, hold_reason: null, updated_at: new Date().toISOString() }).eq('id', ticket.id).eq('assigned_to', user?.id);
-    if (error) { toast.error(c.failed); return; }
-    await addComment(ticket.id, `▶ ${c.workStarted}`).catch(console.error);
-    toast.success(c.workStarted); void refresh();
+    if (busyTicketId) return;
+    const isRoomTicket = !!ticket.source_room_id || (!!ticket.room_number && !['N/A', 'NA', '-'].includes(ticket.room_number.trim().toUpperCase()));
+    const access = roomAccess[ticket.id];
+    if (isRoomTicket && (!access || access.access_state !== 'ready_to_fix') && !accessConfirmation) {
+      setAccessTicket(ticket);
+      return;
+    }
+    setBusyTicketId(ticket.id);
+    try {
+      // Always let the server validate live PMS evidence before changing the ticket.
+      const { error } = await (supabase as any).rpc('start_maintenance_ticket_with_access', {
+        p_ticket_id: ticket.id,
+        p_expected_updated_at: ticket.updated_at,
+        p_access_confirmation: accessConfirmation || null,
+      });
+      if (error) throw error;
+      setAccessTicket(null);
+      toast.success(c.workStarted); void refresh();
+    } catch (error: any) {
+      console.error('Maintenance start failed:', error);
+      toast.error(error?.message || c.failed);
+      void loadRoomAccess([ticket]);
+    } finally { setBusyTicketId(null); }
+  };
+
+  const openDialog = (ticket: Ticket, next: 'note' | 'hold' | 'complete') => {
+    setSelected(ticket);
+    if (next === 'note') setNote('');
+    if (next === 'hold') { setHoldReason(''); setHoldDetails(''); }
+    if (next === 'complete') {
+      setResolution(ticket.resolution_text || '');
+      setCompletionFile(null);
+      setCompletionPhotoSkipped(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+    setDialog(next);
+  };
+
+  const closeDialog = () => {
+    if (isSubmittingCompletion || busyTicketId) return;
+    setDialog(null);
+    setSelected(null);
+    setNote('');
+    setHoldReason('');
+    setHoldDetails('');
+    setResolution('');
+    setCompletionFile(null);
+    setCompletionPhotoSkipped(false);
+    if (fileRef.current) fileRef.current.value = '';
   };
 
   const saveNote = async () => {
-    if (!selected || !note.trim()) return;
-    try { await addComment(selected.id, note); toast.success(c.noteSaved); setNote(''); setDialog(null); } catch { toast.error(c.failed); }
+    if (!selected || !note.trim() || busyTicketId) return;
+    setBusyTicketId(selected.id);
+    try {
+      await addComment(selected.id, note);
+      toast.success(c.noteSaved);
+      setNote('');
+      setDialog(null);
+      setSelected(null);
+    } catch { toast.error(c.failed); }
+    finally { setBusyTicketId(null); }
   };
 
   const saveHold = async () => {
-    if (!selected || !holdReason) return;
+    if (!selected || !holdReason || busyTicketId) return;
+    if (!signedIn) { toast.error(c.notSignedIn); return; }
+    setBusyTicketId(selected.id);
     try {
-      const { error } = await supabase.from('tickets').update({ status: 'in_progress', on_hold: true, hold_reason: holdReason, updated_at: new Date().toISOString() }).eq('id', selected.id).eq('assigned_to', user?.id);
-      if (error) throw error;
-      const label = c[HOLD_REASONS.find(([value]) => value === holdReason)?.[1] || 'other'];
-      await addComment(selected.id, `⏸ ${label}${holdDetails.trim() ? ` — ${holdDetails.trim()}` : ''}`);
-      toast.success(c.holdSaved); setHoldReason(''); setHoldDetails(''); setDialog(null); void refresh();
+      await runTeamAction(selected, 'hold', holdDetails.trim() || null, holdReason);
+      toast.success(c.holdSaved);
+      setHoldReason(''); setHoldDetails(''); setDialog(null); setSelected(null); void refresh();
     } catch { toast.error(c.failed); }
+    finally { setBusyTicketId(null); }
   };
 
   const resumeWork = async (ticket: Ticket) => {
     if (!signedIn) { toast.error(c.notSignedIn); return; }
-    const { error } = await supabase.from('tickets').update({ on_hold: false, hold_reason: null, status: 'in_progress', updated_at: new Date().toISOString() }).eq('id', ticket.id).eq('assigned_to', user?.id);
-    if (error) { toast.error(c.failed); return; }
-    await addComment(ticket.id, `▶ ${c.resumed}`).catch(console.error); toast.success(c.resumed); void refresh();
+    if (busyTicketId) return;
+    setBusyTicketId(ticket.id);
+    try {
+      await runTeamAction(ticket, 'resume');
+      toast.success(c.resumed); void refresh();
+    } catch { toast.error(c.failed); }
+    finally { setBusyTicketId(null); }
   };
 
   const submitCompletion = async () => {
-    if (!selected || !resolution.trim() || !completionFile || !user?.id) { toast.error(c.photoRequired); return; }
+    if (isSubmittingCompletion) return;
+    if (!signedIn) { toast.error(c.notSignedIn); return; }
+    if (!selected || !resolution.trim() || !user?.id) return;
+    if (completionFile && !completionFile.type.startsWith('image/')) { toast.error(c.photoInvalid); return; }
+
+    setIsSubmittingCompletion(true);
+    let uploadedPath: string | null = null;
     try {
-      const ext = completionFile.name.split('.').pop() || 'jpg';
-      const path = `${selected.id}/completion-${Date.now()}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from('ticket-attachments').upload(path, completionFile, { upsert: false });
-      if (uploadError) throw uploadError;
-      const { error } = await supabase.from('tickets').update({
-        status: 'in_progress', resolution_text: resolution.trim(), completion_photos: [path], pending_supervisor_approval: true,
-        on_hold: false, hold_reason: null, updated_at: new Date().toISOString(),
-      }).eq('id', selected.id).eq('assigned_to', user.id);
-      if (error) throw error;
-      await addComment(selected.id, `✅ ${c.submitted}: ${resolution.trim()}`);
-      toast.success(c.submitted); setResolution(''); setCompletionFile(null); setDialog(null); void refresh();
-    } catch (error) { console.error(error); toast.error(c.failed); }
+      if (completionFile) {
+        const ext = completionFile.name.split('.').pop() || 'jpg';
+        const path = `${selected.id}/completion-${Date.now()}.${ext}`;
+        const { error: uploadError } = await supabase.storage
+          .from('ticket-attachments')
+          .upload(path, completionFile, { upsert: false });
+
+        if (uploadError) {
+          console.error('Optional completion photo upload failed:', uploadError);
+          toast.warning(c.photoSkipped);
+        } else {
+          uploadedPath = path;
+        }
+      }
+
+      await runTeamAction(selected, 'submit', resolution.trim(), null, uploadedPath);
+      toast.success(c.submitted);
+      setResolution(''); setCompletionFile(null); setCompletionPhotoSkipped(false); setDialog(null); setSelected(null); void refresh();
+    } catch (error) {
+      console.error(error);
+      if (uploadedPath) await supabase.storage.from('ticket-attachments').remove([uploadedPath]).catch(() => undefined);
+      toast.error(c.failed);
+    }
+    finally { setIsSubmittingCompletion(false); }
   };
 
-  const filtered = activeTab === 'approval' ? tickets.filter(t => t.pending_supervisor_approval) : activeTab === 'done' ? completed : tickets.filter(t => !t.pending_supervisor_approval);
-  const counts = { active: tickets.filter(t => !t.pending_supervisor_approval).length, approval: tickets.filter(t => t.pending_supervisor_approval).length, done: completed.length };
-
+  const counts = {
+    active: tickets.filter(ticket => !ticket.pending_supervisor_approval).length,
+    approval: tickets.filter(ticket => ticket.pending_supervisor_approval).length,
+    done: completed.length,
+  };
   const status = (ticket: Ticket) => ticket.pending_supervisor_approval ? c.statusApproval : ticket.on_hold ? c.statusHold : ticket.status === 'in_progress' ? c.statusProgress : ticket.status === 'completed' ? c.statusDone : c.statusOpen;
   const statusClass = (ticket: Ticket) => ticket.pending_supervisor_approval ? 'bg-blue-100 text-blue-800 border-blue-200' : ticket.on_hold ? 'bg-amber-100 text-amber-800 border-amber-200' : ticket.status === 'in_progress' ? 'bg-violet-100 text-violet-800 border-violet-200' : ticket.status === 'completed' ? 'bg-green-100 text-green-800 border-green-200' : 'bg-slate-100 text-slate-800 border-slate-200';
-  const priorityClass = (p: string) => p === 'urgent' ? 'bg-red-100 text-red-800' : p === 'high' ? 'bg-orange-100 text-orange-800' : p === 'low' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800';
+  const priorityClass = (priority: string) => priority === 'urgent' ? 'bg-red-100 text-red-800' : priority === 'high' ? 'bg-orange-100 text-orange-800' : priority === 'low' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800';
 
   return (
-    <div className="space-y-4 px-2 sm:px-0 max-w-4xl mx-auto">
+    <div className="mx-auto max-w-4xl space-y-4 px-2 sm:px-0">
       <div className="flex items-start justify-between gap-3">
-        <div><h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2"><Wrench className="h-5 w-5" />{c.title}</h2><p className="text-sm text-muted-foreground">{c.subtitle}</p></div>
-        <Button size="sm" variant="outline" onClick={() => void refresh()}><RefreshCw className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">{c.refresh}</span></Button>
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-xl font-bold sm:text-2xl"><Wrench className="h-5 w-5 shrink-0" />{c.title}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{c.subtitle}</p>
+        </div>
+        <Button size="sm" variant="outline" disabled={refreshing} aria-label={c.refresh} onClick={() => {
+          setHistoryRevision(prev => {
+            const next = { ...prev };
+            for (const ticket of [...tickets, ...completed]) next[ticket.id] = (next[ticket.id] || 0) + 1;
+            return next;
+          });
+          void refresh();
+        }}><RefreshCw className={`h-4 w-4 sm:mr-1 ${refreshing ? 'animate-spin' : ''}`} /><span className="hidden sm:inline">{c.refresh}</span></Button>
       </div>
 
-      <div className={`rounded-lg border p-3 flex items-center gap-2 text-sm ${signedIn ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
-        {signedIn ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}<strong>{signedIn ? c.signedIn : c.notSignedIn}</strong>
+      <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${signedIn ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`} role="status">
+        {signedIn ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}<strong>{signedIn ? c.signedIn : c.notSignedIn}</strong>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        <button onClick={() => setActiveTab('active')} className={`rounded-xl border p-3 text-left ${activeTab === 'active' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.active}</div><div className="text-xl font-bold">{counts.active}</div></button>
-        <button onClick={() => setActiveTab('approval')} className={`rounded-xl border p-3 text-left ${activeTab === 'approval' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.approval}</div><div className="text-xl font-bold">{counts.approval}</div></button>
-        <button onClick={() => setActiveTab('done')} className={`rounded-xl border p-3 text-left ${activeTab === 'done' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.done}</div><div className="text-xl font-bold">{counts.done}</div></button>
+      {loadError && <div role="alert" className="flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between">
+        <span>{c.loadFailed}</span><Button type="button" size="sm" variant="outline" disabled={refreshing} onClick={() => void refresh()}>{c.retry}</Button>
+      </div>}
+
+      <div className="grid grid-cols-3 gap-2" role="tablist" aria-label={c.title}>
+        {(['active', 'approval', 'done'] as const).map(tab => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} onClick={() => setActiveTab(tab)}
+          className={`min-w-0 rounded-xl border p-2.5 text-left transition sm:p-3 ${activeTab === tab ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'hover:bg-muted/40'}`}>
+          <div className="truncate text-[11px] text-muted-foreground sm:text-xs">{c[tab]}</div><div className="text-lg font-bold sm:text-xl">{counts[tab]}</div>
+        </button>)}
       </div>
 
-      {loading ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div> : filtered.length === 0 ? (
-        <Card><CardContent className="py-12 text-center"><CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-muted-foreground" /><p className="text-muted-foreground">{c.noTasks}</p></CardContent></Card>
-      ) : <div className="space-y-3">{filtered.map(ticket => (
-        <Card key={ticket.id} className={`overflow-hidden border-l-4 ${ticket.priority === 'urgent' ? 'border-l-red-500' : ticket.priority === 'high' ? 'border-l-orange-500' : 'border-l-primary/60'}`}>
+      {activeTab === 'approval' && counts.approval > 0 && <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">{c.approvalHint}</div>}
+
+      {loading ? <div className="flex justify-center py-12" aria-busy="true"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /></div> : filtered.length === 0 ? (
+        <Card><CardContent className="py-12 text-center"><CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-muted-foreground" /><p className="text-muted-foreground">{c.noTasks}</p></CardContent></Card>
+      ) : <div className="space-y-3">{filtered.map(ticket => {
+        const busy = busyTicketId === ticket.id || isSubmittingCompletion && selected?.id === ticket.id;
+        const visitingOttofiori = (ticket.hotel === 'Hotel Ottofiori' || ticket.hotel === 'ottofiori')
+          && !hotelScopeRef.current.has(ticket.hotel);
+        return <Card key={ticket.id} className={`overflow-hidden border-l-4 ${visitingOttofiori ? 'border-l-sky-700 ring-2 ring-sky-200' : ticket.priority === 'urgent' ? 'border-l-red-500' : ticket.priority === 'high' ? 'border-l-orange-500' : 'border-l-primary/60'}`}>
+          {visitingOttofiori && <div className="flex flex-wrap items-center gap-2 border-b border-sky-200 bg-sky-50 px-3 py-3" role="note">
+            <Badge className="bg-sky-800 text-white text-xs">HOTEL OTTOFIORI</Badge>
+            <span className="text-sm font-semibold text-sky-950">
+              {language === 'hu' ? 'Külső hotelben végzendő feladat · Menjen a Hotel Ottofioriba'
+                : 'Other property assignment · Go to Hotel Ottofiori'}
+            </span>
+          </div>}
           <CardHeader className="p-3 pb-2">
-            <div className="flex items-start justify-between gap-2"><div className="min-w-0"><CardTitle className="text-lg flex items-center gap-2 flex-wrap"><span>{c.room} {ticket.room_number}</span><Badge className={priorityClass(ticket.priority)}>{ticket.priority.toUpperCase()}</Badge><Badge variant="outline" className={statusClass(ticket)}>{status(ticket)}</Badge></CardTitle><div className="text-xs text-muted-foreground mt-1">{ticket.ticket_number}</div></div></div>
-          </CardHeader>
-          <CardContent className="p-3 pt-0 space-y-3">
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="rounded-lg bg-muted/50 p-2"><div className="text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" />{c.hotel}</div><div className="font-semibold truncate">{ticket.hotel || '—'}</div></div>
-              <div className="rounded-lg bg-muted/50 p-2"><div className="text-muted-foreground flex items-center gap-1"><User className="h-3 w-3" />{c.reportedBy}</div><div className="font-semibold truncate">{ticket.created_by_profile?.full_name || 'Unknown'}</div></div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0"><CardTitle className="flex flex-wrap items-center gap-2 text-base sm:text-lg"><span>{c.room} {ticket.room_number}</span><Badge className={priorityClass(ticket.priority)}>{ticket.priority.toUpperCase()}</Badge><Badge variant="outline" className={statusClass(ticket)}>{status(ticket)}</Badge></CardTitle><div className="mt-1 text-xs text-muted-foreground">{ticket.ticket_number}</div></div>
             </div>
-            <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground font-semibold mb-1 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{c.issue}</div><p className="text-sm whitespace-pre-wrap">{ticket.description}</p></div>
-            {ticket.on_hold && ticket.hold_reason && <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-2.5 text-xs flex gap-2"><PauseCircle className="h-4 w-4 shrink-0" />{c[HOLD_REASONS.find(([v]) => v === ticket.hold_reason)?.[1] || 'other']}</div>}
-            {!!attachmentUrls[ticket.id]?.length && <div className="space-y-1.5"><div className="text-xs font-semibold text-muted-foreground">{c.attachments} ({attachmentUrls[ticket.id].length})</div><div className="flex gap-2 flex-wrap">{attachmentUrls[ticket.id].map((url, idx) => <Dialog key={idx}><DialogTrigger asChild><Button size="sm" variant="outline"><Eye className="h-3.5 w-3.5 mr-1" />{idx + 1}</Button></DialogTrigger><DialogContent className="max-w-4xl"><img src={url} alt={`Attachment ${idx + 1}`} className="max-h-[80vh] w-auto mx-auto" /></DialogContent></Dialog>)}</div></div>}
-            {ticket.resolution_text && <div className="rounded-lg bg-green-50 border border-green-200 p-2.5 text-xs text-green-800"><strong>{c.resolution}:</strong> {ticket.resolution_text}</div>}
-            {activeTab !== 'done' && <div className="grid grid-cols-2 sm:flex gap-2">
-              {ticket.status === 'open' && !ticket.pending_supervisor_approval && <Button onClick={() => void startWork(ticket)} disabled={!signedIn} className="h-10"><Play className="h-4 w-4 mr-1" />{c.start}</Button>}
-              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => { setSelected(ticket); setDialog('hold'); }}><PauseCircle className="h-4 w-4 mr-1" />{c.hold}</Button>}
-              {ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => void resumeWork(ticket)} disabled={!signedIn}><Play className="h-4 w-4 mr-1" />{c.resume}</Button>}
-              {!ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => { setSelected(ticket); setDialog('note'); }}><MessageSquare className="h-4 w-4 mr-1" />{c.note}</Button>}
-              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => { setSelected(ticket); setDialog('complete'); }} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-1" />{c.complete}</Button>}
+          </CardHeader>
+          <CardContent className="space-y-3 p-3 pt-0">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="rounded-lg bg-muted/50 p-2 text-xs"><div className="flex items-center gap-1 text-muted-foreground"><Building2 className="h-3 w-3" />{c.hotel}</div><div className="break-words font-semibold">{ticket.hotel || '—'}</div></div>
+              <div className="rounded-lg bg-muted/50 p-2 text-xs">
+                <div className="flex items-center gap-1 text-muted-foreground"><User className="h-3 w-3" />{c.assignedTo}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                  <span className="break-words font-semibold">{ticket.assigned_to_profile?.full_name || c.unassigned}</span>
+                  {ticket.assigned_to && ticket.assigned_to !== user?.id && <Badge variant="outline" className="text-[10px]">{c.sharedTicket}</Badge>}
+                </div>
+              </div>
+            </div>
+            {!!(ticket.source_room_id || (ticket.room_number && !['N/A', 'NA', '-'].includes(ticket.room_number.trim().toUpperCase()))) && (() => {
+              const access = roomAccess[ticket.id];
+              if (accessLoading[ticket.id] && !access) return <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">{c.accessChecking}</div>;
+              if (!access) return <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{c.statusUnverified}</div>;
+              if (!access.applies) return null;
+              const waiting = access.access_state === 'waiting_for_checkout';
+              const consent = access.access_state === 'consent_required';
+              const ready = access.access_state === 'ready_to_fix';
+              const unlinked = access.access_state === 'room_unlinked';
+              const unverified = access.access_state === 'status_unverified';
+              return <div className={`rounded-xl border p-3 ${waiting || unlinked || unverified || consent ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
+                <div className="flex items-start gap-2">
+                  {waiting || unlinked || unverified ? <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" /> : ready ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-green-700" /> : <DoorOpen className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <strong className="text-sm">{c.roomAccess}</strong>
+                      {access.stay_kind && <Badge variant="outline" className="bg-white/70 text-[10px]">{access.stay_kind === 'checkout' ? c.checkoutRoom : access.stay_kind === 'stayover' ? c.stayoverRoom : c.vacantRoom}</Badge>}
+                      {access.room_type && <Badge variant="outline" className="bg-white/70 text-[10px]">{access.room_type}</Badge>}
+                    </div>
+                    <div className={`mt-1 text-sm font-semibold ${waiting || unlinked || unverified || consent ? 'text-amber-800' : 'text-green-800'}`}>
+                      {unlinked ? c.roomUnlinked : unverified ? c.statusUnverified : waiting ? c.waitingCheckout : consent ? c.accessRequired : c.readyToFix}
+                    </div>
+                    {access.checkout_date && <div className="mt-1 text-xs text-muted-foreground">
+                      {c.checkoutExpected}: {access.checkout_date}{access.expected_checkout_time ? ` · ${access.expected_checkout_time}` : ''}
+                    </div>}
+                    {access.checked_out && access.checked_out_at && <div className="mt-1 text-xs text-green-800">
+                      {c.readyToFix} · {new Date(access.checked_out_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>}
+                  </div>
+                </div>
+              </div>;
+            })()}
+            <MaintenanceTicketLanguagePanel ticket={ticket} language={language} reporterFallback={ticket.created_by_profile?.full_name} revision={historyRevision[ticket.id] || 0} />
+            {ticket.on_hold && ticket.hold_reason && <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800"><PauseCircle className="h-4 w-4 shrink-0" />{c[HOLD_REASONS.find(([value]) => value === ticket.hold_reason)?.[1] || 'other']}</div>}
+
+            {!!attachmentUrls[ticket.id]?.length && <div className="space-y-1.5"><div className="text-xs font-semibold text-muted-foreground">{c.attachments} ({attachmentUrls[ticket.id].length})</div><div className="flex flex-wrap gap-2">{attachmentUrls[ticket.id].map((url, idx) => <Dialog key={`${ticket.id}-issue-${idx}`}><DialogTrigger asChild><Button type="button" size="sm" variant="outline" aria-label={`${c.attachments} ${idx + 1}`}><Eye className="mr-1 h-3.5 w-3.5" />{idx + 1}</Button></DialogTrigger><DialogContent className="w-[calc(100vw-1rem)] max-w-4xl"><img src={url} alt={`${c.attachments} ${idx + 1}`} loading="lazy" className="mx-auto max-h-[80dvh] w-auto rounded" /></DialogContent></Dialog>)}</div></div>}
+            {!!completionPhotoUrls[ticket.id]?.length && <div className="space-y-1.5"><div className="text-xs font-semibold text-muted-foreground">{c.completionPhotos} ({completionPhotoUrls[ticket.id].length})</div><div className="flex flex-wrap gap-2">{completionPhotoUrls[ticket.id].map((url, idx) => <Dialog key={`${ticket.id}-completion-${idx}`}><DialogTrigger asChild><Button type="button" size="sm" variant="outline" aria-label={`${c.completionPhotos} ${idx + 1}`}><Camera className="mr-1 h-3.5 w-3.5" />{idx + 1}</Button></DialogTrigger><DialogContent className="w-[calc(100vw-1rem)] max-w-4xl"><img src={url} alt={`${c.completionPhotos} ${idx + 1}`} loading="lazy" className="mx-auto max-h-[80dvh] w-auto rounded" /></DialogContent></Dialog>)}</div></div>}
+
+            {activeTab !== 'done' && <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+              {ticket.status === 'open' && !ticket.pending_supervisor_approval && <Button data-training="maintenance-start" onClick={() => void startWork(ticket)} disabled={!signedIn || busy || accessLoading[ticket.id] } className="min-h-11"><Play className="mr-1 h-4 w-4" />{c.start}</Button>}
+              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => openDialog(ticket, 'hold')} disabled={!signedIn || busy} className="min-h-11"><PauseCircle className="mr-1 h-4 w-4" />{c.hold}</Button>}
+              {ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => void resumeWork(ticket)} disabled={!signedIn || busy} className="min-h-11"><Play className="mr-1 h-4 w-4" />{c.resume}</Button>}
+              {!ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => openDialog(ticket, 'note')} disabled={busy} className="min-h-11"><MessageSquare className="mr-1 h-4 w-4" />{c.note}</Button>}
+              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button data-training="maintenance-complete" onClick={() => openDialog(ticket, 'complete')} disabled={!signedIn || busy} className="min-h-11 bg-green-600 hover:bg-green-700"><CheckCircle2 className="mr-1 h-4 w-4" />{c.complete}</Button>}
             </div>}
-            <div className="text-[11px] text-muted-foreground flex items-center gap-1"><Clock3 className="h-3 w-3" />{new Date(ticket.updated_at || ticket.created_at).toLocaleString()}</div>
+            <div className="flex items-center gap-1 text-[11px] text-muted-foreground"><Clock3 className="h-3 w-3" />{new Date(ticket.updated_at || ticket.created_at).toLocaleString()}</div>
           </CardContent>
-        </Card>
-      ))}</div>}
+        </Card>;
+      })}</div>}
 
-      <Dialog open={dialog === 'note'} onOpenChange={(open) => !open && setDialog(null)}><DialogContent><DialogHeader><DialogTitle>{c.note}</DialogTitle></DialogHeader><Textarea value={note} onChange={e => setNote(e.target.value)} placeholder={c.notePlaceholder} rows={4} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDialog(null)}>{c.cancel}</Button><Button onClick={() => void saveNote()} disabled={!note.trim()}>{c.saveNote}</Button></div></DialogContent></Dialog>
-
-      <Dialog open={dialog === 'hold'} onOpenChange={(open) => !open && setDialog(null)}><DialogContent><DialogHeader><DialogTitle>{c.holdReason}</DialogTitle></DialogHeader><Select value={holdReason} onValueChange={setHoldReason}><SelectTrigger><SelectValue placeholder={c.holdReason} /></SelectTrigger><SelectContent>{HOLD_REASONS.map(([value, key]) => <SelectItem key={value} value={value}>{c[key]}</SelectItem>)}</SelectContent></Select><Textarea value={holdDetails} onChange={e => setHoldDetails(e.target.value)} placeholder={c.pendingDetails} rows={3} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDialog(null)}>{c.cancel}</Button><Button onClick={() => void saveHold()} disabled={!holdReason}>{c.saveHold}</Button></div></DialogContent></Dialog>
-
-      <Dialog open={dialog === 'complete'} onOpenChange={(open) => !open && setDialog(null)}><DialogContent><DialogHeader><DialogTitle>{c.complete}</DialogTitle></DialogHeader><Textarea value={resolution} onChange={e => setResolution(e.target.value)} placeholder={c.resolutionPlaceholder} rows={4} /><input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => setCompletionFile(e.target.files?.[0] || null)} /><Button variant="outline" onClick={() => fileRef.current?.click()}><Camera className="h-4 w-4 mr-2" />{completionFile ? completionFile.name : c.photoRequired}</Button><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDialog(null)}>{c.cancel}</Button><Button onClick={() => void submitCompletion()} disabled={!resolution.trim() || !completionFile} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-1" />{c.submitApproval}</Button></div></DialogContent></Dialog>
+      <Dialog open={!!accessTicket} onOpenChange={open => { if (!open && !busyTicketId) setAccessTicket(null); }}>
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-md">
+          <DialogHeader><DialogTitle>{c.confirmAccessTitle}</DialogTitle><DialogDescription>{c.confirmAccessText}</DialogDescription></DialogHeader>
+          <div className="grid gap-2">
+            <Button className="min-h-12 justify-start whitespace-normal" disabled={!!busyTicketId} onClick={() => accessTicket && void startWork(accessTicket, 'guest_permission')}><ShieldCheck className="mr-2 h-4 w-4 shrink-0" />{c.guestPermission}</Button>
+            <Button variant="outline" className="min-h-12 justify-start whitespace-normal" disabled={!!busyTicketId} onClick={() => accessTicket && void startWork(accessTicket, 'guest_out')}><DoorOpen className="mr-2 h-4 w-4 shrink-0" />{c.guestOut}</Button>
+            <Button variant="ghost" disabled={!!busyTicketId} onClick={() => setAccessTicket(null)}>{c.cancel}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={dialog === 'note'} onOpenChange={open => !open && closeDialog()}><DialogContent className="w-[calc(100vw-1rem)] max-w-lg"><DialogHeader><DialogTitle>{c.note}</DialogTitle></DialogHeader><Textarea value={note} onChange={event => setNote(event.target.value)} placeholder={c.notePlaceholder} rows={4} disabled={!!busyTicketId} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={closeDialog} disabled={!!busyTicketId}>{c.cancel}</Button><Button onClick={() => void saveNote()} disabled={!note.trim() || !!busyTicketId}>{c.saveNote}</Button></div></DialogContent></Dialog>
+      <Dialog open={dialog === 'hold'} onOpenChange={open => !open && closeDialog()}><DialogContent className="w-[calc(100vw-1rem)] max-w-lg"><DialogHeader><DialogTitle>{c.holdReason}</DialogTitle></DialogHeader><Select value={holdReason} onValueChange={setHoldReason} disabled={!!busyTicketId}><SelectTrigger><SelectValue placeholder={c.holdReason} /></SelectTrigger><SelectContent>{HOLD_REASONS.map(([value, key]) => <SelectItem key={value} value={value}>{c[key]}</SelectItem>)}</SelectContent></Select><Textarea value={holdDetails} onChange={event => setHoldDetails(event.target.value)} placeholder={c.pendingDetails} rows={3} disabled={!!busyTicketId} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={closeDialog} disabled={!!busyTicketId}>{c.cancel}</Button><Button onClick={() => void saveHold()} disabled={!holdReason || !!busyTicketId}>{c.saveHold}</Button></div></DialogContent></Dialog>
+      <Dialog open={dialog === 'complete'} onOpenChange={next => { if (!next) closeDialog(); }}>
+        <DialogContent className="max-h-[90dvh] w-[calc(100vw-1rem)] max-w-lg overflow-y-auto p-4 sm:p-6">
+          <DialogHeader><DialogTitle>{c.complete}</DialogTitle></DialogHeader>
+          <Textarea data-training="maintenance-resolution" value={resolution} onChange={event => setResolution(event.target.value)} placeholder={c.resolutionPlaceholder} rows={4} disabled={isSubmittingCompletion} />
+          <p className="text-xs text-muted-foreground">{c.photoChoice}</p>
+          <input ref={fileRef} type="file" accept="image/*" className="sr-only" aria-label={c.takePhoto} onChange={event => {
+            const file = event.currentTarget.files?.[0] || null;
+            if (file && !file.type.startsWith('image/')) {
+              toast.error(c.photoInvalid);
+              event.currentTarget.value = '';
+              setCompletionFile(null);
+              setCompletionPhotoSkipped(false);
+              return;
+            }
+            if (file) {
+              setCompletionFile(file);
+              setCompletionPhotoSkipped(false);
+            }
+          }} />
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={completionFile ? 'secondary' : 'outline'}
+              disabled={isSubmittingCompletion}
+              className="h-auto min-h-12 w-full min-w-0 whitespace-normal py-2"
+              onClick={() => {
+                setCompletionPhotoSkipped(false);
+                fileRef.current?.click();
+              }}
+            >
+              <Camera className="mr-2 h-4 w-4 shrink-0" />
+              <span className="min-w-0 break-words">{c.takePhoto}</span>
+            </Button>
+            <Button
+              type="button"
+              variant={completionPhotoSkipped ? 'secondary' : 'outline'}
+              disabled={isSubmittingCompletion}
+              className="h-auto min-h-12 w-full min-w-0 whitespace-normal py-2"
+              onClick={() => {
+                setCompletionFile(null);
+                setCompletionPhotoSkipped(true);
+                if (fileRef.current) fileRef.current.value = '';
+              }}
+            >
+              <span className="min-w-0 break-words">{c.skipPhoto}</span>
+            </Button>
+          </div>
+          {completionFile ? (
+            <p className="rounded-md border bg-muted/40 p-2 text-xs" role="status">
+              {language === 'hu' ? 'Kiválasztott fotó' : 'Selected photo'}: {completionFile.name}
+            </p>
+          ) : completionPhotoSkipped ? (
+            <p className="rounded-md border border-green-200 bg-green-50 p-2 text-xs text-green-800" role="status">{c.photoSkipSelected}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground" role="status">{c.photoOptional}</p>
+          )}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal py-2" variant="outline" disabled={isSubmittingCompletion} onClick={closeDialog}>{c.cancel}</Button>
+            <Button type="button" data-training="maintenance-finish" className="h-auto min-h-11 w-full min-w-0 whitespace-normal break-words bg-green-600 py-2 text-center leading-snug hover:bg-green-700"
+              onClick={() => void submitCompletion()} disabled={isSubmittingCompletion || !signedIn || !resolution.trim() || (!completionFile && !completionPhotoSkipped)}>
+              <CheckCircle2 className="mr-1 h-4 w-4 shrink-0" />{isSubmittingCompletion ? (language === 'hu' ? 'Beküldés…' : 'Submitting…') : c.submitApproval}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

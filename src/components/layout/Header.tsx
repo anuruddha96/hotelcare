@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import { AppearanceMenu } from './AppearanceMenu';
+import { WorkspaceConditions } from './WorkspaceConditions';
+import { canSeeWorkspaceWeather } from '@/lib/workspaceAppearance';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
@@ -21,10 +24,14 @@ import { SubscriptionStatusMenu } from '@/components/layout/SubscriptionStatusMe
 
 import { RevenueAutomationNotifications } from '@/components/revenue/RevenueAutomationNotifications';
 import { AnnouncementsBell } from '@/components/system/AnnouncementsBell';
-import { Building2, CreditCard, LogOut, Settings, User } from 'lucide-react';
+import { ReputationAlertsBell } from '@/components/reputation/ReputationAlertsBell';
+import { Building2, CreditCard, FileText, LogOut, Settings, ShieldCheck, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
+import { WinterLogoHat } from './WinterWorkspace';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { isExecutiveRole } from '@/lib/roleAccess';
+import { ACCESS_ROLE_LABEL, effectiveAccessRole } from '@/lib/accessPolicy';
+import AccessRolesDialog, { canManageAccessRoles } from '@/components/admin/AccessRolesDialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,6 +42,7 @@ import {
 
 export function Header() {
   const { profile, user, signOut } = useAuth();
+  const fieldStaff = ['maintenance', 'maintenance_manager', 'housekeeping'].includes(profile?.role ?? '');
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
@@ -42,6 +50,7 @@ export function Header() {
   const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>();
   const [settingsFocusTarget, setSettingsFocusTarget] = useState<'location' | undefined>();
   const [hotelDisplayName, setHotelDisplayName] = useState<string | null>(null);
+  const [rolesDialogOpen, setRolesDialogOpen] = useState(false);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -89,6 +98,10 @@ export function Header() {
   };
 
   const getRoleLabel = (role: string) => {
+    // A role from the work schedule (Housekeeping manager, Reception, Controlling…)
+    // is shown instead of the shared permission level.
+    const accessRole = (profile as { access_role?: string | null } | null)?.access_role;
+    if (accessRole && role === profile?.role) return ACCESS_ROLE_LABEL[effectiveAccessRole(profile)];
     switch (role) {
       case 'housekeeping': return t('roles.housekeeping');
       case 'housekeeping_manager': return t('roles.housekeepingManager');
@@ -107,78 +120,93 @@ export function Header() {
   };
 
   return (
-    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm w-full overflow-hidden">
-      <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between overflow-hidden max-w-full">
+    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 dark:bg-background dark:supports-[backdrop-filter]:bg-background backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm w-full overflow-hidden">
+      <div className="container mx-auto max-w-full flex flex-col gap-2 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4 sm:py-3">
         {/* Logo Section - More space on mobile */}
-        <div className="min-w-0 shrink flex items-center">
-          <div className="flex items-center gap-2 sm:gap-3 p-1.5 sm:p-2 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
-            <img
-              src={hotelcareLogo}
-              alt="Hotel Care Logo"
-              className="h-8 sm:h-10 w-auto object-contain shrink-0"
-            />
+        <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:shrink-0 sm:gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-secondary/60 px-2 py-1.5 ring-1 ring-border transition hover:ring-primary/40 sm:flex-none sm:gap-3 sm:p-2">
+            <div className="relative shrink-0">
+              <img
+                src={hotelcareLogo}
+                alt="Hotel Care Logo"
+                className="h-8 sm:h-10 w-auto object-contain block"
+              />
+              {user && profile && <WinterLogoHat />}
+            </div>
             <div className="flex flex-col leading-tight min-w-0">
               <span className="text-sm sm:text-base font-semibold tracking-tight truncate">Hotel Care</span>
               {hotelDisplayName && (
-                <span className="text-[10px] sm:text-xs text-muted-foreground truncate max-w-[90px] sm:max-w-[200px]">
+                <span title={hotelDisplayName} className="text-[11px] sm:text-xs text-muted-foreground truncate sm:max-w-[200px]">
                   {hotelDisplayName}
                 </span>
               )}
             </div>
           </div>
-        </div>
-        
-        {/* Right Section with Horizontal Scroll */}
-        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-hide flex-1 min-w-0 justify-end">
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            <div className="shrink-0">
-              <DirtyLinenCartBadge />
-            </div>
-            <OrganizationSwitcher />
-            <HotelSwitcher />
+          {/* On phones, keep the language control in its own stable slot beside the brand. */}
+          <div className="shrink-0 sm:hidden">
             <LanguageSwitcher />
-            <InstallAppPrompt />
-            {profile?.role !== 'manager' && profile?.role !== 'housekeeping_manager' && (
-              <LiveSyncIndicator />
-            )}
-            <RevenueAutomationNotifications />
-            <AnnouncementsBell />
-            <TrainingHelpButton />
-            
-            {/* Revenue moved to PMSNavigation main tab bar */}
+          </div>
+        </div>
+
+        {canSeeWorkspaceWeather(profile) && (
+          <WorkspaceConditions organizationSlug={profile?.organization_slug} hotelId={profile?.assigned_hotel} />
+        )}
+
+        {/* Keep the account control visible; only the action rail may scroll. */}
+        <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-1">
+          <div className="flex min-w-0 flex-1 items-center overflow-x-auto overscroll-x-contain scrollbar-hide px-1 py-1">
+            <div className="flex w-max shrink-0 items-center gap-1.5 sm:ml-auto sm:gap-2">
+              <DirtyLinenCartBadge />
+              <OrganizationSwitcher />
+              <div className={fieldStaff ? 'hidden sm:contents' : 'contents'}><HotelSwitcher /></div>
+              <div className="hidden shrink-0 sm:block"><LanguageSwitcher /></div>
+              <AppearanceMenu />
+              <InstallAppPrompt />
+              {profile?.role !== 'manager' && profile?.role !== 'housekeeping_manager' && (
+                <LiveSyncIndicator />
+              )}
+              <RevenueAutomationNotifications />
+              <ReputationAlertsBell />
+              <AnnouncementsBell />
+              <TrainingHelpButton />
+
+              {/* Revenue moved to PMSNavigation main tab bar */}
 
 
-            {(profile?.role === 'admin' || profile?.role === 'manager') && (
-              <>
-                <ReportsDialog />
-                <UserManagementDialog 
-                  open={false}
-                  onOpenChange={() => {}}
-                />
-              </>
-            )}
-            
-            {/* Profile Badge - Hidden on small screens */}
-            {profile && (
-              <div className="flex flex-col items-end gap-1 hidden sm:block">
-                <Badge 
-                  variant="secondary" 
-                  className="text-xs sm:text-sm"
-                >
-                  {getRoleLabel(profile.role)}
-                </Badge>
-                {hotelDisplayName && (
-                  <span className="text-xs text-muted-foreground hidden lg:inline">
-                    {hotelDisplayName}
-                  </span>
-                )}
-              </div>
-            )}
-            
+              {(profile?.role === 'admin' || profile?.role === 'manager') && (
+                <>
+                  <ReportsDialog />
+                  <UserManagementDialog
+                    open={false}
+                    onOpenChange={() => {}}
+                  />
+                </>
+              )}
+
+              {/* Profile Badge - Hidden on small screens */}
+              {profile && (
+                <div className="flex flex-col items-end gap-1 hidden sm:block">
+                  <Badge
+                    variant="secondary"
+                    className="text-xs sm:text-sm"
+                  >
+                    {getRoleLabel(profile.role)}
+                  </Badge>
+                  {hotelDisplayName && (
+                    <span className="text-xs text-muted-foreground hidden lg:inline">
+                      {hotelDisplayName}
+                    </span>
+                  )}
+                </div>
+              )}
+
+            </div>
+          </div>
+          <div className="shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-8 w-8 sm:h-10 sm:w-10 rounded-full shrink-0">
-                  <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
+                <Button variant="ghost" size="icon" aria-label={t('common.profile')} className="relative h-11 w-11 rounded-full shrink-0 p-0 sm:h-10 sm:w-10">
+                  <Avatar className="h-9 w-9 sm:h-10 sm:w-10">
                     <AvatarImage src={profile?.profile_picture_url || ''} />
                     <AvatarFallback className="text-xs sm:text-sm">
                       {((profile?.nickname || profile?.full_name || user?.email || 'U').charAt(0) || 'U').toUpperCase()}
@@ -214,9 +242,19 @@ export function Header() {
                   <Settings className="mr-2 h-4 w-4" />
                   {t('common.settings')}
                 </DropdownMenuItem>
+                {canManageAccessRoles(profile) && (
+                  <DropdownMenuItem onClick={() => setRolesDialogOpen(true)}>
+                    <ShieldCheck className="mr-2 h-4 w-4" />
+                    Roles & access
+                  </DropdownMenuItem>
+                )}
                 {(profile?.role === 'admin' || profile?.is_super_admin || isExecutiveRole(profile?.role)) && (
                   <>
-                    <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}/billing`)}>
+                    <DropdownMenuItem onClick={() => navigate('/' + (profile?.organization_slug ?? '') + '/admin/invoicing')}>
+                      <FileText className="mr-2 h-4 w-4" />
+                      Legal companies & invoicing
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate('/' + (profile?.organization_slug ?? '') + '/billing')}>
                       <CreditCard className="mr-2 h-4 w-4" />
                       Payments
                     </DropdownMenuItem>
@@ -241,7 +279,11 @@ export function Header() {
 
       {/* Mobile: which property am I looking at? The header badge truncates,
           so phones get a full-width, untruncated context line. */}
-      {hotelDisplayName && (
+      {fieldStaff ? (
+        <div className="sm:hidden border-t border-border px-3 py-2 bg-background">
+          <HotelSwitcher mode="banner" />
+        </div>
+      ) : hotelDisplayName && (
         <div className="sm:hidden border-t border-border bg-secondary/40 px-3 py-1.5 flex items-center gap-2">
           <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
           <span className="text-xs font-medium truncate">{hotelDisplayName}</span>
@@ -257,6 +299,7 @@ export function Header() {
         open={profileDialogOpen} 
         onOpenChange={setProfileDialogOpen} 
       />
+      {canManageAccessRoles(profile) && <AccessRolesDialog open={rolesDialogOpen} onOpenChange={setRolesDialogOpen} />}
       <SettingsDialog
         open={settingsDialogOpen}
         onOpenChange={(o) => {

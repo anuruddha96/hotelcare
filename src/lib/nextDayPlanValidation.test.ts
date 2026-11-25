@@ -1,0 +1,121 @@
+import { describe, expect, it } from 'vitest';
+import { validateNextDayPlan } from './nextDayPlanValidation';
+import type { RoomForAssignment } from './roomAssignmentAlgorithm';
+
+const room = (id: string, isCheckout = false): RoomForAssignment => ({
+  id, room_number: id, hotel: 'mika-downtown', floor_number: 1,
+  room_size_sqm: 22, room_capacity: 2, status: 'dirty', is_checkout_room: isCheckout,
+});
+const first = room('101', true);
+const second = room('102');
+const valid = (other: Record<string, any> = {}) => validateNextDayPlan({
+  organizationSlug: 'rdhotels', hotelKeys: ['mika-downtown', 'Hotel Mika Downtown'],
+  selectedDate: '2026-09-23', expectedRooms: [first, second],
+  previews: [{ staffId: 'cleaner', staffName: 'Cleaner', rooms: [first, second],
+    totalWeight: 3, checkoutCount: 1, dailyCount: 1, estimatedMinutes: 60,
+    totalWithBreak: 90, exceedsShift: false, overageMinutes: 0 }],
+  selectedStaffIds: ['cleaner'],
+  workers: [{ id: 'cleaner', assigned_hotel: 'mika-downtown', organization_slug: 'rdhotels' }],
+  schedules: [], ...other,
+});
+
+const validPreview = { staffId: 'cleaner', staffName: 'Cleaner',
+  totalWeight: 3, checkoutCount: 1, dailyCount: 1, estimatedMinutes: 60,
+  totalWithBreak: 90, exceedsShift: false, overageMinutes: 0 };
+const schedule = (shift_start: string | null, shift_end: string | null, status = 'published') => [{
+  user_id: 'cleaner', status, work_date: '2026-09-23', shift_start, shift_end,
+}];
+
+describe('Next-day plan approval rejects invalid or cross-tenant data before writing', () => {
+  it('accepts exact same-date inventory with a verified tenant-specific employee', () => {
+    expect(valid()).toEqual({ valid: true, reason: '' });
+  });
+  it('rejects cross-organization workers', () => {
+    expect(valid({ workers: [{ id: 'cleaner', assigned_hotel: 'mika-downtown', organization_slug: 'slnt' }] }).valid).toBe(false);
+  });
+  it('accepts a same-organization cross-property cleaner only when the selected-date roster explicitly authorizes them here', () => {
+    const borrowedWorker = [{ id: 'cleaner', assigned_hotel: 'memories-budapest', organization_slug: 'rdhotels' }];
+    expect(valid({
+      workers: borrowedWorker,
+      schedules: schedule('08:00', '16:00'),
+      authorizedStaffIds: ['cleaner'],
+    }).valid).toBe(true);
+    expect(valid({
+      workers: borrowedWorker,
+      schedules: schedule('08:00', '16:00'),
+      authorizedStaffIds: [],
+    }).valid).toBe(false);
+  });
+  it('rejects a published lifecycle row whose operational work status is off duty', () => {
+    expect(valid({
+      schedules: [{
+        user_id: 'cleaner', status: 'published', work_status: 'off', work_date: '2026-09-23',
+        shift_start: '08:00', shift_end: '16:00',
+      }],
+    }).valid).toBe(false);
+  });
+  it('rejects a foreign property room', () => {
+    expect(valid({ expectedRooms: [first, { ...second, hotel: 'slnt-group' }] }).valid).toBe(false);
+  });
+  it('rejects missing and duplicated rooms', () => {
+    expect(valid({ previews: [{ ...validPreview, rooms: [first] }] }).valid).toBe(false);
+    expect(valid({ previews: [{ ...validPreview, rooms: [first, first] }] }).valid).toBe(false);
+  });
+  it('rejects duplicate cleaner cards even if the rooms themselves are distinct', () => {
+    expect(valid({ previews: [
+      { ...validPreview, rooms: [first] }, { ...validPreview, rooms: [second] },
+    ] }).reason).toMatch(/duplicate housekeeper/i);
+  });
+  it('rejects a checkout changed to daily after PMS refresh', () => {
+    expect(valid({ expectedRooms: [{ ...first, is_checkout_room: false }, second] }).valid).toBe(false);
+  });
+  it('identifies the exact room when a Mika booking changes service type before approval', () => {
+    const result = valid({ expectedRooms: [{ ...first, is_checkout_room: false }, second] });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toMatch(/room 101.*checkout.*stayover.*Previo refresh/i);
+  });
+  it('identifies a room assigned to someone outside the selected cleaner roster', () => {
+    const result = valid({ previews: [{ ...validPreview, staffId: 'other', rooms: [first, second] }] });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toMatch(/room 101.*no longer selected/i);
+  });
+  it('reports changed towel and linen requirements by room', () => {
+    const result = valid({ expectedRooms: [first, { ...second, towel_change_required: true }] });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toMatch(/room 102.*towel\/linen/i);
+  });
+  it('rejects a potential checkout that became confirmed after PMS refresh', () => {
+    const potential = {
+      ...first,
+      pms_metadata: { potentialCheckout: true, selectedDateSnapshotKind: 'potential_checkout' },
+    };
+    const confirmed = {
+      ...first,
+      pms_metadata: { potentialCheckout: false, selectedDateSnapshotKind: 'checkout' },
+    };
+    expect(valid({
+      expectedRooms: [confirmed, second],
+      previews: [{ ...validPreview, rooms: [potential, second] }],
+    }).valid).toBe(false);
+  });
+  it('rejects an absent or unscheduled employee when the roster is configured', () => {
+    expect(valid({ schedules: [{ user_id: 'cleaner', status: 'off', work_date: '2026-09-23' }] }).valid).toBe(false);
+    expect(valid({ schedules: [{ user_id: 'other', status: 'published', work_date: '2026-09-23' }] }).valid).toBe(false);
+    expect(valid({ schedules: schedule('08:00', '16:00', 'draft') }).valid).toBe(false);
+  });
+  it('rejects incomplete shift timestamps instead of assuming a full shift', () => {
+    expect(valid({ schedules: schedule(null, '16:00') }).reason).toMatch(/incomplete shift/i);
+    expect(valid({ schedules: schedule('08:00', 'unknown') }).valid).toBe(false);
+  });
+  it('recalculates authoritative room minutes before approval, including overnight shifts', () => {
+    const staleOptimisticPreview = [{ ...validPreview, estimatedMinutes: 1,
+      rooms: [first, second] }];
+    expect(valid({ previews: staleOptimisticPreview, schedules: schedule('08:00', '09:00') }).reason)
+      .toMatch(/exceeds the published shift/i);
+    expect(valid({ previews: staleOptimisticPreview, schedules: schedule('08:00', '10:00') }).valid).toBe(true);
+    expect(valid({ previews: staleOptimisticPreview, schedules: schedule('22:00', '00:00') }).valid).toBe(true);
+  });
+  it('honours explicit maintenance exclusions only', () => {
+    expect(valid({ excludedRoomIds: ['102'], previews: [{ ...validPreview, rooms: [first] }] }).valid).toBe(true);
+  });
+});

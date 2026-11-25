@@ -1,0 +1,1254 @@
+// HotelCare In-Suite pilot API: all guest access is device-bound; staff access is JWT + hotel scoped.
+// No service-role key or PIN/token hashes are ever returned to a browser.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.53.0";
+import {
+  WELLNESS_ERRORS, WELLNESS_KINDS, afterResponse, notifyReception, sendGuestTicket, wellnessErrorCode, wellnessRecipients,
+} from "../_shared/wellness.ts";
+
+const cors = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-insuite-device",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Cache-Control": "no-store",
+};
+const send = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
+const deny = (message = "Not authorized", status = 403) => send({ error: message }, status);
+const val = (s: unknown, limit = 500) => typeof s === "string" ? s.trim().slice(0, limit) : "";
+const sha = async (value: string) => {
+  const bytes = new TextEncoder().encode(value);
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+};
+// Server-side HMAC pepper makes six-digit PIN hashes resistant to offline dictionary attacks.
+const pinHash = async (id: string, pin: string) => {
+  // Prefer a dedicated secret. Supabase's protected service-role key is a
+  // stable, server-only HMAC fallback for installations without secret editing.
+  // Never log, return, or expose either key to guest/staff browsers.
+  const secret = Deno.env.get("INSUITE_PIN_PEPPER") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!secret || secret.length < 32) throw Error("Secure In-Suite PIN HMAC key is not configured");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key,
+    new TextEncoder().encode("hotelcare:insuite:maintenance-pin:v1:" + id + ":" + pin));
+  return Array.from(new Uint8Array(signature)).map((b) => b.toString(16).padStart(2, "0")).join("");
+};
+
+/** Opaque room QR token, reproducible only server-side by an authenticated
+ * manager. Store SHA-256(token) in the device row, never the readable token.
+ * A key rotation requires reissuing existing QR printouts.
+ */
+const qrTokenForDevice = async (deviceId: string) => {
+  const secret = Deno.env.get("INSUITE_QR_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!secret || secret.length < 32) throw Error("In-Suite QR signing key is unavailable");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const digest = await crypto.subtle.sign("HMAC", key,
+    new TextEncoder().encode("hotelcare:insuite:qr:v1:" + deviceId));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+};
+
+const random = (count = 32) => {
+  const bytes = crypto.getRandomValues(new Uint8Array(count));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+};
+const requestTypes = ["extra_towels", "extra_pillow", "blanket", "amenities", "water", "room_cleaning", "maintenance", "taxi", "call_back"] as const;
+const serviceTypes = [...requestTypes, "breakfast", "room_service", "minibar", "gym", "spa", "sauna", "jacuzzi"] as const;
+const isService = (v: string) => (requestTypes as readonly string[]).includes(v);
+const orderTypes = ["breakfast", "room_service", "minibar"];
+const bookingTypes = ["taxi", "gym", "spa", "sauna", "jacuzzi"];
+// Facility guard: jacuzzi reservations are physically available only at
+// Hotel Memories Budapest. Enforced at booking AND at publish time.
+const JACUZZI_HOTELS = new Set(["memories-budapest"]);
+const managers = new Set(["admin", "manager", "top_management", "top_management_manager", "housekeeping_manager", "reception_manager", "supervisor"]);
+const admins = new Set(["admin", "manager", "top_management", "top_management_manager"]);
+const reception = new Set(["reception", "front_office", "reception_manager"]);
+const todayBudapest = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+const addDaysIso = (date: string, days: number) => {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+/** Jacuzzi / sauna refusals become clean 4xx answers; anything else is a server error. */
+const wellnessFail = (error: { message?: string } | null) => {
+  const code = wellnessErrorCode(error);
+  if (!code) throw error;
+  return send({ error: WELLNESS_ERRORS[code].message, code }, WELLNESS_ERRORS[code].status);
+};
+const TOP_MANAGEMENT = new Set(["admin", "top_management", "top_management_manager"]);
+const validUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+/** Use the booking contact shown by Previo/reception when available. Never
+ * guess an honorific or expose guest email, phone, ID, DOB or other guests.
+ * Multiple-name contact fields are ambiguous, so fall back to the named stay.
+ */
+const welcomeName = (raw: unknown) => {
+  if (typeof raw !== "string") return "";
+  const name = raw.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  if (!name || name.includes("@") || /\d{4,}/.test(name) ||
+    /\s(?:and|&|\+)\s|\s[;|/]\s/i.test(name)) return "";
+  // Some PMS contacts are formatted "Last, First", otherwise preserve
+  // natural name ordering. Never invent middle names or a title.
+  const parts = name.split(",");
+  const arranged = parts.length === 2 && parts.every((part) => part.trim())
+    ? parts[1].trim() + " " + parts[0].trim() : parts.length === 1 ? name : "";
+  if (!arranged) return "";
+  return Array.from(arranged).slice(0, 120).join("");
+};
+
+const cleanContent = (raw: any) => {
+  const textFields = ["hotel_name", "welcome", "address", "reception_phone", "guest_wifi_ssid", "guest_wifi_password",
+    "breakfast_hours", "restaurant_hours", "checkout_time", "contact_email", "house_rules", "transport_info",
+    "facilities_info", "minibar_info", "sustainability_info", "room_service_provider"];
+  const result: Record<string, unknown> = {};
+  for (const field of textFields) result[field] = val(raw?.[field], field === "house_rules" ? 2500 : 500);
+  for (const field of ["logo_url", "hero_url"]) {
+    const v = val(raw?.[field], 900);
+    result[field] = !v || /^https:\/\//i.test(v) ? v : "";
+  }
+  const color = val(raw?.primary_color, 24);
+  result.primary_color = /^#[0-9a-f]{6}$/i.test(color) ? color : "#153B57";
+  result.services = Object.fromEntries(serviceTypes.map((type) => [type, raw?.services?.[type] === true]));
+  return result;
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: cors });
+  if (req.method !== "POST") return deny("POST required", 405);
+  try {
+    const body = await req.json().catch(() => null);
+    const action = val(body?.action, 60);
+    if (!action) return deny("Action required", 400);
+    const url = Deno.env.get("SUPABASE_URL")!;
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+
+    if (action === "pair") {
+      const code = val(body.code, 40).toUpperCase().replace(/\s/g, "");
+      if (!/^[A-F0-9]{24}$/.test(code)) return deny("Invalid or expired pairing code", 404);
+      const hash = await sha(code);
+      const { data: device } = await db.from("insuite_devices").select("*")
+        .eq("pairing_hash", hash).eq("is_active", true)
+        .gt("pairing_expires_at", new Date().toISOString()).is("device_token_hash", null).maybeSingle();
+      if (!device) return deny("Invalid or expired pairing code", 404);
+      const token = random(32);
+      const { data: claimed, error } = await db.from("insuite_devices")
+        .update({ device_token_hash: await sha(token), pairing_hash: null, pairing_expires_at: null, paired_at: new Date().toISOString() })
+        .eq("id", device.id).eq("pairing_hash", hash).is("device_token_hash", null).select("id").maybeSingle();
+      if (error || !claimed) return deny("Pairing code already used", 409);
+      return send({ token });
+    }
+
+    if (action.startsWith("guest-")) {
+      const token = val(req.headers.get("x-insuite-device"), 150);
+      if (!/^[a-f0-9]{64}$/.test(token)) return deny("Tablet not paired", 401);
+      let { data: device } = await db.from("insuite_devices").select("*")
+        .eq("device_token_hash", await sha(token)).eq("is_active", true).maybeSingle();
+      if (!device) return deny("Tablet disabled or not paired", 401);
+      const [{ data: settings }, { data: room }] = await Promise.all([
+        db.from("insuite_property_configs").select("published, enabled")
+          .eq("organization_slug", device.organization_slug).eq("hotel_id", device.hotel_id).maybeSingle(),
+        db.from("rooms").select("id, room_number, hotel, organization_slug").eq("id", device.room_id).maybeSingle(),
+      ]);
+      if (!settings?.enabled || !room || room.organization_slug !== device.organization_slug)
+        return deny("This room tablet is currently unavailable", 403);
+      const { data: owningOrg } = await db.from("organizations").select("id")
+        .eq("slug", device.organization_slug).maybeSingle();
+      if (!owningOrg) return deny("Room organization requires manager review", 403);
+      const hotelConfig = await db.from("hotel_configurations").select("hotel_name, hotel_id")
+        .eq("hotel_id", device.hotel_id).eq("organization_id", owningOrg.id).maybeSingle();
+      if (!hotelConfig.data || ![hotelConfig.data.hotel_id, hotelConfig.data.hotel_name].includes(room.hotel))
+        return deny("Room mapping requires manager review", 403);
+      const config = settings.published || {};
+      // A QR may have been printed AFTER the occupant checked in. A correctly
+      // mapped, unbound device can attach itself to exactly one CURRENT
+      // checked-in reservation. Never auto-replace an existing binding.
+      // In particular, do not resurrect a stay after an exact Previo checkout
+      // event when the local PMS status is delayed.
+      if (!device.active_reservation_id && ["guest-bootstrap", "guest-state", "guest-verify"].includes(action)) {
+        const today = todayBudapest();
+        const { data: matches, error: matchError } = await db.from("reservations")
+          .select("id,source_reservation_id,check_in_date,source,pms_status_id")
+          .eq("organization_slug", device.organization_slug).eq("hotel_id", device.hotel_id)
+          .eq("room_id", room.id).eq("status", "checked_in")
+          .lte("check_in_date", today).gte("check_out_date", today)
+          .is("actual_check_out", null).limit(2);
+        if (!matchError && matches?.length === 1 &&
+          (matches[0].source !== "previo" || matches[0].pms_status_id === 3)) {
+          const candidate = matches[0];
+          let checkedOutInPrevio = false;
+          if (candidate.source_reservation_id) {
+            const { data: checkoutEvent, error: checkoutError } = await db.from("pms_change_events")
+              .select("id").eq("hotel_id", device.hotel_id).eq("room_id", room.id)
+              .eq("event_type", "checkout_confirmed").eq("source", "poll_checkouts")
+              .eq("auto_applied", true).eq("previo_reservation_id", candidate.source_reservation_id)
+              .gte("detected_at", candidate.check_in_date + "T00:00:00+00:00").limit(1);
+            // A failed safety lookup is not evidence that checkout did not occur.
+            checkedOutInPrevio = !!checkoutError || !!checkoutEvent?.length;
+          }
+          if (!checkedOutInPrevio) {
+            const nextEpoch = crypto.randomUUID();
+            const { data: bound } = await db.from("insuite_devices")
+              .update({ active_reservation_id: candidate.id, session_epoch: nextEpoch,
+                session_started_at: new Date().toISOString() })
+              .eq("id", device.id).eq("is_active", true)
+              .eq("organization_slug", device.organization_slug).eq("hotel_id", device.hotel_id)
+              .is("active_reservation_id", null).eq("session_epoch", device.session_epoch)
+              .select("*").maybeSingle();
+            if (bound) device = bound;
+          }
+        }
+      }
+      // A device identifies a physical room, never an authenticated occupant.
+      // Guest operations are enabled only while this exact bound reservation
+      // is independently confirmed checked-in by the hotel's PMS data.
+      const { data: stay } = device.active_reservation_id
+        ? await db.from("reservations")
+          .select("id,room_id,status,organization_slug,hotel_id,source,pms_status_id,check_in_date,check_out_date,actual_check_out,pms_contact_name,pms_guest_name,adults,children,guests(first_name,last_name)")
+          .eq("id", device.active_reservation_id).maybeSingle()
+        : { data: null };
+      const stayActive = !!stay
+        && stay.room_id === room.id && stay.organization_slug === device.organization_slug
+        && stay.hotel_id === device.hotel_id && stay.status === "checked_in"
+        && stay.check_in_date <= todayBudapest() && stay.check_out_date >= todayBudapest()
+        && !stay.actual_check_out && (stay.source !== "previo" || stay.pms_status_id === 3);
+      // The room-bound QR identifies the physical room; a *current* and
+      // unambiguous PMS checked-in reservation identifies the welcome guest.
+      // Only the booker's short display name is included, never PII fields
+      // such as contacts, documents, birthdays or other room occupants.
+      const linkedGuest = stay && (Array.isArray(stay.guests) ? stay.guests[0] : stay.guests);
+      const linkedName = linkedGuest
+        ? [linkedGuest.first_name, linkedGuest.last_name].filter(Boolean).join(" ") : "";
+      const guestName = stayActive
+        ? welcomeName(stay.pms_contact_name) || welcomeName(linkedName)
+          || welcomeName(stay.pms_guest_name)
+        : "";
+      const guestWelcome = stayActive ? {
+        name: guestName || null,
+        guest_count: Math.max(0, Number(stay.adults || 0) + Number(stay.children || 0)) || null,
+      } : null;
+      if (action === "guest-bootstrap") {
+        await db.from("insuite_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
+        // Bookable jacuzzi / sauna (switched on by a top manager). The guest
+        // books them by slot; the old request form is only for other services.
+        const [{ data: wellness }, { data: wellnessSettings }] = await Promise.all([
+          db.from("insuite_wellness_resources")
+            .select("id,kind,name,description,image_url,max_guests,slot_minutes,price,currency,opens_at,closes_at")
+            .eq("hotel_id", device.hotel_id).eq("is_active", true).order("sort_order"),
+          // Taxi / airport transfer prices kept by top management (shown next to the taxi request).
+          db.from("insuite_wellness_settings").select("transfer_prices").eq("hotel_id", device.hotel_id).maybeSingle(),
+        ]);
+        return send({ room_number: room.room_number, hotel_id: device.hotel_id,
+          session_epoch: device.session_epoch, config, stay_active: stayActive,
+          guest: guestWelcome, paired: true, kind: device.kind || "tablet", wellness: wellness || [],
+          transfers: Array.isArray(wellnessSettings?.transfer_prices) ? wellnessSettings.transfer_prices : [] });
+      }
+      if (action === "guest-state") {
+        if (!stayActive) return send({ requests: [], messages: [], orders: [], bookings: [], wellness: [],
+          session_epoch: device.session_epoch, stay_active: false, guest: null });
+        const rawSince = Date.parse(val(body.since, 40));
+        // Never expose previous guest history. State only includes entries created after THIS page load.
+        const since = new Date(Math.max(Date.now() - 6 * 3600_000, Number.isFinite(rawSince) ? rawSince : Date.now())).toISOString();
+        const [requests, messages, orders, bookings, wellness] = await Promise.all([
+          db.from("insuite_service_requests").select("id,client_request_id,request_type,quantity,status,created_at")
+            .eq("device_id", device.id).eq("session_epoch", device.session_epoch).gte("created_at", since).order("created_at").limit(50),
+          db.from("insuite_messages").select("id,sender,body,created_at")
+            .eq("device_id", device.id).eq("session_epoch", device.session_epoch).gte("created_at", since).order("created_at").limit(80),
+          db.from("insuite_orders").select("id,kind,currency,quoted_total,status,requested_at,created_at")
+            .eq("device_id", device.id).eq("session_epoch", device.session_epoch).gte("created_at", since).order("created_at").limit(50),
+          db.from("insuite_booking_requests").select("id,kind,starts_at,party_size,status,staff_note,created_at")
+            .eq("device_id", device.id).eq("session_epoch", device.session_epoch).gte("created_at", since).order("created_at").limit(50),
+          // Jacuzzi / sauna bookings belong to THIS stay, whichever channel made
+          // them (room tablet, website link, reception), so they are not limited
+          // to the current page load like the request history above.
+          db.rpc("insuite_wellness_stay_bookings", { _reservation_ids: [stay.id] }),
+        ]);
+        if (requests.error || messages.error || orders.error || bookings.error)
+          return deny("Could not load updates", 503);
+        return send({ requests: requests.data || [], messages: messages.data || [],
+          orders: orders.data || [], bookings: bookings.data || [], wellness: wellness.error ? [] : wellness.data || [],
+          session_epoch: device.session_epoch, stay_active: true, guest: guestWelcome });
+      }
+      
+      if (action === "guest-verify") {
+        // Printed room QR codes are reusable bearer credentials: scanning one
+        // must NEVER disclose a guest's name or occupancy. Personalization is
+        // optional and requires the guest to provide surname + departure date.
+        if (!stayActive) return deny("The room is not yet checked in", 409);
+        if (device.guest_verify_locked_until &&
+          new Date(device.guest_verify_locked_until).getTime() > Date.now())
+          return deny("Too many attempts. Please try later.", 429);
+        const surname = val(body.last_name, 80);
+        const departure = val(body.check_out_date, 10);
+        if (surname.length < 2 || !/^\d{4}-\d{2}-\d{2}$/.test(departure))
+          return deny("Enter your surname and check-out date", 400);
+        const { data: occupant } = await db.from("reservations")
+          .select("id,adults,children,check_out_date,pms_guest_name,guests(first_name,last_name)")
+          .eq("id", stay.id).eq("organization_slug", device.organization_slug)
+          .eq("room_id", room.id).eq("status", "checked_in").maybeSingle();
+        if (!occupant) return deny("The checked-in stay is no longer available", 409);
+        const linkedGuest = Array.isArray(occupant.guests) ? occupant.guests[0] : occupant.guests;
+        const first = val(linkedGuest?.first_name, 80);
+        const last = val(linkedGuest?.last_name, 80);
+        const full = [first, last].filter(Boolean).join(" ") || val(occupant.pms_guest_name, 160);
+        const normalize = (v: string) => v.normalize("NFKD")
+          .replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLowerCase();
+        const matchesSurname = last ? normalize(last) === normalize(surname)
+          : normalize(full).endsWith(" " + normalize(surname));
+        if (!matchesSurname || occupant.check_out_date !== departure) {
+          const count = device.guest_verify_locked_until ? 1 : Number(device.guest_verify_failures || 0) + 1;
+          await db.from("insuite_devices").update({
+            guest_verify_failures: count,
+            guest_verify_locked_until: count >= 5 ? new Date(Date.now() + 15 * 60_000).toISOString() : null,
+          }).eq("id", device.id).eq("session_epoch", device.session_epoch);
+          return deny("Guest details did not match this room's current stay", 403);
+        }
+        await db.from("insuite_devices").update({
+          guest_verify_failures: 0, guest_verify_locked_until: null,
+        }).eq("id", device.id).eq("session_epoch", device.session_epoch);
+        const guestCount = Math.max(0, Number(occupant.adults || 0) + Number(occupant.children || 0));
+        return send({
+          first_name: first || full.split(/\s+/)[0] || "",
+          guest_count: guestCount > 0 ? guestCount : null,
+          check_out_date: occupant.check_out_date,
+          session_epoch: device.session_epoch,
+        });
+      }
+      if (action === "guest-menu") {
+        const { data: items, error } = await db.from("insuite_catalog_items")
+          .select("id,kind,name,description,image_url,allergens,price,currency,sort_order")
+          .eq("organization_slug", device.organization_slug).eq("hotel_id", device.hotel_id)
+          .eq("is_active", true).order("sort_order").order("name").limit(250);
+        if (error) return deny("Menu unavailable", 503);
+        return send({ items: (items || []).filter((item: any) => config.services?.[item.kind] === true) });
+      }
+      if (action === "guest-order") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
+        const kind = val(body.kind, 30);
+        const clientId = val(body.client_request_id, 40);
+        if (!orderTypes.includes(kind) || config.services?.[kind] !== true
+          || !validUuid(clientId) || !Array.isArray(body.items)
+          || body.items.length < 1 || body.items.length > 12
+          || body.items.some((line: any) => !validUuid(val(line?.id, 40))
+            || !Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 8))
+          return deny("Invalid order or unavailable menu", 400);
+        const requestedAt = val(body.requested_at, 50);
+        if (!requestedAt || Number.isNaN(Date.parse(requestedAt))) return deny("Choose a delivery time", 400);
+        const { count } = await db.from("insuite_orders").select("id", { count: "exact", head: true })
+          .eq("device_id", device.id).gte("created_at", new Date(Date.now() - 60_000).toISOString());
+        if ((count || 0) >= 2) return deny("Please wait before placing another order", 429);
+        const { data: order, error } = await db.rpc("insuite_create_order", {
+          _device_id: device.id, _session_epoch: device.session_epoch,
+          _client_request_id: clientId, _kind: kind,
+          _requested_at: requestedAt, _notes: val(body.notes, 400),
+          _items: body.items.map((line: any) => ({ id: line.id, quantity: line.quantity })),
+        });
+        if (error) return deny("Order could not be placed. Verify menu and delivery time.", 409);
+        return send({ order }, order?.repeated ? 200 : 201);
+      }
+      if (action === "guest-booking") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
+        const kind = val(body.kind, 30);
+        const clientId = val(body.client_request_id, 40);
+        const when = val(body.starts_at, 50);
+        const partySize = Number(body.party_size);
+        const millis = Date.parse(when);
+        if (!bookingTypes.includes(kind) || config.services?.[kind] !== true
+          || !validUuid(clientId) || !Number.isInteger(partySize)
+          || partySize < 1 || partySize > 8 || !Number.isFinite(millis)
+          || millis < Date.now() - 300_000 || millis > Date.now() + 30 * 86400_000)
+          return deny("Invalid booking details", 400);
+        if (kind === "jacuzzi" && !JACUZZI_HOTELS.has(device.hotel_id))
+          return deny("Jacuzzi reservations are not offered at this hotel", 400);
+        if ((WELLNESS_KINDS as readonly string[]).includes(kind)) {
+          const { count: bookable } = await db.from("insuite_wellness_resources").select("id", { count: "exact", head: true })
+            .eq("hotel_id", device.hotel_id).eq("kind", kind).eq("is_active", true);
+          if (bookable) return deny("Book a time slot in Jacuzzi & sauna", 409);
+        }
+        const { data: existing } = await db.from("insuite_booking_requests")
+          .select("id,status").eq("device_id", device.id).eq("client_request_id", clientId).maybeSingle();
+        if (existing) return send({ booking: existing, repeated: true });
+        const { count } = await db.from("insuite_booking_requests").select("id", { count: "exact", head: true })
+          .eq("device_id", device.id).gte("created_at", new Date(Date.now() - 60_000).toISOString());
+        if ((count || 0) >= 2) return deny("Please wait before another booking request", 429);
+        const { data: booking, error } = await db.from("insuite_booking_requests").insert({
+          organization_slug: device.organization_slug, hotel_id: device.hotel_id,
+          room_id: room.id, device_id: device.id, reservation_id: stay.id,
+          session_epoch: device.session_epoch, client_request_id: clientId,
+          kind, starts_at: new Date(millis).toISOString(), party_size: partySize,
+          notes: val(body.notes, 400),
+        }).select("id,status").single();
+        if (error?.code === "23505") {
+          const { data: duplicate } = await db.from("insuite_booking_requests")
+            .select("id,status").eq("device_id", device.id).eq("client_request_id", clientId).maybeSingle();
+          if (duplicate) return send({ booking: duplicate, repeated: true });
+        }
+        if (error) throw error;
+        return send({ booking }, 201);
+      }
+      if (action === "guest-request") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
+        const type = val(body.request_type, 40);
+        const quantity = Number(body.quantity);
+        const clientId = val(body.client_request_id, 40);
+        if (!isService(type) || config.services?.[type] !== true || !validUuid(clientId)
+          || !Number.isInteger(quantity) || quantity < 1 || quantity > 8) return deny("Service unavailable", 400);
+        const detail = val(body.detail, 400);
+        const previous = await db.from("insuite_service_requests").select("id,status")
+          .eq("device_id", device.id).eq("client_request_id", clientId).maybeSingle();
+        if (previous.data) return send({ request: previous.data, repeated: true });
+        const { count } = await db.from("insuite_service_requests").select("id", { count: "exact", head: true })
+          .eq("device_id", device.id).gte("created_at", new Date(Date.now() - 60_000).toISOString());
+        if ((count || 0) >= 3) return deny("Please wait before sending another request", 429);
+
+        const department = ["maintenance"].includes(type) ? "maintenance"
+          : ["taxi", "call_back"].includes(type) ? "reception" : "housekeeping";
+        let assignee: string | null = null;
+        let workId: string | null = null;
+        if (department === "housekeeping") {
+          const { data: assignments } = await db.from("room_assignments")
+            .select("id, assigned_to, status").eq("room_id", room.id)
+            .eq("assignment_date", todayBudapest()).in("status", ["assigned", "in_progress"])
+            .order("created_at", { ascending: false }).limit(10);
+          for (const assignment of assignments || []) {
+            if (!assignment.assigned_to) continue;
+            const { data: attendance } = await db.from("staff_attendance")
+              .select("status, check_out_time").eq("user_id", assignment.assigned_to)
+              .eq("work_date", todayBudapest()).order("created_at", { ascending: false }).limit(1).maybeSingle();
+            if (attendance && !attendance.check_out_time && attendance.status === "checked_in") {
+              assignee = assignment.assigned_to; workId = assignment.id; break;
+            }
+          }
+        }
+        const { data: inserted, error } = await db.from("insuite_service_requests").insert({
+          organization_slug: device.organization_slug, hotel_id: device.hotel_id, room_id: room.id,
+          device_id: device.id, session_epoch: device.session_epoch, client_request_id: clientId,
+          request_type: type, quantity, detail, department, assigned_to: assignee, assigned_room_work_id: workId,
+          priority: ["maintenance", "call_back"].includes(type) ? "urgent" : "high",
+        }).select("id,status").single();
+        if (error) {
+          if (error.code === "23505") {
+            const { data: existing } = await db.from("insuite_service_requests").select("id,status")
+              .eq("device_id", device.id).eq("client_request_id", clientId).maybeSingle();
+            if (existing) return send({ request: existing, repeated: true });
+          }
+          throw error;
+        }
+        await db.from("insuite_request_events").insert({ request_id: inserted.id, new_status: "submitted" });
+        return send({ request: inserted }, 201);
+      }
+      if (action === "guest-message") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
+        const message = val(body.message, 1000);
+        if (!message || message.length > 1000) return deny("Message required", 400);
+        const { count } = await db.from("insuite_messages").select("id", { count: "exact", head: true })
+          .eq("device_id", device.id).eq("sender", "guest").gte("created_at", new Date(Date.now() - 60_000).toISOString());
+        if ((count || 0) >= 6) return deny("Please wait before sending another message", 429);
+        const { data, error } = await db.from("insuite_messages").insert({
+          organization_slug: device.organization_slug, hotel_id: device.hotel_id,
+          room_id: room.id, device_id: device.id, session_epoch: device.session_epoch,
+          sender: "guest", body: message,
+        }).select("id,created_at").single();
+        if (error) throw error;
+        return send({ message: data }, 201);
+      }
+      if (action === "guest-unlock") {
+        if (!device.pin_hash) return deny("Maintenance PIN not set", 403);
+        if (device.pin_locked_until && new Date(device.pin_locked_until).getTime() > Date.now())
+          return deny("Too many attempts. Ask reception.", 429);
+        const pin = val(body.pin, 12);
+        if (!/^\d{6}$/.test(pin) || await pinHash(device.id, pin) !== device.pin_hash) {
+          const attempts = (device.pin_failed_attempts || 0) + 1;
+          await db.from("insuite_devices").update({ pin_failed_attempts: attempts,
+            pin_locked_until: attempts >= 5 ? new Date(Date.now() + 15 * 60_000).toISOString() : null })
+            .eq("id", device.id);
+          return deny("Incorrect staff PIN", 403);
+        }
+        await db.from("insuite_devices").update({ pin_failed_attempts: 0, pin_locked_until: null }).eq("id", device.id);
+        return send({ authorized: true, note: "App maintenance only. OS kiosk lock must be released through your MDM." });
+      }
+      if (action === "guest-wellness") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
+        const from = todayBudapest();
+        const lastDay = stay.check_out_date < addDaysIso(from, 13) ? stay.check_out_date : addDaysIso(from, 13);
+        const [slots, mine] = await Promise.all([
+          db.rpc("insuite_wellness_slots", { _hotel_id: device.hotel_id, _from: from, _to: lastDay, _reservation_id: stay.id }),
+          db.rpc("insuite_wellness_stay_bookings", { _reservation_ids: [stay.id] }),
+        ]);
+        if (slots.error) throw slots.error;
+        return send({ ...(slots.data || {}), bookings: mine.data || [] });
+      }
+      if (action === "guest-wellness-book") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
+        const resourceId = val(body.resource_id, 40);
+        const startsAt = Date.parse(val(body.starts_at, 50));
+        const party = Number(body.party_size);
+        const clientId = val(body.client_request_id, 40);
+        if (!validUuid(resourceId) || !Number.isFinite(startsAt) || !Number.isInteger(party) || !validUuid(clientId))
+          return deny("Choose a time slot and the number of guests", 400);
+        const { count: recent } = await db.from("insuite_wellness_bookings").select("id", { count: "exact", head: true })
+          .eq("reservation_id", stay.id).gte("created_at", new Date(Date.now() - 10 * 60_000).toISOString());
+        if ((recent || 0) >= 6) return deny("Please wait a moment before booking again", 429);
+        const { data: booking, error } = await db.rpc("insuite_wellness_book", {
+          _resource_id: resourceId, _starts_at: new Date(startsAt).toISOString(), _party_size: party,
+          _source: "insuite", _reservation_id: stay.id, _room_id: room.id, _client_request_id: clientId,
+        });
+        if (error) return wellnessFail(error);
+        if (!booking.repeated) await afterResponse(notifyReception(db, booking, "booked"));
+        return send({ booking }, booking.repeated ? 200 : 201);
+      }
+      if (action === "guest-wellness-cancel") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
+        const bookingId = val(body.booking_id, 40);
+        if (!validUuid(bookingId)) return deny("Booking not found", 404);
+        const { data: booking, error } = await db.rpc("insuite_wellness_change", {
+          _booking_id: bookingId, _hotel_id: device.hotel_id, _action: "cancel",
+          _reservation_id: stay.id, _reason: "Cancelled by the guest on the In-Suite page",
+        });
+        if (error) return wellnessFail(error);
+        await afterResponse(notifyReception(db, booking, "cancelled"));
+        return send({ booking });
+      }
+
+      return deny("Unknown guest action", 404);
+    }
+
+    if (!action.startsWith("staff-")) return deny("Unknown action", 404);
+    const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+    if (!jwt) return deny("Sign in required", 401);
+    const { data: auth, error: authError } = await db.auth.getUser(jwt);
+    if (authError || !auth.user) return deny("Invalid staff session", 401);
+    const { data: profile } = await db.from("profiles")
+      .select("id, role, organization_slug, assigned_hotel, is_super_admin, full_name")
+      .eq("id", auth.user.id).maybeSingle();
+    if (!profile?.organization_slug) return deny("Staff organization not found", 403);
+    const role = String(profile.role || "");
+    const manager = managers.has(role) || profile.is_super_admin === true;
+    const administrator = admins.has(role) || profile.is_super_admin === true;
+    const canReply = manager || reception.has(role);
+    const topManager = TOP_MANAGEMENT.has(role) || profile.is_super_admin === true;
+    const staffName = val(profile.full_name, 120) || null;
+    const hotelId = val(body.hotel_id, 130);
+    if (!hotelId) return deny("Select a hotel first", 400);
+    const { data: organization } = await db.from("organizations").select("id")
+      .eq("slug", profile.organization_slug).maybeSingle();
+    if (!organization) return deny("Organization missing", 403);
+    const { data: hotel } = await db.from("hotel_configurations")
+      .select("hotel_id, hotel_name, organization_id")
+      .eq("hotel_id", hotelId).eq("organization_id", organization.id).maybeSingle();
+    if (!hotel) return deny("Hotel not found", 404);
+    const scoped = [hotel.hotel_id, hotel.hotel_name].includes(profile.assigned_hotel || "")
+      || role === "top_management" || role === "top_management_manager" || profile.is_super_admin === true;
+    if (!scoped) return deny("Select your assigned hotel", 403);
+    const org = profile.organization_slug;
+    const roomQuery = () => db.from("rooms").select("id,room_number,hotel,organization_slug")
+      .eq("organization_slug", org).in("hotel", [hotel.hotel_id, hotel.hotel_name]).order("room_number").limit(1000);
+    if (action === "staff-dashboard") {
+      if (!manager && !canReply && role !== "housekeeping" && role !== "maintenance"
+          && role !== "breakfast_staff") return deny("Role not permitted", 403);
+      const [cfg, deviceResult, roomResult, requestResult, msgResult, alertResult, catalogResult, orderResult, bookingResult] = await Promise.all([
+        db.from("insuite_property_configs").select("draft,published,enabled,updated_at")
+          .eq("organization_slug", org).eq("hotel_id", hotelId).maybeSingle(),
+        manager ? db.from("insuite_devices").select("id,room_id,label,kind,is_active,active_reservation_id,paired_at,last_seen_at,created_at")
+          .eq("organization_slug", org).eq("hotel_id", hotelId).order("created_at", { ascending: false }).limit(300)
+          : Promise.resolve({ data: [] }),
+        manager ? roomQuery() : Promise.resolve({ data: [] }),
+        db.from("insuite_service_requests").select("id,room_id,request_type,quantity,detail,department,status,assigned_to,created_at,updated_at,priority")
+          .eq("organization_slug", org).eq("hotel_id", hotelId)
+          .gte("created_at", new Date(Date.now() - 3 * 86400_000).toISOString()).order("created_at", { ascending: false }).limit(200),
+        canReply ? db.from("insuite_messages").select("id,room_id,device_id,session_epoch,sender,body,created_at")
+          .eq("organization_slug", org).eq("hotel_id", hotelId)
+          .gte("created_at", new Date(Date.now() - 86400_000).toISOString()).order("created_at", { ascending: false }).limit(200)
+          : Promise.resolve({ data: [] }),
+        db.from("insuite_staff_alerts").select("id,kind,title,body,room_id,request_id,message_id,created_at,acknowledged_at")
+          .eq("organization_slug", org).eq("hotel_id", hotelId)
+          .eq("recipient_id", profile.id)
+          .is("acknowledged_at", null).order("created_at", { ascending: false }).limit(60),
+        administrator ? db.from("insuite_catalog_items")
+          .select("id,kind,name,description,image_url,allergens,price,currency,is_active,sort_order")
+          .eq("organization_slug", org).eq("hotel_id", hotelId).order("kind").order("sort_order").limit(300)
+          : Promise.resolve({ data: [] }),
+        (canReply || role === "breakfast_staff") ? db.from("insuite_orders")
+          .select("id,room_id,kind,notes,currency,quoted_total,requested_at,status,created_at")
+          .eq("organization_slug", org).eq("hotel_id", hotelId)
+          .gte("created_at", new Date(Date.now() - 3 * 86400_000).toISOString())
+          .order("created_at", { ascending: false }).limit(150)
+          : Promise.resolve({ data: [] }),
+        canReply ? db.from("insuite_booking_requests")
+          .select("id,room_id,kind,starts_at,party_size,notes,staff_note,status,created_at")
+          .eq("organization_slug", org).eq("hotel_id", hotelId)
+          .gte("created_at", new Date(Date.now() - 3 * 86400_000).toISOString())
+          .order("created_at", { ascending: false }).limit(150)
+          : Promise.resolve({ data: [] }),
+      ]);
+      const requests = (requestResult.data || []).filter((r: any) => manager || canReply || r.assigned_to === profile.id);
+      const { data: candidates } = manager || canReply
+        ? await db.from("profiles")
+          .select("id,full_name,nickname,role,hotel_id,assigned_hotel,acts_as_housekeeper")
+          .eq("organization_slug",org).is("deleted_at",null)
+          .in("role",["housekeeping","maintenance","reception","front_office",
+            "housekeeping_manager","maintenance_manager","reception_manager"])
+          .limit(500)
+        : { data: [] };
+      const hotelStaff = (candidates || []).filter((p: any) =>
+        p.hotel_id === hotelId || [hotel.hotel_id,hotel.hotel_name].includes(p.assigned_hotel || ""));
+      const staffIds = hotelStaff.map((p: any) => p.id);
+      const { data: attendance } = staffIds.length
+        ? await db.from("staff_attendance")
+          .select("user_id,status,check_out_time,created_at").in("user_id",staffIds)
+          .eq("work_date",todayBudapest()).order("created_at",{ascending:false}).limit(1000)
+        : { data: [] };
+      const staffOnDuty = new Map<string,boolean>();
+      for (const a of attendance || []) {
+        if (!staffOnDuty.has(a.user_id)) staffOnDuty.set(a.user_id,
+          !a.check_out_time && a.status === "checked_in");
+      }
+      const eligibleStaff = hotelStaff.map((p: any) => ({
+        id:p.id,name:val(p.full_name || p.nickname,100) || "Staff member",
+        role:p.role,acts_as_housekeeper:!!p.acts_as_housekeeper,
+        on_duty:staffOnDuty.get(p.id) === true,
+      }));
+      const orderIds = (orderResult.data || []).map((o: any) => o.id);
+      const { data: orderLines } = orderIds.length
+        ? await db.from("insuite_order_lines")
+          .select("order_id,name_snapshot,unit_price,quantity,line_total").in("order_id", orderIds)
+        : { data: [] };
+      // Reception sees only messages in the *currently active* device epoch, never previous guest sessions.
+      const deviceEpochs = new Map<string, string>();
+      if (canReply && (msgResult.data || []).length) {
+        const ids = [...new Set((msgResult.data || []).map((m: any) => m.device_id))];
+        const { data: activeDevices } = await db.from("insuite_devices").select("id,session_epoch").in("id", ids);
+        for (const d of activeDevices || []) deviceEpochs.set(d.id, d.session_epoch);
+      }
+      return send({
+        hotel_name: hotel.hotel_name,
+        config: manager ? cfg.data || { draft: {}, published: {}, enabled: false } : { enabled: !!cfg.data?.enabled },
+        rooms: roomResult.data || [], devices: deviceResult.data || [],
+        requests, alerts: alertResult.data || [], eligible_staff: eligibleStaff,
+        catalog_items: catalogResult.data || [],
+        orders: orderResult.data || [], order_lines: orderLines || [], bookings: bookingResult.data || [],
+        messages: (msgResult.data || []).filter((m: any) => deviceEpochs.get(m.device_id) === m.session_epoch),
+        room_labels: await (async () => {
+          const ids = [...new Set([...requests.map((r: any) => r.room_id),
+            ...(msgResult.data || []).map((m: any) => m.room_id),
+            ...(orderResult.data || []).map((o: any) => o.room_id),
+            ...(bookingResult.data || []).map((b: any) => b.room_id)])];
+          if (!ids.length) return {};
+          const { data } = await db.from("rooms").select("id,room_number").in("id", ids);
+          return Object.fromEntries((data || []).map((r: any) => [r.id, r.room_number]));
+        })(),
+        room_guest_labels: await (async () => {
+          const ids = [...new Set([...requests.map((r: any) => r.room_id),
+            ...(msgResult.data || []).map((m: any) => m.room_id),
+            ...(orderResult.data || []).map((o: any) => o.room_id),
+            ...(bookingResult.data || []).map((b: any) => b.room_id)])];
+          if (!ids.length) return {};
+          const { data: stays } = await db.from("reservations")
+            .select("room_id,pms_guest_name,guests(first_name,last_name)")
+            .eq("organization_slug", org).eq("status","checked_in").in("room_id",ids).limit(300);
+          const byRoom = new Map<string,string[]>();
+          for (const stay of stays || []) {
+            const guest = stay.guests as any;
+            const fromProfile = [guest?.first_name, guest?.last_name].filter(Boolean).join(" ").trim();
+            const name = fromProfile || val(stay.pms_guest_name,100);
+            if (!name || !stay.room_id) continue;
+            byRoom.set(stay.room_id, [...(byRoom.get(stay.room_id) || []),name]);
+          }
+          // Ambiguous overlaps must not display a possibly incorrect guest.
+          return Object.fromEntries([...byRoom.entries()]
+            .filter(([,names]) => names.length === 1).map(([id,names]) => [id,names[0]]));
+        })(),
+        can_manage: manager, can_configure: administrator, can_reply: canReply,
+        can_manage_orders: canReply || role === "breakfast_staff",
+      });
+    }
+    if (action === "staff-ack-alert") {
+      const id = Number(body.alert_id);
+      if (!Number.isSafeInteger(id) || id <= 0) return deny("Invalid alert", 400);
+      const { data: updated } = await db.from("insuite_staff_alerts")
+        .update({ acknowledged_at: new Date().toISOString() })
+        .eq("id", id).eq("recipient_id", profile.id)
+        .eq("organization_slug", org).eq("hotel_id", hotelId)
+        .select("id").maybeSingle();
+      return updated ? send({ acknowledged: true }) : deny("Alert not found", 404);
+    }
+    
+    if (action === "staff-save-menu-item") {
+      if (!administrator) return deny("Administrator permission required");
+      const id = val(body.item_id, 40);
+      const kind = val(body.kind, 30);
+      const name = val(body.name, 150);
+      const price = Number(body.price);
+      const currency = val(body.currency, 3).toUpperCase();
+      const imageUrl = val(body.image_url, 900);
+      if (!orderTypes.includes(kind) || name.length < 2
+        || !Number.isFinite(price) || price < 0 || price > 1_000_000
+        || !/^[A-Z]{3}$/.test(currency) || Math.abs(price * 100 - Math.round(price * 100)) > 0.000001
+        || imageUrl && !/^https:\/\//i.test(imageUrl)) return deny("Invalid menu item", 400);
+      const patch = {
+        kind, name, price, currency, description: val(body.description, 500),
+        allergens: val(body.allergens, 250), image_url: imageUrl || null,
+        is_active: body.is_active === true, updated_at: new Date().toISOString(),
+      };
+      if (id) {
+        if (!validUuid(id)) return deny("Invalid item identifier", 400);
+        const { data, error } = await db.from("insuite_catalog_items").update(patch)
+          .eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId).select("id").maybeSingle();
+        if (error) throw error;
+        return data ? send({ saved: true, id: data.id }) : deny("Item not found", 404);
+      }
+      const { data, error } = await db.from("insuite_catalog_items").insert({
+        ...patch, organization_slug: org, hotel_id: hotelId,
+      }).select("id").single();
+      if (error) throw error;
+      return send({ saved: true, id: data.id }, 201);
+    }
+    if (action === "staff-update-order") {
+      if (!canReply && role !== "breakfast_staff") return deny("Food service access required");
+      const id = val(body.order_id, 40);
+      const status = val(body.status, 30);
+      if (!validUuid(id)) return deny("Invalid order identifier", 400);
+      const { data: old } = await db.from("insuite_orders").select("id,kind,status")
+        .eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId).maybeSingle();
+      if (!old) return deny("Order not found", 404);
+      if (role === "breakfast_staff" && old.kind !== "breakfast") return deny("Breakfast orders only", 403);
+      const transitions: Record<string, string[]> = {
+        submitted: ["confirmed","declined","cancelled"],
+        confirmed: ["preparing","on_the_way","delivered","cancelled"],
+        preparing: ["on_the_way","delivered","cancelled"],
+        on_the_way: ["delivered","cancelled"],
+      };
+      if (!(transitions[old.status] || []).includes(status)) return deny("Invalid order transition", 409);
+      const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+      if (status === "delivered") patch.completed_at = new Date().toISOString();
+      const { data: updated, error } = await db.from("insuite_orders").update(patch)
+        .eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId)
+        .eq("status", old.status).select("id,status").maybeSingle();
+      if (error || !updated) return deny("Order changed. Refresh and retry", 409);
+      return send({ order: updated });
+    }
+    if (action === "staff-update-booking") {
+      if (!canReply) return deny("Front desk permission required");
+      const id = val(body.booking_id, 40);
+      const status = val(body.status, 30);
+      if (!validUuid(id)) return deny("Invalid booking identifier", 400);
+      const { data: old } = await db.from("insuite_booking_requests")
+        .select("id,status,starts_at").eq("id", id).eq("organization_slug", org)
+        .eq("hotel_id", hotelId).maybeSingle();
+      if (!old) return deny("Booking not found", 404);
+      const transitions: Record<string, string[]> = {
+        requested: ["confirmed","declined","cancelled"],
+        confirmed: ["completed","cancelled"],
+      };
+      if (!(transitions[old.status] || []).includes(status)) return deny("Invalid booking transition", 409);
+      if (status === "confirmed" && Date.parse(old.starts_at) < Date.now() - 900_000)
+        return deny("Cannot confirm an expired request", 409);
+      const { data: updated, error } = await db.from("insuite_booking_requests").update({
+        status, staff_note: val(body.staff_note, 400), updated_at: new Date().toISOString(),
+      }).eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId)
+        .eq("status", old.status).select("id,status").maybeSingle();
+      if (error || !updated) return deny("Booking changed. Refresh and retry", 409);
+      return send({ booking: updated });
+    }
+
+    if (action === "staff-upload-image") {
+      if (!administrator) return deny("Administrator permission required");
+      const kind = val(body.kind, 12);
+      if (kind !== "logo" && kind !== "hero") return deny("Invalid image type", 400);
+      const encoded = typeof body.image_data === "string" ? body.image_data : "";
+      if (!/^data:image\/webp;base64,[A-Za-z0-9+/=]+$/.test(encoded) || encoded.length > 820_000)
+        return deny("Use a compressed WebP image smaller than 550 KB", 400);
+      let bytes: Uint8Array;
+      try {
+        const raw = atob(encoded.split(",")[1]);
+        bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+      } catch { return deny("Invalid image encoding", 400); }
+      if (!bytes.length || bytes.length > 550 * 1024 ||
+          !(bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+            bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50))
+        return deny("Invalid or oversized WebP file", 400);
+      // Existing public hotel-assets bucket: only this authenticated, hotel-scoped
+      // administrator action can upload In-Suite images.
+      const objectPath = `insuite/${org}/${hotelId}/${kind}-${crypto.randomUUID()}.webp`;
+      const { error } = await db.storage.from("hotel-assets").upload(objectPath, bytes, {
+        contentType: "image/webp", cacheControl: "31536000", upsert: false,
+      });
+      if (error) throw error;
+      const { data: publicImage } = db.storage.from("hotel-assets").getPublicUrl(objectPath);
+      return send({ url: publicImage.publicUrl, original_replaced: false }, 201);
+    }
+
+    if (action === "staff-prefill-draft") {
+      if (!administrator) return deny("Administrator permission required");
+      // Safe prefill only from verified HotelCare property records. Guest Wi-Fi,
+      // service capacity, pricing and hours must always be entered by staff.
+      const [{ data: property }, { data: existing }] = await Promise.all([
+        db.from("hotel_configurations").select(
+          "hotel_name,custom_logo_url,custom_primary_color,custom_welcome_message"
+        ).eq("hotel_id", hotelId).eq("organization_id", organization.id).maybeSingle(),
+        db.from("insuite_property_configs").select("draft")
+          .eq("organization_slug", org).eq("hotel_id", hotelId).maybeSingle(),
+      ]);
+      if (!property) return deny("Property details not found", 404);
+      const current = cleanContent(existing?.draft || {});
+      const seeded = cleanContent({
+        ...current,
+        hotel_name: current.hotel_name || property.hotel_name,
+        logo_url: current.logo_url || property.custom_logo_url || "",
+        primary_color: current.primary_color !== "#153B57"
+          ? current.primary_color : property.custom_primary_color || current.primary_color,
+        welcome: current.welcome || property.custom_welcome_message || "",
+      });
+      const { error } = await db.from("insuite_property_configs").upsert({
+        organization_slug: org, hotel_id: hotelId, draft: seeded,
+        updated_by: profile.id, updated_at: new Date().toISOString(),
+      }, { onConflict: "organization_slug,hotel_id" });
+      if (error) throw error;
+      return send({ draft: seeded, public_fields_not_verified: true });
+    }
+    if (action === "staff-save-draft" || action === "staff-publish") {
+      if (!administrator) return deny("Administrator permission required");
+      if (action === "staff-save-draft") {
+        const draft = cleanContent(body.draft);
+        const { error } = await db.from("insuite_property_configs").upsert({
+          organization_slug: org, hotel_id: hotelId, draft, updated_by: profile.id, updated_at: new Date().toISOString(),
+        }, { onConflict: "organization_slug,hotel_id" });
+        if (error) throw error;
+        return send({ saved: true });
+      }
+      const { data: current } = await db.from("insuite_property_configs").select("draft")
+        .eq("organization_slug", org).eq("hotel_id", hotelId).maybeSingle();
+      if (!current) return deny("Save a draft before publishing", 400);
+      const published = cleanContent(current.draft);
+      if (!published.hotel_name) published.hotel_name = hotel.hotel_name;
+      // Facility guard: never publish jacuzzi reservations for hotels without one.
+      if (!JACUZZI_HOTELS.has(hotelId) && published.services
+        && typeof published.services === "object")
+        (published.services as Record<string, boolean>).jacuzzi = false;
+      const { error } = await db.from("insuite_property_configs").update({
+        published, enabled: true, updated_by: profile.id, updated_at: new Date().toISOString(),
+      }).eq("organization_slug", org).eq("hotel_id", hotelId);
+      if (error) throw error;
+      return send({ published: true });
+    }
+    if (action === "staff-create-device") {
+      if (!administrator) return deny("Administrator permission required");
+      const roomId = val(body.room_id, 40);
+      if (!validUuid(roomId)) return deny("Select a room", 400);
+      const { data: room } = await roomQuery().eq("id", roomId).maybeSingle();
+      if (!room) return deny("Room does not belong to this hotel", 403);
+      const { data: existing } = await db.from("insuite_devices").select("id").eq("room_id", roomId)
+        .eq("is_active", true).eq("kind", "tablet").maybeSingle();
+      if (existing) return deny("Revoke the existing room tablet before creating another", 409);
+      const { data: stays, error: stayError } = await db.from("reservations")
+        .select("id").eq("room_id", room.id).eq("organization_slug", org)
+        .eq("status", "checked_in").limit(2);
+      if (stayError) throw stayError;
+      const activeStay = (stays || []).length === 1 ? stays[0].id : null;
+      const id = crypto.randomUUID();
+      const code = random(12).toUpperCase();
+      const pin = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
+      const { error } = await db.from("insuite_devices").insert({
+        id, organization_slug: org, hotel_id: hotelId, room_id: roomId, kind: "tablet",
+        label: val(body.label, 80) || "Room " + room.room_number,
+        active_reservation_id: activeStay,
+        pairing_hash: await sha(code), pairing_expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+        pin_hash: await pinHash(id, pin), created_by: profile.id,
+      });
+      if (error) throw error;
+      return send({ code, pin, expires_in_minutes: 15, room_number: room.room_number, device_id: id }, 201);
+    }
+
+    if (action === "staff-view-qr") {
+      if (!administrator) return deny("Administrator permission required");
+      const requested: string[] = Array.isArray(body.room_ids)
+        ? [...new Set(body.room_ids.map((v: unknown) => val(v, 40)).filter(validUuid))] : [];
+      if (!requested.length || requested.length > 200) return deny("Select 1-200 rooms", 400);
+      const { data: hotelRooms, error: roomsError } = await roomQuery().in("id", requested);
+      if (roomsError) throw roomsError;
+      if ((hotelRooms || []).length !== requested.length) return deny("Unknown hotel room", 403);
+      const roomNumbers = new Map((hotelRooms || []).map((r: any) => [r.id, String(r.room_number)]));
+      const { data: devices, error } = await db.from("insuite_devices")
+        .select("id,room_id,device_token_hash").eq("organization_slug", org)
+        .eq("hotel_id", hotelId).eq("kind", "qr").eq("is_active", true)
+        .in("room_id", requested).limit(200);
+      if (error) throw error;
+      const codes: Array<{room_id: string; room_number: string; token: string}> = [];
+      const legacy_room_ids: string[] = [];
+      for (const device of devices || []) {
+        const token = await qrTokenForDevice(device.id);
+        if (await sha(token) === device.device_token_hash) {
+          codes.push({ room_id: device.room_id,
+            room_number: roomNumbers.get(device.room_id) || "?", token });
+        } else {
+          // Pre-upgrade random tokens cannot be recovered from hashes.
+          legacy_room_ids.push(device.room_id);
+        }
+      }
+      return send({ codes, legacy_room_ids });
+    }
+
+    if (action === "staff-create-qr") {
+      // Per-room guest QR codes: the token inside the QR pre-pairs the guest's
+      // own phone to the room. Printing a NEW QR invalidates the previous one
+      // for that room. Guest requests still require a verified checked-in stay.
+      if (!administrator) return deny("Administrator permission required");
+      const requested: string[] = Array.isArray(body.room_ids)
+        ? body.room_ids.map((v: unknown) => val(v, 40)).filter(validUuid) : [];
+      if (!requested.length || requested.length > 200) return deny("Select 1-200 rooms", 400);
+      const { data: hotelRooms, error: roomsError } = await roomQuery().in("id", requested);
+      if (roomsError) throw roomsError;
+      const allowed = new Map((hotelRooms || []).map((r: any) => [r.id, r.room_number]));
+      if (allowed.size !== requested.length) return deny("A selected room does not belong to this hotel", 403);
+      const codes: Array<{ room_id: string; room_number: string; token: string }> = [];
+      for (const roomId of requested) {
+        const roomNumber = String(allowed.get(roomId));
+        // Start each new QR unbound. The guarded guest bootstrap verifies a
+        // current PMS check-in and ensures no matching verified checkout event
+        // occurred before it establishes the stay. Previous QR is revoked.
+        const { data: previous } = await db.from("insuite_devices")
+          .select("id, active_reservation_id, session_epoch")
+          .eq("room_id", roomId).eq("kind", "qr").eq("is_active", true).maybeSingle();
+        if (previous) {
+          await db.from("insuite_devices").update({ is_active: false, device_token_hash: null })
+            .eq("id", previous.id);
+        }
+        const id = crypto.randomUUID();
+        const token = await qrTokenForDevice(id);
+        const { error } = await db.from("insuite_devices").insert({
+          id, organization_slug: org, hotel_id: hotelId, room_id: roomId, kind: "qr",
+          label: "Room " + roomNumber + " · QR",
+          device_token_hash: await sha(token), paired_at: new Date().toISOString(),
+          active_reservation_id: null,
+          // A replacement QR starts a fresh privacy epoch even for the same stay.
+          session_epoch: crypto.randomUUID(),
+          created_by: profile.id,
+        });
+        if (error) throw error;
+        codes.push({ room_id: roomId, room_number: roomNumber, token });
+      }
+      // Tokens are shown exactly once; only hashes are stored.
+      return send({ codes }, 201);
+    }
+    if (action === "staff-reconcile-stay") {
+      if (!canReply) return deny("Front desk or manager permission required");
+      const id = val(body.device_id, 40);
+      if (!validUuid(id)) return deny("Invalid device", 400);
+      const { data: device } = await db.from("insuite_devices")
+        .select("id,room_id,active_reservation_id").eq("id", id).eq("organization_slug", org)
+        .eq("hotel_id", hotelId).eq("is_active", true).maybeSingle();
+      if (!device) return deny("Device not found", 404);
+      const { data: active, error: activeError } = await db.from("reservations")
+        .select("id").eq("room_id", device.room_id).eq("organization_slug", org)
+        .eq("status", "checked_in").limit(2);
+      if (activeError) throw activeError;
+      if ((active || []).length !== 1) return deny("Exactly one verified checked-in reservation is required", 409);
+      // Verify the whole ROOM in one step: a room can hold a tablet AND a QR
+      // code, and both must follow the same checked-in reservation. Only
+      // rebind devices whose reservation changes; idempotent reconciliation
+      // does not destroy an in-stay conversation.
+      const { data: roomDevices, error: roomDevicesError } = await db.from("insuite_devices")
+        .select("id, active_reservation_id").eq("room_id", device.room_id)
+        .eq("organization_slug", org).eq("hotel_id", hotelId).eq("is_active", true);
+      if (roomDevicesError) throw roomDevicesError;
+      let rotated = 0;
+      for (const entry of roomDevices || []) {
+        if (entry.active_reservation_id === active[0].id) continue;
+        let update = db.from("insuite_devices").update({
+          active_reservation_id: active[0].id,
+          session_epoch: crypto.randomUUID(), session_started_at: new Date().toISOString(),
+        }).eq("id", entry.id).eq("organization_slug", org).eq("hotel_id", hotelId);
+        update = entry.active_reservation_id
+          ? update.eq("active_reservation_id", entry.active_reservation_id)
+          : update.is("active_reservation_id", null);
+        const { data: changed, error } = await update.select("id").maybeSingle();
+        if (error) throw error;
+        if (!changed) return deny("Stay changed. Refresh and retry.", 409);
+        rotated++;
+      }
+      return send(rotated === 0 ? { stay_active: true, unchanged: true }
+        : { stay_active: true, session_rotated: true, devices_updated: rotated });
+    }
+    if (action === "staff-reset-session" || action === "staff-revoke-device") {
+      if (!canReply && !administrator) return deny("Front desk or manager permission required");
+      const id = val(body.device_id, 40);
+      if (!validUuid(id)) return deny("Invalid device", 400);
+      if (action === "staff-revoke-device" && !administrator) return deny("Administrator permission required");
+      const patch = action === "staff-revoke-device"
+        ? { is_active: false, device_token_hash: null, pairing_hash: null,
+          active_reservation_id: null, session_epoch: crypto.randomUUID(), session_started_at: new Date().toISOString() }
+        : { active_reservation_id: null, session_epoch: crypto.randomUUID(), session_started_at: new Date().toISOString() };
+      const { data, error } = await db.from("insuite_devices").update(patch)
+        .eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId).select("id").maybeSingle();
+      if (error || !data) return deny("Device not found", 404);
+      return send({ updated: true });
+    }
+    if (action === "staff-assign-request") {
+      if (!canReply) return deny("Manager or reception permission required");
+      const id = val(body.request_id,40);
+      const targetId = val(body.assigned_to,40);
+      if (!validUuid(id) || !validUuid(targetId)) return deny("Request and employee required",400);
+      const { data: item } = await db.from("insuite_service_requests")
+        .select("id,room_id,department,status,assigned_to").eq("id",id)
+        .eq("organization_slug",org).eq("hotel_id",hotelId).maybeSingle();
+      if (!item) return deny("Request not found",404);
+      if (["completed","cancelled","unavailable"].includes(item.status))
+        return deny("Closed requests cannot be reassigned",409);
+      const { data: candidate } = await db.from("profiles")
+        .select("id,role,acts_as_housekeeper,hotel_id,assigned_hotel")
+        .eq("id",targetId).eq("organization_slug",org).is("deleted_at",null).maybeSingle();
+      if (!candidate || !(
+        candidate.hotel_id === hotelId || [hotel.hotel_id,hotel.hotel_name].includes(candidate.assigned_hotel || "")
+      )) return deny("Employee is not assigned to this property",403);
+      const supported = item.department === "housekeeping"
+        ? candidate.role === "housekeeping" || candidate.acts_as_housekeeper === true
+        : item.department === "maintenance"
+          ? ["maintenance","maintenance_manager"].includes(candidate.role)
+          : ["reception","front_office","reception_manager"].includes(candidate.role);
+      if (!supported) return deny("This staff role cannot handle the request",403);
+      const { data: shift } = await db.from("staff_attendance")
+        .select("status,check_out_time").eq("user_id",candidate.id)
+        .eq("work_date",todayBudapest()).order("created_at",{ascending:false})
+        .limit(1).maybeSingle();
+      if (!shift || shift.status !== "checked_in" || shift.check_out_time)
+        return deny("Employee is not currently signed in",409);
+      if (item.assigned_to === targetId) return send({ assigned:true,unchanged:true });
+      let change = db.from("insuite_service_requests").update({
+        assigned_to: targetId, updated_at:new Date().toISOString(),
+        status:"submitted", escalation_level:0, escalated_at:null,
+      }).eq("id",id).eq("organization_slug",org).eq("hotel_id",hotelId).eq("status",item.status);
+      change = item.assigned_to
+        ? change.eq("assigned_to",item.assigned_to)
+        : change.is("assigned_to",null);
+      const { data: updated,error } = await change.select("id,assigned_to,status").maybeSingle();
+      if (error || !updated) return deny("Request was changed. Refresh first",409);
+      await db.from("insuite_request_events").insert({
+        request_id:id,old_status:item.status,new_status:"submitted",actor_user_id:profile.id,
+      });
+      return send({ request:updated });
+    }
+    if (action === "staff-update-request") {
+      const id = val(body.request_id, 40);
+      const status = val(body.status, 40);
+      if (!validUuid(id)) return deny("Invalid request", 400);
+      const { data: item } = await db.from("insuite_service_requests").select("*").eq("id", id)
+        .eq("organization_slug", org).eq("hotel_id", hotelId).maybeSingle();
+      if (!item) return deny("Request not found", 404);
+      if (!manager && !canReply && item.assigned_to !== profile.id) return deny("Not assigned to you");
+      const transitions: Record<string, string[]> = {
+        submitted: ["accepted", "unavailable", "cancelled"],
+        accepted: ["in_progress", "completed", "unavailable"],
+        in_progress: ["completed", "unavailable"],
+      };
+      if (!(transitions[item.status] || []).includes(status)) return deny("Invalid status transition", 409);
+      const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+      if (status === "completed") patch.completed_at = new Date().toISOString();
+      if (status === "accepted" && !item.assigned_to) patch.assigned_to = profile.id;
+      const { data: updated, error } = await db.from("insuite_service_requests").update(patch)
+        .eq("id", id).eq("status", item.status).eq("organization_slug", org).eq("hotel_id", hotelId)
+        .select("id,status").maybeSingle();
+      if (error || !updated) return deny("Request changed. Refresh and retry.", 409);
+      await db.from("insuite_request_events").insert({
+        request_id: id, old_status: item.status, new_status: status, actor_user_id: profile.id,
+      });
+      return send({ request: updated });
+    }
+    if (action === "staff-reply") {
+      if (!canReply) return deny("Reception access required");
+      const deviceId = val(body.device_id, 40);
+      const message = val(body.message, 1000);
+      if (!validUuid(deviceId) || !message) return deny("Device and message required", 400);
+      const { data: device } = await db.from("insuite_devices")
+        .select("id,room_id,session_epoch,active_reservation_id").eq("id", deviceId)
+        .eq("organization_slug", org).eq("hotel_id", hotelId).eq("is_active", true).maybeSingle();
+      if (!device) return deny("Device not found", 404);
+      const { data: occupant } = await db.from("reservations").select("id")
+        .eq("id", (device as any).active_reservation_id || "00000000-0000-0000-0000-000000000000")
+        .eq("status", "checked_in").eq("room_id", device.room_id).maybeSingle();
+      if (!occupant) return deny("No verified in-house guest in this room", 409);
+      const { error } = await db.from("insuite_messages").insert({
+        organization_slug: org, hotel_id: hotelId, room_id: device.room_id, device_id: device.id,
+        session_epoch: device.session_epoch, sender: "reception", sender_user_id: profile.id, body: message,
+      });
+      if (error) throw error;
+      return send({ sent: true }, 201);
+    }
+    // ------------------------------------------------------------ wellness
+    // Jacuzzi / sauna calendar. Every staff member sees it; reception books
+    // and changes bookings; only top management changes the setup.
+    if (action === "staff-wellness") {
+      if (!manager && !canReply && role !== "housekeeping") return deny("Role not permitted", 403);
+      const isDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v));
+      const from = isDate(val(body.date_from, 10)) ? val(body.date_from, 10) : todayBudapest();
+      const requestedTo = isDate(val(body.date_to, 10)) ? val(body.date_to, 10) : addDaysIso(from, 6);
+      const to = requestedTo < from ? from : requestedTo;
+      const [slots, settings] = await Promise.all([
+        db.rpc("insuite_wellness_slots", { _hotel_id: hotelId, _from: from, _to: to, _staff: true, _include_inactive: topManager }),
+        db.from("insuite_wellness_settings").select("notification_emails,transfer_prices,transfer_source").eq("hotel_id", hotelId).maybeSingle(),
+      ]);
+      if (slots.error) throw slots.error;
+      return send({
+        ...(slots.data || {}), can_book: canReply, can_setup: topManager,
+        transfer_prices: settings.data?.transfer_prices || [],
+        settings: topManager ? {
+          notification_emails: settings.data?.notification_emails || [],
+          transfer_prices: settings.data?.transfer_prices || [],
+          transfer_source: settings.data?.transfer_source || null,
+          recipients: await wellnessRecipients(db, hotelId),
+        } : undefined,
+      });
+    }
+
+    if (action === "staff-wellness-stays") {
+      if (!canReply) return deny("Reception permission required", 403);
+      const fold = (v: unknown) => String(v ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      const q = fold(val(body.q, 60)).trim();
+      const today = todayBudapest();
+      const { data: stays, error } = await db.from("reservations")
+        .select("id,room_id,status,check_in_date,check_out_date,pms_guest_name,pms_contact_name,guests(first_name,last_name,email)")
+        .eq("hotel_id", hotelId).in("status", ["pending", "confirmed", "checked_in"])
+        .gte("check_out_date", today).lte("check_in_date", addDaysIso(today, 30))
+        .is("pms_missing_since", null).order("check_in_date").limit(300);
+      if (error) throw error;
+      const roomIds = [...new Set((stays || []).map((s: any) => s.room_id).filter(Boolean))];
+      const { data: rooms } = roomIds.length
+        ? await db.from("rooms").select("id,room_number").in("id", roomIds) : { data: [] };
+      const roomNumber = new Map((rooms || []).map((r: any) => [r.id, String(r.room_number)]));
+      const out = (stays || []).map((s: any) => {
+        const g = Array.isArray(s.guests) ? s.guests[0] : s.guests;
+        const name = val(s.pms_contact_name, 160) || val(s.pms_guest_name, 160)
+          || [g?.first_name, g?.last_name].filter(Boolean).join(" ") || "Guest";
+        return { id: s.id, guest_name: name, room_number: roomNumber.get(s.room_id) || null,
+          check_in_date: s.check_in_date, check_out_date: s.check_out_date, status: s.status,
+          has_email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(g?.email || "")) };
+      }).filter((s: any) => !q || fold(s.guest_name).includes(q) || fold(s.room_number).startsWith(q))
+        .sort((a: any, b: any) => (a.status === "checked_in" ? 0 : 1) - (b.status === "checked_in" ? 0 : 1)
+          || String(a.room_number || "~").localeCompare(String(b.room_number || "~"), undefined, { numeric: true }))
+        .slice(0, 20);
+      return send({ stays: out });
+    }
+
+    if (action === "staff-wellness-book") {
+      if (!canReply) return deny("Reception permission required", 403);
+      const resourceId = val(body.resource_id, 40);
+      const reservationId = val(body.reservation_id, 40);
+      const startsAt = Date.parse(val(body.starts_at, 50));
+      const party = Number(body.party_size);
+      const clientId = val(body.client_request_id, 40);
+      if (!validUuid(resourceId) || !Number.isFinite(startsAt) || !Number.isInteger(party) || !validUuid(clientId)
+          || (reservationId && !validUuid(reservationId)))
+        return deny("Choose a time slot, the guest and the number of people", 400);
+      const { data: resource } = await db.from("insuite_wellness_resources").select("id")
+        .eq("id", resourceId).eq("hotel_id", hotelId).maybeSingle();
+      if (!resource) return deny("Facility not found", 404);
+      const emailOk = (v: unknown) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || ""));
+      let ticketTo = emailOk(val(body.guest_email, 200)) ? val(body.guest_email, 200).toLowerCase() : "";
+      if (body.send_ticket === true && !ticketTo && reservationId) {
+        const { data: stayRow } = await db.from("reservations").select("hotel_id,guests(email)").eq("id", reservationId).maybeSingle();
+        const g = stayRow && (Array.isArray(stayRow.guests) ? stayRow.guests[0] : stayRow.guests);
+        if (stayRow?.hotel_id === hotelId && emailOk(g?.email)) ticketTo = String(g?.email).toLowerCase();
+      }
+      const { data: booking, error } = await db.rpc("insuite_wellness_book", {
+        _resource_id: resourceId, _starts_at: new Date(startsAt).toISOString(), _party_size: party,
+        _source: "reception", _reservation_id: reservationId || null, _guest_name: val(body.guest_name, 160) || null,
+        _guest_email: body.send_ticket === true && ticketTo ? ticketTo : null,
+        _created_by: profile.id, _client_request_id: clientId, _notes: val(body.notes, 400),
+      });
+      if (error) return wellnessFail(error);
+      if (!booking.repeated) {
+        await afterResponse(Promise.all([
+          notifyReception(db, booking, "booked", staffName),
+          booking.guest_email ? sendGuestTicket(db, booking, booking.guest_email) : Promise.resolve(null),
+        ]));
+      }
+      return send({ booking }, booking.repeated ? 200 : 201);
+    }
+
+    if (action === "staff-wellness-update") {
+      if (!canReply) return deny("Reception permission required", 403);
+      const bookingId = val(body.booking_id, 40);
+      const change = val(body.change, 20);
+      if (!validUuid(bookingId) || !["cancel", "complete", "no_show", "key_handed"].includes(change))
+        return deny("Invalid change", 400);
+      const { data: booking, error } = await db.rpc("insuite_wellness_change", {
+        _booking_id: bookingId, _hotel_id: hotelId, _action: change, _actor: profile.id,
+        _reason: val(body.reason, 300) || (change === "cancel" ? `Cancelled by reception${staffName ? ` (${staffName})` : ""}` : null),
+      });
+      if (error) return wellnessFail(error);
+      if (change === "cancel") {
+        await afterResponse(Promise.all([
+          notifyReception(db, booking, "cancelled", staffName),
+          booking.guest_email ? sendGuestTicket(db, booking, booking.guest_email, { event: "cancelled" }) : Promise.resolve(null),
+        ]));
+      }
+      return send({ booking });
+    }
+
+    if (action === "staff-wellness-save-resource") {
+      if (!topManager) return deny("Only top management can change the jacuzzi and sauna setup", 403);
+      const input = (body.resource && typeof body.resource === "object") ? body.resource as Record<string, unknown> : {};
+      const id = val(input.id, 40);
+      const kind = val(input.kind, 20);
+      const time = (v: unknown) => /^([01]\d|2[0-3]):[0-5]\d$/.test(val(v, 5)) ? val(v, 5) : "";
+      const int = (v: unknown, min: number, max: number) =>
+        Number.isInteger(Number(v)) && Number(v) >= min && Number(v) <= max ? Number(v) : NaN;
+      const weekdays = Array.isArray(input.weekdays)
+        ? [...new Set(input.weekdays.map(Number))].filter((d) => Number.isInteger(d) && d >= 1 && d <= 7).sort() : [];
+      const price = Number(input.price ?? 0);
+      const currency = val(input.currency, 3).toUpperCase();
+      const row = {
+        name: val(input.name, 80), description: val(input.description, 600),
+        image_url: val(input.image_url, 600) || null,
+        slot_minutes: int(input.slot_minutes, 15, 240), max_guests: int(input.max_guests, 1, 8),
+        opens_at: time(input.opens_at), closes_at: time(input.closes_at), weekdays,
+        max_per_day: int(input.max_per_day, 1, 12),
+        price: Number.isFinite(price) && price >= 0 && price <= 1_000_000 ? Math.round(price * 100) / 100 : NaN,
+        currency: /^[A-Z]{3}$/.test(currency) ? currency : "HUF",
+        is_active: input.is_active === true,
+        sort_order: Number.isInteger(Number(input.sort_order)) ? Number(input.sort_order) : 0,
+        updated_at: new Date().toISOString(), updated_by: profile.id,
+      };
+      if (row.name.length < 2 || Number.isNaN(row.slot_minutes) || Number.isNaN(row.max_guests) || Number.isNaN(row.max_per_day)
+          || Number.isNaN(row.price) || !row.opens_at || !row.closes_at || row.closes_at <= row.opens_at || !weekdays.length
+          || (row.image_url && !/^https:\/\//.test(row.image_url)))
+        return deny("Check the name, opening hours, slot length, guests and price", 400);
+      if (id) {
+        if (!validUuid(id)) return deny("Facility not found", 404);
+        const { data: saved, error } = await db.from("insuite_wellness_resources").update(row)
+          .eq("id", id).eq("hotel_id", hotelId).select("*").maybeSingle();
+        if (error) throw error;
+        if (!saved) return deny("Facility not found", 404);
+        return send({ resource: saved });
+      }
+      if (!(WELLNESS_KINDS as readonly string[]).includes(kind)) return deny("Choose jacuzzi or sauna", 400);
+      const { data: saved, error } = await db.from("insuite_wellness_resources")
+        .insert({ ...row, kind, organization_slug: org, hotel_id: hotelId }).select("*").single();
+      if (error?.code === "23505") return deny(`This hotel already has a ${kind}`, 409);
+      if (error) throw error;
+      return send({ resource: saved }, 201);
+    }
+
+    if (action === "staff-wellness-save-settings") {
+      if (!topManager) return deny("Only top management can change the jacuzzi and sauna setup", 403);
+      const emailOk = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+      const emails = Array.isArray(body.notification_emails)
+        ? [...new Set(body.notification_emails.map((v: unknown) => val(v, 200).toLowerCase()).filter(emailOk))] : [];
+      if (emails.length > 10) return deny("At most 10 reception addresses", 400);
+      const prices = Array.isArray(body.transfer_prices) ? body.transfer_prices.slice(0, 20).map((p: any) => {
+        const cur = val(p?.currency, 3).toUpperCase();
+        return { label: val(p?.label, 80), price: Number(p?.price), currency: /^[A-Z]{3}$/.test(cur) ? cur : "HUF", note: val(p?.note, 160) };
+      }).filter((p: any) => p.label && Number.isFinite(p.price) && p.price >= 0 && p.price <= 1_000_000) : [];
+      const { data: saved, error } = await db.from("insuite_wellness_settings").upsert({
+        hotel_id: hotelId, organization_slug: org, notification_emails: emails, transfer_prices: prices,
+        transfer_source: val(body.transfer_source, 300) || null, updated_at: new Date().toISOString(), updated_by: profile.id,
+      }, { onConflict: "hotel_id" }).select("notification_emails,transfer_prices,transfer_source").single();
+      if (error) throw error;
+      return send({ settings: { ...saved, recipients: await wellnessRecipients(db, hotelId) } });
+    }
+
+    return deny("Unknown staff action", 404);
+  } catch (error) {
+    console.error("[insuite-api] failed", error);
+    return send({ error: "Service temporarily unavailable" }, 503);
+  }
+});

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
 export interface DemandEventRow {
   id: string;
@@ -29,6 +30,7 @@ export interface DemandEventRow {
   expected_impact: string;
   recurs_annually: boolean;
   notes: string | null;
+  url: string | null;
   source: string;
   confidence: number | null;
   approved: boolean;
@@ -52,8 +54,11 @@ interface EventEdit {
   title: string;
   event_date: string;
   end_date: string;
+  category: string;
+  venue: string;
   expected_impact: string;
   recurs_annually: boolean;
+  url: string;
 }
 
 interface SearchRun {
@@ -84,12 +89,34 @@ const impactTone = (impact: string) =>
     : impact === "medium" ? "bg-amber-100 text-amber-700"
     : "bg-muted text-muted-foreground";
 
+const sourceUrl = (value: string | null | undefined): string | null => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+};
+
+const sourceHost = (value: string | null | undefined): string => {
+  const normalized = sourceUrl(value);
+  if (!normalized) return "source";
+  try {
+    return new URL(normalized).hostname.replace(/^www\./, "");
+  } catch {
+    return "source";
+  }
+};
+
 /**
  * The demand events calendar: manual entries plus an on-demand AI search for a
  * chosen city and month. Nothing found by AI is used until it is approved here.
  */
 export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: string | null; selectedMonth?: string }) {
   const [orgSlug, setOrgSlug] = useState<string | null>(null);
+  const [canEditLocation, setCanEditLocation] = useState(false);
   const [month, setMonth] = useState(() => selectedMonth ?? monthKey(new Date()));
   const [city, setCity] = useState("Budapest");
   const [country, setCountry] = useState("Hungary");
@@ -104,6 +131,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edit, setEdit] = useState<EventEdit | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<SearchRun | null>(null);
 
 
@@ -114,7 +142,9 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [venue, setVenue] = useState("");
+  const [manualSourceUrl, setManualSourceUrl] = useState("");
   const [recurring, setRecurring] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
 
   useEffect(() => {
     if (selectedMonth) setMonth(selectedMonth);
@@ -136,27 +166,43 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     setLoading(true);
     const { data: session } = await supabase.auth.getUser();
     const { data: profile } = await supabase
-      .from("profiles").select("organization_slug").eq("id", session.user?.id ?? "").maybeSingle();
+      .from("profiles").select("organization_slug, role").eq("id", session.user?.id ?? "").maybeSingle();
     const slug = profile?.organization_slug ?? null;
     setOrgSlug(slug);
+    setCanEditLocation(String(profile?.role ?? "") === "admin");
+
+    let marketCity = "Budapest";
+    let marketCountry = "Hungary";
 
     if (hotelId) {
-      const { data: settings } = await (supabase as any)
-        .from("hotel_revenue_settings")
-        .select("market_city, market_country")
-        .eq("hotel_id", hotelId)
-        .maybeSingle();
-      if (settings?.market_city) setCity(settings.market_city);
-      if (settings?.market_country) setCountry(settings.market_country);
+      const [{ data: hotelConfig }, { data: settings }] = await Promise.all([
+        (supabase as any)
+          .from("hotel_configurations")
+          .select("market_city, market_country")
+          .eq("hotel_id", hotelId)
+          .maybeSingle(),
+        (supabase as any)
+          .from("hotel_revenue_settings")
+          .select("market_city, market_country")
+          .eq("hotel_id", hotelId)
+          .maybeSingle(),
+      ]);
+      marketCity = hotelConfig?.market_city || settings?.market_city || marketCity;
+      marketCountry = hotelConfig?.market_country || settings?.market_country || marketCountry;
     }
+
+    setCity(marketCity);
+    setCountry(marketCountry);
 
     if (!slug) { setEvents([]); setLastRun(null); setLoading(false); return; }
 
-    // Who last refreshed the calendar — a person, or the weekly automatic sweep.
+    // Who last refreshed this shared market pool — a person, or the automatic sweep.
     const { data: runs } = await (supabase as any)
       .from("demand_event_search_runs")
       .select("source, run_by_name, events_found, events_added, created_at, month")
       .eq("organization_slug", slug)
+      .ilike("city", marketCity)
+      .ilike("country", marketCountry)
       .order("created_at", { ascending: false })
       .limit(1);
     setLastRun(((runs ?? [])[0] as SearchRun | undefined) ?? null);
@@ -165,11 +211,16 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       .from("demand_events")
       .select("*")
       .eq("organization_slug", slug)
+      .ilike("city", marketCity)
+      .ilike("country", marketCountry)
+      .eq("approved", true)
+      .not("url", "is", null)
       .order("event_date", { ascending: true })
       .limit(1000);
 
     // Annual events are stored once and projected onto the month being viewed.
     const rows = ((data ?? []) as DemandEventRow[]).filter((row) => {
+      if (!sourceUrl(row.url)) return false;
       if (!row.recurs_annually) return row.event_date <= range.end && (row.end_date ?? row.event_date) >= range.start;
       return String(row.event_date).slice(5, 7) === month.slice(5, 7);
     });
@@ -187,22 +238,80 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     setCandidates(null);
     setAlreadyAdded([]);
     setSearchedMonth(null);
+    setSelectedDate(null);
+    setSelectedId(null);
   };
 
 
   const saveLocation = async () => {
     if (!hotelId) return;
-    const { error } = await (supabase as any)
-      .from("hotel_revenue_settings")
-      .update({ market_city: city, market_country: country })
+    if (!canEditLocation) {
+      toast.error("Only an administrator can change a hotel's market location.");
+      return;
+    }
+    if (!city.trim() || !country.trim()) {
+      toast.error("City and country are required.");
+      return;
+    }
+
+    const { error: hotelError } = await (supabase as any)
+      .from("hotel_configurations")
+      .update({ market_city: city.trim(), market_country: country.trim() })
       .eq("hotel_id", hotelId);
-    if (error) toast.error(error.message);
-    else toast.success(`Event searches now use ${city}, ${country}`);
+    if (hotelError) { toast.error(hotelError.message); return; }
+
+    // Compatibility for revenue features that still read the old settings row.
+    const { error: revenueError } = await (supabase as any)
+      .from("hotel_revenue_settings")
+      .update({ market_city: city.trim(), market_country: country.trim() })
+      .eq("hotel_id", hotelId);
+    if (revenueError) console.warn("Could not mirror market location to revenue settings", revenueError);
+
+    toast.success(`Shared event pool set to ${city.trim()}, ${country.trim()}`);
+    void load();
   };
 
   const addManual = async () => {
     if (!orgSlug) return;
     if (!title.trim() || !startDate) { toast.error("A title and a date are required."); return; }
+    if (endDate && endDate < startDate) { toast.error("End date cannot be before the start date."); return; }
+    const verifiedSource = sourceUrl(manualSourceUrl);
+    if (!verifiedSource) { toast.error("A valid source URL is required for every event."); return; }
+
+    const manualEnd = endDate || startDate;
+    const duplicate = events.find((event) =>
+      sameRevenueEvent(
+        {
+          title: event.title,
+          impact: event.expected_impact,
+          category: event.category,
+          venue: event.venue,
+          url: event.url,
+          start: event.event_date,
+          end: event.end_date ?? event.event_date,
+          source: event.source,
+          confidence: event.confidence,
+        },
+        {
+          title: title.trim(),
+          impact,
+          category,
+          venue: venue.trim() || null,
+          url: verifiedSource,
+          start: startDate,
+          end: manualEnd,
+          source: "manual",
+          confidence: 1,
+        },
+      )
+    );
+    if (duplicate) {
+      setSelectedDate(startDate);
+      setSelectedId(duplicate.id);
+      toast.info("This event is already in the calendar. The existing event has been opened.");
+      return;
+    }
+
     const { error } = await (supabase as any).from("demand_events").insert({
       organization_slug: orgSlug,
       hotel_id: hotelId,
@@ -214,12 +323,22 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       end_date: endDate || null,
       expected_impact: impact,
       recurs_annually: recurring,
+      url: verifiedSource,
       source: "manual",
       approved: true,
     });
-    if (error) { toast.error(error.message); return; }
-    setTitle(""); setVenue(""); setStartDate(""); setEndDate(""); setRecurring(false);
-    toast.success("Event added");
+    if (error) {
+      if (String((error as any).code ?? "") === "23505") {
+        toast.info("This event already exists in the calendar.");
+        void load();
+        return;
+      }
+      toast.error(error.message);
+      return;
+    }
+    setTitle(""); setVenue(""); setStartDate(""); setEndDate(""); setManualSourceUrl(""); setRecurring(false);
+    setManualOpen(false);
+    toast.success("Manual event added to the calendar");
     void load();
   };
 
@@ -235,7 +354,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     setAlreadyAdded([]);
     try {
       const { data, error } = await supabase.functions.invoke("demand-events-search", {
-        body: { city, country, month },
+        body: { city, country, month, hotelId },
       });
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error ?? "Event search failed");
@@ -264,23 +383,71 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     if (!orgSlug || !candidates) return;
     const chosen = candidates.filter((_, i) => picked[i]);
     if (!chosen.length) { toast.error("Nothing selected."); return; }
-    // The unique index is on lower(title), so PostgREST cannot resolve it as a
-    // conflict target — duplicates are filtered out client-side before insert.
-    const { error } = await (supabase as any).from("demand_events").insert(
-      chosen.map((c) => ({
+    if (chosen.some((candidate) => !sourceUrl(candidate.url))) {
+      toast.error("Every selected event must have a valid source URL.");
+      return;
+    }
+
+    let saved = 0;
+    for (const candidate of chosen) {
+      const verifiedSource = sourceUrl(candidate.url)!;
+      const payload = {
         organization_slug: orgSlug,
         hotel_id: hotelId,
-        city: c.city, country: c.country,
-        title: c.title, category: c.category, venue: c.venue,
-        event_date: c.event_date, end_date: c.end_date,
-        expected_impact: c.expected_impact,
-        recurs_annually: c.recurs_annually,
-        url: c.url, confidence: c.confidence,
-        source: "ai", approved: true,
-      })),
-    );
-    if (error) { toast.error(error.message); return; }
-    toast.success(`${chosen.length} event${chosen.length === 1 ? "" : "s"} added to the calendar`);
+        city: candidate.city,
+        country: candidate.country,
+        title: candidate.title,
+        category: candidate.category,
+        venue: candidate.venue,
+        event_date: candidate.event_date,
+        end_date: candidate.end_date,
+        expected_impact: candidate.expected_impact,
+        recurs_annually: candidate.recurs_annually,
+        url: verifiedSource,
+        confidence: candidate.confidence,
+        source: "ai",
+        approved: true,
+      };
+
+      const { error: insertError } = await (supabase as any).from("demand_events").insert(payload);
+      if (!insertError) {
+        saved += 1;
+        continue;
+      }
+
+      // A legacy unsourced row can occupy the expression-based unique key.
+      // Repair it in place instead of failing the whole verified save.
+      if (String((insertError as any).code ?? "") === "23505") {
+        const { data: existing, error: lookupError } = await (supabase as any)
+          .from("demand_events")
+          .select("id")
+          .eq("organization_slug", orgSlug)
+          .ilike("city", candidate.city)
+          .eq("event_date", candidate.event_date)
+          .ilike("title", candidate.title)
+          .limit(1)
+          .maybeSingle();
+        if (lookupError || !existing?.id) {
+          toast.error(lookupError?.message ?? `Could not repair ${candidate.title}.`);
+          return;
+        }
+        const { error: updateError } = await (supabase as any)
+          .from("demand_events")
+          .update(payload)
+          .eq("id", existing.id);
+        if (updateError) {
+          toast.error(updateError.message);
+          return;
+        }
+        saved += 1;
+        continue;
+      }
+
+      toast.error(insertError.message);
+      return;
+    }
+
+    toast.success(`${saved} verified event${saved === 1 ? "" : "s"} saved with sources`);
     setCandidates(null);
     setAlreadyAdded([]);
     void load();
@@ -293,25 +460,76 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       title: e.title,
       event_date: e.event_date,
       end_date: e.end_date ?? "",
+      category: e.category,
+      venue: e.venue ?? "",
       expected_impact: e.expected_impact,
       recurs_annually: e.recurs_annually,
+      url: e.url ?? "",
     });
   };
 
   const saveEdit = async () => {
     if (!editingId || !edit) return;
     if (!edit.title.trim() || !edit.event_date) { toast.error("A title and a date are required."); return; }
+    if (edit.end_date && edit.end_date < edit.event_date) { toast.error("End date cannot be before the start date."); return; }
+    const verifiedSource = sourceUrl(edit.url);
+    if (!verifiedSource) { toast.error("A valid source URL is required for every event."); return; }
+
+    const editedEnd = edit.end_date || edit.event_date;
+    const duplicate = events.find((event) =>
+      event.id !== editingId
+      && sameRevenueEvent(
+        {
+          title: event.title,
+          impact: event.expected_impact,
+          category: event.category,
+          venue: event.venue,
+          url: event.url,
+          start: event.event_date,
+          end: event.end_date ?? event.event_date,
+          source: event.source,
+          confidence: event.confidence,
+        },
+        {
+          title: edit.title.trim(),
+          impact: edit.expected_impact,
+          category: edit.category,
+          venue: edit.venue.trim() || null,
+          url: verifiedSource,
+          start: edit.event_date,
+          end: editedEnd,
+          source: "manual",
+          confidence: 1,
+        },
+      )
+    );
+    if (duplicate) {
+      setSelectedDate(edit.event_date);
+      setSelectedId(duplicate.id);
+      toast.error("That edit would duplicate another event already in the calendar.");
+      return;
+    }
     const { error } = await (supabase as any).from("demand_events").update({
       title: edit.title.trim(),
       event_date: edit.event_date,
       end_date: edit.end_date || null,
+      category: edit.category,
+      venue: edit.venue.trim() || null,
       expected_impact: edit.expected_impact,
       recurs_annually: edit.recurs_annually,
+      url: verifiedSource,
       source: "manual",
     }).eq("id", editingId);
-    if (error) { toast.error(error.message); return; }
+    if (error) {
+      if (String((error as any).code ?? "") === "23505") {
+        toast.error("That edit would duplicate another event already in the calendar.");
+        return;
+      }
+      toast.error(error.message);
+      return;
+    }
     setEditingId(null); setEdit(null);
-    toast.success("Event updated");
+    toast.success("Verified event updated");
     void load();
   };
 
@@ -337,6 +555,25 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
         (map[key] ??= []).push(e);
       }
     }
+    for (const rows of Object.values(map)) {
+      rows.sort((a, b) => {
+        const aScore = scoreRevenueEvent({
+          title: a.title,
+          impact: a.expected_impact,
+          category: a.category,
+          venue: a.venue,
+          notes: a.notes,
+        });
+        const bScore = scoreRevenueEvent({
+          title: b.title,
+          impact: b.expected_impact,
+          category: b.category,
+          venue: b.venue,
+          notes: b.notes,
+        });
+        return bScore - aScore || a.title.localeCompare(b.title);
+      });
+    }
     return map;
   }, [events, month]);
 
@@ -355,6 +592,10 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const selectedEvent = useMemo(
     () => events.find((e) => e.id === selectedId) ?? null,
     [events, selectedId],
+  );
+  const selectedDateEvents = useMemo(
+    () => selectedDate ? (eventsByDay[selectedDate] ?? []) : [],
+    [eventsByDay, selectedDate],
   );
 
 
@@ -404,15 +645,18 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
             <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] border rounded-lg p-3 bg-muted/20 mb-4">
               <div>
                 <Label className="text-xs text-muted-foreground">City</Label>
-                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Budapest" className="h-8" />
+                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Budapest" className="h-8" disabled={!canEditLocation} />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Country</Label>
-                <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Hungary" className="h-8" />
+                <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Hungary" className="h-8" disabled={!canEditLocation} />
               </div>
-              <Button variant="outline" size="sm" className="self-end h-8" onClick={saveLocation} disabled={!hotelId}>
+              <Button variant="outline" size="sm" className="self-end h-8" onClick={saveLocation} disabled={!hotelId || !canEditLocation}>
                 Save location
               </Button>
+              <p className="sm:col-span-3 text-xs text-muted-foreground">
+                This location defines the shared event pool. Hotels in the same city and country see the same calendar across organizations.
+              </p>
             </div>
           </CollapsibleContent>
         </Collapsible>
@@ -426,7 +670,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                   Search result for {fmtMonth(month)} — {candidates.length} new, {alreadyAdded.length} already in your calendar
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Dates were read from the linked sources. Tick the ones you want to keep.
+                  Only events with an official source and a verified market location are shown here. Tick the ones you want to keep.
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -488,7 +732,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
                         >
-                          <ExternalLink className="h-3 w-3" /> Check the dates on the source
+                          <ExternalLink className="h-3 w-3" /> Official source · {sourceHost(c.url)}
                         </a>
                       )}
                     </div>
@@ -520,6 +764,9 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
 
         {/* the month's events, as a calendar */}
         <div className="space-y-3">
+          <p className="text-[11px] text-muted-foreground">
+            Live calendar rule: verified source + verified market location only. Uncertain or conflicting events stay out of pricing.
+          </p>
           {loading ? (
             <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading events…
@@ -540,16 +787,32 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                     return (
                       <div
                         key={cell.date ?? `pad-${idx}`}
+                        onClick={() => {
+                          if (!cell.date) return;
+                          setSelectedDate(cell.date);
+                          setSelectedId(null);
+                        }}
                         className={`min-h-[84px] border-b border-r p-1 ${
-                          cell.date ? "" : "bg-muted/20"
-                        } ${cell.date === todayStr ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : ""}`}
+                          cell.date ? "cursor-pointer transition-colors hover:bg-primary/5" : "bg-muted/20"
+                        } ${cell.date === todayStr ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : ""} ${cell.date === selectedDate ? "bg-primary/10 ring-2 ring-inset ring-primary/50" : ""}`}
                       >
                         {cell.date && (
                           <>
                             <div className="mb-1 flex items-center justify-between">
-                              <span className={`text-[11px] ${cell.date === todayStr ? "font-bold text-primary" : "text-muted-foreground"}`}>
+                              <button
+                                type="button"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  setSelectedDate(cell.date);
+                                  setSelectedId(null);
+                                }}
+                                className={`rounded px-1 text-[11px] font-medium hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-primary/40 ${
+                                  cell.date === todayStr ? "font-bold text-primary" : "text-muted-foreground"
+                                }`}
+                                aria-label={`Open all events for ${cell.date}`}
+                              >
                                 {Number(cell.date.slice(8, 10))}
-                              </span>
+                              </button>
                               {dayEvents.length > 2 && (
                                 <span className="text-[10px] text-muted-foreground">{dayEvents.length}</span>
                               )}
@@ -559,7 +822,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                                 <button
                                   key={`${cell.date}-${e.id}`}
                                   type="button"
-                                  onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}
+                                  onClick={(ev) => { ev.stopPropagation(); setSelectedDate(cell.date); setSelectedId(e.id === selectedId ? null : e.id); }}
                                   title={`${e.title}${e.venue ? ` · ${e.venue}` : ""}`}
                                   className={`block w-full truncate rounded px-1 py-0.5 text-left text-[10px] leading-tight transition-colors hover:opacity-80 ${impactTone(e.expected_impact)} ${
                                     selectedId === e.id ? "ring-1 ring-primary" : ""
@@ -569,9 +832,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                                 </button>
                               ))}
                               {dayEvents.length > 3 && (
-                                <span className="block px-1 text-[10px] text-muted-foreground">
+                                <button
+                                  type="button"
+                                  onClick={(ev) => { ev.stopPropagation(); setSelectedDate(cell.date); setSelectedId(null); }}
+                                  className="block w-full px-1 text-left text-[10px] font-medium text-primary hover:underline"
+                                >
                                   +{dayEvents.length - 3} more
-                                </span>
+                                </button>
                               )}
                             </div>
                           </>
@@ -581,6 +848,59 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                   })}
                 </div>
               </div>
+
+              {selectedDate && !selectedEvent && (
+                <div className="rounded-lg border p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {new Date(`${selectedDate}T00:00:00Z`).toLocaleDateString(undefined, {
+                          timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric",
+                        })}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedDateEvents.length} event{selectedDateEvents.length === 1 ? "" : "s"} recorded
+                      </p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => setSelectedDate(null)} aria-label="Close date events">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {selectedDateEvents.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No events recorded for this date.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {selectedDateEvents.map((e) => (
+                        <div key={e.id} className="flex items-start gap-2 rounded-md border p-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedId(e.id)}
+                            className="min-w-0 flex-1 text-left hover:opacity-80"
+                          >
+                            <span className="block truncate text-sm font-medium">{e.title}</span>
+                            <span className="block text-xs text-muted-foreground">
+                              {e.category}{e.venue ? ` · ${e.venue}` : ""} · {fmtDay(e.event_date)}
+                              {e.end_date ? ` – ${fmtDay(e.end_date)}` : ""}
+                            </span>
+                          </button>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <Badge variant="secondary" className={impactTone(e.expected_impact)}>{e.expected_impact}</Badge>
+                            <a
+                              href={e.url ?? "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-7 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-primary hover:bg-primary/10"
+                              onClick={(ev) => ev.stopPropagation()}
+                            >
+                              <ExternalLink className="h-3 w-3" /> {sourceHost(e.url)}
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {events.length === 0 && (
                 <p className="text-sm text-muted-foreground">
@@ -600,6 +920,23 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                           placeholder="Title"
                         />
                         <Input
+                          value={edit.venue}
+                          onChange={(ev) => setEdit({ ...edit, venue: ev.target.value })}
+                          className="h-8"
+                          placeholder="Venue"
+                        />
+                        <Select
+                          value={edit.category}
+                          onValueChange={(v) => setEdit({ ...edit, category: v })}
+                        >
+                          <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {CATEGORIES.map((categoryOption) => (
+                              <SelectItem key={categoryOption} value={categoryOption}>{categoryOption}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
                           type="date"
                           value={edit.event_date}
                           onChange={(ev) => setEdit({ ...edit, event_date: ev.target.value })}
@@ -610,6 +947,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                           value={edit.end_date}
                           onChange={(ev) => setEdit({ ...edit, end_date: ev.target.value })}
                           className="h-8"
+                        />
+                        <Input
+                          type="url"
+                          value={edit.url}
+                          onChange={(ev) => setEdit({ ...edit, url: ev.target.value })}
+                          className="h-8 sm:col-span-2"
+                          placeholder="Source URL (required)"
                         />
                         <Select
                           value={edit.expected_impact}
@@ -660,6 +1004,14 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                           {selectedEvent.end_date ? ` – ${fmtDay(selectedEvent.end_date)}` : ""}
                           {selectedEvent.venue ? ` · ${selectedEvent.venue}` : ""} · {selectedEvent.category} · {selectedEvent.city}
                         </p>
+                        <a
+                          href={selectedEvent.url ?? "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary underline underline-offset-2"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" /> Open source · {sourceHost(selectedEvent.url)}
+                        </a>
                       </div>
                       <div className="flex items-center gap-1">
                         <Button variant="ghost" size="icon" onClick={() => startEdit(selectedEvent)} aria-label="Edit event">
@@ -687,7 +1039,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
 
 
         {/* manual entry */}
-        <Collapsible>
+        <Collapsible
+          open={manualOpen}
+          onOpenChange={(open) => {
+            setManualOpen(open);
+            if (open && !startDate && selectedDate) setStartDate(selectedDate);
+          }}
+        >
           <div className="flex items-center justify-between mb-2">
             <CollapsibleTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
@@ -700,30 +1058,60 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
           <CollapsibleContent>
             <div className="rounded-lg border p-3 space-y-2 bg-muted/10">
               <div className="grid gap-2 sm:grid-cols-2">
-                <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} className="h-8" />
-                <Input placeholder="Venue (optional)" value={venue} onChange={(e) => setVenue(e.target.value)} className="h-8" />
-                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-8" />
-                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="End date" className="h-8" />
-                <Select value={category} onValueChange={setCategory}>
+                <div className="space-y-1">
+                  <Label htmlFor="manual-event-title" className="text-xs">Event name *</Label>
+                  <Input id="manual-event-title" placeholder="e.g. Budapest Marathon" value={title} onChange={(e) => setTitle(e.target.value)} className="h-8" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="manual-event-venue" className="text-xs">Venue</Label>
+                  <Input id="manual-event-venue" placeholder="Optional" value={venue} onChange={(e) => setVenue(e.target.value)} className="h-8" />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label htmlFor="manual-event-source" className="text-xs">Source URL *</Label>
+                  <Input
+                    id="manual-event-source"
+                    type="url"
+                    placeholder="Official event, venue or organiser page"
+                    value={manualSourceUrl}
+                    onChange={(e) => setManualSourceUrl(e.target.value)}
+                    className="h-8"
+                  />
+                  <p className="text-[11px] text-muted-foreground">Required so every event used for revenue decisions can be verified.</p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="manual-event-start" className="text-xs">Start date *</Label>
+                  <Input id="manual-event-start" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-8" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="manual-event-end" className="text-xs">End date</Label>
+                  <Input id="manual-event-end" type="date" min={startDate || undefined} value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-8" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Category *</Label>
+                  <Select value={category} onValueChange={setCategory}>
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                   </SelectContent>
-                </Select>
-                <Select value={impact} onValueChange={setImpact}>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Expected demand impact *</Label>
+                  <Select value={impact} onValueChange={setImpact}>
                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {IMPACTS.map((i) => <SelectItem key={i.value} value={i.value}>{i.label}</SelectItem>)}
                   </SelectContent>
-                </Select>
+                  </Select>
+                </div>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label className="inline-flex items-center gap-2 text-xs">
                   <Checkbox checked={recurring} onCheckedChange={(v) => setRecurring(!!v)} />
                   Repeats every year
                 </label>
-                <Button size="sm" onClick={addManual} disabled={!orgSlug}>
-                  Add event
+                <Button size="sm" onClick={addManual} disabled={!orgSlug || !title.trim() || !startDate || !sourceUrl(manualSourceUrl)}>
+                  Add verified event
                 </Button>
               </div>
             </div>

@@ -54,3 +54,48 @@ export function getRememberedAssistantThread(
     return null;
   }
 }
+
+// ---------------------------------------------------------------- return path
+// Mira is opened from inside Hotel Care; "Back to Hotel Care" should return to
+// that screen, not the organization home.
+
+function returnKey(userId: string, organizationSlug: string) {
+  return `hotelcare:assistant:return-to:${userId}:${organizationSlug}`;
+}
+
+export function rememberAssistantReturnPath(
+  userId: string | null | undefined,
+  organizationSlug: string | null | undefined,
+  path: string | null | undefined,
+) {
+  if (!canUseStorage() || !userId || !organizationSlug || !path) return;
+  if (/\/assistant(\/|$)/.test(path) || /\/auth(\/|$)/.test(path)) return;
+  window.sessionStorage.setItem(returnKey(userId, organizationSlug), path);
+}
+
+export function getAssistantReturnPath(
+  userId: string | null | undefined,
+  organizationSlug: string | null | undefined,
+): string | null {
+  if (!canUseStorage() || !userId || !organizationSlug) return null;
+  const path = window.sessionStorage.getItem(returnKey(userId, organizationSlug));
+  return path && path.startsWith(`/${organizationSlug}`) ? path : null;
+}
+
+// ------------------------------------------------------------------- drafts
+// A half-written message survives minimising Mira and coming back later.
+
+function draftKey(threadId: string) {
+  return `hotelcare:assistant:draft:${threadId}`;
+}
+
+export function loadAssistantDraft(threadId: string | null | undefined): string {
+  if (!canUseStorage() || !threadId) return "";
+  return window.sessionStorage.getItem(draftKey(threadId)) ?? "";
+}
+
+export function saveAssistantDraft(threadId: string | null | undefined, text: string) {
+  if (!canUseStorage() || !threadId) return;
+  if (text.trim()) window.sessionStorage.setItem(draftKey(threadId), text);
+  else window.sessionStorage.removeItem(draftKey(threadId));
+}

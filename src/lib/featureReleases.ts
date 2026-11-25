@@ -17,6 +17,7 @@ export const FEATURE_RELEASES: FeatureRelease[] = [
   { key: "revenue.yoy", releasedOn: "2026-08-17" },
   { key: "revenue.compset", releasedOn: "2026-08-17" },
   { key: "revenue.digest", releasedOn: "2026-08-17" },
+  { key: "revenue.channelEconomics", releasedOn: "2026-11-18" },
 ];
 
 /** True while the release is still inside its badge window. */

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
 import { fetchPrevioWithAuth, safePrevioJson } from '../_shared/previoAuth.ts';
+import { isUnchangedPrevioRoom } from '../_shared/previoRoomSyncDelta.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -34,6 +35,18 @@ interface PrevioRoom {
   capacity: number;
   extraCapacity: number;
   order: number;
+}
+
+// Canonical English labels for three Ottofiori Previo room kinds.
+// Previo room-kind and physical-room IDs remain authoritative and unchanged.
+const OTTOFIORI_ENGLISH_ROOM_NAMES: Record<string, string> = {
+  '982505': 'Economy Double Room',
+  '982615': 'Deluxe Triple Room',
+  '982617': 'Deluxe Quadruple Room',
+};
+function displayRoomKindName(hotelId: string, roomKindId: string | number, sourceName: string): string {
+  if (hotelId === 'ottofiori') return OTTOFIORI_ENGLISH_ROOM_NAMES[String(roomKindId)] ?? sourceName;
+  return sourceName;
 }
 
 // Keep one canonical housekeeping-status mapping for both Fresh Sync/import
@@ -219,13 +232,14 @@ serve(async (req) => {
           const roomNumber = (numberCounts.get(extracted) ?? 0) > 1
             ? String(rawName ?? '').trim()
             : extracted;
-          const roomType = r.roomKindName || '';
-          const roomCategory = r.roomKindName || null;
+          const roomType = displayRoomKindName(hotelCareHotelId, r.roomKindId, r.roomKindName || '');
+          const roomCategory = roomType || null;
           const capacity = (r.capacity ?? 0) + (r.extraCapacity ?? 0);
           const pmsMetadata = {
             roomId: r.roomId,
             roomKindId: r.roomKindId,
-            roomKindName: r.roomKindName,
+            roomKindName: roomType,
+            ...(roomType !== (r.roomKindName || '') ? { previoOriginalRoomKindName: r.roomKindName } : {}),
             roomTypeId: r.roomTypeId,
             roomCleanStatusId: r.roomCleanStatusId,
             isHourlyBased: r.isHourlyBased,
@@ -395,6 +409,7 @@ serve(async (req) => {
     const syncResults = {
       total: roomsData.length,
       updated: 0,
+      skippedUnchanged: 0,
       created: 0,
       errors: [] as string[]
     };
@@ -409,7 +424,7 @@ serve(async (req) => {
         // match on the physical roomId.
         const physicalRoomId = String(roomData.roomId);
         const roomKindId = String(roomData.roomKindId);
-        const roomType = roomData.roomKindName || '';
+        const roomType = displayRoomKindName(hotelCareHotelId, roomData.roomKindId, roomData.roomKindName || '');
         const status = mapPrevioStatus(roomData.roomCleanStatusId);
 
         const mapping = roomMappings.find(m => m.pms_room_id === physicalRoomId);
@@ -426,7 +441,7 @@ serve(async (req) => {
         // Check if room exists in Hotel Care using the HotelCare hotel_id
         const { data: existingRoom } = await supabase
           .from('rooms')
-          .select('id, pms_metadata')
+          .select('id, status, room_type, pms_metadata')
           .eq('room_number', roomNumber)
           .eq('hotel', hotelCareHotelId)
           .single();
@@ -444,14 +459,24 @@ serve(async (req) => {
             ...((existingRoom as any).pms_metadata || {}),
             roomId: roomData.roomId,
             roomKindId: roomData.roomKindId,
-            roomKindName: roomData.roomKindName,
+            roomKindName: roomType,
+            ...(roomType !== (roomData.roomKindName || '') ? { previoOriginalRoomKindName: roomData.roomKindName } : {}),
             roomTypeId: roomData.roomTypeId,
             roomCleanStatusId: roomData.roomCleanStatusId,
           },
           updated_at: new Date().toISOString(),
         };
 
-        // Update existing room
+        // Don't perform an UPDATE for an unchanged Previo room. Each update
+        // otherwise fires room triggers and broadcasts into Supabase Realtime.
+        // The snapshot comparison is limited to the PMS-owned status/type
+        // and five imported metadata fields; local housekeeping information
+        // is still preserved in the metadata merge above.
+        if (isUnchangedPrevioRoom(existingRoom as any, roomDataToSave)) {
+          syncResults.skippedUnchanged++;
+          continue;
+        }
+
         const { error } = await supabase
           .from('rooms')
           .update(roomDataToSave)
@@ -475,6 +500,7 @@ serve(async (req) => {
       data: {
         total: syncResults.total,
         updated: syncResults.updated,
+        skippedUnchanged: syncResults.skippedUnchanged,
         created: syncResults.created,
         errors: syncResults.errors,
         previo_hotel_id: previoNumericId

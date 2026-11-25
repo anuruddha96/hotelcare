@@ -6,6 +6,7 @@ import { Clock, X } from 'lucide-react';
 import {
   fetchBillingSummary, graceEndsAt, inGracePeriod, isSubscriptionActive, type BillingSummary,
 } from '@/hooks/useBilling';
+import { billingPathFor } from '@/lib/billingNavigation';
 
 const fmt = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : '';
@@ -63,7 +64,10 @@ export function TrialEndedNotice({ organizationSlug }: { organizationSlug?: stri
           An administrator extended Revenue Management for you for a little longer. Add your payment details whenever
           it suits you to keep everything running without a break.
         </span>
-        <Button size="sm" onClick={() => navigate('/billing')}>
+        <Button
+          size="sm"
+          onClick={() => navigate(billingPathFor(organizationSlug))}
+        >
           Complete setup
         </Button>
       </AlertDescription>

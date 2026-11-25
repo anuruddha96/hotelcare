@@ -69,13 +69,13 @@ serve(async (req) => {
         // Match by Previo roomId first, then by room name.
         let { data: rooms } = await service
           .from("rooms")
-          .select("id")
+          .select("id, status")
           .eq("hotel", ALLOWED_HOTEL_ID)
           .filter("pms_metadata->>roomId", "eq", previoRoomId);
         if (!rooms || rooms.length === 0) {
           ({ data: rooms } = await service
             .from("rooms")
-            .select("id")
+            .select("id, status")
             .eq("hotel", ALLOWED_HOTEL_ID)
             .eq("room_number", rawRoomName));
         }
@@ -87,14 +87,17 @@ serve(async (req) => {
           : previoStatusRaw.startsWith("clean") ? "clean"
           : "dirty";
 
+        // A no-op update would fire every rooms trigger and generate WAL.
+        // In particular, do not keep restamping 'last_cleaned_at' each time
+        // an already-clean room appears in the nightly Previo snapshot.
+        if (!mappedStatus || rooms[0].status === mappedStatus) continue;
+        const updatedAt = new Date().toISOString();
         const updateData: Record<string, any> = {
-          updated_at: new Date().toISOString(),
+          status: mappedStatus,
+          updated_at: updatedAt,
         };
-        if (mappedStatus) {
-          updateData.status = mappedStatus;
-          if (mappedStatus === "clean") {
-            updateData.last_cleaned_at = new Date().toISOString();
-          }
+        if (mappedStatus === "clean") {
+          updateData.last_cleaned_at = updatedAt;
         }
 
         const { error: updErr } = await service.from("rooms").update(updateData).eq("id", rooms[0].id);

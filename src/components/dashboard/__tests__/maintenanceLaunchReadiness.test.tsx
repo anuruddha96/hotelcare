@@ -26,10 +26,45 @@ describe('maintenance launch readiness wiring', () => {
     expect(source).toContain('pendingSeen');
   });
 
-  it('keeps worker completion behind supervisor approval', () => {
+  it('routes shared worker actions through secure property-scoped RPCs', () => {
     const source = read('MaintenanceStaffView.tsx');
-    expect(source).toContain('pending_supervisor_approval: true');
-    expect(source).toContain("status: 'in_progress'");
-    expect(source).toContain("completion_photos: [path]");
+    expect(source).toContain("rpc('work_maintenance_ticket'");
+    expect(source).toContain("runTeamAction(selected, 'submit'");
+    expect(source).toContain('p_completion_photo: completionPhoto');
+    expect(source).toContain("rpc('get_maintenance_property_teammates'");
+    expect(source).not.toContain('assigned_to_profile:profiles!tickets_assigned_to_fkey');
+  });
+
+  it('offers an explicit photo-or-skip choice without making a photo mandatory', () => {
+    const source = read('MaintenanceStaffView.tsx');
+    expect(source).toContain("if (completionFile) {");
+    expect(source).toContain("toast.warning(c.photoSkipped)");
+    expect(source).toContain("runTeamAction(selected, 'submit', resolution.trim(), null, uploadedPath)");
+    expect(source).toContain("const [completionPhotoSkipped, setCompletionPhotoSkipped] = useState(false)");
+    expect(source).toContain("setCompletionPhotoSkipped(true)");
+    expect(source).toContain("{c.takePhoto}");
+    expect(source).toContain("{c.skipPhoto}");
+    expect(source).toContain("(!completionFile && !completionPhotoSkipped)");
+    expect(source).not.toContain("A completion photo is required");
+  });
+
+  it('prevents stale maintenance resolution dialogs from overwriting completed work', () => {
+    const source = read('MaintenanceResolutionDialog.tsx');
+    expect(source).toContain(".in('status', [...RESOLVABLE_MAINTENANCE_STATUSES])");
+    expect(source).toContain(".is('resolved_at', null)");
+    expect(source).toContain(".select('id')");
+    expect(source).toContain("if (!data?.length)");
+    expect(source).toContain("if (isSubmitting) return");
+    expect(source).toContain("language === 'hu'");
+  });
+
+  it('prevents stale maintenance translations from leaking across tickets or languages', () => {
+    const source = read('MaintenanceTicketTranslation.tsx');
+    expect(source).toContain('const requestSequence = useRef(0)');
+    expect(source).toContain('requestSequence.current += 1');
+    expect(source).toContain('const requestedLanguage = targetLanguage');
+    expect(source).toContain('targetLanguage: requestedLanguage');
+    expect(source).toContain('if (requestId !== requestSequence.current) return');
+    expect(source).toContain('onValueChange={changeTargetLanguage}');
   });
 });

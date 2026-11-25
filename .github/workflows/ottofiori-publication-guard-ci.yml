@@ -1,0 +1,30 @@
+name: Ottofiori publication safety
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/ottofioriPublicationGuard*'
+      - 'supabase/functions/revenue-push-drafts/index.ts'
+      - '.github/workflows/ottofiori-publication-guard-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/ottofioriPublicationGuard*'
+      - 'supabase/functions/revenue-push-drafts/index.ts'
+      - '.github/workflows/ottofiori-publication-guard-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  publication-regressions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test held and incomplete date publication
+        run: node --test supabase/functions/_shared/ottofioriPublicationGuard*.test.mjs
+      - name: Parse the publisher TypeScript
+        run: node --check supabase/functions/revenue-push-drafts/index.ts

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight, Loader2, Search, FilterX } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight, Loader2, Search, FilterX, Sparkles, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +23,8 @@ import {
   type AutomationDecision,
 } from '@/hooks/useRevenueAutomationNotifications';
 import {
+  isAiCreditsFailure,
+  isAiReviewFailure,
   runHeadline,
   runPreview,
   runReasons,
@@ -31,6 +33,7 @@ import {
 } from '@/lib/revenue/automationSummary';
 import { ReasonSettingEditor } from '@/components/revenue/ReasonSettingEditor';
 import { reasonInfo } from '@/lib/revenue/reasonSettings';
+import { hasBlockingDialog } from '@/lib/notificationPresentation';
 
 
 const money = (value: number | null | undefined, currency: string | null | undefined) =>
@@ -44,6 +47,9 @@ const nights = (value: number | null | undefined) => {
   return `${n} night${n === 1 ? '' : 's'}`;
 };
 
+const SOURCE_LABEL = { all: 'All', ai: 'AI', automation: 'Automation', manual: 'Manual' } as const;
+
+const CATCH_UP_DELAY_MS = 12_000;
 
 type DirectionFilter = 'all' | 'increase' | 'decrease' | 'hold';
 
@@ -58,7 +64,10 @@ const DIRECTION_FILTERS: Array<{ value: DirectionFilter; label: string }> = [
 export function RevenueAutomationNotifications() {
   const canSee = useCanSeeAutomationNotifications();
   const navigate = useNavigate();
-  const { items, unreadCount, markRead, markAllRead, loadDecisions } = useRevenueAutomationNotifications(canSee);
+  const { pathname } = useLocation();
+  const isReception = /(?:^|\/)reception(?:\/|$)/.test(pathname);
+  const catchUpToast = useRef<string | number | null>(null);
+  const { items, unreadCount, markRead, markAllRead, loadDecisions, reload } = useRevenueAutomationNotifications(canSee);
 
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<AutomationNotification | null>(null);
@@ -68,27 +77,93 @@ export function RevenueAutomationNotifications() {
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all');
   const [reasonFilter, setReasonFilter] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<keyof typeof SOURCE_LABEL>('all');
   const welcomed = useRef(false);
+  // Realtime refreshes can replace the items array frequently. Keep the toast
+  // delay stable while still reading the latest unread items when it fires.
+  const latestItemsRef = useRef(items);
+  latestItemsRef.current = items;
+  const hasUnread = unreadCount > 0;
 
-  // One tasteful catch-up message per session — never one toast per change.
+  // One non-urgent catch-up per mount. A Radix modal traps outside interaction,
+  // so defer the toast until the manager has finished with the open dialog.
+  // Closing a toast never marks the underlying revenue activity as read.
   useEffect(() => {
-    if (!canSee || welcomed.current || unreadCount === 0) return;
-    welcomed.current = true;
-    const unread = items.filter((n) => !n.read);
-    const changes = unread.reduce((sum, n) => sum + (n.actions_count || n.changes.length), 0);
-    toast.message(
-      `While you were away, HotelCare completed ${changes} revenue automation update${changes === 1 ? '' : 's'} across ${unread.length} run${unread.length === 1 ? '' : 's'}`,
-      {
-        action: { label: 'View', onClick: () => setOpen(true) },
-        duration: 10_000,
-      },
-    );
-  }, [canSee, unreadCount, items]);
+    // Reception must remain unobstructed during guest registration. The bell
+    // still retains all unread revenue activity; only the non-urgent toast
+    // is suppressed on this route.
+    if (isReception) {
+      if (catchUpToast.current !== null) toast.dismiss(catchUpToast.current);
+      catchUpToast.current = null;
+      return;
+    }
+    if (!canSee || welcomed.current || !hasUnread) return;
+
+    let settleTimer: number | undefined;
+    let observer: MutationObserver | undefined;
+
+    const showCatchUp = () => {
+      if (welcomed.current || hasBlockingDialog()) return;
+      const unread = latestItemsRef.current.filter((notification) => !notification.read);
+      if (!unread.length) return;
+
+      welcomed.current = true;
+      observer?.disconnect();
+      const changes = unread.reduce((sum, notification) =>
+        sum + (notification.actions_count || notification.changes.length), 0);
+      catchUpToast.current = toast.message('Revenue automation activity', {
+        description: `${changes} update${changes === 1 ? '' : 's'} since your last visit`,
+        action: { label: 'View updates', onClick: () => setOpen(true) },
+        duration: 8_000,
+      });
+    };
+
+    const watchForModalClose = () => {
+      if (!hasBlockingDialog() && settleTimer === undefined) {
+        // Allow closing animations and focus restoration to complete.
+        settleTimer = window.setTimeout(() => {
+          settleTimer = undefined;
+          showCatchUp();
+        }, 350);
+      } else if (hasBlockingDialog() && settleTimer !== undefined) {
+        window.clearTimeout(settleTimer);
+        settleTimer = undefined;
+      }
+    };
+
+    const timer = window.setTimeout(() => {
+      if (!hasBlockingDialog()) {
+        showCatchUp();
+        return;
+      }
+      observer = new MutationObserver(watchForModalClose);
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['data-state', 'aria-modal'],
+      });
+    }, CATCH_UP_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+      if (settleTimer !== undefined) window.clearTimeout(settleTimer);
+      observer?.disconnect();
+    };
+  }, [canSee, hasUnread, isReception]);
+
+  // Keep an open detail dialog in sync with freshly loaded push outcomes.
+  useEffect(() => {
+    if (!detail) return;
+    const fresh = items.find((item) => item.id === detail.id);
+    if (fresh && fresh !== detail) setDetail(fresh);
+  }, [items, detail]);
 
   if (!canSee) return null;
 
   const openDetail = (item: AutomationNotification) => {
     setDetail(item);
+    void reload(); // Pull the latest Previo push outcomes when opening older AI notifications.
     setDecisions([]);
     setDecisionsError(null);
     setDirectionFilter('all');
@@ -112,6 +187,7 @@ export function RevenueAutomationNotifications() {
     return counts;
   }, {});
 
+  const shownItems = sourceFilter === 'all' ? items : items.filter((i) => i.source === sourceFilter);
   const term = search.trim().toLowerCase();
   const visibleDecisions = decisions.filter((row) => {
     if (directionFilter !== 'all' && row.direction !== directionFilter) return false;
@@ -144,11 +220,26 @@ export function RevenueAutomationNotifications() {
               </Button>
             )}
           </div>
+          <div className="flex gap-1 px-3 py-1.5 border-b overflow-x-auto">
+            {(['all', 'ai', 'automation', 'manual'] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setSourceFilter(f)}
+                className={cn(
+                  'h-6 px-2.5 rounded-full text-[11px] font-medium border shrink-0',
+                  sourceFilter === f ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground',
+                )}
+              >
+                {SOURCE_LABEL[f]}
+              </button>
+            ))}
+          </div>
           <div className="max-h-[380px] overflow-y-auto">
-            {items.length === 0 && (
+            {shownItems.length === 0 && (
               <p className="p-4 text-sm text-muted-foreground">No automation activity yet.</p>
             )}
-            {items.map((item) => {
+            {shownItems.map((item) => {
               const failed = item.failed_count > 0;
               const minStay = item.notification_type === 'min_stay_automation';
               return (
@@ -164,14 +255,19 @@ export function RevenueAutomationNotifications() {
                   <div className="flex items-center gap-2">
                     {failed ? (
                       <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
-                    ) : item.run_source === 'automatic' ? (
-                      <Bot className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    ) : item.source === 'ai' ? (
+                      <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                    ) : item.source === 'automation' ? (
+                      <Settings2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     ) : (
                       <UserIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     )}
                     <span className="text-sm font-medium truncate">{item.hotel_name}</span>
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
-                      {minStay ? 'Minimum stay' : item.run_source === 'automatic' ? 'Pricing' : 'Manual'}
+                    <Badge
+                      variant={item.source === 'ai' ? 'default' : item.source === 'automation' ? 'secondary' : 'outline'}
+                      className="text-[10px] px-1.5 py-0 shrink-0"
+                    >
+                      {SOURCE_LABEL[item.source]}{minStay ? ' · Min stay' : ''}
                     </Badge>
                     <span className="ml-auto text-[11px] text-muted-foreground shrink-0">
                       {relativeTime(item.created_at)}
@@ -180,7 +276,9 @@ export function RevenueAutomationNotifications() {
                   <p className={cn('mt-1 text-xs', failed ? 'text-destructive font-medium' : 'text-muted-foreground')}>
                     {runPreview(item)}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{item.actor_name}</p>
+                  {item.source === 'manual' && (
+                    <p className="mt-0.5 text-[11px] text-muted-foreground truncate">By {item.actor_name}</p>
+                  )}
                 </button>
               );
             })}
@@ -193,11 +291,11 @@ export function RevenueAutomationNotifications() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {detail?.failed_count ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <Bell className="h-4 w-4" />}
-              {detail?.hotel_name} — {detail?.notification_type === 'min_stay_automation' ? 'minimum stay update' : 'price update'}
+              {detail?.hotel_name} — {detail && isAiReviewFailure(detail) ? 'AI review unavailable' : detail?.notification_type === 'peak_review' ? 'dates to review' : detail?.notification_type === 'min_stay_automation' ? 'minimum stay update' : 'price update'}
             </DialogTitle>
             <DialogDescription>
               {detail
-                ? `${detail.run_source === 'automatic' ? (detail.notification_type === 'min_stay_automation' ? 'Minimum-stay automation' : 'Run automatically') : `Started by ${detail.actor_name}`} · ${relativeTime(detail.created_at)}`
+                ? `${detail.source === 'ai' ? 'HotelCare AI supervisor' : detail.run_source === 'automatic' ? (detail.notification_type === 'min_stay_automation' ? 'Minimum-stay automation' : 'Run automatically') : `Started by ${detail.actor_name}`} · ${relativeTime(detail.created_at)}`
                 : ''}
             </DialogDescription>
           </DialogHeader>
@@ -214,6 +312,16 @@ export function RevenueAutomationNotifications() {
                 >
                   {runStatus(detail).text}
                 </p>
+                {isAiCreditsFailure(detail) && (
+                  <a
+                    href="https://platform.openai.com/settings/organization/billing/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-block text-xs font-medium text-primary underline underline-offset-2"
+                  >
+                    Open OpenAI API billing to add credits
+                  </a>
+                )}
                 {runReasons(detail).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {runReasons(detail).map((reason) => (
@@ -422,6 +530,29 @@ export function RevenueAutomationNotifications() {
                     </tbody>
                   </table>
                 </div>
+              ) : detail.notification_type === 'peak_review' && detail.changes.length > 0 ? (
+                <div className="rounded-lg border overflow-x-auto">
+                  <table className="w-full text-[13px]">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="text-left">
+                        <th className="px-2.5 py-2 font-semibold">Stay date</th>
+                        <th className="px-2.5 py-2 font-semibold">Why it may be a Peak date</th>
+                        <th className="px-2.5 py-2 font-semibold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.changes.map((row, index) => (
+                        <tr key={`${row.stay_date}-${index}`} className="border-t align-top odd:bg-muted/30">
+                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{row.stay_date}</td>
+                          <td className="px-2.5 py-2 min-w-[240px]">{row.reason_detail ?? row.event_title ?? 'Unusually strong demand expected'}</td>
+                          <td className="px-2.5 py-2">
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Awaiting review</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : detail.notification_type === 'min_stay_automation' && detail.changes.length > 0 ? (
                 <div className="rounded-lg border overflow-x-auto">
                   <table className="w-full text-[13px]">
@@ -463,6 +594,62 @@ export function RevenueAutomationNotifications() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              ) : detail.changes.some((row) => row.date && row.reference_before != null) ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    AI price changes are shown by stay date. These are reference rates, not individual room/guest prices.
+                    The publishing status below comes from the linked Previo price-push runs.
+                  </p>
+                  {detail.changes.map((row, index) => {
+                    const before = row.reference_before ?? row.old_price;
+                    const after = row.reference_target ?? row.new_price;
+                    const delta = row.delta ?? (before != null && after != null ? after - before : null);
+                    const status = row.status ?? 'queued';
+                    const statusLabel = status === 'accepted'
+                      ? 'Accepted by Previo'
+                      : status === 'confirmed'
+                        ? 'Confirmed'
+                        : status === 'partially_accepted'
+                          ? 'Partly accepted'
+                          : status === 'failed' ? 'Needs attention' : 'Queued at last check';
+                    return (
+                      <div key={`${row.date ?? row.stay_date ?? 'date'}-${index}`} className="rounded-lg border p-3 space-y-2">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <span className="font-semibold text-sm tabular-nums">{row.date ?? row.stay_date ?? 'Date unavailable'}</span>
+                          <Badge
+                            variant={status === 'failed' ? 'destructive' : status === 'accepted' || status === 'confirmed' ? 'default' : 'secondary'}
+                            className="text-[10px]"
+                          >
+                            {statusLabel}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-sm tabular-nums">
+                          <span className="text-muted-foreground">{money(before, row.currency ?? detail.currency)}</span>
+                          <ArrowRight className="h-3.5 w-3.5 shrink-0" />
+                          <strong>{money(after, row.currency ?? detail.currency)}</strong>
+                          {delta != null && Number.isFinite(Number(delta)) && (
+                            <span className={cn('ml-1 text-xs font-medium', delta < 0 ? 'text-emerald-600' : delta > 0 ? 'text-amber-600' : 'text-muted-foreground')}>
+                              {delta > 0 ? '+' : ''}{money(delta, row.currency ?? detail.currency)}
+                            </span>
+                          )}
+                          <span className="text-[11px] text-muted-foreground">(reference rate)</span>
+                        </div>
+                        {row.push_requested_count != null && (
+                          <p className="text-xs text-muted-foreground">
+                            {row.push_accepted_count ?? 0} of {row.push_requested_count} room/guest prices accepted by Previo
+                            {(row.push_failed_count ?? 0) > 0 ? ` · ${row.push_failed_count} failed` : ''}
+                          </p>
+                        )}
+                        {(row.reason || row.reason_detail) && (
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            <span className="font-medium text-foreground">Why: </span>
+                            {row.reason_detail ?? row.reason}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : detail.changes.length > 0 ? (
                 <div className="rounded-lg border overflow-x-auto">

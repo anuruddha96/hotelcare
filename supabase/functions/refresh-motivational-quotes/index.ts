@@ -1,3 +1,4 @@
+import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
 // Monthly refresh of the welcome-screen quote pool.
 //
 // Runs on a cron once a month (and can be triggered manually by an admin).
@@ -10,6 +11,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { checkAiBudget, logAiUsage } from "../_shared/aiBudget.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -45,7 +47,8 @@ serve(async (req) => {
   // A human trigger must be an admin; the cron calls with no user token.
   const authHeader = req.headers.get("Authorization") ?? "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-  if ((force || resume) && token && token !== ANON_KEY) {
+  if ((force || resume) && (!token || token === ANON_KEY)) return json({ ok: false, error: "Admin authorization required" }, 401);
+  if (force || resume) {
     const userClient = createClient(SUPABASE_URL, ANON_KEY);
     const { data: userRes } = await userClient.auth.getUser(token);
     if (!userRes?.user) return json({ ok: false, error: "Unauthorized" }, 401);
@@ -87,12 +90,18 @@ serve(async (req) => {
   if (!claimed?.length) return json({ ok: true, skipped: "another run holds the lease" });
 
   const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-  if (!OPENAI_API_KEY) {
+  if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) {
     await admin.from("motivational_quote_state").update({
-      status: "paused", paused_reason: "OPENAI_API_KEY is not configured",
+      status: "paused", paused_reason: "No AI provider is configured",
       lease_until: null, updated_at: new Date().toISOString(),
     }).eq("id", true);
     return json({ ok: false, error: "OPENAI_API_KEY is not configured" }, 200);
+  }
+
+  const budget = await checkAiBudget(admin, "hotelcare", { scheduled: !force });
+  if (!budget.allowed) {
+    await admin.from("motivational_quote_state").update({ status: "idle", lease_until: null, updated_at: new Date().toISOString() }).eq("id", true);
+    return json({ ok: true, skipped: "AI spending budget reached", reason: budget.reason });
   }
 
   try {
@@ -100,14 +109,14 @@ serve(async (req) => {
       .from("motivational_quotes").select("quote").eq("is_active", true).limit(200);
     const known = (existing ?? []).map((r) => r.quote).slice(0, 120);
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const res = await fetchGeminiFirstChat("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: "gpt-4o-mini",
         temperature: 0.8,
         response_format: { type: "json_object" },
         messages: [
@@ -144,6 +153,12 @@ serve(async (req) => {
     }
 
     const payload = await res.json();
+    await logAiUsage(admin, {
+      organizationSlug: "hotelcare", functionName: "monthly-motivational-quotes",
+      model: String(payload?.model ?? 'gpt-4o-mini'),
+      inputTokens: Number(payload?.usage?.prompt_tokens ?? 0),
+      outputTokens: Number(payload?.usage?.completion_tokens ?? 0),
+    });
     const parsed = JSON.parse(payload?.choices?.[0]?.message?.content ?? "{}");
     const rows = (Array.isArray(parsed?.quotes) ? parsed.quotes : [])
       .map((q: { quote?: string; author?: string }) => ({
@@ -151,7 +166,7 @@ serve(async (req) => {
         author: String(q?.author ?? "").trim() || "Unknown",
         source: "ai",
       }))
-      .filter((q) => q.quote.length > 10 && q.quote.length <= 200)
+      .filter((q: { quote: string; author: string; source: string }) => q.quote.length > 10 && q.quote.length <= 200)
       .slice(0, BATCH);
 
     let inserted = 0;

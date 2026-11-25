@@ -1,15 +1,19 @@
 // Safety net for pricing mistakes.
 //
 // Scans every published nightly rate in the booking horizon against the
-// hotel's own thresholds and emails admins + top management when a price
+// hotel's own thresholds and emails top-management users when a price
 // looks like a human error (2 EUR instead of 200, or a fat-fingered 9000).
 // Each (date × room type × occupancy × price) is only ever reported once.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { mailClient } from "../_shared/emailSender.ts";
+import { filterRatesBySellableInventory, makeRateAlertPlanKey } from "../_shared/rateAlertInventory.ts";
 
-const ALERT_ROLES = ["admin", "top_management", "top_management_manager"];
+const ALERT_ROLES = ["top_management", "top_management_manager"];
+const EXCLUDED_ALERT_EMAILS = new Set(["control@rdhotels.hu"]);
 const HORIZON_DAYS = 120;
+const SLNT_ADAPTIVE_MIN_SAMPLES = 30;
+const RATE_PAGE_SIZE = 1000;
 
 interface Thresholds {
   rate_warn_below_eur: number;
@@ -23,6 +27,13 @@ interface CurrencySettings {
   eur_conversion_rate: number | null;
 }
 
+interface EffectiveBounds {
+  low: number;
+  high: number;
+  adaptive: boolean;
+  sampleSize: number;
+}
+
 const DEFAULTS: Thresholds = {
   rate_warn_below_eur: 60,
   rate_critical_below_eur: 40,
@@ -34,6 +45,199 @@ function addDays(iso: string, n: number) {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+function rateKey(roomTypeName: unknown, occupancy: unknown) {
+  return `${String(roomTypeName ?? "")}|${String(occupancy ?? "")}`;
+}
+
+function hasResolvedRoomType(roomTypeName: unknown): boolean {
+  return typeof roomTypeName === "string" && roomTypeName.trim().length > 0;
+}
+
+function percentile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return NaN;
+  if (sorted.length === 1) return sorted[0];
+  const pos = (sorted.length - 1) * q;
+  const lower = Math.floor(pos);
+  const upper = Math.ceil(pos);
+  if (lower === upper) return sorted[lower];
+  const weight = pos - lower;
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
+
+/**
+ * Supabase/PostgREST enforces a server-side maximum row count. Asking for a
+ * very large `.limit()` does not guarantee that many rows are returned. SLNT
+ * has thousands of rate rows in the 120-day horizon, so a single query could
+ * contain only the earliest ~1,000 rows. That starved each room/occupancy key
+ * below the 30-sample learning threshold and silently reverted to the static
+ * portfolio floor. Fetch in deterministic 1,000-row pages so the adaptive
+ * safety net always learns from the complete published curve.
+ */
+async function fetchPublishedRates(
+  admin: any,
+  hotelId: string,
+  today: string,
+  horizon: string,
+): Promise<any[]> {
+  const all: any[] = [];
+
+  for (let from = 0; ; from += RATE_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from("revenue_room_type_rates")
+      .select("id, stay_date, obk_id, rate_plan_id, closed_to_arrival, room_type_name, occupancy, price")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", today)
+      .lte("stay_date", horizon)
+      .order("stay_date", { ascending: true })
+      .order("room_type_name", { ascending: true })
+      .order("occupancy", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + RATE_PAGE_SIZE - 1);
+
+    if (error) throw error;
+    const page = data ?? [];
+    all.push(...page);
+    if (page.length < RATE_PAGE_SIZE) break;
+  }
+
+  return all;
+}
+
+/**
+ * Read the authoritative per-room-type Previo availability snapshot, not
+ * hotel-wide occupancy. Paginate because one room type x 120 dates can exceed
+ * the PostgREST 1,000-row response ceiling.
+ */
+async function fetchRoomTypeInventory(
+  admin: any,
+  hotelId: string,
+  today: string,
+  horizon: string,
+): Promise<any[]> {
+  const all: any[] = [];
+  for (let from = 0; ; from += RATE_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from("revenue_room_type_availability")
+      .select("stay_date, obk_id, availability, captured_at")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", today)
+      .lte("stay_date", horizon)
+      .order("stay_date", { ascending: true })
+      .order("obk_id", { ascending: true })
+      .range(from, from + RATE_PAGE_SIZE - 1);
+
+    if (error) throw error;
+    const page = data ?? [];
+    all.push(...page);
+    if (page.length < RATE_PAGE_SIZE) break;
+  }
+  return all;
+}
+
+/**
+ * Some native PMS rate-plan mappings explicitly disable a plan. Only apply
+ * that decision when both the plan ID and exact Previo room type match. HMB
+ * and other Previo hotels may have no native mappings: a missing mapping is
+ * not evidence that a published Previo plan is inactive.
+ */
+async function fetchInactiveRatePlanKeys(admin: any, hotelId: string): Promise<Set<string>> {
+  const [plansResult, roomsResult] = await Promise.all([
+    admin.from("pms_rate_plan_mappings")
+      .select("room_type_id, pms_rate_plan_id, is_active")
+      .eq("hotel_id", hotelId)
+      .eq("is_active", false),
+    admin.from("previo_rate_plan_mapping")
+      .select("room_type_id, previo_room_type_id")
+      .eq("hotel_id", hotelId),
+  ]);
+  if (plansResult.error) throw plansResult.error;
+  if (roomsResult.error) throw roomsResult.error;
+
+  const obkIdsByRoom = new Map<string, string[]>();
+  for (const mapping of roomsResult.data ?? []) {
+    if (!mapping.room_type_id || !mapping.previo_room_type_id) continue;
+    const room = String(mapping.room_type_id);
+    const ids = obkIdsByRoom.get(room) ?? [];
+    ids.push(String(mapping.previo_room_type_id));
+    obkIdsByRoom.set(room, ids);
+  }
+
+  const inactive = new Set<string>();
+  for (const plan of plansResult.data ?? []) {
+    if (!plan.room_type_id || !plan.pms_rate_plan_id) continue;
+    for (const obkId of obkIdsByRoom.get(String(plan.room_type_id)) ?? []) {
+      inactive.add(makeRateAlertPlanKey(obkId, String(plan.pms_rate_plan_id)));
+    }
+  }
+  return inactive;
+}
+
+/**
+ * SLNT is a portfolio made up of very different apartments, rooms and
+ * pensions. A single portfolio-wide minimum therefore creates false alarms
+ * for naturally lower-priced units such as WR Pension.
+ *
+ * Learn a conservative range separately for each room type + occupancy from
+ * the current 120-day published curve. The configured hotel thresholds remain
+ * hard guardrails: the adaptive floor can only move down (never below 45% of
+ * the configured floor), and the adaptive ceiling can only move down from the
+ * configured maximum. Robust percentiles keep one typo from teaching the
+ * detector that the typo is normal.
+ */
+function buildSlntAdaptiveBounds(
+  rates: any[],
+  configuredLow: number,
+  configuredHigh: number,
+): Map<string, EffectiveBounds> {
+  const grouped = new Map<string, number[]>();
+
+  for (const r of rates) {
+    const p = Number(r.price);
+    if (!Number.isFinite(p) || p <= 0 || !hasResolvedRoomType(r.room_type_name)) continue;
+    const key = rateKey(r.room_type_name, r.occupancy);
+    const prices = grouped.get(key) ?? [];
+    prices.push(p);
+    grouped.set(key, prices);
+  }
+
+  const bounds = new Map<string, EffectiveBounds>();
+  for (const [key, prices] of grouped.entries()) {
+    if (prices.length < SLNT_ADAPTIVE_MIN_SAMPLES) continue;
+
+    const sorted = [...prices].sort((a, b) => a - b);
+    const p05 = percentile(sorted, 0.05);
+    const median = percentile(sorted, 0.50);
+    const p95 = percentile(sorted, 0.95);
+
+    // A legitimate low season rate is usually represented repeatedly in the
+    // lower tail. 70% of P05 / 55% of median gives it breathing room while a
+    // misplaced zero or 10x-too-low amount still trips the safety net.
+    const learnedLow = Math.max(p05 * 0.70, median * 0.55);
+    const low = Math.max(
+      configuredLow * 0.45,
+      Math.min(configuredLow, learnedLow),
+    );
+
+    // Keep enough headroom for Budapest event / peak-date spikes. P95 and the
+    // median are robust against a single huge typo, unlike the raw maximum.
+    const learnedHigh = Math.max(
+      configuredHigh * 0.45,
+      median * 8,
+      p95 * 5,
+    );
+    const high = Math.max(low, Math.min(configuredHigh, learnedHigh));
+
+    bounds.set(key, {
+      low,
+      high,
+      adaptive: true,
+      sampleSize: prices.length,
+    });
+  }
+
+  return bounds;
 }
 
 Deno.serve(async (req) => {
@@ -57,7 +261,14 @@ Deno.serve(async (req) => {
 
     const today = new Date().toISOString().slice(0, 10);
     const horizon = addDays(today, HORIZON_DAYS);
-    const summary: Array<{ hotel_id: string; found: number; emailed: number }> = [];
+    const summary: Array<{
+      hotel_id: string;
+      found: number;
+      emailed: number;
+      skipped_sold_out?: number;
+      skipped_closed_plan?: number;
+      skipped_unverified?: number;
+    }> = [];
 
     for (const h of targets as any[]) {
       const t: Thresholds = {
@@ -85,22 +296,82 @@ Deno.serve(async (req) => {
       const maxSane = t.rate_max_sane_eur * thresholdScale;
       const currencyLabel = currency.base_currency === "HUF" ? "Ft" : currency.base_currency;
 
-      const { data: rates } = await admin
-        .from("revenue_room_type_rates")
-        .select("stay_date, room_type_name, occupancy, price")
-        .eq("hotel_id", h.hotel_id)
-        .gte("stay_date", today)
-        .lte("stay_date", horizon)
-        .order("stay_date")
-        .limit(20000);
+      const rates = await fetchPublishedRates(admin, h.hotel_id, today, horizon);
 
-      const offenders = (rates ?? []).filter((r: any) => {
-        const p = Number(r.price);
-        if (!Number.isFinite(p)) return false;
-        return p <= 0 || p < criticalBelow || p > maxSane;
+      const isSlnt = h.hotel_id === "slnt-group" ||
+        String(h.organization_slug ?? "").toLowerCase() === "slnt";
+      const adaptiveBounds = isSlnt
+        ? buildSlntAdaptiveBounds(rates, criticalBelow, maxSane)
+        : new Map<string, EffectiveBounds>();
+
+      const evaluated = rates.map((r: any) => {
+        const learned = adaptiveBounds.get(rateKey(r.room_type_name, r.occupancy));
+        const bounds: EffectiveBounds = learned ?? {
+          low: criticalBelow,
+          high: maxSane,
+          adaptive: false,
+          sampleSize: 0,
+        };
+        return {
+          ...r,
+          _alertLow: bounds.low,
+          _alertHigh: bounds.high,
+          _adaptive: bounds.adaptive,
+          _sampleSize: bounds.sampleSize,
+        };
       });
 
-      if (offenders.length === 0) { summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 }); continue; }
+      // A missing SLNT room type is an incomplete sync/mapping row, not a
+      // sellable rate. Never reinterpret, repair or write a price here: keep
+      // those rows out of pricing alerts and leave the authoritative SLNT rate
+      // data and revenue settings completely untouched.
+      const unresolvedSlntRows = isSlnt
+        ? evaluated.filter((r: any) => !hasResolvedRoomType(r.room_type_name))
+        : [];
+      if (unresolvedSlntRows.length > 0) {
+        console.warn(
+          `SLNT rate safety: skipped ${unresolvedSlntRows.length} unresolved room-type row(s) from price alerts; no rates or settings were changed.`,
+        );
+      }
+
+      const offenders = evaluated.filter((r: any) => {
+        if (isSlnt && !hasResolvedRoomType(r.room_type_name)) return false;
+        const p = Number(r.price);
+        if (!Number.isFinite(p)) return false;
+        return p <= 0 || p < r._alertLow || p > r._alertHigh;
+      });
+
+      if (offenders.length === 0) {
+        summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 });
+        continue;
+      }
+
+      // This is an email safety net, not an inventory or price writer.
+      // Never send a sold-out price alert: filter by the exact date, Previo
+      // room-type ID, and active rate plan before dedupe or alert insertion.
+      const [inventory, inactivePlans] = await Promise.all([
+        fetchRoomTypeInventory(admin, h.hotel_id, today, horizon),
+        fetchInactiveRatePlanKeys(admin, h.hotel_id),
+      ]);
+      const eligible = filterRatesBySellableInventory(
+        offenders, inventory, Date.now(), inactivePlans,
+      );
+      if (eligible.soldOut > 0 || eligible.closedPlan > 0 || eligible.unverified > 0) {
+        console.info(`Rate safety for ${h.hotel_id}: suppressed ${eligible.soldOut} sold-out, ${eligible.closedPlan} closed-plan, ${eligible.unverified} unverified-inventory rate(s)`);
+      }
+      // Unknown or stale inventory must not be silently mistaken for a sale.
+      if (eligible.unverified > 0) {
+        console.warn(`Rate safety for ${h.hotel_id}: ${eligible.unverified} unusually priced row(s) require a fresh, matched inventory sync before they can trigger email`);
+      }
+      if (eligible.sellable.length === 0) {
+        summary.push({
+          hotel_id: h.hotel_id, found: 0, emailed: 0,
+          skipped_sold_out: eligible.soldOut,
+          skipped_closed_plan: eligible.closedPlan,
+          skipped_unverified: eligible.unverified,
+        });
+        continue;
+      }
 
       // Skip anything already reported with the same price.
       const { data: existing } = await admin
@@ -112,10 +383,18 @@ Deno.serve(async (req) => {
         (existing ?? []).map((e: any) => `${e.stay_date}|${e.room_type_name}|${e.occupancy}|${Number(e.price)}`),
       );
 
-      const fresh = offenders.filter(
+      const fresh = eligible.sellable.filter(
         (r: any) => !seen.has(`${r.stay_date}|${r.room_type_name}|${r.occupancy}|${Number(r.price)}`),
       );
-      if (fresh.length === 0) { summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 }); continue; }
+      if (fresh.length === 0) {
+        summary.push({
+          hotel_id: h.hotel_id, found: 0, emailed: 0,
+          skipped_sold_out: eligible.soldOut,
+          skipped_closed_plan: eligible.closedPlan,
+          skipped_unverified: eligible.unverified,
+        });
+        continue;
+      }
 
       const rows = fresh.map((r: any) => ({
         hotel_id: h.hotel_id,
@@ -138,28 +417,40 @@ Deno.serve(async (req) => {
           .in("role", ALERT_ROLES);
 
         const recipients = (people ?? [])
-          .filter((p: any) =>
-            p.email &&
-            (p.role === "admin" ||
-              p.assigned_hotel === h.hotel_id ||
-              (h.organization_slug && p.organization_slug === h.organization_slug)))
-          .map((p: any) => p.email as string);
+          .filter((p: any) => {
+            if (!p.email) return false;
+            const email = String(p.email).trim().toLowerCase();
+            if (EXCLUDED_ALERT_EMAILS.has(email)) return false;
+            return p.assigned_hotel === h.hotel_id ||
+              (h.organization_slug && p.organization_slug === h.organization_slug);
+          })
+          .map((p: any) => String(p.email).trim());
 
         const unique = Array.from(new Set(recipients));
         if (unique.length > 0) {
-          const list = fresh.slice(0, 30).map((r: any) =>
-            `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${r.stay_date}</td>` +
-            `<td style="padding:6px 10px;border-bottom:1px solid #eee">${r.room_type_name}</td>` +
-            `<td style="padding:6px 10px;border-bottom:1px solid #eee">${r.occupancy} guest(s)</td>` +
-            `<td style="padding:6px 10px;border-bottom:1px solid #eee;font-weight:600">${Number(r.price).toLocaleString("en-US", { maximumFractionDigits: 0 })} ${currencyLabel}</td></tr>`,
-          ).join("");
+          const rangeHeader = isSlnt
+            ? `<th align="left" style="padding:6px 10px;border-bottom:2px solid #ddd">Safety range</th>`
+            : "";
+          const list = fresh.slice(0, 30).map((r: any) => {
+            const rangeCell = isSlnt
+              ? `<td style="padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap">${Math.round(r._alertLow).toLocaleString("en-US")}–${Math.round(r._alertHigh).toLocaleString("en-US")} ${currencyLabel}</td>`
+              : "";
+            return `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${r.stay_date}</td>` +
+              `<td style="padding:6px 10px;border-bottom:1px solid #eee">${r.room_type_name}</td>` +
+              `<td style="padding:6px 10px;border-bottom:1px solid #eee">${r.occupancy} guest(s)</td>` +
+              `<td style="padding:6px 10px;border-bottom:1px solid #eee;font-weight:600">${Number(r.price).toLocaleString("en-US", { maximumFractionDigits: 0 })} ${currencyLabel}</td>` +
+              `${rangeCell}</tr>`;
+          }).join("");
+
+          const thresholdText = isSlnt
+            ? `SLNT uses an adaptive safety net calculated separately for each room type and occupancy from the complete current ${HORIZON_DAYS}-day published rate curve. The configured portfolio limits remain hard guardrails.`
+            : `The safety net is below ${Math.round(criticalBelow).toLocaleString("en-US")} ${currencyLabel} or above ${Math.round(maxSane).toLocaleString("en-US")} ${currencyLabel}.`;
 
           const html = `
             <div style="font-family:Arial,Helvetica,sans-serif;color:#111">
               <h2 style="margin:0 0 8px">Unusual rates detected — ${h.hotel_id}</h2>
               <p style="margin:0 0 16px;color:#555">
-                ${fresh.length} published price${fresh.length === 1 ? "" : "s"} fall outside the safety net
-                (below ${Math.round(criticalBelow).toLocaleString("en-US")} ${currencyLabel} or above ${Math.round(maxSane).toLocaleString("en-US")} ${currencyLabel}).
+                ${fresh.length} published price${fresh.length === 1 ? "" : "s"} fall outside the safety net. ${thresholdText}
                 Please review them in Revenue Management before they sell.
               </p>
               <table style="border-collapse:collapse;font-size:14px">
@@ -168,6 +459,7 @@ Deno.serve(async (req) => {
                   <th align="left" style="padding:6px 10px;border-bottom:2px solid #ddd">Room type</th>
                   <th align="left" style="padding:6px 10px;border-bottom:2px solid #ddd">Occupancy</th>
                   <th align="left" style="padding:6px 10px;border-bottom:2px solid #ddd">Price</th>
+                  ${rangeHeader}
                 </tr></thead>
                 <tbody>${list}</tbody>
               </table>
@@ -195,7 +487,12 @@ Deno.serve(async (req) => {
         }
       }
 
-      summary.push({ hotel_id: h.hotel_id, found: fresh.length, emailed });
+      summary.push({
+        hotel_id: h.hotel_id, found: fresh.length, emailed,
+        skipped_sold_out: eligible.soldOut,
+        skipped_closed_plan: eligible.closedPlan,
+        skipped_unverified: eligible.unverified,
+      });
     }
 
     return json({ ok: true, summary });
@@ -207,6 +504,7 @@ Deno.serve(async (req) => {
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
-    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }

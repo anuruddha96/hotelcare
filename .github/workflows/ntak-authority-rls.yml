@@ -1,0 +1,32 @@
+name: NTAK authority RLS review
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/ntak_authority_guest_rls_review.sql'
+      - '.github/workflows/ntak-authority-rls.yml'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase3_activation_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_authority_guest_rls_review.sql

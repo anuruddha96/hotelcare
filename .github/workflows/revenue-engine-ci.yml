@@ -4,15 +4,43 @@ on:
   push:
     branches: [main]
     paths:
-      - 'supabase/functions/_shared/engineV2*.ts'
+      - 'supabase/functions/_shared/engineV2*'
+      - 'supabase/functions/revenue-pickup-automation/runV2.ts'
+      - 'supabase/functions/_shared/assistantAutomationFields*'
+      - 'supabase/functions/assistant-apply-automation-change/**'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
+      - 'supabase/functions/_shared/revenueWorkerAuth*'
+      - 'supabase/functions/revenue-engine-tick/**'
+      - 'supabase/functions/revenue-autopilot-tick/**'
+      - 'supabase/functions/revenue-publish-queue/**'
+      - 'supabase/functions/revenue-pickup-automation/index.ts'
+      - 'supabase/migrations/*revenue_cron_vault_worker_auth.sql'
+      - 'supabase/tests/revenue_cron_vault_*.sql'
+      - 'supabase/functions/_shared/ottofioriAiSupervisor*'
+      - 'supabase/functions/_shared/ottofioriMarketDates*'
+      - 'supabase/functions/ottofiori-ai-supervisor/**'
+      - 'supabase/functions/ottofiori-market-scan/**'
       - '.github/workflows/revenue-engine-ci.yml'
   pull_request:
     paths:
-      - 'supabase/functions/_shared/engineV2*.ts'
+      - 'supabase/functions/_shared/engineV2*'
+      - 'supabase/functions/revenue-pickup-automation/runV2.ts'
+      - 'supabase/functions/_shared/assistantAutomationFields*'
+      - 'supabase/functions/assistant-apply-automation-change/**'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
+      - 'supabase/functions/_shared/revenueWorkerAuth*'
+      - 'supabase/functions/revenue-engine-tick/**'
+      - 'supabase/functions/revenue-autopilot-tick/**'
+      - 'supabase/functions/revenue-publish-queue/**'
+      - 'supabase/functions/revenue-pickup-automation/index.ts'
+      - 'supabase/migrations/*revenue_cron_vault_worker_auth.sql'
+      - 'supabase/tests/revenue_cron_vault_*.sql'
+      - 'supabase/functions/_shared/ottofioriAiSupervisor*'
+      - 'supabase/functions/_shared/ottofioriMarketDates*'
+      - 'supabase/functions/ottofiori-ai-supervisor/**'
+      - 'supabase/functions/ottofiori-market-scan/**'
       - '.github/workflows/revenue-engine-ci.yml'
 
 permissions:
@@ -28,3 +56,58 @@ jobs:
           deno-version: v2.x
       - name: Run Revenue Engine V2 regression tests
         run: deno test supabase/functions/_shared/engineV2*_test.ts
+      - name: Test internal revenue worker authentication
+        run: deno test supabase/functions/_shared/revenueWorkerAuth_test.ts
+      - name: Type-check authenticated pricing/publisher worker entrypoints
+        run: |
+          deno check --node-modules-dir=none supabase/functions/revenue-publish-queue/index.ts
+          deno check --node-modules-dir=none supabase/functions/revenue-engine-tick/index.ts
+          deno check --node-modules-dir=none supabase/functions/revenue-autopilot-tick/index.ts
+      - name: Type-check Ottofiori AI supervisor
+        run: deno check --node-modules-dir=none supabase/functions/ottofiori-ai-supervisor/index.ts
+      - name: Type-check the pricing engine and the chat rule-change writer
+        run: |
+          deno check --node-modules-dir=none supabase/functions/revenue-pickup-automation/index.ts
+          deno check --node-modules-dir=none supabase/functions/assistant-apply-automation-change/index.ts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify revenue director and publication budgets
+        run: node --test supabase/functions/_shared/engineV2*.test.mjs supabase/functions/_shared/ottofioriAiSupervisor.test.mjs supabase/functions/_shared/ottofioriMarketDates.test.mjs supabase/functions/_shared/assistantAutomationFields.test.mjs
+
+  vault-cron-sql:
+    name: Vault credential and cron migration integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Test migration, roles, credential check and job schedule preservation
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/revenue_cron_vault_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261122090000_revenue_cron_vault_worker_auth.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/revenue_cron_vault_integration.sql
+          # Reapplying must not rotate secrets or change job timing.
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261122090000_revenue_cron_vault_worker_auth.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/revenue_cron_vault_integration.sql

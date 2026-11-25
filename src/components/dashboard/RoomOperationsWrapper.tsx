@@ -27,6 +27,7 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
 import { cleanName } from '@/lib/staffNames';
 import { todayBudapest } from '@/lib/budapestTime';
+import { roomOperationsLookup } from '@/lib/roomOperationsLookup';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -105,7 +106,7 @@ function roomChipFromTarget(target: EventTarget | null, root: HTMLElement | null
     if (looksLikeRoomChip && chipBox) {
       const roomTextNode = Array.from(chipBox.childNodes).find((child) => child.nodeType === Node.TEXT_NODE && !!child.textContent?.trim());
       const roomNumber = roomTextNode?.textContent?.trim();
-      if (roomNumber) return { roomNumber, element: node };
+      if (roomNumber) return { roomNumber, roomId: node.dataset.roomId || null, element: node };
     }
     node = node.parentElement;
   }
@@ -147,7 +148,7 @@ export function RoomOperationsWrapper({ selectedDate, hotelName, staffMap, child
   const canOpenOperations = canManage || role === 'reception';
   const minibarReadOnly = selectedDate !== todayBudapest();
 
-  const loadRoom = useCallback(async (roomNumber: string) => {
+  const loadRoom = useCallback(async (roomNumber: string, roomId: string | null = null) => {
     const requestId = ++requestRef.current;
     setSelection({
       roomNumber,
@@ -182,11 +183,15 @@ export function RoomOperationsWrapper({ selectedDate, hotelName, staffMap, child
     try {
       const resolvedKeys = await resolveHotelKeys(hotelName);
       const hotelKeys = resolvedKeys.length ? resolvedKeys : [hotelName];
+      // Gozsdu displays the canonical PMS name, but 52 legacy rooms have a
+      // shortened persisted room_number. Resolve the clicked room by its stable
+      // database ID, while still enforcing the selected hotel's scope.
+      const lookup = roomOperationsLookup(roomId, roomNumber);
       const { data: roomRows, error: roomError } = await supabase
         .from('rooms')
         .select('id, hotel, room_number, status, notes, room_type, room_category, room_size_sqm, bed_configuration, floor_number, is_checkout_room, towel_change_required, linen_change_required, last_cleaned_at, last_cleaned_by')
         .in('hotel', hotelKeys)
-        .eq('room_number', roomNumber);
+        .eq(lookup.column, lookup.value);
       if (roomError) throw roomError;
       if (requestRef.current !== requestId) return;
 
@@ -268,7 +273,7 @@ export function RoomOperationsWrapper({ selectedDate, hotelName, staffMap, child
     setView('overview');
     setHoverHint(null);
     setOpen(true);
-    void loadRoom(chip.roomNumber);
+    void loadRoom(chip.roomNumber, chip.roomId);
   }, [canOpenOperations, loadRoom, venuesEnabled]);
 
   const handleMouseOverCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -298,7 +303,7 @@ export function RoomOperationsWrapper({ selectedDate, hotelName, staffMap, child
 
   const refresh = async () => {
     if (!selection?.roomNumber) return;
-    await loadRoom(selection.roomNumber);
+    await loadRoom(selection.roomNumber, selection.roomId);
   };
 
   const updatePriority = async (newPriority: number) => {

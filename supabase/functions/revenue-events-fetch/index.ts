@@ -1,3 +1,4 @@
+import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 
@@ -16,7 +17,7 @@ serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) return json({ ok: false, error: "OPENAI_API_KEY not configured" }, 500);
+    if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) return json({ ok: false, error: "No AI provider configured" }, 500);
 
     const userClient = createClient(SUPABASE_URL, ANON_KEY);
     const { data: userRes } = await userClient.auth.getUser(authHeader.replace(/^Bearer\s+/i, ""));
@@ -25,17 +26,21 @@ serve(async (req) => {
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", userRes.user.id).single();
     if (!profile || !["admin", "top_management"].includes(profile.role)) return json({ ok: false, error: "Forbidden" }, 403);
 
+    const body = await req.json().catch(() => ({}));
+    const city = String(body.city ?? "Budapest").trim().slice(0, 80) || "Budapest";
+    const country = String(body.country ?? "Hungary").trim().slice(0, 80) || "Hungary";
+
     const today = new Date().toISOString().slice(0, 10);
     const horizon = new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10);
 
-    const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
+    const aiResp = await fetchGeminiFirstChat("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "gpt-4o",
         messages: [
-          { role: "system", content: "You are a Budapest hotel-market analyst. Return real, well-known upcoming events that drive hotel demand: major concerts, festivals, conferences, sports, public holidays, school breaks. Only include events you are confident actually happen. Do not invent." },
-          { role: "user", content: `List demand-driving events in Budapest, Hungary between ${today} and ${horizon}. Include: concerts at MVM Dome / Papp László Aréna / Puskás Aréna, Sziget Festival, Budapest Wine Festival, F1 Hungarian GP at Hungaroring, major conferences at Hungexpo, Hungarian public holidays, school breaks. For each, give date (and end_date for multi-day), title, category, venue, expected_impact (low/medium/high), confidence (0-1).` },
+          { role: "system", content: "You are a hotel-market analyst. Return real, well-known upcoming events that drive hotel demand: major concerts, festivals, conferences, sports, public holidays and school breaks. Only include events you are confident actually happen in the requested market. Do not invent." },
+          { role: "user", content: `List demand-driving events in ${city}, ${country} between ${today} and ${horizon}. Prioritize major arenas, stadiums, exhibition centres, congresses, trade fairs, festivals, sports fixtures, public holidays and school breaks that can affect hotel demand. For each, give date (and end_date for multi-day), title, category, venue, expected_impact (low/medium/high), confidence (0-1).` },
         ],
         tools: [{
           type: "function",
@@ -86,7 +91,7 @@ serve(async (req) => {
     for (const e of events) {
       if (!e?.date || !e?.title) continue;
       const { error } = await supabase.from("market_events").upsert({
-        city: "budapest",
+        city: city.toLowerCase(),
         event_date: e.date,
         end_date: e.end_date || null,
         title: String(e.title).slice(0, 200),

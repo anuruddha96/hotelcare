@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import RevenueCalendarExperience from "@/components/revenue/RevenueCalendarExperience";
 
 /**
  * App-wide safety net for the Radix "dead page" bug.
@@ -63,7 +64,7 @@ export function PointerEventsGuard() {
     };
   }, []);
 
-  return null;
+  return <RevenueCalendarExperience />;
 }
 
 export default PointerEventsGuard;

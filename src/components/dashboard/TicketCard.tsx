@@ -1,8 +1,16 @@
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/useAuth';
+import { useMaintenanceAutoTranslation } from '@/hooks/useMaintenanceAutoTranslation';
+import { canManageMaintenance } from './MaintenanceManagerControls';
+import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
+import { maintenanceLocation, maintenanceQueueBucket } from '@/lib/maintenanceQueue';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Calendar, User, MapPin, AlertCircle } from 'lucide-react';
+import { Calendar, User, MapPin, AlertCircle, PauseCircle, CheckCircle2, Languages, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useTranslation } from '@/hooks/useTranslation';
+import { maintenanceHoldReasonLabel, maintenanceMissingHoldReasonLabel, maintenanceTicketStatusClass, maintenanceTicketStatusLabel, type MaintenanceTicketStatus } from '@/lib/maintenanceTicketStatus';
 
 interface Ticket {
   id: string;
@@ -12,25 +20,52 @@ interface Ticket {
   room_number: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'in_progress' | 'completed';
+  updated_at: string;
+  on_hold: boolean | null;
+  pending_supervisor_approval: boolean | null;
+  hold_reason: string | null;
+  sla_due_date: string | null;
+  resolution_text: string | null;
   created_at: string;
   department?: string;
   hotel?: string;
-  created_by?: {
-    full_name: string;
-    role: string;
-  };
-  assigned_to?: {
-    full_name: string;
-  };
+  created_by?: { full_name: string; role: string };
+  assigned_to?: { full_name: string };
+  attachment_urls?: string[] | null;
+  completion_photos?: string[] | null;
 }
 
 interface TicketCardProps {
   ticket: Ticket;
   onClick: () => void;
+  onUpdated?: () => void;
 }
 
 export function TicketCard({ ticket, onClick }: TicketCardProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const { profile } = useAuth();
+  const [showTranslation, setShowTranslation] = useState(false);
+  const [translationRetry, setTranslationRetry] = useState(0);
+  const canManage = ticket.department === 'maintenance' && canManageMaintenance(profile?.role);
+  const crossPropertyOttofiori = profile?.organization_slug === 'rdhotels'
+    && profile.role === 'maintenance'
+    && (ticket.hotel === 'Hotel Ottofiori' || ticket.hotel === 'ottofiori')
+    && profile.assigned_hotel !== 'Hotel Ottofiori' && profile.assigned_hotel !== 'ottofiori';
+  const translated = useMaintenanceAutoTranslation({
+    title: ticket.title,
+    description: ticket.description,
+    holdReason: ticket.hold_reason,
+    resolutionText: ticket.resolution_text,
+  }, language, ticket.department === 'maintenance' && showTranslation, translationRetry);
+  const display = showTranslation ? translated : {
+    title: ticket.title, description: ticket.description,
+    holdReason: ticket.hold_reason, resolutionText: ticket.resolution_text,
+  };
+  const bucket = maintenanceQueueBucket(ticket);
+  const effectiveStatus: MaintenanceTicketStatus = bucket === 'hold' ? 'on_hold'
+    : bucket === 'approval' ? 'pending_supervisor_approval' : ticket.status;
+  const overdue = ticket.status !== 'completed' && !!ticket.sla_due_date
+    && new Date(ticket.sla_due_date).getTime() < Date.now();
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -41,7 +76,6 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
       default: return 'bg-gray-500 text-white';
     }
   };
-
   const getDepartmentColor = (department?: string) => {
     switch (department) {
       case 'maintenance': return 'bg-blue-100 text-blue-800 border-blue-200';
@@ -55,25 +89,15 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'open': return 'bg-blue-100 text-blue-800 border-blue-300';
-      case 'in_progress': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      case 'completed': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
-    }
-  };
-
-  const getTranslatedStatus = (status: string) => {
+  const getTranslatedStatus = (status: MaintenanceTicketStatus) => {
+    if (language === 'hu') return maintenanceTicketStatusLabel(status, language);
     switch (status) {
       case 'open': return t('tickets.openStatus');
       case 'in_progress': return t('tickets.inProgressStatus');
       case 'completed': return t('tickets.completedStatus');
-      default: return status.replace('_', ' ').toUpperCase();
+      default: return maintenanceTicketStatusLabel(status, language);
     }
   };
-
   const getTranslatedPriority = (priority: string) => {
     switch (priority) {
       case 'urgent': return t('tickets.urgentPriority');
@@ -85,74 +109,86 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
   };
 
   return (
-    <Card 
-      className="cursor-pointer hover:shadow-md transition-shadow duration-200"
+    <Card
+      className={crossPropertyOttofiori ? 'cursor-pointer border-sky-300 ring-2 ring-sky-200 hover:shadow-md transition-shadow duration-200' : 'cursor-pointer hover:shadow-md transition-shadow duration-200'}
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={event => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onClick(); }
+      }}
+      aria-label={`${ticket.ticket_number}: ${display.title || ticket.title}`}
       data-training="ticket-card"
       data-training-priority={ticket.priority}
     >
+      {crossPropertyOttofiori && <div className="flex flex-wrap items-center gap-2 border-b border-sky-200 bg-sky-50 p-3" role="note">
+        <Badge className="bg-sky-800 text-white">HOTEL OTTOFIORI</Badge>
+        <span className="text-xs font-semibold text-sky-950">{language === 'hu' ? 'Feladat másik hotelben' : 'Assigned at another property'}</span>
+      </div>}
       <CardHeader className="pb-2">
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="font-semibold text-sm text-foreground">
-              {ticket.ticket_number}
-            </h3>
-            <p className="text-sm font-medium text-foreground mt-1">
-              {ticket.title}
-            </p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-sm text-foreground">{ticket.ticket_number}</h3>
+            <p className="text-sm font-medium text-foreground mt-1 whitespace-pre-wrap">{display.title || ticket.title}</p>
           </div>
-          <div className="flex flex-col gap-1">
-            <Badge className={getPriorityColor(ticket.priority)} variant="secondary">
-              {getTranslatedPriority(ticket.priority)}
-            </Badge>
-            {ticket.department && (
-              <Badge className={getDepartmentColor(ticket.department)}>
-                {ticket.department.replace('_', ' ').toUpperCase()}
-              </Badge>
-            )}
-            <Badge className={getStatusColor(ticket.status)} variant="outline">
-              {getTranslatedStatus(ticket.status)}
-            </Badge>
+          <div className="flex flex-col gap-1 shrink-0 items-end">
+            <Badge className={getPriorityColor(ticket.priority)} variant="secondary">{getTranslatedPriority(ticket.priority)}</Badge>
+            {ticket.department && <Badge className={getDepartmentColor(ticket.department)}>{ticket.department.replace('_', ' ').toUpperCase()}</Badge>}
+            <Badge className={maintenanceTicketStatusClass(effectiveStatus)} variant="outline">{getTranslatedStatus(effectiveStatus)}</Badge>
           </div>
         </div>
       </CardHeader>
-      
       <CardContent className="pt-0 space-y-2">
-        <p className="text-sm text-muted-foreground line-clamp-2">
-          {ticket.description}
-        </p>
-        
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1">
-            <MapPin className="h-3 w-3" />
-            {t('ticketCard.room')} {ticket.room_number}
+        <p className="text-sm text-muted-foreground line-clamp-2">{display.description || ticket.description}</p>
+        {ticket.department === 'maintenance' && !!((ticket.attachment_urls?.length || 0) + (ticket.completion_photos?.length || 0)) && (
+          <MaintenanceIssueEvidence originalPhotos={ticket.attachment_urls} completionPhotos={ticket.completion_photos} compact />
+        )}
+        {ticket.on_hold && ticket.status !== 'completed' && !ticket.pending_supervisor_approval && (
+          <div className="flex items-start gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2 py-1.5 text-xs text-orange-900" role="note">
+            <PauseCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span><strong>{maintenanceHoldReasonLabel(language)}</strong> {display.holdReason?.trim() || ticket.hold_reason?.trim() || maintenanceMissingHoldReasonLabel(language)}</span>
           </div>
-          <div className="flex items-center gap-1">
-            <Calendar className="h-3 w-3" />
-            {format(new Date(ticket.created_at), 'MMM dd')}
+        )}
+        {!!ticket.resolution_text?.trim() && (ticket.pending_supervisor_approval || ticket.status === 'completed') && (
+          <div className="flex items-start gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-900" role="note">
+            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span><strong>{language === 'hu' ? 'Javítás:' : 'Repair response:'}</strong> {display.resolutionText || ticket.resolution_text}</span>
           </div>
+        )}
+        {ticket.department === 'maintenance' && (
+          <div className="flex items-center flex-wrap gap-2" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+            <Button type="button" variant="outline" size="sm" className="h-9"
+              disabled={translated.loading}
+              onClick={() => {
+                if (translated.error && showTranslation) setTranslationRetry(value => value + 1);
+                else setShowTranslation(value => !value);
+              }}>
+              {translated.loading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Languages className="mr-1.5 h-3.5 w-3.5" />}
+              {translated.loading ? (language === 'hu' ? 'Fordítás…' : 'Translating…')
+                : translated.error && showTranslation ? (language === 'hu' ? 'Újrapróbálás' : 'Retry translation')
+                : showTranslation ? (language === 'hu' ? 'Eredeti szöveg' : 'Show original')
+                : language === 'hu' ? 'Fordítás' : 'Translate'}
+            </Button>
+            {translated.error && showTranslation &&
+              <span role="status" className="text-xs text-muted-foreground">{language === 'hu' ? 'Az eredeti szöveg látható.' : 'Original text shown.'}</span>}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1"><MapPin className="h-3 w-3" />{maintenanceLocation(ticket.room_number, ticket.description, language)}</div>
+          <div className="flex items-center gap-1"><Calendar className="h-3 w-3" />{format(new Date(ticket.created_at), 'MMM dd')}</div>
         </div>
-        
         <div className="space-y-1">
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <User className="h-3 w-3" />
-            {ticket.created_by?.full_name ?? t('ticketCard.unknown')}
-          </div>
-          
-          {ticket.hotel && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <span className="text-xs">🏨</span>
-              <span>{ticket.hotel.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
-            </div>
-          )}
-          
-          {ticket.assigned_to && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <AlertCircle className="h-3 w-3" />
-              {t('ticketCard.assignedTo')} {ticket.assigned_to.full_name}
-            </div>
-          )}
+          <div className="flex items-center gap-1 text-xs text-muted-foreground"><User className="h-3 w-3" />{ticket.created_by?.full_name ?? t('ticketCard.unknown')}</div>
+          {ticket.hotel && <div className="flex items-center gap-1 text-xs text-muted-foreground"><span className="text-xs">🏨</span><span>{ticket.hotel.replace('-', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}</span></div>}
+          {ticket.assigned_to && <div className="flex items-center gap-1 text-xs text-muted-foreground"><AlertCircle className="h-3 w-3" />{t('ticketCard.assignedTo')} {ticket.assigned_to.full_name}</div>}
+          {overdue && <p role="status" className="text-xs font-medium text-red-700">{language === 'hu' ? 'Lejárt javítási határidő' : 'Repair deadline missed'}</p>}
         </div>
+        {canManage && <div className="border-t pt-2" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+          <Button type="button" size="sm" variant="outline" onClick={onClick}>
+            {language === 'hu' ? 'Hiba kezelése' : 'Manage issue'}
+          </Button>
+        </div>}
       </CardContent>
     </Card>
   );

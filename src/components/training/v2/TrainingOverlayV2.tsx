@@ -10,12 +10,20 @@ import {
   ArrowRight,
   Check,
   MousePointer2,
-  Lightbulb,
-  ShieldCheck,
+  Info,
 } from 'lucide-react';
 import { useTrainingV2, txt } from './TrainingV2Provider';
 
+const DETAILS = {
+  en: 'Details', hu: 'Részletek', es: 'Detalles', vi: 'Chi tiết', mn: 'Дэлгэрэнгүй', uk: 'Подробиці',
+};
+
 const LABELS = {
+  managerTrainingMode: { en: 'GUIDED TRAINING · Real controls are live — explore carefully', hu: 'VEZETETT TRÉNING · A valódi vezérlők aktívak — körültekintően használd', es: 'FORMACIÓN GUIADA · Los controles reales siguen activos', vi: 'HƯỚNG DẪN · Các nút thật vẫn hoạt động', mn: 'СУРГАЛТ · Бодит товчнууд ажилласаар байна', uk: 'НАВЧАННЯ · Справжні дії залишаються активними' },
+  trainingMode: { en: 'GUIDED TRAINING · Your normal work still counts', hu: 'VEZETETT TRÉNING · A valódi munkád továbbra is számít', es: 'FORMACIÓN GUIADA · Las acciones reales siguen contando', vi: 'HƯỚNG DẪN · Thao tác thực vẫn có hiệu lực', mn: 'СУРГАЛТЫН ЗААВАР · Бодит үйлдэл хэвээр үйлчилнэ', uk: 'НАВЧАННЯ · Реальні дії залишаються чинними' },
+  skipStep: { en: 'Skip this tip', hu: 'Tipp kihagyása', es: 'Omitir este consejo', vi: 'Bỏ qua mẹo này', mn: 'Энэ зөвлөгөөг алгасах', uk: 'Пропустити підказку' },
+  exitTraining: { en: 'Exit training', hu: 'Kilépés a tréningből', es: 'Salir de la formación', vi: 'Thoát hướng dẫn', mn: 'Сургалтаас гарах', uk: 'Вийти з навчання' },
+  clickToContinue: { en: 'Tap the highlighted tab to continue, or skip this tip.', hu: 'A folytatáshoz koppints a kiemelt fülre, vagy hagyd ki ezt a tippet.', es: 'Toca la pestaña resaltada para continuar o sáltate este consejo.', vi: 'Nhấn thẻ được đánh dấu để tiếp tục hoặc bỏ qua.', mn: 'Үргэлжлүүлэхийн тулд тодруулсан хэсгийг дарна уу эсвэл алгас.', uk: 'Натисніть виділену вкладку або пропустіть підказку.' },
   next: { en: 'Next', hu: 'Tovább', es: 'Siguiente', vi: 'Tiếp', mn: 'Дараах', uk: 'Далі' },
   back: { en: 'Back', hu: 'Vissza', es: 'Atrás', vi: 'Lùi', mn: 'Буцах', uk: 'Назад' },
   endTraining: {
@@ -68,6 +76,14 @@ const LABELS = {
     uk: 'Чому це важливо',
   },
   tip: { en: 'Good practice', hu: 'Jó gyakorlat', es: 'Buena práctica', vi: 'Thực hành tốt', mn: 'Зөв дадал', uk: 'Корисна практика' },
+  notOnScreen: {
+    en: 'Not on your screen right now',
+    hu: 'Most nem látható a képernyőn',
+    es: 'Ahora no está en tu pantalla',
+    vi: 'Hiện chưa có trên màn hình',
+    mn: 'Одоогоор дэлгэц дээр алга',
+    uk: 'Зараз цього немає на екрані',
+  },
   tryIt: {
     en: 'Do this now',
     hu: 'Csináld meg most',
@@ -173,21 +189,8 @@ export function TrainingOverlayV2() {
         pause();
         return;
       }
-      if (e.key === 'Tab' && cardRef.current) {
-        const focusables = cardRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, [tabindex]:not([tabindex="-1"])',
-        );
-        if (!focusables.length) return;
-        const first = focusables[0];
-        const last = focusables[focusables.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      // No focus trap: the housekeeper must also be able to use the real UI
+      // and keyboard-accessible highlighted control while the guide is open.
     };
     window.addEventListener('keydown', onKey);
     return () => {
@@ -199,10 +202,17 @@ export function TrainingOverlayV2() {
   }, [active, pause]);
 
   if (!active || !step) return null;
+  const isSlntTour = active.slug.startsWith('slnt_');
+  const isHousekeeperTour = active.slug.startsWith('v2_housekeeper_');
+  const isManagerTour = active.roles.some((role) => role !== 'housekeeping');
+  const isGuidedTour = isHousekeeperTour || isManagerTour;
   const isLast = stepIndex === totalSteps - 1;
   const progress = Math.round(((stepIndex + 1) / totalSteps) * 100);
   const requiresAction = Boolean(step.waitFor);
   const passiveWait = Boolean(step.waitFor && !step.selector);
+  // Situational lessons are shown even when their control is absent; the
+  // learner must be able to move on with Next, not only "Skip this tip".
+  const explainsUnavailable = Boolean(waiting && step.explainWhenUnavailable);
   const mobileAtTop = Boolean(isMobile && rect && rect.top > window.innerHeight * 0.56);
 
   const tooltipStyle: CSSProperties = (() => {
@@ -231,13 +241,13 @@ export function TrainingOverlayV2() {
       };
     }
     const cardW = Math.min(450, window.innerWidth - 32);
-    const cardH = 380;
+    const cardH = Math.min(cardRef.current?.offsetHeight ?? 360, window.innerHeight - 32);
     const spaceBelow = window.innerHeight - (rect.bottom + 16);
     const placeBelow = spaceBelow > cardH;
     const top = placeBelow ? rect.bottom + 16 : Math.max(16, rect.top - cardH - 16);
     let left = rect.left + rect.width / 2 - cardW / 2;
     left = Math.max(16, Math.min(left, window.innerWidth - cardW - 16));
-    return { top, left, width: cardW, maxHeight: 'calc(100% - 32px)', overflowY: 'auto' };
+    return { top, left, width: cardW, maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100dvh - 32px)', overflowX: 'hidden', overflowY: 'auto' };
   })();
 
   const pointerStyle: CSSProperties | undefined = rect
@@ -320,7 +330,7 @@ export function TrainingOverlayV2() {
           />
         )}
 
-        {rect && (
+        {rect && (!isSlntTour || requiresAction || step.advanceOnClick) && (
           <motion.div
             className="absolute z-[201] pointer-events-none inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground shadow-lg"
             style={pointerStyle}
@@ -366,6 +376,11 @@ export function TrainingOverlayV2() {
             <X className="h-5 w-5" />
           </button>
 
+          {isGuidedTour && (
+            <div className="mb-2 pr-10 text-[11px] font-semibold tracking-wide text-primary" role="status">
+              {txt(isManagerTour ? LABELS.managerTrainingMode : LABELS.trainingMode, lang)}
+            </div>
+          )}
           <div className="mb-3 pr-10">
             <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground mb-2">
               <div className="min-w-0 flex items-center gap-2">
@@ -406,29 +421,19 @@ export function TrainingOverlayV2() {
               <h3 id={titleId} className="text-lg font-semibold leading-tight mb-2">
                 {txt(step.title, lang)}
               </h3>
-              <p id={descId} className="text-sm text-muted-foreground leading-relaxed">
-                {txt(step.body, lang)}
-              </p>
+              <div id={descId} className="text-sm text-muted-foreground leading-relaxed">
+                {rect && !waiting ? (
+                  <details>
+                    <summary className="min-h-8 cursor-pointer text-xs font-medium">{txt(DETAILS, lang)}</summary>
+                    <p>{txt(step.body, lang)}</p>
+                    {step.purpose && <p className="mt-2">{txt(step.purpose, lang)}</p>}
+                    {step.tip && <p className="mt-2">{txt(step.tip, lang)}</p>}
+                  </details>
+                ) : <p>{txt(step.body, lang)}</p>}
+              </div>
 
-              {step.purpose && (
-                <div className="mt-3 flex items-start gap-2.5 rounded-lg border bg-muted/45 px-3 py-2.5">
-                  <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-primary" aria-hidden="true" />
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground/75">
-                      {txt(LABELS.why, lang)}
-                    </p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                      {txt(step.purpose, lang)}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {step.tip && (
-                <div className="mt-2 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
-                  <Lightbulb className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-500" aria-hidden="true" />
-                  <span><strong className="font-semibold text-foreground/80">{txt(LABELS.tip, lang)}:</strong> {txt(step.tip, lang)}</span>
-                </div>
+              {step.advanceOnClick && isHousekeeperTour && (
+                <p className="mt-2 text-xs font-medium text-primary">{txt(LABELS.clickToContinue, lang)}</p>
               )}
 
               {requiresAction && step.selector && !waiting && (
@@ -437,7 +442,7 @@ export function TrainingOverlayV2() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold">{txt(LABELS.tryIt, lang)}</p>
                     <p className="mt-0.5 leading-relaxed text-primary/90">{txt(LABELS.autoContinue, lang)}</p>
-                    {step.optional && (
+                    {step.optional && !isGuidedTour && (
                       <button
                         type="button"
                         onClick={skipForNow}
@@ -457,18 +462,28 @@ export function TrainingOverlayV2() {
                 </div>
               )}
 
-              {waiting && (
+              {explainsUnavailable && step.unavailableNote && (
+                <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/35 dark:text-sky-100">
+                  <Info className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <p className="font-semibold">{txt(LABELS.notOnScreen, lang)}</p>
+                    <p className="mt-0.5 leading-relaxed">{txt(step.unavailableNote, lang)}</p>
+                  </div>
+                </div>
+              )}
+
+              {waiting && !(explainsUnavailable && step.unavailableNote) && (
                 <div className="mt-3 flex items-start gap-2 text-xs text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2.5">
                   <Clock3 className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${reducedMotion ? '' : 'animate-pulse'}`} aria-hidden="true" />
                   <div className="flex-1">
                     <p className="leading-relaxed">{txt(LABELS.waiting, lang)}</p>
-                    <button
+                    {!isGuidedTour && <button
                       type="button"
                       onClick={skipForNow}
                       className="mt-1.5 underline underline-offset-2 hover:no-underline text-primary font-semibold"
                     >
                       {txt(LABELS.skipForNow, lang)}
-                    </button>
+                    </button>}
                   </div>
                 </div>
               )}
@@ -499,13 +514,18 @@ export function TrainingOverlayV2() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setConfirmExit(true)}
+                onClick={isGuidedTour ? pause : () => setConfirmExit(true)}
                 className="text-muted-foreground min-h-11"
-                aria-label={txt(LABELS.endTraining, lang)}
+                aria-label={txt(isGuidedTour ? LABELS.exitTraining : LABELS.endTraining, lang)}
               >
-                {txt(LABELS.endTraining, lang)}
+                {txt(isGuidedTour ? LABELS.exitTraining : LABELS.endTraining, lang)}
               </Button>
               <div className="flex gap-2">
+                {isGuidedTour && (
+                  <Button variant="outline" size="sm" onClick={skipForNow} className={isSlntTour ? 'min-h-11 flex-1 min-w-24 whitespace-normal' : 'min-h-11 flex-1'}>
+                    {txt(LABELS.skipStep, lang)}
+                  </Button>
+                )}
                 {stepIndex > 0 && (
                   <Button
                     variant="outline"
@@ -522,7 +542,7 @@ export function TrainingOverlayV2() {
                   <Button
                     size="sm"
                     onClick={next}
-                    disabled={waiting || requiresAction}
+                    disabled={!isManagerTour && !explainsUnavailable && (waiting || requiresAction)}
                     className="min-h-11 flex-1"
                     aria-label={txt(LABELS.next, lang)}
                   >

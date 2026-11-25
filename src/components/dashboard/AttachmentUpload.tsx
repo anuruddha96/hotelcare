@@ -109,7 +109,8 @@ export const AttachmentUpload = forwardRef<AttachmentUploadRef, AttachmentUpload
     if (!targetTicketId || attachments.length === 0) return [];
 
     setUploading(true);
-    const uploadedPaths: string[] = [];
+    // Keep paths from earlier attempts so a partial upload can be retried safely.
+    const uploadedPaths: string[] = attachments.filter(item => item.uploaded && item.url).map(item => item.url!);
 
     try {
       for (let i = 0; i < attachments.length; i++) {
@@ -132,6 +133,9 @@ export const AttachmentUpload = forwardRef<AttachmentUploadRef, AttachmentUpload
           });
 
         if (error) {
+          setAttachments(prev => prev.map((att, idx) =>
+            idx === i ? { ...att, uploading: false } : att,
+          ));
           console.error('Upload error:', error);
           toast({
             title: 'Upload failed',

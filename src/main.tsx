@@ -1,27 +1,88 @@
-// This file deliberately has no static imports. It must execute before React or
-// any optimized dependency so it can recover when one of those module files was
-// replaced while a mobile tab remained open.
-const RELOAD_FLAG = "chunk_reload_at";
+// Keep this entry free of static imports: recovery must work even if React or
+// an optimized dependency cannot be fetched by an already-open browser tab.
+
+// HotelCare owns its translations. Chrome/Android page translation can wrap or
+// replace React text nodes behind React's back; the next reconciliation can then
+// throw a DOM NotFoundError such as removeChild/insertBefore. Mark the document
+// as non-translatable before React loads, including portal content mounted to body.
+function protectReactDomFromBrowserTranslation() {
+  const protect = (node: HTMLElement | null) => {
+    if (!node) return;
+    node.setAttribute("translate", "no");
+    node.classList.add("notranslate");
+  };
+
+  protect(document.documentElement);
+  const protectMountedRoots = () => {
+    protect(document.body);
+    protect(document.getElementById("root"));
+  };
+
+  if (document.body) protectMountedRoots();
+  else document.addEventListener("DOMContentLoaded", protectMountedRoots, { once: true });
+}
+
+protectReactDomFromBrowserTranslation();
+
 const RECOVERY_PARAM = "chunk-recovery";
+const isSlntRoute = /^\/slnt(?:\/|$)/.test(window.location.pathname);
 const isModuleLoadFailure = (message: string) =>
-  /dynamically imported module|Importing a module script failed|error loading dynamically|Failed to fetch dynamically|module script/i.test(message);
+  /dynamically imported module|Importing a module script failed|error loading dynamically|Failed to fetch dynamically|module script|ChunkLoadError|loading chunk/i.test(message);
 
-const recoverFromStaleChunk = (message: string) => {
-  if (!isModuleLoadFailure(message)) return;
+/** An independent fallback: never turn a failed import into a white screen. */
+function showModuleRecoveryNotice() {
+  if (!document.body) {
+    document.addEventListener("DOMContentLoaded", showModuleRecoveryNotice, { once: true });
+    return;
+  }
+  if (document.getElementById("hotelcare-module-recovery")) return;
 
-  try {
-    const last = Number(sessionStorage.getItem(RELOAD_FLAG) || 0);
-    if (Date.now() - last < 30000) return;
-    sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
-  } catch { /* storage blocked — still worth one reload */ }
+  const notice = document.createElement("section");
+  notice.id = "hotelcare-module-recovery";
+  notice.setAttribute("role", "alertdialog");
+  notice.setAttribute("aria-modal", "true");
+  notice.setAttribute("aria-labelledby", "hotelcare-module-recovery-title");
+  notice.style.cssText = "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,42,.65);backdrop-filter:blur(8px);color:#f8fafc;font:16px/1.5 system-ui,-apple-system,sans-serif";
 
-  // A plain reload can reuse the same stale module response on mobile Safari.
-  // A one-time URL nonce forces a fresh document and dependency graph while
-  // preserving the current path, tenant route and all other query parameters.
-  const next = new URL(window.location.href);
-  next.searchParams.set(RECOVERY_PARAM, String(Date.now()));
-  window.location.replace(next.toString());
-};
+  const panel = document.createElement("div");
+  panel.style.cssText = "max-width:440px;width:100%;padding:24px;border:1px solid #475569;border-radius:16px;background:#1e293b;box-shadow:0 20px 50px rgba(0,0,0,.3);text-align:center";
+  const heading = document.createElement("h1");
+  heading.id = "hotelcare-module-recovery-title";
+  heading.textContent = "This page needs a refresh";
+  heading.style.cssText = "margin:0 0 12px;font-size:22px;font-weight:650";
+  const explanation = document.createElement("p");
+  explanation.textContent = "An application file could not load, which can happen when an older tab is reopened. Refresh to load the latest version. Your login has not been cleared; unsaved changes may be lost.";
+  explanation.style.cssText = "margin:0 0 20px;color:#cbd5e1";
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.textContent = "Refresh HotelCare";
+  retry.style.cssText = "display:block;width:100%;padding:12px;border:0;border-radius:8px;background:#2563eb;color:white;font:inherit;font-weight:600;cursor:pointer";
+  retry.addEventListener("click", () => {
+    const next = new URL(window.location.href);
+    // Select a fresh document/module graph without losing the active hotel,
+    // route, search filters or hash. Only a direct user click navigates.
+    next.searchParams.set(RECOVERY_PARAM, String(Date.now()));
+    window.location.replace(next.toString());
+  });
+  panel.append(heading, explanation, retry);
+
+  if (isSlntRoute) {
+    const workspace = document.createElement("a");
+    workspace.href = "/slnt?tab=housekeeping";
+    workspace.textContent = "Open SLNT workspace instead";
+    workspace.style.cssText = "display:block;margin-top:12px;text-align:center;padding:12px;border:1px solid #64748b;border-radius:8px;color:white;text-decoration:none";
+    panel.appendChild(workspace);
+  }
+
+  notice.appendChild(panel);
+  // The React root must remain untouched, even when its JavaScript never ran.
+  document.body.appendChild(notice);
+  retry.focus();
+}
+
+function recoverFromStaleChunk(message: string) {
+  if (isModuleLoadFailure(message)) showModuleRecoveryNotice();
+}
 
 window.addEventListener("vite:preloadError", (event) => {
   event.preventDefault();
@@ -34,13 +95,30 @@ window.addEventListener("unhandledrejection", (event) => {
   recoverFromStaleChunk(reason instanceof Error ? reason.message : String(reason ?? ""));
 });
 
+// iOS/Safari can restore an already-open HotelCare tab from a frozen page or
+// back-forward cache without remounting React and without reliably emitting a
+// visibilitychange event. In that case the room board can briefly show the
+// checkout/daily state that existed before the app was backgrounded even though
+// Supabase has already reconciled the room. Reuse the existing housekeeping
+// refresh event so mounted live views immediately refetch authoritative rows on
+// every browser restore, focus return, or network reconnect.
+const notifyLiveViewsAfterResume = () => {
+  window.dispatchEvent(new CustomEvent("hk-assignments-changed", {
+    detail: { source: "app-resume" },
+  }));
+};
+window.addEventListener("pageshow", notifyLiveViewsAfterResume);
+window.addEventListener("focus", notifyLiveViewsAfterResume);
+window.addEventListener("online", notifyLiveViewsAfterResume);
+
 const recoveredDocument = new URL(window.location.href).searchParams.has(RECOVERY_PARAM);
 const loadApplication = recoveredDocument
   ? import("./recovered-entry.ts")
   : import("./app-entry.tsx");
 
 void loadApplication.catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  recoverFromStaleChunk(message);
-  if (!isModuleLoadFailure(message)) throw error;
+  // Even unexpected entrypoint failures must be recoverable without a blank
+  // page or an unbounded sequence of automatic reloads.
+  console.error("HotelCare could not load its application entry", error);
+  showModuleRecoveryNotice();
 });

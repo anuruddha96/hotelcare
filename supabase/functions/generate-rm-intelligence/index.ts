@@ -1,3 +1,4 @@
+import { fetchGeminiFirstResponse } from "../_shared/geminiFirstResponses.ts";
 // Revenue Intelligence — deterministic metrics + OpenAI (customer's own API key).
 // Metrics/forecasts are computed here in TypeScript. OpenAI only interprets them.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
@@ -42,7 +43,7 @@ interface NightRow {
   stay_from: string | null; stay_to: string | null; guests: number | null; status_id: number | null;
 }
 
-async function fetchAll<T>(q: (from: number, to: number) => Promise<{ data: unknown; error: unknown }>): Promise<T[]> {
+async function fetchAll<T>(q: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
   const page = 1000; const out: T[] = [];
   for (let off = 0; off < 40000; off += page) {
     const { data, error } = await q(off, off + page - 1);
@@ -701,14 +702,14 @@ Deno.serve(async (req) => {
 
     /* ------------------------------------------------------ OpenAI call */
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) throw new Error("OpenAI is not configured");
+    if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) throw new Error("No AI provider configured");
 
     const instruction = mode === "deep"
       ? "Deep analysis: return up to 15 prioritised recommendations and full channel, room-type and stay-date leakage."
       : "Standard analysis: return the five highest-impact recommendations for the next 90 arrival dates.";
 
     const callOpenAi = async () => {
-      const res = await fetch("https://api.openai.com/v1/responses", {
+      const res = await fetchGeminiFirstResponse("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -745,9 +746,10 @@ Deno.serve(async (req) => {
     }
 
     const usage = json.usage ?? {};
+    model = String(json.model ?? model);
     const inTok = Number(usage.input_tokens ?? 0), outTok = Number(usage.output_tokens ?? 0);
     const [inCost, outCost] = COST_TABLE[model] ?? [0.5, 2];
-    const cost = (inTok / 1e6) * inCost + (outTok / 1e6) * outCost;
+    const cost = Number(json.hc_gemini_estimated_cost_usd ?? ((inTok / 1e6) * inCost + (outTok / 1e6) * outCost));
 
     const { data: run, error: runErr } = await admin.from("rm_analysis_runs").insert({
       hotel_id: hotelId, organization_slug: hotelSlug ?? orgSlug, mode, model,

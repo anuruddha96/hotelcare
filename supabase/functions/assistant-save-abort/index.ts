@@ -4,6 +4,12 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { sendEmail } from "../_shared/emailSender.ts";
+import { OWNER_EMAIL, SUPPORT_EMAIL } from "../_shared/assistantGovernance.ts";
+import { generateLowCostText } from "../_shared/lowCostAi.ts";
+import {
+  fallbackTitle, formatAuditTrail, formatTranscript, formatUsageErrors, parseSummary, redact, SUMMARY_INSTRUCTIONS,
+  type AuditRow, type TranscriptRow, type UsageErrorRow,
+} from "../_shared/miraIssueReport.ts";
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -20,85 +26,221 @@ function escapeHtml(value: string) {
 
 const SEVERITIES = ["low", "normal", "high", "urgent"];
 
-async function handleIssueReport(service: any, userId: string, body: any) {
-  const title = String(body?.title ?? "").trim().slice(0, 200);
-  if (title.length < 3) return json({ error: "A short title is required" }, 400);
-  const description = String(body?.description ?? "").slice(0, 4000);
-  const aiSummary = body?.ai_summary ? String(body.ai_summary).slice(0, 4000) : null;
-  const category = String(body?.category ?? "other").slice(0, 40);
-  const severity = SEVERITIES.includes(body?.severity) ? body.severity : "normal";
-  const threadId = typeof body?.thread_id === "string" ? body.thread_id : null;
-  const context = body?.context && typeof body.context === "object" ? body.context : {};
+/**
+ * The conversation and technical trail of a reported Mira chat. Everything is
+ * read with the service role, but only for the reporter's own conversation.
+ */
+async function buildReportEvidence(service: any, userId: string, threadId: string | null, organizationSlug: string | null) {
+  const since = new Date(Date.now() - 3 * 3_600_000).toISOString();
+  const auditColumns = "created_at,question,model,scopes_used,refused,input_tokens,output_tokens,duration_ms,workflow";
+  const [messages, audit, usageErrors] = await Promise.all([
+    threadId
+      ? service.from("assistant_messages").select("role,content,created_at,refused,model")
+        .eq("thread_id", threadId).eq("user_id", userId).order("created_at", { ascending: false }).limit(16)
+      : Promise.resolve({ data: [] }),
+    threadId
+      ? service.from("assistant_audit_log").select(auditColumns)
+        .eq("thread_id", threadId).eq("user_id", userId).order("created_at", { ascending: false }).limit(10)
+      : service.from("assistant_audit_log").select(auditColumns)
+        .eq("user_id", userId).gte("created_at", since).order("created_at", { ascending: false }).limit(10),
+    service.from("ai_usage_log").select("created_at,function_name,model,error")
+      .eq("ok", false).eq("organization_slug", organizationSlug ?? "").gte("created_at", since)
+      .order("created_at", { ascending: false }).limit(10),
+  ]);
+  const transcript = ((messages?.data ?? []) as TranscriptRow[]).reverse();
+  const trail = ((audit?.data ?? []) as AuditRow[]).reverse();
+  const errors = (usageErrors?.data ?? []) as UsageErrorRow[];
+  return { transcript, trail, errors };
+}
 
-  const { data: profile } = await service
+/** A short summary for the HotelCare team, written by a model from the evidence only. */
+async function summarize(
+  evidence: { transcript: TranscriptRow[]; trail: AuditRow[]; errors: UsageErrorRow[] },
+  note: string, clientError: string,
+): Promise<{ summary: string | null; title: string | null }> {
+  if (!evidence.transcript.length && !note && !clientError) return { summary: null, title: null };
+  const prompt = [
+    `Person's note: ${redact(note, 1500) || "(none)"}`,
+    `Error shown in the app: ${redact(clientError, 500) || "(none)"}`,
+    "Transcript (oldest first):",
+    formatTranscript(evidence.transcript, 900) || "(no conversation)",
+    "Technical log:",
+    formatAuditTrail(evidence.trail) || "(none)",
+    formatUsageErrors(evidence.errors) || "",
+  ].join("\n").slice(0, 24_000);
+  try {
+    // Staff and guest operations data: stays with the paid provider.
+    const result = await generateLowCostText({
+      prompt, instructions: SUMMARY_INSTRUCTIONS, sensitive: true, task: "internal",
+      fallbackModel: "gpt-4.1-mini", maxOutputTokens: 450, validate: (text) => text.trim().length > 40,
+    });
+    return parseSummary(result.text);
+  } catch (error) {
+    console.error("issue report summary unavailable", error instanceof Error ? error.message : error);
+    return { summary: null, title: null };
+  }
+}
+
+async function handleIssueReport(service: any, userId: string, body: any) {
+  const requestedTitle = String(body?.title ?? "").trim().slice(0, 200);
+  const description = String(body?.description ?? "").slice(0, 4000);
+  const hasThread = typeof body?.thread_id === "string" && body.thread_id.length > 0;
+  // With a conversation attached, Mira writes the title and summary itself.
+  if (requestedTitle.length < 3 && !hasThread && description.trim().length < 3) {
+    return json({ error: "Tell us briefly what went wrong" }, 400);
+  }
+  let aiSummary = body?.ai_summary ? String(body.ai_summary).slice(0, 4000) : null;
+  const category = ["wrong_data", "assistant", "bug", "access", "idea", "other"].includes(body?.category)
+    ? body.category : "other";
+  const severity = SEVERITIES.includes(body?.severity) ? body.severity : "normal";
+  const context = body?.context && typeof body.context === "object" && !Array.isArray(body.context)
+    ? body.context : {};
+  const diagnostics = body?.diagnostics && typeof body.diagnostics === "object" && !Array.isArray(body.diagnostics)
+    ? body.diagnostics : {};
+  const scalar = (value: unknown, max = 300) =>
+    String(value ?? "").replace(/Bearer\s+[\w.-]+/gi, "Bearer [redacted]").slice(0, max);
+
+  const { data: profile, error: profileError } = await service
     .from("profiles")
     .select("id,full_name,email,role,assigned_hotel,organization_slug")
-    .eq("id", userId)
-    .maybeSingle();
+    .eq("id", userId).is("deleted_at", null).maybeSingle();
+  if (profileError || !profile) return json({ error: "Active staff profile required" }, 403);
 
-  const { data: report, error: insertError } = await service
-    .from("assistant_issue_reports")
-    .insert({
-      user_id: userId,
-      thread_id: threadId,
-      organization_slug: profile?.organization_slug ?? null,
-      hotel_id: profile?.assigned_hotel ?? null,
-      role: profile?.role ?? null,
-      title,
-      description,
-      ai_summary: aiSummary,
-      category,
-      severity,
-      context,
-      status: "open",
-    })
-    .select("id,created_at")
-    .single();
-  if (insertError) {
-    console.error("issue report insert failed", insertError);
-    return json({ error: "Could not save the report" }, 500);
+  // Never attach an issue to another employee's conversation.
+  const requestedThread = typeof body?.thread_id === "string" && /^[\da-f-]{36}$/i.test(body.thread_id)
+    ? body.thread_id : null;
+  let threadId: string | null = null;
+  if (requestedThread) {
+    const { data: ownedThread } = await service.from("assistant_threads")
+      .select("id").eq("id", requestedThread).eq("user_id", userId).maybeSingle();
+    if (ownedThread) threadId = requestedThread;
   }
 
-  const to = Deno.env.get("ASSISTANT_ISSUE_EMAIL");
-  let emailed = false;
-  if (to) {
-    const rows: [string, string][] = [
-      ["Reported by", `${profile?.full_name ?? "Unknown"} (${profile?.email ?? "no email"})`],
-      ["Role", profile?.role ?? "unknown"],
-      ["Property", profile?.assigned_hotel ?? "unassigned"],
-      ["Organization", profile?.organization_slug ?? "unknown"],
-      ["Severity", severity],
-      ["Category", category],
-      ["Page", String((context as any).route ?? "unknown")],
-      ["Device", String((context as any).device ?? "unknown")],
-    ];
-    const html = `
-      <h2>${escapeHtml(title)}</h2>
-      <table cellpadding="4" style="font:14px/1.5 system-ui,sans-serif;border-collapse:collapse">
-        ${rows.map(([k, v]) => `<tr><td><b>${escapeHtml(k)}</b></td><td>${escapeHtml(v)}</td></tr>`).join("")}
-      </table>
-      <h3>What happened</h3>
-      <p style="font:14px/1.6 system-ui,sans-serif;white-space:pre-wrap">${escapeHtml(description || "—")}</p>
-      ${aiSummary ? `<h3>Assistant summary</h3><p style="font:14px/1.6 system-ui,sans-serif;white-space:pre-wrap">${escapeHtml(aiSummary)}</p>` : ""}
-      <p style="font:12px system-ui,sans-serif;color:#667">Report ${report.id} · ${report.created_at}</p>`;
-    const result = await sendEmail({
+  const evidence = await buildReportEvidence(service, userId, threadId, profile.organization_slug ?? null);
+  const clientError = scalar(diagnostics.error, 700);
+  let generatedTitle: string | null = null;
+  if (!aiSummary && body?.auto_summary !== false) {
+    const generated = await summarize(evidence, description, clientError);
+    aiSummary = generated.summary;
+    generatedTitle = generated.title;
+  }
+  const title = requestedTitle.length >= 3
+    ? requestedTitle
+    : (generatedTitle ?? fallbackTitle(evidence.transcript, description)).slice(0, 200);
+  const reportedMessageId = typeof body?.message_id === "string" ? body.message_id.slice(0, 80) : null;
+  const diagnosticsRecord = {
+    client_error: clientError || null,
+    user_agent: scalar(diagnostics.user_agent, 400) || null,
+    client_time: scalar(diagnostics.client_time) || null,
+    reported_message_id: reportedMessageId,
+    turns: evidence.trail.map((row) => ({
+      at: row.created_at, model: row.model, tools: row.scopes_used, refused: row.refused,
+      tokens: (Number(row.input_tokens) || 0) + (Number(row.output_tokens) || 0), ms: row.duration_ms, workflow: row.workflow,
+    })),
+    service_errors: evidence.errors.map((row) => ({
+      at: row.created_at, fn: row.function_name, model: row.model, error: redact(row.error, 300),
+    })),
+  };
+
+  // Map to the EXISTING production assistant_issue_reports schema
+  // (diagnostics arrives with the Mira v2 migration; tolerated until then).
+  const reportRow = {
+    user_id: userId,
+    thread_id: threadId,
+    organization_slug: profile.organization_slug ?? null,
+    hotel_id: scalar(context.hotel_id || profile.assigned_hotel, 100) || null,
+    title,
+    user_description: description,
+    ai_summary: aiSummary,
+    category,
+    severity,
+    current_route: scalar(context.route, 500) || null,
+    module: scalar(context.module, 80) || null,
+    tab: scalar(context.tab, 120) || null,
+    entity_type: scalar(context.entity_type, 100) || null,
+    entity_id: scalar(context.entity_id, 200) || null,
+    device: scalar(context.device, 250) || null,
+    app_language: scalar(context.language, 20) || null,
+    status: "open",
+  };
+  let { data: report, error: insertError } = await service.from("assistant_issue_reports")
+    .insert({ ...reportRow, diagnostics: diagnosticsRecord }).select("id,created_at").single();
+  if (insertError && /diagnostics|column|schema cache/i.test(String(insertError.message ?? ""))) {
+    ({ data: report, error: insertError } = await service.from("assistant_issue_reports")
+      .insert(reportRow).select("id,created_at").single());
+  }
+  if (insertError || !report) {
+    console.error("assistant issue report database insert failed", insertError);
+    return json({ error: "The report could not be saved. Please retry." }, 500);
+  }
+
+  const { data: adminProfiles, error: adminError } = await service.from("profiles")
+    .select("email").eq("organization_slug", profile.organization_slug ?? "")
+    .eq("role", "admin").is("deleted_at", null).limit(100);
+  if (adminError) console.error("assistant issue admin lookup failed", adminError.message);
+  // The HotelCare team inbox first; the owner and the organization's admins too.
+  const recipients = [...new Set([
+    SUPPORT_EMAIL,
+    OWNER_EMAIL,
+    ...(adminProfiles ?? []).map((admin: any) => String(admin.email ?? "").trim()),
+  ].filter(Boolean))];
+
+  const rows: [string, string][] = [
+    ["Report reference", scalar(report.id)],
+    ["Reported (UTC)", scalar(report.created_at)],
+    ["Reported by", scalar(profile.full_name, 200)],
+    ["Reporter email", scalar(profile.email, 200)],
+    ["User ID", userId],
+    ["Role", scalar(profile.role)],
+    ["Hotel", scalar(context.hotel_id || profile.assigned_hotel)],
+    ["Organization", scalar(profile.organization_slug)],
+    ["Priority", severity],
+    ["Category", category],
+    ["Page", scalar(context.route, 500)],
+    ["Module / tab", scalar(context.module) + " / " + scalar(context.tab)],
+    ["Entity", scalar(context.entity_type) + " / " + scalar(context.entity_id)],
+    ["Conversation ID", threadId ?? "None"],
+    ["Device", scalar(context.device)],
+    ["Browser", scalar(diagnostics.user_agent, 400)],
+    ["Client timestamp", scalar(diagnostics.client_time)],
+    ["Technical error", clientError || "Not provided"],
+    ["Reported answer", reportedMessageId ?? "Whole conversation"],
+  ];
+  const transcriptText = formatTranscript(evidence.transcript) || "No conversation attached.";
+  const trailText = [formatAuditTrail(evidence.trail), formatUsageErrors(evidence.errors)].filter(Boolean).join("\n") ||
+    "No technical events recorded.";
+  const pre = "white-space:pre-wrap;font:12px/1.45 ui-monospace,monospace;background:#f6f7f9;padding:10px;border-radius:6px";
+  const html = "<h2>HotelCare problem report: " + escapeHtml(title) + "</h2>" +
+    (aiSummary ? "<h3>Summary by Mira</h3><p style=\"white-space:pre-wrap\">" + escapeHtml(aiSummary) + "</p>" : "") +
+    "<h3>What the person wrote</h3><p style=\"white-space:pre-wrap\">" + escapeHtml(description || "—") + "</p>" +
+    "<table cellpadding=\"5\" style=\"font:14px/1.5 system-ui,sans-serif;border-collapse:collapse\">" +
+    rows.map(([key, value]) => "<tr><td><b>" + escapeHtml(key) + "</b></td><td>" +
+      escapeHtml(value || "—") + "</td></tr>").join("") + "</table>" +
+    "<h3>Conversation (latest 16 messages)</h3><pre style=\"" + pre + "\">" + escapeHtml(transcriptText) + "</pre>" +
+    "<h3>Technical log</h3><pre style=\"" + pre + "\">" + escapeHtml(trailText) + "</pre>";
+
+  try {
+    const sent = await sendEmail({
       admin: service,
-      organizationSlug: profile?.organization_slug ?? null,
-      to: [to],
-      subject: `[Hotel Care] ${String(severity).toUpperCase()} — ${title}`.slice(0, 120),
+      organizationSlug: profile.organization_slug ?? null,
+      to: recipients,
+      subject: ("[HotelCare] " + severity.toUpperCase() + " · " + title).slice(0, 120),
       html,
+      text: (aiSummary ? "Summary by Mira:\n" + aiSummary + "\n\n" : "") +
+        "What the person wrote:\n" + (description || "—") + "\n\n" +
+        rows.map(([key, value]) => key + ": " + value).join("\n") +
+        "\n\nConversation:\n" + transcriptText + "\n\nTechnical log:\n" + trailText,
     });
-    emailed = Boolean(result.ok);
-    if (!result.ok) console.error("issue report email failed", result.error);
-    if (emailed) {
-      await service
-        .from("assistant_issue_reports")
-        .update({ emailed_at: new Date().toISOString() })
-        .eq("id", report.id);
+    if (!sent.ok) {
+      console.error("assistant issue email delivery failed", {
+        report_id: report.id, error: sent.error, recipient_count: recipients.length,
+      });
     }
+    return json({ ok: true, id: report.id, emailed: sent.ok === true, title, summary: aiSummary });
+  } catch (error) {
+    console.error("assistant issue email transport exception", { report_id: report.id, error });
+    return json({ ok: true, id: report.id, emailed: false });
   }
-
-  return json({ ok: true, id: report.id, emailed });
 }
 
 Deno.serve(async (req) => {

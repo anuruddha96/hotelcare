@@ -226,6 +226,136 @@ function matchingObjectKindFragments(fragment: string, obkId: string): string[] 
     });
 }
 
+export interface InventoryWriteTarget {
+  /** Previo room type id. */
+  obkId: string;
+  /** YYYY-MM-DD, inclusive. */
+  from: string;
+  /** YYYY-MM-DD, inclusive. */
+  to: string;
+  /** Exact number of rooms to sell. 0 closes the room type. */
+  roomsToSell: number;
+}
+
+/**
+ * Previo's live EQC endpoint uses the compact 2007/02 AvailRateUpdate shape
+ * already used for HotelCare rate writes, but availability is expressed with
+ * `Inventory flexibleAllocation`. The newer 2011 envelope and
+ * `totalInventoryAvailable` are rejected by Previo with 3010 schema errors.
+ *
+ * This exact shape was capability-tested against Ottofiori with a same-value
+ * write before enabling it for managers.
+ */
+export function buildInventoryUpdateXml(
+  hotelId: string,
+  target: InventoryWriteTarget,
+): string {
+  const rooms = Math.max(0, Math.trunc(Number(target.roomsToSell) || 0));
+  return `<?xml version="1.0" encoding="utf-8"?>
+<AvailRateUpdateRQ xmlns="${EQC_AR_NS}">
+  <Hotel id="${esc(hotelId)}" />
+  <DateRange from="${esc(target.from)}" to="${esc(target.to)}" />
+  <RoomType id="${esc(target.obkId)}">
+    <Inventory flexibleAllocation="${esc(rooms)}" />
+  </RoomType>
+</AvailRateUpdateRQ>`;
+}
+
+async function postEqcInventory(
+  apiKey: string,
+  body: string,
+): Promise<RateWriteAttempt> {
+  const method = "eqc:AvailRateUpdate:inventory:flexibleAllocation";
+  let status = 0;
+  let text = "";
+  try {
+    const response = await fetch(EQC_AR_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Authorization": `ApiKey ${apiKey}`,
+      },
+      body,
+      signal: AbortSignal.timeout(PREVIO_WRITE_TIMEOUT_MS),
+    });
+    status = response.status;
+    text = await response.text();
+  } catch (e) {
+    return {
+      method,
+      ok: false,
+      status: 0,
+      message: e instanceof Error ? e.message : String(e),
+    };
+  }
+
+  const err = text.match(/<Error[^>]*code="([^"]*)"[^>]*>([^<]*)<\/Error>/i);
+  const success = /<Success\s*\/?>/i.test(text);
+  const ok = status >= 200 && status < 300 && !err && success;
+  return {
+    method,
+    ok,
+    status,
+    message: err
+      ? `${err[1]}: ${err[2].trim()}`
+      : ok
+        ? "Success"
+        : text.replace(/\s+/g, " ").trim().slice(0, 300),
+  };
+}
+
+/**
+ * Write Previo room-type "rooms for sale".
+ *
+ * A write is only considered complete by the caller after Previo's REST
+ * availability endpoint reads the requested value back, so HotelCare never
+ * trusts an EQC <Success/> alone.
+ */
+export async function writePrevioInventory(opts: {
+  creds: PrevioCredentials;
+  pmsHotelId: string;
+  target: InventoryWriteTarget;
+}): Promise<RateWriteResult> {
+  const key = eqcApiKey(opts.creds);
+  const method = "eqc:AvailRateUpdate:inventory:flexibleAllocation";
+  if (!key) {
+    return {
+      ok: false,
+      method: null,
+      attempts: [{
+        method,
+        ok: false,
+        status: 0,
+        message: "No Previo API key available for EQC availability writes.",
+      }],
+    };
+  }
+
+  const rooms = Number(opts.target.roomsToSell);
+  if (!Number.isFinite(rooms) || rooms < 0 || !Number.isInteger(rooms)) {
+    return {
+      ok: false,
+      method: null,
+      attempts: [{
+        method,
+        ok: false,
+        status: 0,
+        message: "Rooms to sell must be a non-negative whole number.",
+      }],
+    };
+  }
+
+  const attempt = await postEqcInventory(
+    key,
+    buildInventoryUpdateXml(String(opts.pmsHotelId ?? ""), opts.target),
+  );
+  return {
+    ok: attempt.ok,
+    method: attempt.ok ? method : null,
+    attempts: [attempt],
+  };
+}
+
 /** Read back one price so a push can be confirmed against Previo itself. */
 export async function readPrevioRate(opts: {
   creds: PrevioCredentials;
@@ -406,8 +536,9 @@ export async function readPrevioRateLevelsRange(opts: {
 // Restrictions (minimum stay)
 //
 // Same EQC AvailRateUpdate channel as prices — <Restrictions minLOS> on the
-// rate plan inside the message shape the price writer already uses. Inventory
-// ("rooms to sell") is NOT accepted by Previo's EQC copy; see below.
+// rate plan inside the message shape the price writer already uses. Room
+// inventory is handled separately by writePrevioInventory because Previo uses
+// a different Inventory attribute for that operation.
 // ---------------------------------------------------------------------------
 
 export interface RestrictionWriteTarget {
@@ -421,19 +552,13 @@ export interface RestrictionWriteTarget {
   to: string;
   /** Minimum nights, 1 = no restriction. Omit to leave the stay rule alone. */
   minStay?: number | null;
-  /** Not supported by Previo — kept so callers compile; always rejected. */
+  /** Inventory is handled by writePrevioInventory; keep null in this writer. */
   roomsToSell?: number | null;
 
 }
 
-/**
- * Previo's EQC copy accepts `<Restrictions minLOS>` only. Verified against the
- * live account: any `<Inventory>` element, and a `closed` attribute on either
- * RoomType or RatePlan, is refused with error 3010 ("validation against schema
- * failed"). Rooms to sell therefore stays a Previo-side setting.
- */
 export const PREVIO_INVENTORY_UNSUPPORTED =
-  "Previo does not accept availability (rooms to sell) over its price channel — change it in Previo itself.";
+  "Use the dedicated Previo inventory writer for rooms-to-sell changes.";
 
 export function buildRestrictionUpdateXml(hotelId: string, t: RestrictionWriteTarget): string {
   const minStay = Number.isFinite(Number(t.minStay)) && t.minStay !== null && t.minStay !== undefined
@@ -453,7 +578,7 @@ ${ratePlan}  </RoomType>
 </AvailRateUpdateRQ>`;
 }
 
-/** Send a minimum-stay change to Previo. Inventory is not supported there. */
+/** Send a minimum-stay change to Previo. Inventory uses the dedicated writer above. */
 export async function writePrevioRestrictions(opts: {
   creds: PrevioCredentials;
   pmsHotelId: string;

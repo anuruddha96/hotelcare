@@ -56,6 +56,15 @@ Deno.test("allows cross-room price overlap because room categories are not a har
 
 // --- occupancy ladder -------------------------------------------------------
 
+Deno.test("repairLadder preserves manually chosen sub-10 EUR occupancy gaps when supplement is 1", () => {
+  const out = repairLadder([
+    { occupancy: 1, price: 100 },
+    { occupancy: 2, price: 105 },
+    { occupancy: 3, price: 110 },
+  ], 1);
+  assertEquals([out.get(1), out.get(2), out.get(3)], [100, 105, 110]);
+});
+
 Deno.test("repairLadder lifts a lower-priced higher occupancy", () => {
   const out = repairLadder([
     { occupancy: 1, price: 100 },

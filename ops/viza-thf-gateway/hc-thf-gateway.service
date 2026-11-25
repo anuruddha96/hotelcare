@@ -1,0 +1,29 @@
+[Unit]
+Description=HotelCare THF gateway (TLS adapter for a self-hosted VIZA THF)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=hcgw
+Group=hcgw
+EnvironmentFile=-/etc/hc-thf-gateway/env
+ExecStart=/usr/bin/python3 /opt/hc-thf-gateway/gateway.py
+Restart=always
+RestartSec=3
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

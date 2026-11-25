@@ -147,6 +147,12 @@ export function deriveSuggestion(name: string): {
   if (/^Elisabeth Downtown/i.test(n)) {
     return { unit: n, venue: 'Elisabeth Downtown', confidence: 0.9 };
   }
+  // WR Pension 102/103/104/106 and WR19 2/3/4/6 are distinct physical
+  // Previo records, confirmed by the 2026-10-13 export and live REST ids.
+  // Never treat their number suffixes as proof of identity.
+  if ((m = n.match(/^WR19\s+Room\s+([1-6])$/i))) {
+    return { unit: `WR19 Room ${m[1]}`, venue: 'WR19', confidence: 0.95 };
+  }
   if (/^WR Pension\s+\d+$/i.test(n)) {
     return { unit: n, venue: 'WR Pension', confidence: 0.95 };
   }
@@ -195,3 +201,42 @@ export const STATUS_LABELS: Record<MappingStatus, string> = {
   ignored: 'Ignored',
   applied: 'Applied',
 };
+
+
+/** Workbook-authoritative SLNT operating inventory guard. The 2026-10-13
+ * Previo export confirms 59 active units across both accounts. WR19 Room 1-6
+ * are operational; distinct legacy WR Pension room rows, technical rooms,
+ * Sobi and Downtown Terrace are inactive. */
+export const SLNT_WORKBOOK_INACTIVE_UNITS = [
+  'Sobi Apartment Budapest',
+  'Downtown Terrace Passion',
+] as const;
+
+export function isSlntInactiveOperationalUnit(roomNumber: string): boolean {
+  const normalized = normalizeUnitName(roomNumber);
+  const core = coreUnitKey(roomNumber);
+  const inactiveSingles = SLNT_WORKBOOK_INACTIVE_UNITS.map(name => normalizeUnitName(name));
+
+  // The PMS often appends marketing copy (" - ...", "with ...", "by ...").
+  // Compare both the full normalized label and the marketing-free core so
+  // confirmed inactive units never appear as missing/unmapped warnings.
+  if (inactiveSingles.some(name => name === normalized || name === core)) return true;
+
+  // Old WR Pension rows are a different set of physical Previo IDs from
+  // WR19's current live rooms. Only canonical WR19 labels are operational.
+  return normalized.startsWith('wr pension ') || normalized === 'wr pension'
+    || core.startsWith('wr pension ') || core === 'wr pension'
+    || normalized.startsWith('technikai ') || normalized === 'technikai'
+    || core.startsWith('technikai ') || core === 'technikai';
+}
+
+export function isSlntWorkbookActiveUnit(roomNumber: string, status?: string | null): boolean {
+  const normalized = normalizeUnitName(roomNumber);
+  if (isSlntInactiveOperationalUnit(roomNumber)) return false;
+  return String(status || '').toLowerCase() !== 'out_of_order';
+}
+
+/** A PMS identity is only safe inside its owning Previo account. */
+export function slntPmsIdentityKey(accountId: string, externalRoomId: string): string {
+  return `${String(accountId).trim()}:${String(externalRoomId).trim()}`;
+}

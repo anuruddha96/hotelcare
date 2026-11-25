@@ -20,6 +20,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
+import { selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import {
   hasMemoriesGreenBoardRequest,
   isGuestDeclinedService,
@@ -146,7 +147,8 @@ const getWorkClass = (assignment: AssignmentRow, selectedDate: string): WorkClas
   const checkout = isCheckoutAssignment(assignment, selectedDate);
   const room = assignment.rooms;
   const flags = parseRoomFlags(room?.notes || null);
-  const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
+  const isMemories = isHotelMemoriesBudapest(room?.hotel);
+  const greenBoardRequest = isMemories && hasMemoriesGreenBoardRequest(assignment.notes);
 
   if (checkout && assignment.ready_to_clean) return { bucket: 1, shortLabel: '1 · CHECKOUT', tone: 'orange' };
   if (!checkout && room?.towel_change_required) return { bucket: 2, shortLabel: '2 · TOWEL', tone: 'blue' };
@@ -175,6 +177,29 @@ const toneClasses = (tone: WorkClass['tone']) => {
   }
 };
 
+const formatCleaningDuration = (
+  startedAt?: string | null,
+  completedAt?: string | null,
+  nowMs: number = Date.now(),
+) => {
+  if (!startedAt) return null;
+  const startMs = new Date(startedAt).getTime();
+  const endMs = completedAt ? new Date(completedAt).getTime() : nowMs;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+
+  const totalMinutes = Math.floor((endMs - startMs) / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${minutes}m` : `${totalMinutes} min`;
+};
+
+const formatCleaningStartTime = (startedAt?: string | null) => {
+  if (!startedAt) return null;
+  const date = new Date(startedAt);
+  if (!Number.isFinite(date.getTime())) return null;
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 function MemoriesManagerRoomCard({
   assignment,
   staffName,
@@ -182,6 +207,7 @@ function MemoriesManagerRoomCard({
   canEdit,
   onPatch,
   onRemove,
+  orderIndex,
 }: {
   assignment: AssignmentRow;
   staffName: string;
@@ -189,16 +215,33 @@ function MemoriesManagerRoomCard({
   canEdit: boolean;
   onPatch: (assignmentId: string, patch: Record<string, any>, message: string) => Promise<void>;
   onRemove: (assignmentId: string, roomNumber: string) => Promise<void>;
+  orderIndex: number;
 }) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (assignment.status !== 'in_progress' || !assignment.started_at) return;
+
+    const updateClock = () => setNowMs(Date.now());
+    updateClock();
+    const interval = window.setInterval(updateClock, 30_000);
+    return () => window.clearInterval(interval);
+  }, [assignment.status, assignment.started_at]);
+
   const room = assignment.rooms;
   if (!room) return null;
 
+  // Keep property-specific room rules local to each card. This value was
+  // previously referenced below without being defined, crashing the manager
+  // drilldown with "isMemories is not defined".
+  const isMemories = isHotelMemoriesBudapest(room.hotel);
   const workClass = getWorkClass(assignment, selectedDate);
   const checkout = isCheckoutAssignment(assignment, selectedDate);
   const flags = parseRoomFlags(room.notes || null);
   const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
   const declined = isGuestDeclinedService(assignment.service_result, assignment.notes);
   const optionalDaily =
+    isMemories &&
     assignment.status === 'assigned' &&
     workClass.bucket === 4 &&
     !checkout &&
@@ -212,6 +255,19 @@ function MemoriesManagerRoomCard({
     null;
   const nights = room.guest_nights_stayed || room.pms_metadata?.currentNight || null;
   const canChangePendingWork = canEdit && ['assigned', 'dnd_pending_retry'].includes(assignment.status);
+  const actualCleaningDuration = formatCleaningDuration(
+    assignment.started_at,
+    assignment.status === 'completed' ? assignment.completed_at : null,
+    nowMs,
+  );
+  const cleaningStartedAt = formatCleaningStartTime(assignment.started_at);
+  const durationLabel = assignment.status === 'in_progress'
+    ? (actualCleaningDuration ? `Cleaning for ${actualCleaningDuration}` : 'Cleaning timer unavailable')
+    : assignment.status === 'completed' && actualCleaningDuration
+      ? `Cleaning duration ${actualCleaningDuration}`
+      : assignment.estimated_duration
+        ? `Estimated ${assignment.estimated_duration} min`
+        : 'Duration not set';
 
   return (
     <Card className={optionalDaily ? 'overflow-hidden border-l-4 border-l-emerald-500 bg-emerald-50/30 dark:bg-emerald-950/10' : 'overflow-hidden'}>
@@ -230,7 +286,7 @@ function MemoriesManagerRoomCard({
 
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <CardTitle className="text-lg">Room {room.room_number}</CardTitle>
+            <CardTitle className="text-lg"><span className="mr-2 text-primary">#{orderIndex}</span>Room {room.room_number}</CardTitle>
             <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
               <UserRound className="h-3 w-3" /> {staffName}
               {room.floor_number != null ? ` · Floor ${room.floor_number}` : ''}
@@ -296,7 +352,12 @@ function MemoriesManagerRoomCard({
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs text-muted-foreground">
-          <span>{assignment.estimated_duration ? `${assignment.estimated_duration} min` : 'Duration not set'} · Room status: {room.status || 'unknown'}</span>
+          <span className={assignment.status === 'in_progress' ? 'font-medium text-blue-700 dark:text-blue-300' : undefined}>
+            {durationLabel}
+            {cleaningStartedAt && ['in_progress', 'completed'].includes(assignment.status) ? ` · Started ${cleaningStartedAt}` : ''}
+            {assignment.status === 'in_progress' && assignment.estimated_duration ? ` · Est. ${assignment.estimated_duration} min` : ''}
+            {' · '}Room status: {room.status || 'unknown'}
+          </span>
           {assignment.status === 'completed' && (
             <span className="flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-300">
               {assignment.supervisor_approved ? <ShieldCheck className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
@@ -383,7 +444,7 @@ export function HotelMemoriesManagerStatusDialog({
   const { profile } = useAuth();
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const canSee = isHotelMemoriesBudapest(hotelName) && (hasManagerPowers(profile?.role) || profile?.role === 'supervisor');
+  const canSee = Boolean(hotelName) && (hasManagerPowers(profile?.role) || profile?.role === 'supervisor');
   const canEdit = hasManagerPowers(profile?.role);
 
   const fetchAssignments = useCallback(async () => {
@@ -394,9 +455,9 @@ export function HotelMemoriesManagerStatusDialog({
 
     setLoading(true);
     try {
-      // Select every assignment column so this remains compatible with hotels
-      // where optional outcome fields have not been migrated yet. The rich
-      // display itself is still hard-filtered to Hotel Memories room rows.
+      // Shared manager drilldown: use the same rich room-card UI for every
+      // property while keeping each property's persisted housekeeping data
+      // and service rules authoritative.
       const { data, error } = await (supabase as any)
         .from('room_assignments')
         .select(`
@@ -418,14 +479,17 @@ export function HotelMemoriesManagerStatusDialog({
           )
         `)
         .eq('assigned_to', staffId)
-        .eq('assignment_date', selectedDate)
-        .eq('status', status);
+        .eq('assignment_date', selectedDate);
 
       if (error) throw error;
 
-      const rows = (data || [])
+      const normalizeHotel = (value?: string | null) => String(value || '').trim().toLowerCase();
+      const requestedHotel = normalizeHotel(hotelName);
+      const hotelRows = (data || [])
         .map((row: any) => ({ ...row, rooms: row.rooms || null }))
-        .filter((row: AssignmentRow) => isHotelMemoriesBudapest(row.rooms?.hotel)) as AssignmentRow[];
+        .filter((row: AssignmentRow) => normalizeHotel(row.rooms?.hotel) === requestedHotel) as AssignmentRow[];
+      const currentByRoom = selectCurrentHousekeepingAssignments(hotelRows);
+      const rows = hotelRows.filter(row => currentByRoom.get(row.room_id)?.id === row.id && row.status === status);
       setAssignments(rows);
     } catch (error) {
       console.error('[Hotel Memories manager status drilldown] Failed to load assignments', error);
@@ -433,7 +497,7 @@ export function HotelMemoriesManagerStatusDialog({
     } finally {
       setLoading(false);
     }
-  }, [canSee, open, selectedDate, staffId, status]);
+  }, [canSee, hotelName, open, selectedDate, staffId, status]);
 
   useEffect(() => {
     void fetchAssignments();
@@ -515,7 +579,7 @@ export function HotelMemoriesManagerStatusDialog({
             {STATUS_TITLES[status]} · {staffName}
           </DialogTitle>
           <p className="text-sm text-muted-foreground">
-            Hotel Memories Budapest · same room information and operational order shown to the housekeeper.
+            {hotelName} · same room information and operational order shown to the housekeeper.
           </p>
         </DialogHeader>
 
@@ -531,10 +595,10 @@ export function HotelMemoriesManagerStatusDialog({
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-medium">{sortedAssignments.length} {sortedAssignments.length === 1 ? 'room' : 'rooms'}</p>
-              <Badge variant="outline">Hotel Memories only</Badge>
+              <Badge variant="outline">{hotelName}</Badge>
             </div>
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              {sortedAssignments.map((assignment) => (
+              {sortedAssignments.map((assignment, index) => (
                 <MemoriesManagerRoomCard
                   key={assignment.id}
                   assignment={assignment}
@@ -543,6 +607,7 @@ export function HotelMemoriesManagerStatusDialog({
                   canEdit={canEdit}
                   onPatch={patchAssignment}
                   onRemove={removeAssignment}
+                  orderIndex={index + 1}
                 />
               ))}
             </div>

@@ -1,14 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BedDouble, CheckCircle2, Clock, DoorOpen, MessageSquare, ShieldCheck, UserRound } from 'lucide-react';
+import { AlertTriangle, CalendarClock, BedDouble, CheckCircle2, Clock, DoorOpen, MessageSquare, ShieldCheck, UserRound } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { parseRoomFlags } from '@/lib/room-service-flags';
+import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
+import { isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
+import { effectiveCarryServiceFlags, getCarryForwardManagerCopy } from '@/lib/housekeepingCarryForward';
 import {
+  getMemoriesCarryForwardService,
   hasMemoriesGreenBoardRequest,
   isGuestDeclinedService,
   isHotelMemoriesBudapest,
@@ -116,6 +120,12 @@ const getWorkClass = (assignment: AssignmentRow): WorkClass => {
     return { bucket: 0, label: 'In progress now', shortLabel: 'IN PROGRESS', tone: 'blue' };
   }
   if (assignment.status === 'completed') {
+    // A supervisor can approve a *DND attempt* without verifying a cleaning.
+    // Do not report that outcome as a completed clean.
+    if ((assignment.is_dnd === true || Number(assignment.dnd_attempt_count || 0) > 0)
+        && assignment.service_result !== 'cleaned') {
+      return { bucket: 8, label: 'DND recorded; cleaning unverified', shortLabel: 'DND LOGGED', tone: 'purple' };
+    }
     return { bucket: 8, label: 'Completed', shortLabel: 'DONE', tone: 'emerald' };
   }
   if (assignment.status === 'dnd_pending_retry') {
@@ -128,15 +138,26 @@ const getWorkClass = (assignment: AssignmentRow): WorkClass => {
   const room = assignment.rooms;
   const flags = parseRoomFlags(room?.notes || null);
   const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
+  const carryForward = !checkout && assignment.service_result !== 'cleaned'
+    ? getMemoriesCarryForwardService(assignment.previous_day_context)
+    : null;
 
   if (checkout && assignment.ready_to_clean) {
     return { bucket: 1, label: 'Checkout priority', shortLabel: '1 · CHECKOUT', tone: 'orange' };
   }
-  if (!checkout && room?.towel_change_required) {
+  const effectiveService = effectiveCarryServiceFlags({
+    towelChangeRequired: room?.towel_change_required,
+    linenChangeRequired: room?.linen_change_required,
+    carryForward,
+    isCheckout: checkout,
+    forceTowelOnly: !!carryForward
+      && isMemoriesFinalOccupiedNight(room?.pms_metadata, todayBudapest()),
+  });
+  if (!checkout && effectiveService.towelChangeRequired) {
     return { bucket: 2, label: 'Towel-change priority', shortLabel: '2 · TOWEL', tone: 'blue' };
   }
-  if (!checkout && (flags.roomCleaning || greenBoardRequest)) {
-    return { bucket: 3, label: 'Explicit clean request', shortLabel: '3 · CLEAN REQUEST', tone: 'emerald' };
+  if (!checkout && (effectiveService.linenChangeRequired || flags.roomCleaning || greenBoardRequest)) {
+    return { bucket: 3, label: 'Required full clean / clean request', shortLabel: '3 · FULL CLEAN', tone: 'emerald' };
   }
   if (!checkout && assignment.assignment_type === 'daily_cleaning') {
     return { bucket: 4, label: 'Optional daily · check door', shortLabel: '4 · OPTIONAL', tone: 'emerald' };
@@ -166,12 +187,32 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
   const flags = parseRoomFlags(room.notes || null);
   const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
   const declined = isGuestDeclinedService(assignment.service_result, assignment.notes);
+  const carryForward = !checkout && assignment.service_result !== 'cleaned'
+    ? getMemoriesCarryForwardService(assignment.previous_day_context)
+    : null;
+  const carryForwardCopy = carryForward
+    ? getCarryForwardManagerCopy(carryForward)
+    : null;
+  const finalNightTowelCarry = !!carryForward
+    && isMemoriesFinalOccupiedNight(room.pms_metadata, todayBudapest());
+  const effectiveService = effectiveCarryServiceFlags({
+    towelChangeRequired: room.towel_change_required,
+    linenChangeRequired: room.linen_change_required,
+    carryForward,
+    isCheckout: checkout,
+    forceTowelOnly: finalNightTowelCarry,
+  });
+  const effectiveTowel = effectiveService.towelChangeRequired;
+  const effectiveFullClean = effectiveService.linenChangeRequired;
+  const dndOutcomeWithoutVerifiedClean = assignment.status === 'completed'
+    && (assignment.is_dnd === true || Number(assignment.dnd_attempt_count || 0) > 0)
+    && assignment.service_result !== 'cleaned';
   const optionalDaily = workClass.bucket === 4 && !checkout && assignment.assignment_type === 'daily_cleaning';
   const managerNote = managerVisibleRoomNote(room.notes);
   const managerInstruction = String(assignment.manager_instruction_text || '').trim();
-  const bedConfig = room.pms_metadata?.inferredBedConfig?.value
+  const bedConfig = room.bed_configuration
+    || room.pms_metadata?.inferredBedConfig?.value
     || room.pms_metadata?.inferredBedConfig?.bedConfiguration
-    || room.bed_configuration
     || null;
   const nights = room.guest_nights_stayed || room.pms_metadata?.currentNight || null;
 
@@ -200,7 +241,9 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
           </div>
           <div className="flex max-w-full flex-wrap justify-end gap-1">
             <Badge variant="outline" className={toneClasses(workClass.tone)}>{workClass.shortLabel}</Badge>
-            <Badge variant="outline">{STATUS_LABELS[assignment.status] || assignment.status.replace(/_/g, ' ')}</Badge>
+            <Badge variant="outline">{dndOutcomeWithoutVerifiedClean
+              ? 'DND task closed · no clean verified'
+              : STATUS_LABELS[assignment.status] || assignment.status.replace(/_/g, ' ')}</Badge>
             <Badge variant="secondary">{priorityLabel(assignment.priority)} priority</Badge>
           </div>
         </div>
@@ -209,12 +252,13 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
       <CardContent className="space-y-3 pt-0">
         <div className="flex flex-wrap gap-1.5 text-xs">
           <Badge variant={checkout ? 'default' : 'secondary'}>{checkout ? '🚪 Checkout Clean' : '🛏 Daily room'}</Badge>
-          {room.towel_change_required && !checkout && <Badge variant="outline">🔄 Towel change</Badge>}
-          {room.linen_change_required && !checkout && <Badge variant="outline">🛏 Linen change</Badge>}
-          {(flags.roomCleaning || greenBoardRequest) && !checkout && <Badge variant="outline">✅ Clean requested</Badge>}
+          {effectiveTowel && <Badge variant="outline">🔄 Towel change</Badge>}
+          {effectiveFullClean && <Badge variant="outline">🛏 Full clean / Change Room</Badge>}
+          {(flags.roomCleaning || greenBoardRequest || carryForward?.serviceType === 'full_clean') && !checkout && <Badge variant="outline">✅ Clean requested</Badge>}
           {nights && <Badge variant="outline">🌙 Night {nights}</Badge>}
           {declined && <Badge variant="outline">No Service</Badge>}
           {assignment.status === 'dnd_pending_retry' && <Badge variant="outline">🔕 DND retry</Badge>}
+          {dndOutcomeWithoutVerifiedClean && <Badge variant="outline">🔕 DND recorded · cleaning unverified</Badge>}
         </div>
 
         {optionalDaily && (
@@ -231,13 +275,37 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
           </div>
         )}
 
+        {carryForward && carryForwardCopy && (
+          <div className="rounded-lg border-2 border-amber-400 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/30">
+            <div className="flex items-start gap-2">
+              <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                  Missed service · yesterday
+                </p>
+                <p className="mt-1 text-sm font-bold text-amber-950 dark:text-amber-100">
+                  {carryForwardCopy.action}
+                </p>
+                <p className="mt-0.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  {carryForwardCopy.summary}
+                </p>
+                {carryForwardCopy.detail && (
+                  <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                    {carryForwardCopy.detail}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {bedConfig && (
           <div className="rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2 dark:border-blue-900 dark:bg-blue-950/20">
             <div className="flex items-start gap-2">
               <BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:text-blue-300">Bed configuration</p>
-                <p className="text-sm font-semibold">{String(bedConfig)}</p>
+                <p className="text-sm font-semibold">{displayHousekeepingBedSetup(String(bedConfig), room.hotel) || String(bedConfig)}</p>
               </div>
             </div>
           </div>
@@ -400,7 +468,7 @@ export function HotelMemoriesManagerRoomOverview(props: HotelMemoriesManagerRoom
                   Housekeeper room cards · management mirror
                 </CardTitle>
                 <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">
-                  Hotel Memories Budapest only. Managers see the same operational meaning and work order as the housekeeper: ready checkout → towel change → explicit clean request → optional daily door-check → waiting checkout, with live status, priority, bed setup and manager notes.
+                  Hotel Memories Budapest only. Managers see the same operational meaning and work order as the housekeeper: ready checkout → towel change → carried/explicit full clean → optional daily door-check → waiting checkout, with live status, priority, bed setup, carried service context and manager notes.
                 </p>
               </div>
               <Badge variant="outline" className="border-emerald-300 text-emerald-700 dark:text-emerald-300">Hotel Memories only</Badge>

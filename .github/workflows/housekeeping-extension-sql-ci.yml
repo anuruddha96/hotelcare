@@ -1,0 +1,66 @@
+name: Housekeeping extension SQL CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/2026092014*'
+      - 'supabase/migrations/2026092015*'
+      - 'supabase/migrations/2026092016*'
+      - 'supabase/migrations/2026100711*'
+      - 'supabase/migrations/20261008103000_guard_stay_extension_review_evidence.sql'
+      - 'supabase/migrations/2026100905*'
+      - 'supabase/tests/stay_extension*'
+      - 'supabase/tests/manual_room_override_same_day.sql'
+      - 'supabase/tests/continuous_stay_manager_authority.sql'
+      - '.github/workflows/housekeeping-extension-sql-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  extension-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Test migrations and extension workflows in a disposable database
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/stay_extension_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260920143000_housekeeping_stay_extension_review.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260920143100_stay_extension_realtime_and_ordering.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260920150000_stop_false_service_completions.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260920150100_conservative_extension_service_reviews.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/stay_extension_integration.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260920163000_preserve_same_day_manual_room_type.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/manual_room_override_same_day.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261007111000_continuous_stay_manager_authority.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/continuous_stay_manager_authority.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261008103000_guard_stay_extension_review_evidence.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/stay_extension_evidence_guard.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261009052618_retire_speculative_stay_extension_review_queue_20261009.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261009052746_inert_stay_extension_review_function_prevent_legacy_reenable_20261009.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/stay_extension_queue_retired.sql

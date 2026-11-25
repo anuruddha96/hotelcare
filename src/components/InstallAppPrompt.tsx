@@ -60,10 +60,8 @@ export function InstallAppPrompt() {
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === 'accepted') {
         setDeferredPrompt(null);
-        // Nudge for notification permission after install
-        if ('Notification' in window && Notification.permission === 'default') {
-          setTimeout(() => Notification.requestPermission(), 1500);
-        }
+        // Notifications are enabled by an explicit tap in the permission banner
+        // or Settings, so the request retains the required user gesture.
       }
     } catch (err) {
       console.error('Install prompt failed:', err);

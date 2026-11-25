@@ -119,9 +119,15 @@ export function marketSignalFor(row: MarketRow | undefined, nowMs = Date.now()):
   const excluded = Math.max(0, Math.round(
     numberOf(row.excluded_outlier_count) ?? Math.max(0, observed - validated),
   ));
-  const referenceRate = numberOf(row.median_rate_eur) ?? numberOf(row.average_rate_eur);
+  const candidateReferenceRate = numberOf(row.median_rate_eur) ?? numberOf(row.average_rate_eur);
+  // A single quote is not a market. Do not surface thin evidence as a Budapest
+  // market reference: this is what allowed values such as €710 · 1/12 to look
+  // authoritative in the calendar. Require at least two independently validated
+  // offers before displaying a price; otherwise keep the demand grade and show
+  // that reliable market-rate evidence is unavailable.
+  const referenceRate = validated >= 2 ? candidateReferenceRate : null;
 
-  if (validated === 0 || referenceRate == null) {
+  if (validated < 2 || referenceRate == null) {
     return {
       referenceRate: null,
       active,
@@ -130,8 +136,8 @@ export function marketSignalFor(row: MarketRow | undefined, nowMs = Date.now()):
       excluded,
       confidencePct: 0,
       quality: "none",
-      qualityLabel: "No validated market data",
-      coverageLabel: active > 0 ? `0/${active}` : "no data",
+      qualityLabel: validated === 1 ? "Insufficient market sample" : "No validated market data",
+      coverageLabel: active > 0 ? `${validated}/${active}` : (validated > 0 ? `${validated} comp` : "no data"),
     };
   }
 
@@ -158,7 +164,7 @@ export function marketSignalFor(row: MarketRow | undefined, nowMs = Date.now()):
 
   let quality: MarketSignalQuality;
   let qualityLabel: string;
-  if (validated < 2 || confidencePct < 45) {
+  if (confidencePct < 45) {
     quality = "low";
     qualityLabel = "Low confidence";
   } else if (confidencePct < 75) {
@@ -196,7 +202,7 @@ export function tooltipFor(
 
   lines.push("");
   if (!row || signal.referenceRate == null) {
-    lines.push("Market reference: no fresh validated competitor rate yet.");
+    lines.push(signal.validated === 1 ? "Market reference: hidden — one validated offer is not enough to represent the Budapest market." : "Market reference: no fresh validated competitor rate yet.");
   } else {
     lines.push(`Market reference ${euro(signal.referenceRate)} · ${signal.qualityLabel} (${signal.confidencePct}%)`);
     lines.push(`${signal.validated}/${signal.active || signal.validated} active competitors validated${signal.excluded > 0 ? ` · ${signal.excluded} statistical outlier${signal.excluded === 1 ? "" : "s"} excluded` : ""}`);
@@ -248,28 +254,28 @@ export function competitorGridStyleText(): string {
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    [${ROW_ATTR}="1"] > button {
+    [${ROW_ATTR}="1"] > button[data-hc-market-cell="1"] {
       position: relative;
       display: flex !important;
       flex-direction: column !important;
       align-items: center !important;
       justify-content: center !important;
-      gap: 1px !important;
+      gap: 2px !important;
       font-size: 0 !important;
     }
-    [${ROW_ATTR}="1"] > button::before {
+    [${ROW_ATTR}="1"] > button[data-hc-market-cell="1"]::before {
       content: attr(data-hc-demand-label);
       color: inherit;
       font-size: 9.5px;
-      line-height: 10px;
+      line-height: 11px;
       font-weight: 700;
       white-space: nowrap;
     }
-    [${ROW_ATTR}="1"] > button::after {
+    [${ROW_ATTR}="1"] > button[data-hc-market-cell="1"]::after {
       content: attr(data-hc-market-summary);
       color: inherit;
       font-size: 8px;
-      line-height: 9px;
+      line-height: 10px;
       font-weight: 600;
       opacity: .82;
       white-space: nowrap;
@@ -296,19 +302,9 @@ function ensureStyle() {
 }
 
 function findDemandRow(): HTMLElement | null {
-  const existing = document.querySelector<HTMLElement>(`[${ROW_ATTR}="1"]`);
-  if (existing?.isConnected) return existing;
-
-  const labels = Array.from(document.querySelectorAll<HTMLElement>("div.sticky.left-0"));
-  for (const label of labels) {
-    const text = (label.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (!(text === "Demand" || text === "Dem" || text.startsWith("Demand "))) continue;
-    const row = label.parentElement as HTMLElement | null;
-    if (!row || !row.classList.contains("flex")) continue;
-    row.setAttribute(ROW_ATTR, "1");
-    return row;
-  }
-  return null;
+  const row = document.querySelector<HTMLElement>('[data-training="revenue-grid"] [data-rate-demand-row="true"]');
+  if (row) row.setAttribute(ROW_ATTR, "1");
+  return row;
 }
 
 /**
@@ -368,11 +364,11 @@ export default function CompetitorPricingGridBridge() {
       const label = row.firstElementChild as HTMLElement | null;
       if (!label) return;
       const railed = label.getBoundingClientRect().width < 70;
-      label.dataset.hcMarketLabel = railed ? "D/M" : "Demand + market";
-      label.title = "Demand is Hotel Care's property-level demand grade from your own booking pace, pickup and inventory pressure. Market is a robust median of fresh validated competitor prices. The two are shown together because competitor price is useful context, but it is not the same thing as market occupancy or demand.";
-      label.setAttribute("aria-label", "Demand plus market. Property demand grade with a robust competitor median and data confidence.");
+      label.dataset.hcMarketLabel = railed ? "Signal" : "Price signal";
+      label.title = "Price signal 0–100 per stay date, from the same facts the pricing engine uses: pace vs. lead-time target (35), 7-day pickup (25), approved events (20), competitor median vs. our rate (10), inventory and weekend (10). Dark red ≥80 Surge · orange ≥60 Strong · grey On pace · light blue Soft · blue Weak. ▲ price up · ● hold · ▼ price down. Second line: validated competitor median and coverage.";
+      label.setAttribute("aria-label", "Price signal. Hotel demand score per date with recommended price direction and validated market-rate evidence.");
 
-      const grid = row.parentElement;
+      const grid = row.closest('[data-training="revenue-grid"]');
       if (!grid) return;
       const dateNodes = Array.from(grid.querySelectorAll<HTMLElement>("button[data-date]"));
       const dates: string[] = [];
@@ -403,7 +399,7 @@ export default function CompetitorPricingGridBridge() {
         cell.dataset.hcMarketCell = "1";
         cell.dataset.hcMarketQuality = signal.quality;
         cell.dataset.hcMarketSummary = signal.referenceRate == null
-          ? "Mkt —"
+          ? (signal.validated === 1 ? "Mkt — · 1 offer" : "Mkt —")
           : `${euro(signal.referenceRate)} · ${signal.coverageLabel}`;
         cell.dataset.hcMarketConfidence = signal.qualityLabel;
         cell.title = tooltipFor(date, market, cell.dataset.hcDemandTitle);

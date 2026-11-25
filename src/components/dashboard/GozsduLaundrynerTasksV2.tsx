@@ -1,0 +1,449 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Loader2, RefreshCw, Shirt, TriangleAlert, LockKeyhole, UserRound, DoorOpen } from 'lucide-react';
+import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
+import { supabase } from '@/integrations/supabase/client';
+import { todayBudapest } from '@/lib/budapestTime';
+import { type LaundryBucket, type LaundryRoom, isEligibleLaundryRoom } from '@/lib/gozsduLaundryner';
+import { type LaundryAssignment, activeCleaningHousekeeperIds, visibleLaundryHousekeeperIds, groupCurrentLaundryRooms, isCheckout, laundryAccess, laundryService } from '@/lib/gozsduLaundryReadiness';
+import { laundryAccessCopy } from '@/lib/gozsduLaundryReadinessI18n';
+import { gozsduLaundryActiveCopy } from '@/lib/gozsduLaundryActiveI18n';
+import { gozsduLinenLabel, loadHotelLinenCatalogue, type LinenCatalogueItem } from '@/lib/gozsduLinenCatalogue';
+import { laundryCopy } from '@/lib/gozsduLaundrynerI18n';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { reconcileGozsduPmsRoster, type GozsduPmsRow } from '@/lib/gozsduPmsRoster';
+
+type Count = { room_id: string; linen_item_id: string; count: number };
+type Progress = { room_id: string; status: 'collected' | 'nothing_to_collect' | 'could_not_access'; reason: string | null };
+type Staff = { id: string; full_name: string | null; nickname: string | null };
+const HOTELS = ['gozsdu-court', 'Gozsdu Court Budapest'];
+// The early-checkout exception depends on these REAL assignment columns. Both
+// the list and the pre-open/pre-save recheck must request them. Never rely on
+// clean status alone or silently strip the supervisor's existing PMS hold.
+const ASSIGNMENT_FIELDS = 'id,room_id,assigned_to,assignment_type,status,ready_to_clean,is_dnd,pms_hold,pms_hold_reason,pms_hold_event_id,supervisor_approved,notes,updated_at';
+const GROUPS: { key: LaundryBucket; title: string; description: string }[] = [
+  { key: 'checkout', title: 'Checkout rooms', description: 'Prioritize after guest checkout and room release.' },
+  { key: 'second_day', title: 'Second-day service rooms', description: 'Same verified service rooms as the manager view. Confirm guest access before collecting.' },
+  { key: 'arrival', title: 'Awaiting arrival', description: 'Expected check-ins. Visible for orientation only; linen entry is disabled.' },
+  { key: 'other', title: 'Other rooms', description: 'Same verified other-room list as the manager view.' },
+];
+
+/** Only mounted for Gozsdu laundry duties. Does not change PMS or cleaning status. */
+export function GozsduLaundrynerTasksV2() {
+  const { user, profile } = useAuth();
+  const { t, language } = useTranslation();
+  const copy = useMemo(() => laundryCopy(language), [language]);
+  const accessCopy = useMemo(() => laundryAccessCopy(language), [language]);
+  const activeCopy = useMemo(() => gozsduLaundryActiveCopy(language), [language]);
+  const [workDate, setWorkDate] = useState(todayBudapest);
+  const [rooms, setRooms] = useState<LaundryRoom[]>([]);
+  const [assignments, setAssignments] = useState<LaundryAssignment[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [items, setItems] = useState<LinenCatalogueItem[]>([]);
+  const [counts, setCounts] = useState<Count[]>([]);
+  const [progress, setProgress] = useState<Progress[]>([]);
+  const [buildingNames, setBuildingNames] = useState<Record<string, string>>({});
+  const [managerBuckets, setManagerBuckets] = useState<Map<string, 'checkout' | 'service' | 'arrival' | 'other' | 'noshow'>>(new Map());
+  const [selectedRoom, setSelectedRoom] = useState<LaundryRoom | null>(null);
+  const [draft, setDraft] = useState<Record<string, number>>({});
+  const [reason, setReason] = useState('');
+  const [guestPermission, setGuestPermission] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [checkingRoomId, setCheckingRoomId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const eligible = !!user?.id && !!profile?.organization_slug && isGozsduCourtHotel(profile.assigned_hotel);
+
+  const liveRoom = useCallback(async (id: string) => {
+    if (!profile?.organization_slug) throw new Error('Missing hotel access');
+    const [roomResponse, assignmentResponse] = await Promise.all([
+      supabase.from('rooms').select('id,hotel,room_number,status,is_checkout_room,is_dnd,pms_metadata')
+        .eq('id', id).eq('organization_slug', profile.organization_slug).in('hotel', HOTELS).maybeSingle(),
+      supabase.from('room_assignments').select(ASSIGNMENT_FIELDS)
+        .eq('room_id', id).eq('organization_slug', profile.organization_slug).eq('assignment_date', workDate),
+    ]);
+    if (roomResponse.error || assignmentResponse.error || !roomResponse.data) {
+      throw roomResponse.error || assignmentResponse.error || new Error('Room unavailable');
+    }
+    return { room: roomResponse.data as LaundryRoom, assignments: (assignmentResponse.data || []) as LaundryAssignment[] };
+  }, [profile?.organization_slug, workDate]);
+
+  const load = useCallback(async (silent = false) => {
+    if (!eligible || !user?.id || !profile?.organization_slug) return;
+    if (!silent) setLoading(true);
+    try {
+      const [roomResponse, catalogue, progressResponse, sectionsResponse, registryResponse, snapshotResponse] = await Promise.all([
+        supabase.from('rooms').select('id,hotel,room_number,status,is_checkout_room,is_dnd,pms_metadata')
+          .in('hotel', HOTELS).eq('organization_slug', profile.organization_slug),
+        loadHotelLinenCatalogue(profile.assigned_hotel).catch(error => {
+          console.warn('[GozsduLaundryner] linen catalogue unavailable; rendering rooms without entry controls', error);
+          return [] as LinenCatalogueItem[];
+        }),
+        (supabase as any).from('gozsdu_laundry_room_progress').select('room_id,status,reason')
+          .eq('organization_slug', profile.organization_slug).eq('hotel_id', 'gozsdu-court')
+          .eq('work_date', workDate).eq('user_id', user.id),
+        (supabase as any).from('hotel_housekeeping_sections').select('id,name')
+          .eq('hotel_name', 'Gozsdu Court Budapest').eq('is_active', true),
+        (supabase as any).from('gozsdu_housekeeping_room_registry')
+          .select('room_id,pms_room_name,service_status,unavailability_reason'),
+        (supabase as any).from('daily_overview_snapshots')
+          .select('room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,captured_at')
+          .eq('organization_slug', profile.organization_slug).eq('hotel_id', 'gozsdu-court')
+          .eq('business_date', workDate).eq('source', 'previo'),
+      ]);
+      // Room inventory is the only read that is required to render the
+      // operational queue. All enrichment sources fail independently.
+      if (roomResponse.error) throw roomResponse.error;
+      if (progressResponse.error) console.warn('[GozsduLaundryner] progress unavailable; rendering rooms without saved progress', progressResponse.error);
+      if (sectionsResponse.error) console.warn('[GozsduLaundryner] section labels unavailable', sectionsResponse.error);
+      if (registryResponse.error) console.warn('[GozsduLaundryner] room registry unavailable; using Gozsdu inventory fallback', registryResponse.error);
+      if (snapshotResponse.error) console.warn('[GozsduLaundryner] PMS snapshot unavailable; using current room metadata fallback', snapshotResponse.error);
+
+      const rawRooms = (roomResponse.data || []) as LaundryRoom[];
+      const deduped = new Map<string, LaundryRoom>();
+      for (const room of rawRooms) {
+        const existing = deduped.get(room.room_number);
+        if (!existing || (existing.hotel !== 'gozsdu-court' && room.hotel === 'gozsdu-court')) deduped.set(room.room_number, room);
+      }
+      const managerRooms = [...deduped.values()];
+      const managerIds = new Set(managerRooms.map(room => room.id));
+      const registry = registryResponse.error ? [] : (registryResponse.data || []).filter((row: any) => managerIds.has(row.room_id));
+      const nextManagerBuckets = new Map<string, 'checkout' | 'service' | 'arrival' | 'other' | 'noshow'>();
+      const registryComplete = !registryResponse.error && managerRooms.length > 0 && registry.length === managerRooms.length;
+      const snapshotUsable = !snapshotResponse.error && (snapshotResponse.data || []).length > 0;
+      if (registryComplete && snapshotUsable) {
+        try {
+          const roster = reconcileGozsduPmsRoster(managerRooms, registry, (snapshotResponse.data || []) as GozsduPmsRow[], workDate);
+          for (const [roomId, entry] of roster.byRoom) nextManagerBuckets.set(roomId, entry.bucket as never);
+        } catch (error) {
+          console.warn('[GozsduLaundryner] verified PMS roster could not be reconciled; using current room metadata fallback', error);
+        }
+      } else {
+        console.warn('[GozsduLaundryner] verified PMS roster incomplete; using current room metadata fallback', {
+          registryRooms: registry.length,
+          localRooms: managerRooms.length,
+          snapshotRows: (snapshotResponse.data || []).length,
+        });
+      }
+      const operating = new Set(registry.filter((row: any) => row.service_status === 'operating').map((row: any) => row.room_id));
+      const hasCompleteRegistry = registryComplete;
+      const currentRooms = managerRooms.filter(room => (!hasCompleteRegistry || operating.has(room.id))
+        && nextManagerBuckets.get(room.id) !== 'noshow' && isEligibleLaundryRoom(room));
+      const ids = currentRooms.map(room => room.id);
+      let liveAssignments: LaundryAssignment[] = [];
+      let savedCounts: Count[] = [];
+      if (ids.length) {
+        const [assignmentResponse, countResponse] = await Promise.all([
+          supabase.from('room_assignments').select(ASSIGNMENT_FIELDS)
+            .eq('organization_slug', profile.organization_slug).eq('assignment_date', workDate).in('room_id', ids),
+          supabase.from('dirty_linen_counts').select('room_id,linen_item_id,count')
+            .eq('housekeeper_id', user.id).eq('work_date', workDate).in('room_id', ids),
+        ]);
+        if (assignmentResponse.error) console.warn('[GozsduLaundryner] assignments unavailable; rendering unassigned rooms', assignmentResponse.error);
+        if (countResponse.error) console.warn('[GozsduLaundryner] saved linen counts unavailable; rendering rooms without counts', countResponse.error);
+        liveAssignments = assignmentResponse.error ? [] : (assignmentResponse.data || []) as LaundryAssignment[];
+        savedCounts = countResponse.error ? [] : (countResponse.data || []) as Count[];
+      }
+      const names: Record<string, string> = {};
+      const sectionIds = sectionsResponse.error ? [] : (sectionsResponse.data || []).map((section: any) => section.id);
+      if (sectionIds.length) {
+        const sectionResponse = await (supabase as any).from('hotel_housekeeping_section_rooms')
+          .select('room_id,section_id').in('section_id', sectionIds);
+        if (sectionResponse.error) console.warn('[GozsduLaundryner] room/section mappings unavailable', sectionResponse.error);
+        const sections = new Map((sectionsResponse.data || []).map((section: any) => [section.id, section.name]));
+        if (!sectionResponse.error) for (const mapping of sectionResponse.data || []) names[mapping.room_id] = sections.get(mapping.section_id) as string || '';
+      }
+      const staffIds = visibleLaundryHousekeeperIds(liveAssignments);
+      let people: Staff[] = [];
+      if (staffIds.length) {
+        const staffResponse = await supabase.from('profiles').select('id,full_name,nickname')
+          .eq('organization_slug', profile.organization_slug).in('assigned_hotel', HOTELS).in('id', staffIds);
+        if (staffResponse.error) console.warn('[GozsduLaundryner] staff labels unavailable', staffResponse.error);
+        people = staffResponse.error ? [] : (staffResponse.data || []) as Staff[];
+      }
+      setRooms(currentRooms);
+      setManagerBuckets(nextManagerBuckets);
+      setItems(catalogue);
+      setCounts(savedCounts);
+      setAssignments(liveAssignments);
+      setStaff(people);
+      setProgress(progressResponse.error ? [] : (progressResponse.data || []) as Progress[]);
+      setBuildingNames(names);
+      // An open dialog must never retain a stale green checkout after a PMS/assignment update.
+      setSelectedRoom(previous => {
+        if (!previous) return null;
+        const latest = currentRooms.find(room => room.id === previous.id);
+        if (!latest) return null;
+        const currentAssignments = liveAssignments.filter(row => row.room_id === latest.id);
+        if (isCheckout(latest) && laundryAccess(latest, currentAssignments, workDate) !== 'ready') return null;
+        return latest;
+      });
+      setLoadFailed(false);
+    } catch (error) {
+      console.error('[GozsduLaundryner] room information refresh failed', error);
+      // Failed background reads are not evidence that room access changed.
+      // Keep the current draft/dialog; loadFailed still blocks all writes.
+      setLoadFailed(true);
+      if (!silent) toast.error(copy.syncError);
+    } finally { setLoading(false); }
+  }, [eligible, user?.id, profile?.organization_slug, profile?.assigned_hotel, workDate, copy.syncError]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!eligible) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void load(true);
+      }, 650);
+    };
+    const channel = supabase.channel(`gozsdu-laundry-safe-${user?.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, (event: any) => {
+        const hotel = event.new?.hotel ?? event.old?.hotel;
+        if (!hotel || HOTELS.includes(hotel)) scheduleRefresh();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${workDate}` }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gozsdu_laundry_room_progress' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_counts' }, scheduleRefresh)
+      .subscribe();
+    const poll = window.setInterval(() => {
+      const date = todayBudapest();
+      if (date !== workDate) { setSelectedRoom(null); setWorkDate(date); }
+      else void load(true);
+    }, 20_000);
+    const onVisible = () => { if (!document.hidden) scheduleRefresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      window.clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
+      void supabase.removeChannel(channel);
+    };
+  }, [eligible, user?.id, workDate, load]);
+
+  const grouped = useMemo(() => groupCurrentLaundryRooms(rooms, assignments, workDate, managerBuckets), [rooms, assignments, workDate, managerBuckets]);
+  const assignmentMap = useMemo(() => {
+    const map = new Map<string, LaundryAssignment[]>();
+    for (const row of assignments) map.set(row.room_id, [...(map.get(row.room_id) || []), row]);
+    return map;
+  }, [assignments]);
+  const staffNames = useMemo(() => new Map(staff.map(row => [row.id, row.nickname || row.full_name || activeCopy.nameUnavailable])), [staff, activeCopy.nameUnavailable]);
+  const progressMap = useMemo(() => new Map(progress.map(row => [row.room_id, row])), [progress]);
+  const countByRoom = useMemo(() => {
+    const map = new Map<string, number>();
+    const allowed = new Set(items.map(item => item.id));
+    for (const row of counts) if (allowed.has(row.linen_item_id)) map.set(row.room_id, (map.get(row.room_id) || 0) + row.count);
+    return map;
+  }, [counts, items]);
+  const finished = progress.filter(row => row.status === 'collected' || row.status === 'nothing_to_collect').length;
+  const checkoutReady = grouped.checkout.filter(room => laundryAccess(room, assignmentMap.get(room.id) || [], workDate) === 'ready').length;
+  const selectedAssignments = selectedRoom ? assignmentMap.get(selectedRoom.id) || [] : [];
+  const selectedAccess = selectedRoom ? laundryAccess(selectedRoom, selectedAssignments, workDate) : 'unavailable';
+  const serviceLabel = (room: LaundryRoom, rows: LaundryAssignment[]) => {
+    const service = laundryService(room, rows, workDate);
+    return service === 'full' ? accessCopy.full : service === 'textile' ? accessCopy.textile
+      : service === 'towel' ? accessCopy.towel : service === 'daily' ? accessCopy.daily : accessCopy.noService;
+  };
+  const housekeepers = (rows: LaundryAssignment[]) => {
+    const ids = visibleLaundryHousekeeperIds(rows);
+    return ids.length ? ids.map(id => staffNames.get(id) || activeCopy.nameUnavailable).join(', ') : accessCopy.unassigned;
+  };
+  const activelyCleaning = (rows: LaundryAssignment[]) => activeCleaningHousekeeperIds(rows)
+    .map(id => staffNames.get(id) || activeCopy.nameUnavailable).join(', ');
+  const accessLabel = (access: ReturnType<typeof laundryAccess>) => access === 'ready' ? accessCopy.ready
+    : access === 'guest_inside' ? accessCopy.guestInside : access === 'guest_permission' ? accessCopy.guestPermission
+      : access === 'dnd' ? accessCopy.dnd : accessCopy.unavailable;
+
+  const selectRoom = async (room: LaundryRoom) => {
+    if (loadFailed || busy || checkingRoomId || items.length === 0) return;
+    const known = laundryAccess(room, assignmentMap.get(room.id) || [], workDate);
+    if (isCheckout(room) && known !== 'ready') return;
+    setCheckingRoomId(room.id);
+    try {
+      const latest = await liveRoom(room.id);
+      const access = laundryAccess(latest.room, latest.assignments, workDate);
+      if (isCheckout(latest.room) && access !== 'ready') {
+        toast.error(accessCopy.cannotOpen);
+        await load(true);
+        return;
+      }
+      if (access === 'unavailable') { toast.error(copy.syncError); await load(true); return; }
+      const countResponse = await supabase.from('dirty_linen_counts').select('room_id,linen_item_id,count')
+        .eq('housekeeper_id', user!.id).eq('work_date', workDate).eq('room_id', room.id);
+      if (countResponse.error) throw countResponse.error;
+      setDraft(Object.fromEntries((countResponse.data || []).map(row => [row.linen_item_id, row.count])));
+      setReason(progressMap.get(room.id)?.reason || '');
+      setGuestPermission(false);
+      setSelectedRoom(latest.room);
+      setAssignments(old => [...old.filter(row => row.room_id !== room.id), ...latest.assignments]);
+    } catch (error) {
+      console.error('[GozsduLaundryner] access verification failed', error);
+      setLoadFailed(true);
+      setSelectedRoom(null);
+      toast.error(copy.syncError);
+    } finally { setCheckingRoomId(null); }
+  };
+
+  const submit = async (status: Progress['status']) => {
+    if (!selectedRoom || busy || !eligible || loadFailed || items.length === 0) return;
+    if (todayBudapest() !== workDate) {
+      setSelectedRoom(null); setWorkDate(todayBudapest()); toast.error(copy.newDayError); return;
+    }
+    if (status !== 'could_not_access' && !isCheckout(selectedRoom) && !guestPermission) {
+      toast.error(accessCopy.permissionMissing); return;
+    }
+    if (status === 'could_not_access' && !reason.trim()) { toast.error(copy.reasonError); return; }
+    const payload = status === 'could_not_access' ? [] : items.map(item => ({
+      linen_item_id: item.id, count: status === 'nothing_to_collect' ? 0 : (draft[item.id] || 0),
+    }));
+    if (status === 'collected' && payload.every(item => item.count === 0)) { toast.error(copy.countError); return; }
+    setBusy(true);
+    try {
+      const latest = await liveRoom(selectedRoom.id);
+      const access = laundryAccess(latest.room, latest.assignments, workDate);
+      if (access === 'unavailable' || (isCheckout(latest.room) && access !== 'ready')
+        || (access === 'dnd' && status !== 'could_not_access')) {
+        setSelectedRoom(null);
+        toast.error(access === 'guest_inside' ? accessCopy.cannotOpen : accessCopy.roomUpdated);
+        await load(true);
+        return;
+      }
+      const { error } = await (supabase as any).rpc('record_gozsdu_laundry_collection', {
+        p_room_id: selectedRoom.id, p_status: status, p_counts: payload,
+        p_reason: status === 'could_not_access' ? reason.trim() : null,
+      });
+      if (error) throw error;
+      setSelectedRoom(null);
+      await load(true);
+      window.dispatchEvent(new CustomEvent('dirty-linen-updated'));
+      toast.success(status === 'collected' ? copy.successCollected
+        : status === 'nothing_to_collect' ? copy.successNothing : copy.successBlocked);
+    } catch (error) {
+      console.error('[GozsduLaundryner] save rejected', error);
+      toast.error(copy.saveError);
+      await load(true);
+    } finally { setBusy(false); }
+  };
+
+  if (!eligible) return null;
+  return <div className="space-y-5" data-testid="gozsdu-laundryner-workspace">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <h2 className="flex items-center gap-2 text-xl font-semibold"><Shirt className="h-5 w-5" /> {copy.title}</h2>
+        <p className="text-sm text-muted-foreground">Gozsdu Court Budapest • {workDate} • {finished}/{rooms.length} {copy.recorded}</p>
+        <p className="mt-1 flex items-center gap-1 text-xs font-medium text-emerald-700"><DoorOpen className="h-4 w-4" />{checkoutReady}/{grouped.checkout.length} {accessCopy.readyCount}</p>
+      </div>
+      <Button size="sm" variant="outline" disabled={loading || busy} onClick={() => { void load(); }}>
+        <RefreshCw className="mr-1 h-4 w-4" />{copy.refresh}
+      </Button>
+    </div>
+    <p className="text-xs text-muted-foreground">{copy.duty}</p>
+    <p className="text-xs font-medium text-muted-foreground">{activeCopy.separateQueues}</p>
+    {loading && <p role="status" className="text-sm"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" />{copy.loading}</p>}
+    {loadFailed && <div role="alert" className="rounded-md border border-destructive p-3 text-sm text-destructive">
+      {copy.syncError} <Button variant="outline" size="sm" onClick={() => { void load(); }}>{copy.refresh}</Button>
+    </div>}
+    {GROUPS.map(group => {
+      const groupRooms = grouped[group.key];
+      const activeCount = groupRooms.filter(room => activeCleaningHousekeeperIds(assignmentMap.get(room.id) || []).length > 0).length;
+      return <section key={group.key} aria-label={group.title} data-testid={`gozsdu-laundry-group-${group.key}`}>
+        <Card className={group.key === 'second_day' ? 'border-2 border-sky-300 dark:border-sky-700' : group.key === 'other' ? 'border-2 border-slate-300 dark:border-slate-600' : 'border-2 border-emerald-300 dark:border-emerald-700'}>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+              <span>{group.title}</span><Badge variant="secondary">{groupRooms.length}</Badge>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">{group.description}</p>
+            {activeCount > 0 && <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400" aria-live="polite">{activeCount} {activeCopy.activeCount}</p>}
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {groupRooms.map(room => {
+              const rows = assignmentMap.get(room.id) || [];
+              const access = laundryAccess(room, rows, workDate);
+              const activeNames = activelyCleaning(rows);
+              const state = progressMap.get(room.id);
+              const total = countByRoom.get(room.id) || 0;
+              const stateText = state?.status === 'collected' ? `${total} ${copy.collected}`
+                : state?.status === 'nothing_to_collect' ? copy.nothing
+                  : state?.status === 'could_not_access' ? copy.noAccess : copy.notRecorded;
+              const locked = group.key === 'arrival' || (isCheckout(room) && access !== 'ready');
+              return <button type="button" key={room.id} onClick={() => { void selectRoom(room); }}
+                disabled={loadFailed || loading || busy || !!checkingRoomId || items.length === 0 || locked}
+                className={`min-w-0 space-y-1 rounded-xl border p-3 text-left text-sm shadow-sm focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed ${locked ? 'border-amber-300 bg-amber-50 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100' : activeNames ? 'border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 hover:border-primary' : 'bg-background hover:border-primary'} ${loadFailed ? 'opacity-60' : ''}`}
+                aria-label={`${copy.room} ${room.room_number}, ${group.key === 'arrival' ? 'Awaiting arrival' : accessLabel(access)}, ${serviceLabel(room, rows)}, ${activeNames ? `${activeCopy.cleaningNow}: ${activeNames}` : `${accessCopy.housekeeper}: ${housekeepers(rows)}`}, ${stateText}`}
+                aria-disabled={locked} title={group.key === 'arrival' ? 'Awaiting arrival — informational only' : locked ? accessCopy.cannotOpen : undefined}>
+                <span className="block text-base font-semibold">{room.room_number} {checkingRoomId === room.id && <Loader2 className="inline h-3 w-3 animate-spin" />}</span>
+                {buildingNames[room.id] && <span className="block truncate text-[11px] text-muted-foreground">{buildingNames[room.id]}</span>}
+                {activeNames && <span className="block rounded-md bg-emerald-100 px-1 py-1 text-xs font-bold text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100"><UserRound className="mr-1 inline h-3 w-3" />{activeCopy.cleaningNow}: {activeNames}</span>}
+                <span className={`flex items-start gap-1 text-xs font-semibold ${access === 'ready' ? 'text-emerald-700 dark:text-emerald-400' : access === 'guest_permission' ? 'text-amber-700 dark:text-amber-300' : 'text-destructive'}`}>
+                  {locked || access === 'dnd' ? <LockKeyhole className="mt-0.5 h-3 w-3 shrink-0" /> : <DoorOpen className="mt-0.5 h-3 w-3 shrink-0" />}
+                  <span>{group.key === 'arrival' ? 'Awaiting arrival' : accessLabel(access)}</span>
+                </span>
+                <span className="block text-xs">{serviceLabel(room, rows)}</span>
+                <span className="flex items-start gap-1 text-xs text-muted-foreground"><UserRound className="mt-0.5 h-3 w-3 shrink-0" /><span className="min-w-0 break-words">{accessCopy.housekeeper}: {housekeepers(rows)}</span></span>
+                {state?.status === 'collected' && <span className="flex items-center gap-1 text-xs text-emerald-600"><CheckCircle2 className="h-3 w-3" />{stateText}</span>}
+                {state?.status === 'nothing_to_collect' && <span className="block text-xs text-emerald-600">{stateText}</span>}
+                {state?.status === 'could_not_access' && <span className="flex items-center gap-1 text-xs text-amber-600"><TriangleAlert className="h-3 w-3" />{stateText}</span>}
+                {!state && <span className="block text-xs text-muted-foreground">{stateText}</span>}
+              </button>;
+            })}
+            {groupRooms.length === 0 && <p className="col-span-full text-sm text-muted-foreground">{copy.noRooms}</p>}
+          </CardContent>
+        </Card>
+      </section>;
+    })}
+    <Dialog open={!!selectedRoom} onOpenChange={open => { if (!open && !busy) setSelectedRoom(null); }}>
+      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+        <DialogHeader><DialogTitle>{copy.room} {selectedRoom?.room_number} • {copy.dirtyLinen}</DialogTitle></DialogHeader>
+        {loadFailed && <div role="alert" className="text-sm text-destructive">
+          {copy.syncError} <Button variant="outline" size="sm" onClick={() => { void load(true); }}>{copy.refresh}</Button>
+        </div>}
+        {selectedRoom && <div className="space-y-1 rounded-md border p-3 text-sm">
+          <p className="font-semibold">{accessLabel(selectedAccess)}</p>
+          <p>{accessCopy.service}: {serviceLabel(selectedRoom, selectedAssignments)}</p>
+          {activelyCleaning(selectedAssignments) && <p className="font-semibold text-emerald-700 dark:text-emerald-400">{activeCopy.cleaningNow}: {activelyCleaning(selectedAssignments)}</p>}
+          <p>{accessCopy.housekeeper}: {housekeepers(selectedAssignments)}</p>
+        </div>}
+        {selectedAccess === 'dnd' ? <p role="alert" className="text-sm text-destructive">{copy.dndWarning}</p>
+          : <p className="text-sm text-muted-foreground">{copy.quantityHint}</p>}
+        {selectedRoom && !isCheckout(selectedRoom) && selectedAccess !== 'dnd' && <label className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
+          <Checkbox checked={guestPermission} onCheckedChange={value => setGuestPermission(value === true)} disabled={busy} aria-label={accessCopy.accessConfirm} />
+          <span><strong className="block">{accessCopy.accessConfirm}</strong>{accessCopy.accessReminder}</span>
+        </label>}
+        {selectedAccess !== 'dnd' && <div className="space-y-2">
+          {items.map(item => <div key={item.id} className="flex items-center gap-2 rounded-md border px-3 py-2">
+            <label htmlFor={`laundry-${item.id}`} className="min-w-0 flex-1 text-sm">{gozsduLinenLabel(item, language, t)}</label>
+            <Button type="button" size="sm" variant="outline" disabled={busy || !draft[item.id]}
+              aria-label={`− ${gozsduLinenLabel(item, language, t)}`}
+              onClick={() => setDraft(old => ({ ...old, [item.id]: Math.max(0, (old[item.id] || 0) - 1) }))}>−</Button>
+            <Input id={`laundry-${item.id}`} type="number" min={0} max={1000} step={1}
+              aria-label={`${gozsduLinenLabel(item, language, t)} ${copy.quantity}`}
+              className="w-16 text-center" disabled={busy} value={draft[item.id] ?? 0}
+              onChange={event => { const value = Number(event.target.value); if (Number.isInteger(value) && value >= 0 && value <= 1000) setDraft(old => ({ ...old, [item.id]: value })); }} />
+            <Button type="button" size="sm" variant="outline" disabled={busy || (draft[item.id] || 0) >= 1000}
+              aria-label={`+ ${gozsduLinenLabel(item, language, t)}`}
+              onClick={() => setDraft(old => ({ ...old, [item.id]: (old[item.id] || 0) + 1 }))}>+</Button>
+          </div>)}
+          <div className="grid grid-cols-2 gap-2">
+            <Button disabled={busy || loadFailed || (!isCheckout(selectedRoom) && !guestPermission)} onClick={() => { void submit('collected'); }}>{copy.save}</Button>
+            <Button disabled={busy || loadFailed || (!isCheckout(selectedRoom) && !guestPermission)} variant="outline" onClick={() => { void submit('nothing_to_collect'); }}>{copy.nothingButton}</Button>
+          </div>
+        </div>}
+        <div className="space-y-2 border-t pt-3">
+          <label htmlFor="laundry-access-reason" className="text-sm font-medium">{copy.accessLabel}</label>
+          <Input id="laundry-access-reason" value={reason} disabled={busy} placeholder={copy.reasonPlaceholder} onChange={event => setReason(event.target.value)} />
+          <Button type="button" variant="secondary" disabled={busy || loadFailed || !reason.trim()} onClick={() => { void submit('could_not_access'); }}>{copy.accessButton}</Button>
+        </div>
+        {busy && <p role="status" className="text-sm"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" />{copy.saving}</p>}
+      </DialogContent>
+    </Dialog>
+  </div>;
+}

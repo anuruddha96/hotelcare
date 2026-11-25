@@ -1,0 +1,42 @@
+name: VIZA arrival and reader review
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/ntak_viza_arrival_review.sql'
+      - 'src/lib/idScan/**'
+      - 'src/components/frontdesk/**'
+      - 'supabase/functions/viza-thf/**'
+      - '.github/workflows/viza-arrival-review.yml'
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase3_activation_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_viza_arrival_review.sql
+  reader:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx vitest run src/lib/idScan/vizaDocuments.test.ts src/lib/idScan/documentScanFlow.test.ts src/lib/idScan/vizaArrivalError.test.ts src/lib/idScan/vizaAdmission.test.ts src/components/frontdesk/GuestDetailsSection.test.tsx src/components/frontdesk/CheckInDialog.viza.test.tsx src/lib/viza/viza-messages.test.ts

@@ -42,7 +42,7 @@ const b64 = (buf: ArrayBuffer | Uint8Array): string => {
   return btoa(s);
 };
 
-const unb64 = (value: string): Uint8Array<ArrayBuffer> => {
+const unb64 = (value: string): Uint8Array => {
   const bin = atob(value);
   const out = new Uint8Array(new ArrayBuffer(bin.length));
   for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
@@ -136,7 +136,7 @@ export async function enableBiometric(
   const prfSecret = ext?.prf?.results?.first ? bytes(ext.prf.results.first) : null;
 
   const fallbackSecret = prfSecret ? null : bytes(crypto.getRandomValues(new Uint8Array(32)));
-  const key = await keyFromSecret(prfSecret ?? (fallbackSecret as Uint8Array<ArrayBuffer>));
+  const key = await keyFromSecret(prfSecret ?? (fallbackSecret as Uint8Array));
 
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const cipher = await crypto.subtle.encrypt(

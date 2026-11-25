@@ -55,6 +55,8 @@ const dict = {
     'legend.approved': 'Clean Room',
     'legend.roomCleaning': 'Change Room',
     'legend.changeRoom': 'Change Room',
+    'legend.carriedFromYesterday': 'Carried from yesterday',
+    'legend.carriedFromYesterdayHint': 'Towel change or full clean missed because of DND or No Service yesterday; complete it today.',
   },
   hu: {
     'roomOverview.markReadyToClean': 'Megjelölés Takarításra Kész',
@@ -101,6 +103,8 @@ const dict = {
     'legend.approved': 'Tiszta szoba',
     'legend.roomCleaning': 'Teljes csere',
     'legend.changeRoom': 'Teljes csere',
+    'legend.carriedFromYesterday': 'Tegnapról áthozott feladat',
+    'legend.carriedFromYesterdayHint': 'Tegnap elmaradt törölközőcsere vagy teljes takarítás (Ne zavarjanak / Nincs szolgáltatás). Ma pótolandó.',
   },
   es: {
     'roomOverview.markReadyToClean': 'Marcar Listo para Limpiar',
@@ -147,6 +151,8 @@ const dict = {
     'legend.approved': 'Habitación limpia',
     'legend.roomCleaning': 'Cambio completo',
     'legend.changeRoom': 'Cambio completo',
+    'legend.carriedFromYesterday': 'Pendiente desde ayer',
+    'legend.carriedFromYesterdayHint': 'Cambio de toallas o limpieza completa pendiente de ayer por No molestar o Sin servicio. Completar hoy.',
   },
   vi: {
     'roomOverview.markReadyToClean': 'Đánh Dấu Sẵn Sàng Dọn',
@@ -193,6 +199,8 @@ const dict = {
     'legend.approved': 'Phòng sạch',
     'legend.roomCleaning': 'Thay toàn bộ',
     'legend.changeRoom': 'Thay toàn bộ',
+    'legend.carriedFromYesterday': 'Công việc chuyển từ hôm qua',
+    'legend.carriedFromYesterdayHint': 'Thay khăn hoặc vệ sinh toàn bộ chưa hoàn thành hôm qua do Không làm phiền hoặc Không cần dịch vụ. Cần làm hôm nay.',
   },
   mn: {
     'roomOverview.markReadyToClean': 'Цэвэрлэхэд Бэлэн гэж тэмдэглэх',
@@ -239,6 +247,8 @@ const dict = {
     'legend.approved': 'Цэвэр өрөө',
     'legend.roomCleaning': 'Бүрэн солих',
     'legend.changeRoom': 'Бүрэн солих',
+    'legend.carriedFromYesterday': 'Өчигдрөөс шилжсэн ажил',
+    'legend.carriedFromYesterdayHint': 'Өчигдөр Бүү саад бол эсвэл Үйлчилгээ авахгүй шалтгаанаар хийгдээгүй алчуур солих эсвэл бүрэн цэвэрлэгээг өнөөдөр хийнэ.',
   },
   tl: {
     'roomOverview.markReadyToClean': 'Markahan bilang Handang Linisin',
@@ -285,6 +295,8 @@ const dict = {
     'legend.approved': 'Malinis na kuwarto',
     'legend.roomCleaning': 'Buong palit',
     'legend.changeRoom': 'Buong palit',
+    'legend.carriedFromYesterday': 'Gawaing mula kahapon',
+    'legend.carriedFromYesterdayHint': 'Pagpapalit ng tuwalya o buong paglilinis na hindi nagawa kahapon dahil sa DND o Walang Serbisyo. Gawin ngayon.',
   },
 } as const;
 

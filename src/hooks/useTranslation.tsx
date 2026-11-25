@@ -1,7 +1,9 @@
+import { hrTranslations } from '@/lib/hr-translations';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { expandedTranslations } from '@/lib/expanded-translations';
 import { additionalTranslations } from '@/lib/comprehensive-translations';
 import { notificationTranslations, dashboardTranslations } from '@/lib/notification-translations';
+import { notificationSetupTranslations } from '@/lib/notification-setup-translations';
 import { pmsTranslations } from '@/lib/pms-translations';
 import { highlightedTranslations } from '@/lib/highlighted-translations';
 import { screenTranslations } from '@/lib/screen-translations';
@@ -11,6 +13,7 @@ import { locationTranslations } from '@/lib/location-translations';
 import { generatedTranslations } from '@/lib/generated-translations';
 import { pendingTranslations } from '@/lib/pending-translations';
 import { publicAreaTaskTranslations } from '@/lib/public-area-task-translations';
+import { gozsduRoomTranslations } from '@/lib/gozsdu-room-translations';
 
 const translations = {
   en: {
@@ -282,8 +285,8 @@ const translations = {
     'actions.minibar': 'Minibar',
     'actions.lostAndFound': 'Lost & Found',
     'actions.maintenance': 'Maintenance',
-    'actions.photosRequired': 'Room Photos Required',
-    'actions.photosRequiredMessage': 'You must capture room photos before completing this daily cleaning task. Please tap "Room Photos" to capture the required photos.',
+    'actions.photosRequired': 'Photos needed',
+    'actions.photosRequiredMessage': 'Take the remaining room photos before completing.',
     'actions.completeTask': 'Complete Task',
     'actions.completing': 'Completing...',
     'actions.holdToComplete': 'Hold to Complete',
@@ -1583,8 +1586,8 @@ const translations = {
     'actions.minibar': 'Minibar',
     'actions.lostAndFound': 'Objetos Perdidos',
     'actions.maintenance': 'Mantenimiento',
-    'actions.photosRequired': 'Fotos de Habitación Requeridas',
-    'actions.photosRequiredMessage': 'Debe capturar fotos de la habitación antes de completar la limpieza diaria. Por favor toque "Fotos de Habitación" para capturar las fotos requeridas.',
+    'actions.photosRequired': 'Faltan fotos',
+    'actions.photosRequiredMessage': 'Toma las fotos que faltan antes de completar la habitación.',
     'actions.completeTask': 'Completar Tarea',
     'actions.completing': 'Completando...',
     'actions.holdToComplete': 'Mantener para Completar',
@@ -1857,8 +1860,8 @@ const translations = {
     'actions.minibar': 'Minibar',
     'actions.lostAndFound': 'Đồ Thất Lạc',
     'actions.maintenance': 'Bảo Trì',
-    'actions.photosRequired': 'Yêu Cầu Ảnh Phòng',
-    'actions.photosRequiredMessage': 'Bạn phải chụp ảnh phòng trước khi hoàn thành công việc dọn dẹp hàng ngày. Vui lòng nhấn "Ảnh Phòng" để chụp các ảnh cần thiết.',
+    'actions.photosRequired': 'Cần thêm ảnh',
+    'actions.photosRequiredMessage': 'Chụp các ảnh còn thiếu trước khi hoàn thành phòng.',
     'actions.completeTask': 'Hoàn Thành Nhiệm Vụ',
     'actions.completing': 'Đang Hoàn Thành...',
     'actions.holdToComplete': 'Giữ để Hoàn Thành',
@@ -2120,8 +2123,8 @@ const translations = {
     'actions.minibar': 'Мини Бар',
     'actions.lostAndFound': 'Алдагдсан Эд Зүйл',
     'actions.maintenance': 'Засвар Үйлчилгээ',
-    'actions.photosRequired': 'Өрөөний Зураг Шаардлагатай',
-    'actions.photosRequiredMessage': 'Өдөр тутмын цэвэрлэгээний даалгаврыг дуусгахын өмнө өрөөний зургийг заавал авах ёстой. "Өрөөний Зураг" дээр дарж шаардлагатай зургуудыг авна уу.',
+    'actions.photosRequired': 'Зураг дутуу байна',
+    'actions.photosRequiredMessage': 'Өрөөг дуусгахаас өмнө дутуу зургуудыг авна уу.',
     'actions.completeTask': 'Даалгаварыг Дуусгах',
     'actions.completing': 'Дуусгаж байна...',
     'actions.holdToComplete': 'Дуусгахын тулд дарж байна уу',
@@ -2695,8 +2698,8 @@ const translations = {
     'actions.minibar': 'Міні-бар',
     'actions.lostAndFound': 'Загублені речі',
     'actions.maintenance': 'Технічне обслуговування',
-    'actions.photosRequired': 'Потрібні фото кімнати',
-    'actions.photosRequiredMessage': 'Ви повинні зробити фото кімнати, перш ніж завершити це щоденне завдання з прибирання. Будь ласка, натисніть «Фото кімнати», щоб зробити необхідні фото.',
+    'actions.photosRequired': 'Потрібні фото',
+    'actions.photosRequiredMessage': 'Зробіть відсутні фото перед завершенням кімнати.',
     'actions.completeTask': 'Завершити завдання',
     'actions.completing': 'Завершення...',
     'actions.holdToComplete': 'Утримуйте, щоб завершити',
@@ -3552,8 +3555,8 @@ const translations = {
     'actions.minibar': 'Мини-бар',
     'actions.lostAndFound': 'Находки',
     'actions.maintenance': 'Техническое обслуживание',
-    'actions.photosRequired': 'Требуются фотографии номера',
-    'actions.photosRequiredMessage': 'Вы должны сделать фотографии номера, прежде чем завершить это ежедневное задание по уборке. Пожалуйста, нажмите «Фотографии номера», чтобы сделать необходимые фотографии.',
+    'actions.photosRequired': 'Нужны фото',
+    'actions.photosRequiredMessage': 'Сделайте недостающие фотографии перед завершением номера.',
     'actions.completeTask': 'Завершить задание',
     'actions.completing': 'Завершение...',
     'actions.holdToComplete': 'Удерживайте для завершения',
@@ -4167,15 +4170,18 @@ const getStaticTranslationBundle = (lang: Language): Record<string, string> => (
   ...flattenBundle(additionalTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(expandedTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(notificationTranslations[lang as keyof typeof notificationTranslations] as Record<string, unknown> | undefined),
+  ...flattenBundle(notificationSetupTranslations[lang]),
   ...flattenBundle(dashboardTranslations[lang as keyof typeof dashboardTranslations] as Record<string, unknown> | undefined),
   ...flattenBundle(pmsTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(highlightedTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(screenTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(hrTranslations[lang]),
   ...flattenBundle(roomOverviewTranslations[lang as keyof typeof roomOverviewTranslations] as Record<string, unknown> | undefined),
   ...flattenBundle((purchaseInvoiceTranslations as any)[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(locationTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(pendingTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(publicAreaTaskTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle((gozsduRoomTranslations as any)[lang] as Record<string, unknown> | undefined),
 });
 
 const getCachedTranslationBundle = (lang: Language): Record<string, string> => {

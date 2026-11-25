@@ -11,7 +11,10 @@ export type RoleKey =
   | 'maintenance'
   | 'maintenance_manager'
   | 'reception'
-  | 'reception_manager';
+  | 'reception_manager'
+  | 'front_office'
+  | 'hr'
+  | 'control_finance';
 
 export type GuardKey =
   | 'always'
@@ -22,6 +25,7 @@ export type GuardKey =
   | 'has_completed_assignment_today'
   | 'has_no_pending_housekeeping_work'
   | 'has_finished_housekeeping_work_today'
+  | 'has_assigned_room_not_started'
   | 'is_manager'
   | 'hotel_selected'
   | 'is_online'
@@ -51,12 +55,45 @@ export interface TrainingStepV2 {
   selector?: string;
   route?: string;
   tab?: string;
+  /** Nested tab within the selected module (e.g. housekeeping/manage). */
+  subTab?: string;
   precondition?: GuardKey;
   waitFor?: GuardKey;
+  /** Already completed? Move on without asking for the same real-world action twice. */
+  skipWhen?: GuardKey;
+  /** For safe navigation controls, clicking the highlighted element moves the tour on. */
+  advanceOnClick?: boolean;
+  /** Advance when the next control appears, including hover and mobile dialogs. */
+  advanceOnTarget?: string;
+  /** Skip a workflow stage that an alternate layout already completed. */
+  skipIfTarget?: string;
+  /** This control is revealed by a preceding step on the same screen. */
+  withinWorkflow?: boolean;
   optional?: boolean;
   ctaLabel?: I18nText;
   /** Optional event name emitted to analytics when the step is shown. */
   analyticsEvent?: string;
+  /**
+   * Situational controls (DND at the door, "No service", a checkout room that
+   * is still occupied) only exist on screen in one specific room state. When
+   * true, the step is still shown — without a spotlight — if the control or
+   * its precondition is unavailable, so the lesson is delivered before the
+   * situation happens instead of being silently deferred.
+   */
+  explainWhenUnavailable?: boolean;
+  /** Friendly note shown in place of the generic "not available yet" text. */
+  unavailableNote?: I18nText;
+}
+
+/**
+ * Where the user currently is. The dashboard reports `tab`/`subTab` through
+ * the provider's `reportScreen`; `pathname` comes from the router. Used to
+ * pick the guides that apply to the screen in front of the user.
+ */
+export interface TrainingScreenContext {
+  pathname: string;
+  tab?: string;
+  subTab?: string;
 }
 
 export type TrainingModuleKey =
@@ -93,6 +130,9 @@ export interface TrainingCurriculum {
   moduleKey?: TrainingModuleKey;
   /** Rough duration hint shown as "~N min" on each unit card. */
   estMinutes?: number;
+  shortTopic?: boolean;
+  onboarding?: boolean;
+  replaces?: string[];
   /**
    * If true, this curriculum is treated as the "full walkthrough" entry
    * point for its role in the Training Center and is featured at the top.

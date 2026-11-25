@@ -104,7 +104,7 @@ describe('assignSectionTasksToStaff', () => {
     expect(result.map(item => item.id)).toEqual(['active']);
   });
 
-  it('replays the exact persisted public-area task set and owners for an existing assignment', () => {
+  it('preserves persisted public-area owners and fills still-unreleased mapped work', () => {
     setLiveSectionTaskSnapshot([
       { taskId: 'guest-toilet', assignedTo: 'bea' },
       { taskId: 'storage-1', assignedTo: 'anu' },
@@ -122,21 +122,40 @@ describe('assignSectionTasksToStaff', () => {
       ],
     );
 
-    expect(result.map(item => item.id)).toEqual(['guest-toilet', 'storage-1']);
-    expect(result.map(item => [item.id, item.staff_id])).toEqual([
-      ['guest-toilet', 'bea'],
-      ['storage-1', 'anu'],
-    ]);
+    expect(result.map(item => item.id)).toEqual(['guest-toilet', 'storage-1', 'new-lobby-task']);
+    expect(result.find(item => item.id === 'guest-toilet')?.staff_id).toBe('bea');
+    expect(result.find(item => item.id === 'storage-1')?.staff_id).toBe('anu');
+    expect(result.find(item => item.id === 'new-lobby-task')?.staff_id).toBeTruthy();
   });
 
-  it('keeps an existing date at zero public areas when the persisted snapshot is empty', () => {
+  it('keeps mapped public areas visible when live rooms exist but no area has been persisted yet', () => {
     setLiveSectionTaskSnapshot([]);
 
     const result = assignSectionTasksToStaff(
       [preview('anu', [room('101', 'middle')], 45)],
-      [task('new-area-added-later', 'middle')],
+      [task('mapped-lobby-area', 'middle')],
     );
 
-    expect(result).toEqual([]);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('mapped-lobby-area');
+    expect(result[0].staff_id).toBe('anu');
+  });
+
+  it('does not resurrect inactive or manual tasks from a persisted snapshot', () => {
+    setLiveSectionTaskSnapshot([
+      { taskId: 'inactive', assignedTo: 'anu' },
+      { taskId: 'manual', assignedTo: 'anu' },
+    ]);
+
+    const result = assignSectionTasksToStaff(
+      [preview('anu', [room('101', 'middle')], 45)],
+      [
+        task('active', 'middle'),
+        task('inactive', 'middle', { is_active: false }),
+        task('manual', 'middle', { auto_assign: false }),
+      ],
+    );
+
+    expect(result.map(item => item.id)).toEqual(['active']);
   });
 });

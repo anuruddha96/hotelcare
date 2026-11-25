@@ -16,15 +16,16 @@ interface LateMinibarRow {
   quantity_used: number;
   usage_date: string;
   recorded_by: string | null;
+  source: string | null;
+  is_cleared: boolean;
   added_after_completion: boolean;
   pending_supervisor_review: boolean;
   refill_status?: string | null;
   refill_blocked_reason?: string | null;
   refill_blocked_at?: string | null;
-  previo_charge_confirmed_at?: string | null;
   rooms: { room_number: string; hotel: string } | null;
   minibar_items: { name: string; price: number; category: string } | null;
-  recorded_by_profile?: { full_name: string; nickname: string | null } | null;
+  recorded_by_profile?: { full_name: string; nickname: string | null; role: string | null } | null;
 }
 
 export function LateMinibarApprovals() {
@@ -50,12 +51,13 @@ export function LateMinibarApprovals() {
         quantity_used,
         usage_date,
         recorded_by,
+        source,
+        is_cleared,
         added_after_completion,
         pending_supervisor_review,
         refill_status,
         refill_blocked_reason,
         refill_blocked_at,
-        previo_charge_confirmed_at,
         rooms:room_id ( room_number, hotel ),
         minibar_items:minibar_item_id ( name, price, category )
       `)
@@ -79,21 +81,21 @@ export function LateMinibarApprovals() {
     const hotelKeySet = new Set(hotelKeys);
     const filtered = (data as any[] | null || []).filter((r) => {
       const h = r.rooms?.hotel;
-      return !!h && hotelKeySet.has(h);
+      return !!h && hotelKeySet.has(h) && (!r.is_cleared || r.pending_supervisor_review);
     });
 
     // Look up housekeeper names in a single follow-up query
     const userIds = Array.from(
       new Set(filtered.map((r) => r.recorded_by).filter(Boolean) as string[])
     );
-    let nameMap: Record<string, { full_name: string; nickname: string | null }> = {};
+    let nameMap: Record<string, { full_name: string; nickname: string | null; role: string | null }> = {};
     if (userIds.length > 0) {
       const { data: profs } = await supabase
         .from('profiles')
-        .select('id, full_name, nickname')
+        .select('id, full_name, nickname, role')
         .in('id', userIds);
       (profs || []).forEach((p: any) => {
-        nameMap[p.id] = { full_name: p.full_name, nickname: p.nickname };
+        nameMap[p.id] = { full_name: p.full_name, nickname: p.nickname, role: p.role };
       });
     }
 
@@ -145,7 +147,7 @@ export function LateMinibarApprovals() {
   const markRefilled = async (row: LateMinibarRow) => {
     setActingId(row.id);
     const now = new Date().toISOString();
-    const { error } = await (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('room_minibar_usage')
       .update({
         is_cleared: true,
@@ -156,14 +158,17 @@ export function LateMinibarApprovals() {
         refill_resolved_by: profile?.id ?? null,
       })
       .eq('id', row.id)
-      .eq('refill_status', 'blocked_guest_inside');
+      .eq('is_cleared', false)
+      .eq('refill_status', 'blocked_guest_inside')
+      .select('id');
     setActingId(null);
-    if (error) {
+    if (error || !data?.some((updated: { id: string }) => updated.id === row.id)) {
       console.error('Failed to resolve blocked minibar refill', error);
-      toast.error(t('common.error'));
+      toast.error('Refill was not saved. The task may have changed; please refresh.');
+      await fetchPending();
       return;
     }
-    toast.success('Minibar marked as refilled. The Previo charge is already recorded — no second charge is needed.');
+    toast.success('Physical minibar refill recorded in HotelCare. Previo billing has not been verified.');
     setItems((prev) => prev.filter((i) => i.id !== row.id));
   };
 
@@ -174,7 +179,7 @@ export function LateMinibarApprovals() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 flex-wrap">
           <Wine className="h-5 w-5 text-amber-600" />
-          Minibar follow-up
+          Minibar refills & reviews
           {items.length > 0 && (
             <Badge variant="secondary" className="ml-2">{items.length}</Badge>
           )}
@@ -185,7 +190,7 @@ export function LateMinibarApprovals() {
           )}
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Review late minibar entries and rooms that were charged in Previo but could not be physically refilled because access was blocked.
+          Review minibar consumption recorded in HotelCare and physical refills still pending. Previo billing is not verified here.
         </p>
       </CardHeader>
       <CardContent>
@@ -202,6 +207,12 @@ export function LateMinibarApprovals() {
             {items.map((row) => {
               const total = (row.minibar_items?.price || 0) * row.quantity_used;
               const isRefillBlocked = row.refill_status === 'blocked_guest_inside';
+              const sourceRole = row.recorded_by_profile?.role;
+              const sourceLabel = row.source === 'guest' ? 'Guest (QR)'
+                : row.source === 'reception' || sourceRole === 'reception' ? 'Reception'
+                : sourceRole === 'housekeeping' || sourceRole === 'housekeeper' || row.source === 'housekeeper' ? 'Housekeeper'
+                : ['manager', 'housekeeping_manager', 'admin'].includes(sourceRole || '') ? 'Manager'
+                : 'Staff';
               return (
                 <div
                   key={row.id}
@@ -227,7 +238,7 @@ export function LateMinibarApprovals() {
                       <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                         <span className="flex items-center gap-1">
                           <User className="h-3 w-3" />
-                          {row.recorded_by_profile?.full_name || '—'}
+                          Recorded in HotelCare by {row.recorded_by_profile?.full_name || sourceLabel} ({sourceLabel})
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
@@ -239,11 +250,9 @@ export function LateMinibarApprovals() {
                               <DoorClosed className="h-3 w-3" />
                               Refill pending — guest was inside
                             </Badge>
-                            {row.previo_charge_confirmed_at && (
-                              <Badge variant="outline" className="text-xs border-emerald-300 bg-emerald-50 text-emerald-800">
-                                ✓ Charge already confirmed in Previo
-                              </Badge>
-                            )}
+                            <Badge variant="outline" className="text-xs border-slate-300 bg-slate-50 text-slate-700">
+                              Previo charge not verified in HotelCare
+                            </Badge>
                             {row.refill_blocked_at && (
                               <span>Blocked {format(new Date(row.refill_blocked_at), 'MMM dd, HH:mm')}</span>
                             )}
@@ -256,7 +265,7 @@ export function LateMinibarApprovals() {
                       </div>
                       {isRefillBlocked && (
                         <p className="text-xs text-orange-900 mt-1">
-                          Refill this minibar when room access is possible. Do not add the same charge to Previo again.
+                          Refill when room access is possible. Check the guest folio in Previo before posting any charge to avoid duplicates.
                         </p>
                       )}
                     </div>

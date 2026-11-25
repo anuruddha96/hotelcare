@@ -1,0 +1,15 @@
+/* Gozsdu Court uses manager-mapped buildings, not floor numbers. In the shared
+   legacy card the location row starts with MapPin, then floor, separator,
+   hotel and the mapped building label. Hide only the first two spans; keep
+   the hotel and building visible and never change stored floor values. */
+.gozsdu-housekeeper-card .lucide-map-pin ~ span:nth-of-type(-n + 2) {
+  display: none;
+}
+
+/* Both DND controls live inside the shared legacy room card. Only suppress
+   the doorway action and the in-progress checklist tile for checkout rooms;
+   stayover DND controls and any historical DND records remain untouched. */
+.checkout-housekeeper-card [data-training="dnd-doorway-button"],
+.checkout-housekeeper-card [data-training="dnd-button"] {
+  display: none;
+}

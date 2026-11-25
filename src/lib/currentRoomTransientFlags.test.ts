@@ -1,0 +1,137 @@
+import { describe, expect, it } from 'vitest';
+import { isDndForBusinessDate, isNoShowForBusinessDate } from './currentRoomTransientFlags';
+
+describe('daily transient housekeeping flags', () => {
+  it('does not carry yesterday DND into the next business day', () => {
+    expect(isDndForBusinessDate({
+      is_dnd: true,
+      dnd_marked_at: '2026-09-23T18:45:00+02:00',
+    }, '2026-09-24')).toBe(false);
+  });
+
+  it('never shows DND on a checkout room, even when the room mirror was marked today', () => {
+    expect(isDndForBusinessDate({
+      is_dnd: true,
+      dnd_marked_at: '2026-09-24T07:10:00+02:00',
+    }, '2026-09-24', 'assigned', true)).toBe(false);
+  });
+
+  it('never keeps a DND retry active after the room becomes checkout cleaning', () => {
+    expect(isDndForBusinessDate({
+      is_dnd: true,
+      dnd_marked_at: '2026-09-24T07:10:00+02:00',
+    }, '2026-09-24', 'dnd_pending_retry', true)).toBe(false);
+  });
+
+  it('keeps DND visible on the business date it was marked', () => {
+    expect(isDndForBusinessDate({
+      is_dnd: true,
+      dnd_marked_at: '2026-09-24T07:10:00+02:00',
+    }, '2026-09-24')).toBe(true);
+  });
+
+  it('keeps an active dated DND retry visible even before the room mirror updates', () => {
+    expect(isDndForBusinessDate({
+      is_dnd: false,
+      dnd_marked_at: null,
+    }, '2026-09-24', 'dnd_pending_retry')).toBe(true);
+  });
+
+  it('does not treat an undated legacy DND flag as current-day DND', () => {
+    expect(isDndForBusinessDate({ is_dnd: true, dnd_marked_at: null }, '2026-09-24')).toBe(false);
+  });
+
+  it('does not carry a previous PMS no-show into the next day', () => {
+    expect(isNoShowForBusinessDate({
+      pms_metadata: {
+        isNoShow: true,
+        pmsSyncDate: '2026-09-23',
+      },
+    }, '2026-09-24')).toBe(false);
+  });
+
+  it('shows a no-show only from the selected day PMS snapshot', () => {
+    expect(isNoShowForBusinessDate({
+      pms_metadata: {
+        isNoShow: true,
+        reservationStatusId: 8,
+        noShowSource: 'previo_status_8',
+        pmsSyncDate: '2026-09-24',
+      },
+    }, '2026-09-24')).toBe(true);
+  });
+
+  it('date-scopes manual no-show actions independently from stale PMS metadata', () => {
+    const room = {
+      pms_metadata: {
+        isNoShow: true,
+        manual_no_show: true,
+        manual_no_show_at: '2026-09-23T20:15:00+02:00',
+        pmsSyncDate: '2026-09-24',
+      },
+    };
+    expect(isNoShowForBusinessDate(room, '2026-09-24')).toBe(false);
+    expect(isNoShowForBusinessDate(room, '2026-09-23')).toBe(true);
+  });
+});
+
+describe('Mika Downtown inferred no-show display guard', () => {
+  const suspected = {
+    pms_metadata: {
+      isNoShow: true,
+      noShowSource: 'inferred_never_checked_in',
+      reservationStatusId: 2,
+      pmsSyncDate: '2026-10-22',
+    },
+  };
+  it('keeps a wrongly inferred SUITE 1/3 in Daily at Mika only', () => {
+    expect(isNoShowForBusinessDate(suspected, '2026-10-22', 'Hotel Mika Downtown')).toBe(false);
+    expect(isNoShowForBusinessDate(suspected, '2026-10-22', 'mika-downtown')).toBe(false);
+    expect(isNoShowForBusinessDate(suspected, '2026-10-22', 'Hotel Memories Budapest')).toBe(false);
+  });
+  it('preserves explicit Previo no-shows and manager decisions', () => {
+    expect(isNoShowForBusinessDate({
+      pms_metadata: { ...suspected.pms_metadata, noShowSource: 'previo_status_8', reservationStatusId: 8 },
+    }, '2026-10-22', 'Hotel Mika Downtown')).toBe(true);
+    expect(isNoShowForBusinessDate({
+      pms_metadata: { ...suspected.pms_metadata, manual_no_show: true,
+        manual_no_show_at: '2026-10-22T09:15:00+02:00' },
+    }, '2026-10-22', 'Hotel Mika Downtown')).toBe(true);
+  });
+});
+
+describe('Memories no-show evidence rules (rooms 110/125, 24 Oct 2026)', () => {
+  it('a checked-in room (status 3) with a stale inferred flag is not a no-show', () => {
+    expect(isNoShowForBusinessDate({ pms_metadata: {
+      isNoShow: true, noShowSource: 'inferred_never_checked_in', reservationStatusId: 3,
+      occupiedToday: true, pmsSyncDate: '2026-10-24' } }, '2026-10-24', 'Hotel Memories Budapest')).toBe(false);
+  });
+  it('room 110 remains Daily: late Reserved status is not no-show proof', () => {
+    expect(isNoShowForBusinessDate({ pms_metadata: {
+      isNoShow: true, noShowSource: 'inferred_never_checked_in',
+      reservationStatusId: 2, arrivalDate: '2026-10-23',
+      departureDate: '2026-10-30', pmsSyncDate: '2026-10-24',
+    } }, '2026-10-24', 'Hotel Memories Budapest')).toBe(false);
+  });
+  it('manager may confirm an unarrived Reserved room, but never a checked-in guest', () => {
+    const meta = { isNoShow: true, noShowSource: 'manager_manual',
+      manual_no_show: true, manual_no_show_at: '2026-10-24T08:20:00+02:00',
+      occupiedToday: true, pmsSyncDate: '2026-10-24', reservationStatusId: 2 };
+    expect(isNoShowForBusinessDate({ pms_metadata: meta }, '2026-10-24')).toBe(true);
+    expect(isNoShowForBusinessDate({ pms_metadata: { ...meta, reservationStatusId: 3 } },
+      '2026-10-24')).toBe(false);
+  });
+  it('today new arrival cannot inherit an earlier reservation no-show', () => {
+    expect(isNoShowForBusinessDate({ pms_metadata: {
+      isNoShow: false, noShowSource: null, arrivalToday: true,
+      arrivalDate: '2026-10-24', reservationStatusId: 2,
+      pmsSyncDate: '2026-10-24',
+    } }, '2026-10-24')).toBe(false);
+  });
+
+  it('explicit Previo status 8 still shows', () => {
+    expect(isNoShowForBusinessDate({ pms_metadata: {
+      isNoShow: true, noShowSource: 'previo_status_8', reservationStatusId: 8, pmsSyncDate: '2026-10-24' } },
+      '2026-10-24', 'Hotel Memories Budapest')).toBe(true);
+  });
+});

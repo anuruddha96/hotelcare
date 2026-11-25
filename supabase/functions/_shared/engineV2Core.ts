@@ -305,6 +305,10 @@ export interface DecisionInput {
   pickup24h: number;
   pickup48h: number;
   pickup7d: number;
+  /** All active bookings, including ones whose increase was already consumed. */
+  observedPickup6h?: number;
+  /** Unconsumed active bookings inside this date's configured quiet window. */
+  unspentPickupInQuietWindow?: number;
   cancellations24h: number;
   /** Hours since the ledger last discovered a reservation for this date. */
   hoursSinceLastPickup: number | null;
@@ -363,17 +367,25 @@ export interface DecisionInput {
   recentPeakPrice?: number | null;
   /** Automated markdowns already taken for this date in the local day. */
   markdownsToday?: number;
+  /** Internal commercial planner intent; all safety and publication guards still apply. */
+  commercialIntent?: { raw: number; reason: string; detail: string };
 }
 
 export interface DecisionSettings {
   now: Date;
+  /** Use saved window caps/waits even when fill mode chooses the intent. */
+  respectConfiguredWindows?: boolean;
   paceBands: PaceBand[];
   windowRules: WindowRule[];
   marketValidation: MarketValidation;
+  /** Opt-in €1 market-value tests on soft dates; never synthetic hourly churn. */
+  microPriceTests?: boolean;
   /** Smallest movement worth publishing, in whole euros. */
   minMovementEur: number;
   /** A date may not reverse direction inside this many hours. */
   directionChangeHours: number;
+  /** Ottofiori's two-way policy may reverse after the normal quiet/cooldown checks. */
+  allowSameDayReversal?: boolean;
   /** Minutes to wait after a cancellation before a markdown is allowed. */
   cancellationWaitMinutes: number;
   /** Occupancy at or above which the date counts as effectively sold out. */
@@ -411,6 +423,7 @@ export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBand
   windowRules: OTTOFIORI_WINDOW_RULES,
   marketValidation: DEFAULT_MARKET_VALIDATION,
   minMovementEur: 3,
+  microPriceTests: false,
   directionChangeHours: 6,
   cancellationWaitMinutes: 60,
   soldOutOccupancyPct: 98,
@@ -695,7 +708,7 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   const fill = settings.fill?.enabled ? settings.fill : null;
   const inFillWindow = fill != null && input.daysOut <= Math.max(0, fill.windowDays);
   const baseWin = windowFor(input.daysOut, settings.windowRules);
-  const win = inFillWindow ? fillWindowRule(baseWin) : baseWin;
+  const win = inFillWindow && !settings.respectConfiguredWindows ? fillWindowRule(baseWin) : baseWin;
   const paceTarget = paceTargetFor(input.daysOut, settings.paceBands);
   const gap = paceTarget != null && input.occupancyPct != null
     ? Math.round((input.occupancyPct - paceTarget) * 10) / 10
@@ -734,9 +747,36 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   }
 
   // --- Pickup is always evaluated before any markdown branch -----------------
-  let intent = inFillWindow
+  let intent: RawIntent = input.commercialIntent ?? (inFillWindow
     ? fillIntent(input, win, gap, settings)
-    : windowIntent(input, win, gap, settings);
+    : windowIntent(input, win, gap, settings));
+
+
+  // Optional, evidence-backed €1 price test. Never manufacture hourly rate
+  // churn: a test requires soft pace, a demonstrably high rate versus a fresh
+  // comparable market sample, and no recent reservation. Every downstream
+  // cancellation, manual-edit, cooldown, depth, budget, and price floor still
+  // applies to this ordinary one-euro markdown.
+  if (intent.raw === 0 && settings.microPriceTests === true
+    && input.daysOut >= 8 && input.daysOut <= 93
+    && gap != null && gap <= -4
+    && input.occupancyPct != null && input.occupancyPct < 80
+    && input.roomsRemaining != null && input.roomsRemaining >= 6
+    && Math.max(0, input.pickup24h - input.cancellations24h) === 0
+    && input.cancellations24h === 0
+    && (input.hoursSinceLastPickup == null
+      || input.hoursSinceLastPickup >= Math.max(72, settings.bookedDateBrakeHours ?? 72))
+    && input.market.median != null && input.market.median > 0
+    && input.market.sampleSize >= settings.marketValidation.min_competitors
+    && input.market.ageHours != null
+    && input.market.ageHours <= settings.marketValidation.max_age_hours
+    && current >= Math.ceil(input.market.median * 1.12)) {
+    intent = {
+      raw: -1,
+      reason: "market_value_test",
+      detail: `Measured €1 price test: ${Math.abs(gap)} points behind occupancy pace, ${input.roomsRemaining} rooms left, reference €${current} versus fresh comparable median €${Math.round(input.market.median)}; no recent pickup. Stop at normal safety limits, recover only on real demand.`,
+    };
+  }
 
   // --- ADR-first overrides ---------------------------------------------------
   // 1. Hard ADR stop. A cell sitting under the rate the hotel must load to bank
@@ -836,7 +876,7 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
         `This date has already been lowered ${input.markdownsToday} time(s) today; the limit is ${maxMarkdowns}.`,
       );
     }
-    if (Math.abs(input.movedUpTodayEur) > 0) {
+    if (Math.abs(input.movedUpTodayEur) > 0 && settings.allowSameDayReversal !== true) {
       return blocked("one_way_day", "This date went up earlier today; it is not cut back on the same day.");
     }
     if (win.min_hours_between_decreases > 0) {

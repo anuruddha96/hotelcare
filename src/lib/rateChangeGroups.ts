@@ -144,6 +144,9 @@ export const PREVIO_ACTOR = "Changed in Previo";
 /** Only used when no person, automation or Previo origin can be identified. */
 export const UNKNOWN_ACTOR = "Unknown user";
 
+/** Canonical display name for autonomous ChatGPT/HotelCare revenue decisions. */
+export const HOTELCARE_AI_ACTOR = "HotelCare AI";
+
 /**
  * Who made this change, in the user's words. A row written by the Previo
  * read-back has no HotelCare user behind it — calling that "Someone" read as a
@@ -154,8 +157,13 @@ function actorOf(r: RateAuditRow, automation: boolean, names: Map<string, string
   const named = r.performed_by ? names.get(r.performed_by) : null;
   if (named) return named;
   if (r.source === "previo_external" || r.source === "previo_different") return PREVIO_ACTOR;
-  const payloadName = (r.payload as any)?.actor_name ?? (r.payload as any)?.performed_by_name;
-  if (typeof payloadName === "string" && payloadName.trim()) return payloadName.trim();
+  const payloadName = r.payload?.actor_name ?? r.payload?.performed_by_name;
+  if (typeof payloadName === "string" && payloadName.trim()) {
+    const clean = payloadName.trim();
+    const normalized = clean.toLowerCase();
+    if (normalized === "ai" || normalized === "hotelcare ai") return HOTELCARE_AI_ACTOR;
+    return clean;
+  }
   if (!r.performed_by) return PREVIO_ACTOR;
   return UNKNOWN_ACTOR;
 }
@@ -205,6 +213,9 @@ export function groupCellChanges(
       statusLabel: auditLabel(r, phase),
       who: actorOf(r, auto, names),
       automation: auto,
+      // AI/manual-manager decisions carry their RM explanation through every
+      // publish stage. RateCellHistory already renders `detail` under the actor.
+      detail: r.payload?.reason_detail ?? null,
       extra: r.payload?.requested_price != null && r.payload?.actual_previo_price != null
         ? {
             requested: r.payload.requested_price,

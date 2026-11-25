@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   addDays,
   budapestToday,
-  buildDayMetrics,
+  DEFAULT_PICKUP_WINDOW_DAYS,
   type BookingNight,
   type CancelledNight,
   type DailySnapshot,
@@ -11,6 +11,8 @@ import {
   type PickupMovement,
   type RoomTypeRate,
 } from "@/lib/revenueAnalytics";
+import { useRevenueMetrics } from "@/lib/revenueMetricsMemo";
+import { isTechnicalRoomKind } from "@/lib/revenue/roomTypeVisibility";
 import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresholds";
 import { retryTransient } from "@/lib/transientRetry";
 import { runWhenRevenueEditorsClosed } from "@/lib/revenueEditGuard";
@@ -53,6 +55,13 @@ export interface SoldOutPrice {
   captured_at: string;
 }
 
+export interface RoomTypeAvailability {
+  stay_date: string;
+  obk_id: string;
+  availability: number;
+  captured_at: string;
+}
+
 interface PublishedRevenuePayload {
   roomTypes: RevenueRoomType[];
   nights: BookingNight[];
@@ -72,11 +81,12 @@ type CachedRevenuePayload = {
 
 /** Keep the last verified dataset available during transient reload failures. */
 const revenuePayloadCache = new Map<string, CachedRevenuePayload>();
+const EMPTY_SETTINGS: Record<string, unknown> = {};
 
-/** First paint only needs the dates a manager can immediately act on. */
-const FIRST_WINDOW_DAYS = 45;
-/** Compact local hot cache used for instant revisit / reload paint. */
-const HOT_WINDOW_DAYS = 60;
+/** The calendar opens on precisely thirty dates; future months load on selection. */
+const FIRST_WINDOW_DAYS = 30;
+/** Cache the loaded window, not a future year of unseen prices. */
+const HOT_WINDOW_DAYS = 30;
 
 function readAnyCache(cacheKey: string): CachedRevenuePayload | undefined {
   const memory = revenuePayloadCache.get(cacheKey);
@@ -142,6 +152,9 @@ function waitForBrowserIdle(timeout = 900): Promise<void> {
 }
 
 export interface RevenueHotelData {
+  excludedRoomTypeIds?: any;
+  inventoryMismatch?: any;
+  configuredRooms?: any;
   loading: boolean;
   error: string | null;
   today: string;
@@ -154,22 +167,30 @@ export interface RevenueHotelData {
   cancellations: CancelledNight[];
   /** Frozen closing prices for room type / date combinations that sold out. */
   soldOutPrices: SoldOutPrice[];
+  /** Previo's native rooms-for-sale value per room type/date. */
+  availability: RoomTypeAvailability[];
   metrics: DayMetrics[];
   lastSyncAt: string | null;
   /** Who triggered the last revenue sync (null = automatic / unknown). */
   lastSyncBy: string | null;
   thresholds: RevenueThresholds;
+  /** Native currency of the published dataset, with no guessed default. */
+  publishedCurrency?: string | null;
   /** True while later dates of the requested horizon are still being fetched. */
   extending: boolean;
   reload: () => Promise<void>;
+  /** Refresh only Previo room-type rooms-for-sale without reloading rates/reservations. */
+  refreshAvailability: () => Promise<void>;
+  /** Fetch the physical room-type catalog without re-pulling bookings or rates. */
+  refreshRoomTypes: () => Promise<void>;
 }
 
 /** Loads every Revenue Management input for ONE hotel. */
 export function useRevenueHotelData(
   hotelId: string | null,
   organizationSlug: string | null,
-  horizonDays = 365,
-  pickupWindowDays = 1,
+  horizonDays = 30,
+  pickupWindowDays = DEFAULT_PICKUP_WINDOW_DAYS,
 ): RevenueHotelData {
   const cacheKey = hotelId && organizationSlug ? `${organizationSlug}:${hotelId}` : null;
   const initialCache = cacheKey ? readAnyCache(cacheKey) : undefined;
@@ -186,17 +207,74 @@ export function useRevenueHotelData(
   );
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(initialCache?.lastSyncAt ?? null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(initialCache?.lastSyncBy ?? null);
+  const [availability, setAvailability] = useState<RoomTypeAvailability[]>([]);
+  const [catalogRoomTypes, setCatalogRoomTypes] = useState<RevenueRoomType[] | null>(null);
+  const currentHotelRef = useRef(hotelId);
+  currentHotelRef.current = hotelId;
 
   const payloadRef = useRef<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const requestVersionRef = useRef(0);
-  const inFlightRef = useRef<Promise<void> | null>(null);
+  /** Only a successfully applied dataset advances the published refresh version. */
+  const successfulPublishedLoadsRef = useRef(0);
+  /** Deduplicate only the SAME request; a larger horizon must supersede it. */
+  const inFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
+  const effectiveHorizonDays = Math.max(1, Math.min(365, horizonDays));
   const today = budapestToday();
-  const horizonEnd = addDays(today, horizonDays);
+  const horizonEnd = addDays(today, effectiveHorizonDays - 1);
+
+  const refreshAvailability = useCallback(async () => {
+    if (!hotelId) { setAvailability([]); return; }
+
+    // Availability is independent from the published revenue payload. Read it
+    // directly from the mirror so a Previo/manual inventory change can become
+    // visible without waiting for the heavier rates/reservations payload.
+    const metadata = payloadRef.current?.roomTypes?.length
+      ? payloadRef.current.roomTypes
+      : roomMetadata;
+    const obkIds = Array.from(new Set(
+      (metadata ?? [])
+        .map((room) => String(room.pms_room_id ?? ""))
+        .filter(Boolean),
+    ));
+    if (obkIds.length === 0) { setAvailability([]); return; }
+
+    const rows: RoomTypeAvailability[] = [];
+    const pageSize = 1000;
+    for (let fromRow = 0; ; fromRow += pageSize) {
+      const { data, error } = await (supabase as any)
+        .from("revenue_room_type_availability")
+        .select("stay_date,obk_id,availability,captured_at")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", today)
+        .lte("stay_date", horizonEnd)
+        .in("obk_id", obkIds)
+        .order("stay_date", { ascending: true })
+        .range(fromRow, fromRow + pageSize - 1);
+      if (error) {
+        // Keep the last verified values on screen on a transient read failure.
+        return;
+      }
+      const page = (data ?? []) as RoomTypeAvailability[];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+    setAvailability(rows);
+  }, [hotelId, today, horizonEnd, roomMetadata]);
+
+  const refreshRoomTypes = useCallback(async () => {
+    if (!hotelId) { setCatalogRoomTypes(null); return; }
+    const { data, error } = await (supabase as any).from("room_types")
+      .select("*").eq("hotel_id", hotelId).order("sort_order").order("created_at");
+    if (error) throw new Error(`Could not read room-type catalog: ${error.message}`);
+    if (currentHotelRef.current !== hotelId) return;
+    setCatalogRoomTypes((data ?? []) as RevenueRoomType[]);
+  }, [hotelId]);
 
   const runLoad = useCallback(async () => {
     if (!hotelId || !organizationSlug || !cacheKey) { setLoading(false); return; }
-    if (inFlightRef.current) return inFlightRef.current;
+    const requestKey = `${cacheKey}|${today}|${effectiveHorizonDays}`;
+    if (inFlightRef.current?.key === requestKey) return inFlightRef.current.promise;
     const requestVersion = ++requestVersionRef.current;
 
     const fetchStage = async (windowDays: number) => {
@@ -213,7 +291,7 @@ export function useRevenueHotelData(
       return row;
     };
 
-    const apply = (row: any, cacheFirstWindow: boolean) => {
+    const apply = (row: any, cacheFirstWindow: boolean): PublishedRevenuePayload => {
       const next = row.payload as PublishedRevenuePayload;
       const normalisedRoomTypes = roomTypesWithGuestLevels(next.roomTypes ?? [], next.rates ?? []);
       const completedPayload: PublishedRevenuePayload = {
@@ -232,6 +310,7 @@ export function useRevenueHotelData(
 
       payloadRef.current = completedPayload;
       setPayload(completedPayload);
+      successfulPublishedLoadsRef.current += 1;
       if (normalisedRoomTypes.length > 0) {
         setRoomMetadata(normalisedRoomTypes);
         writeCachedRevenueRoomMetadata(cacheKey, normalisedRoomTypes);
@@ -245,9 +324,8 @@ export function useRevenueHotelData(
         lastSyncBy: nextSyncBy,
       });
 
-      // Always keep a compact verified near-term calendar available across
-      // route changes/reloads. A huge six-month payload may exceed storage,
-      // but this hot slice remains small and useful.
+      // Persist JSON in the cache's idle queue after the visible rate grid
+      // paints. Old snapshots are replaced when a newer verified window lands.
       writeCachedRevenueHotPayload<PublishedRevenuePayload>(cacheKey, {
         payload: compactHotPayload(completedPayload, today),
         lastSyncAt: nextSyncAt,
@@ -261,35 +339,35 @@ export function useRevenueHotelData(
           lastSyncBy: nextSyncBy,
         });
       }
+      return completedPayload;
     };
 
     const request = (async () => {
       const hadData = !!payloadRef.current;
       if (!hadData) setLoading(true);
       setError(null);
-      const wantsWindow = !hadData && horizonDays > FIRST_WINDOW_DAYS;
+      const wantsWindow = !hadData && effectiveHorizonDays > FIRST_WINDOW_DAYS;
 
       try {
         if (wantsWindow) {
           const first = await fetchStage(FIRST_WINDOW_DAYS);
           if (requestVersion !== requestVersionRef.current) return;
-          apply(first, true);
+          const firstPayload = apply(first, true);
+          await refreshAvailability();
           setLoading(false);
           setExtending(true);
         }
 
-        if (!wantsWindow || horizonDays > FIRST_WINDOW_DAYS) {
-          // Never let a six-/twelve-month JSON decode interrupt the first
-          // interaction. Cached / first-window prices remain visible while the
-          // browser gets one idle turn before extending the horizon.
+        if (!wantsWindow || effectiveHorizonDays > FIRST_WINDOW_DAYS) {
           if (hadData || wantsWindow) {
             setExtending(true);
             await waitForBrowserIdle();
             if (requestVersion !== requestVersionRef.current) return;
           }
-          const requested = await fetchStage(horizonDays);
+          const requested = await fetchStage(effectiveHorizonDays);
           if (requestVersion !== requestVersionRef.current) return;
-          apply(requested, !wantsWindow);
+          const requestedPayload = apply(requested, !wantsWindow);
+          await refreshAvailability();
         }
       } catch (e) {
         if (requestVersion !== requestVersionRef.current) return;
@@ -302,14 +380,36 @@ export function useRevenueHotelData(
       }
     })();
 
-    inFlightRef.current = request;
+    inFlightRef.current = { key: requestKey, promise: request };
     try { await request; } finally {
-      if (inFlightRef.current === request) inFlightRef.current = null;
+      if (inFlightRef.current?.promise === request) inFlightRef.current = null;
     }
-  }, [hotelId, organizationSlug, cacheKey, horizonDays, today]);
+  }, [hotelId, organizationSlug, cacheKey, effectiveHorizonDays, today, refreshAvailability]);
 
-  /** Re-read the currently requested horizon: used after a sync or price push. */
-  const reload = useCallback(async () => { await runLoad(); }, [runLoad]);
+  /** A sync or successful price push requires a fresh read, even during a prior load. */
+  const reload = useCallback(async () => {
+    const current = inFlightRef.current;
+    if (current) await current.promise;
+    const before = successfulPublishedLoadsRef.current;
+    await runLoad();
+    // runLoad deliberately retains cached prices after an RPC failure. That is
+    // safe for background rendering but NOT sufficient proof of a manual sync:
+    // without this check "Sync now" can appear successful while showing old
+    // values from an earlier browser session.
+    if (successfulPublishedLoadsRef.current <= before) {
+      throw new Error("The latest Previo rates were pulled, but HotelCare could not refresh the displayed prices. Previous rates are still shown; please retry.");
+    }
+    // Catalog metadata is supplementary; a temporary read failure must not
+    // make an otherwise successful rate/pickup refresh appear to fail.
+    await Promise.all([refreshAvailability(), refreshRoomTypes().catch(() => {})]);
+  }, [runLoad, refreshAvailability, refreshRoomTypes]);
+
+  // Catalog metadata is small and can be refreshed independently of the
+  // published rates/reservations payload (which can be minutes older).
+  useEffect(() => {
+    setCatalogRoomTypes(null);
+    void refreshRoomTypes().catch(() => { /* retain last published room data */ });
+  }, [refreshRoomTypes]);
 
   useEffect(() => {
     requestVersionRef.current += 1;
@@ -321,6 +421,7 @@ export function useRevenueHotelData(
     setRoomMetadata(cached?.payload.roomTypes?.length ? cached.payload.roomTypes : cachedMeta);
     setLastSyncAt(cached?.lastSyncAt ?? null);
     setLastSyncBy(cached?.lastSyncBy ?? null);
+    setAvailability([]);
     setLoading(!cached?.payload);
     setError(null);
   }, [cacheKey]);
@@ -329,6 +430,99 @@ export function useRevenueHotelData(
     void runLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runLoad]);
+
+  // Rooms-for-sale is operational inventory. Poll the lightweight mirror
+  // independently from rates/reservations so manual Previo changes surface
+  // quickly without opening extra realtime channels or triggering a PMS sync.
+  useEffect(() => {
+    if (!hotelId) return;
+    const refresh = () => runWhenRevenueEditorsClosed(() => { void refreshAvailability(); });
+    const timer = window.setInterval(refresh, 15_000);
+    return () => window.clearInterval(timer);
+  }, [hotelId, refreshAvailability]);
+
+  // A manual price push refreshes revenue_published_payloads.updated_at,
+  // NOT revenue_sync_state.last_success_at / sync_completed_at. Watching only
+  // the full-sync timestamp leaves an already-open calendar stale after a push.
+  // Poll the one-row published version; never invoke a PMS sync or price write.
+  const publishedRefreshQueuedRef = useRef(false);
+  const lastPublishedVersionRef = useRef<{ hotelId: string; updatedAt: string | null }>({
+    hotelId: "", updatedAt: null,
+  });
+  useEffect(() => {
+    if (!hotelId || !organizationSlug) return;
+    let disposed = false;
+    let checking = false;
+
+    const checkPublishedFreshness = async () => {
+      if (checking || document.visibilityState === "hidden") return;
+      checking = true;
+      try {
+        const { data, error } = await (supabase as any)
+          .from("revenue_published_payloads")
+          .select("updated_at")
+          .eq("hotel_id", hotelId)
+          .eq("organization_slug", organizationSlug)
+          .maybeSingle();
+        if (error || disposed || currentHotelRef.current !== hotelId) return;
+
+        const updatedAt = data?.updated_at as string | undefined;
+        const version = updatedAt ? Date.parse(updatedAt) : NaN;
+        if (!Number.isFinite(version)) return;
+        if (lastPublishedVersionRef.current.hotelId !== hotelId) {
+          lastPublishedVersionRef.current = { hotelId, updatedAt: null };
+        }
+        const previous = lastPublishedVersionRef.current.updatedAt;
+        // The first check also detects a manual push newer than the last full
+        // sync, even if the tab was open before that push occurred.
+        const baseline = previous ?? lastSyncAt;
+        if (baseline && version <= Date.parse(baseline)) {
+          lastPublishedVersionRef.current.updatedAt = updatedAt;
+          return;
+        }
+        if (publishedRefreshQueuedRef.current) return;
+
+        // Never interrupt a price edit. A failed payload read remains eligible
+        // for the next poll rather than marking a version as already applied.
+        publishedRefreshQueuedRef.current = true;
+        runWhenRevenueEditorsClosed(() => {
+          if (disposed || currentHotelRef.current !== hotelId) {
+            publishedRefreshQueuedRef.current = false;
+            return;
+          }
+          const before = successfulPublishedLoadsRef.current;
+          void (async () => {
+            try {
+              await reload();
+              if (!disposed && currentHotelRef.current === hotelId &&
+                  successfulPublishedLoadsRef.current > before) {
+                lastPublishedVersionRef.current = { hotelId, updatedAt };
+              }
+            } catch {
+              // Do not acknowledge this published version: a later poll must
+              // retry rather than silently freezing an earlier cached price.
+            } finally {
+              publishedRefreshQueuedRef.current = false;
+            }
+          })();
+        });
+      } catch {
+        // Transient read errors must not clear the last verified rate grid.
+      } finally {
+        checking = false;
+      }
+    };
+
+    void checkPublishedFreshness();
+    const onVisible = () => { if (document.visibilityState === "visible") void checkPublishedFreshness(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = window.setInterval(() => { void checkPublishedFreshness(); }, 60_000);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(timer);
+    };
+  }, [hotelId, organizationSlug, lastSyncAt, reload]);
 
   useEffect(() => {
     if (!hotelId) return;
@@ -339,56 +533,69 @@ export function useRevenueHotelData(
     return () => window.removeEventListener(EXECUTIVE_RESUME_EVENT, onResume);
   }, [hotelId, runLoad]);
 
-  // The frozen room rail is structural metadata, not a rate payload. Expose it
-  // immediately when available; current prices then hydrate into the already
-  // stable rows rather than making room types suddenly appear later.
-  const roomTypes = payload?.roomTypes?.length ? payload.roomTypes : roomMetadata;
+  const roomTypes = useMemo(() => {
+    const source = catalogRoomTypes?.length
+      ? catalogRoomTypes
+      : (payload?.roomTypes?.length ? payload.roomTypes : roomMetadata);
+    // Operational/technical PMS kinds belong in the sync audit, not any
+    // revenue calendar, pricing selector or sellable-room calculation.
+    return roomTypesWithGuestLevels(source, payload?.rates ?? [])
+      .filter((room) => !isTechnicalRoomKind(room.name));
+  }, [catalogRoomTypes, payload, roomMetadata]);
   const nights = useMemo(() => (payload?.nights ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const snapshots = useMemo(() => (payload?.snapshots ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const rates = useMemo(() => (payload?.rates ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const cancellations = useMemo(() => (payload?.cancellations ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const movements = useMemo(() => (payload?.movements ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const soldOutPrices = useMemo(() => (payload?.soldOutPrices ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
-  const settings = payload?.settings ?? {};
+  const settings = payload?.settings ?? EMPTY_SETTINGS;
 
-  const sellableOverride = (settings.sellable_rooms as number | null) ?? null;
-  const baseCur = String(settings.base_currency ?? "EUR").toUpperCase();
-  const eurRate = Number(settings.eur_conversion_rate) || 0;
-  const scale = baseCur !== "EUR" && eurRate > 0 ? eurRate : 1;
-  const thresholds: RevenueThresholds = {
-    rateWarnBelowEur: Number(settings.rate_warn_below_eur ?? DEFAULT_THRESHOLDS.rateWarnBelowEur) * scale,
-    rateCriticalBelowEur: Number(settings.rate_critical_below_eur ?? DEFAULT_THRESHOLDS.rateCriticalBelowEur) * scale,
-    rateMaxSaneEur: Number(settings.rate_max_sane_eur ?? DEFAULT_THRESHOLDS.rateMaxSaneEur) * scale,
-    occupancyLowPct: Number(settings.occupancy_low_pct ?? DEFAULT_THRESHOLDS.occupancyLowPct),
-    occupancyHighPct: Number(settings.occupancy_high_pct ?? DEFAULT_THRESHOLDS.occupancyHighPct),
-    pickupStrongThreshold: Number(settings.pickup_strong_threshold ?? DEFAULT_THRESHOLDS.pickupStrongThreshold),
-  };
+  const thresholds: RevenueThresholds = useMemo(() => {
+    const baseCur = String(settings.base_currency ?? "EUR").toUpperCase();
+    const eurRate = Number(settings.eur_conversion_rate) || 0;
+    const scale = baseCur !== "EUR" && eurRate > 0 ? eurRate : 1;
+    return {
+      rateWarnBelowEur: Number(settings.rate_warn_below_eur ?? DEFAULT_THRESHOLDS.rateWarnBelowEur) * scale,
+      rateCriticalBelowEur: Number(settings.rate_critical_below_eur ?? DEFAULT_THRESHOLDS.rateCriticalBelowEur) * scale,
+      rateMaxSaneEur: Number(settings.rate_max_sane_eur ?? DEFAULT_THRESHOLDS.rateMaxSaneEur) * scale,
+      occupancyLowPct: Number(settings.occupancy_low_pct ?? DEFAULT_THRESHOLDS.occupancyLowPct),
+      occupancyHighPct: Number(settings.occupancy_high_pct ?? DEFAULT_THRESHOLDS.occupancyHighPct),
+      pickupStrongThreshold: Number(settings.pickup_strong_threshold ?? DEFAULT_THRESHOLDS.pickupStrongThreshold),
+    };
+  }, [settings]);
 
-  const inventoryFromTypes = roomTypes
+  const inventoryFromTypes = useMemo(() => roomTypes
     .filter((r) => r.is_sellable !== false && r.counts_toward_inventory !== false)
-    .reduce((s, r) => s + (r.num_rooms || 0), 0);
+    .reduce((s, r) => s + (r.num_rooms || 0), 0), [roomTypes]);
   const snapshotRooms = snapshots[0]?.rooms_available ?? 0;
-  const typesLookInflated = snapshotRooms > 0 && inventoryFromTypes > snapshotRooms * 1.2;
-  const roomsAvailable = sellableOverride
-    || (typesLookInflated ? snapshotRooms : inventoryFromTypes)
-    || snapshotRooms;
+  const sellableOverride = Number(settings.sellable_rooms) || 0;
+  // A stale manual override cannot supersede the Previo-backed active catalog.
+  // SLNT, for example, had 61 configured but only 57 active room-type units.
+  const roomsAvailable = inventoryFromTypes || sellableOverride || snapshotRooms;
+  const excludedRoomTypeIds = useMemo(() => new Set(roomTypes
+    .filter((r) => r.is_sellable === false || r.counts_toward_inventory === false)
+    .map((r) => r.pms_room_id)
+    .filter((id): id is string => !!id)), [roomTypes]);
+  const inventoryMismatch = inventoryFromTypes > 0 && sellableOverride > 0 && inventoryFromTypes !== sellableOverride;
 
-  const ratedDates = new Set(rates.map((r) => r.stay_date));
-  const metrics = buildDayMetrics({
-    from: today,
-    to: horizonEnd,
+  const metrics = useRevenueMetrics({
+    today,
+    horizonEnd,
     nights,
     snapshots,
     cancellations,
     movements,
+    rates,
     roomsAvailable,
-    windowDays: pickupWindowDays,
-    ratedDates,
+    excludedRoomTypeIds,
+    pickupWindowDays,
   });
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
-    nights, snapshots, rates, cancellations, soldOutPrices, metrics, lastSyncAt, lastSyncBy, thresholds, reload,
+    nights, snapshots, rates, cancellations, soldOutPrices, availability, metrics, lastSyncAt, lastSyncBy, thresholds, reload, refreshAvailability, refreshRoomTypes,
+    excludedRoomTypeIds, inventoryMismatch, configuredRooms: sellableOverride,
+    publishedCurrency: typeof settings.base_currency === "string" ? settings.base_currency : null,
     extending,
   };
 }

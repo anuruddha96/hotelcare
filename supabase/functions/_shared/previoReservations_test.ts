@@ -93,4 +93,7 @@ Deno.test("status mapping only maps proven ids", () => {
   assertEquals(mapPrevioStatus(8), "no_show");
   assertEquals(mapPrevioStatus(2), "confirmed");
   assertEquals(mapPrevioStatus(0), "confirmed");
+  assertEquals(mapPrevioStatus(1), "pending");
+  assertEquals(mapPrevioStatus(3), "checked_in");
+  assertEquals(mapPrevioStatus(9), "checked_out");
 });

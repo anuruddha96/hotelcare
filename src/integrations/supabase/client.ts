@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { brokeredPreviewStorage } from './previewAuthStorage';
+import { createSupabaseEgressGuard } from '@/lib/supabaseEgressGuard';
 
 const SUPABASE_URL = "https://pcmszqqklkolvvlabohq.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjbXN6cXFrbGtvbHZ2bGFib2hxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM4NjgxMDEsImV4cCI6MjA2OTQ0NDEwMX0.1PrIMW4wOXdmDNW6SrlBJa68H0k20n68hHy9PYOEvVo";
@@ -10,6 +11,14 @@ const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  global: {
+    // Server may reject stale browser bundles after a safe rollout. This is
+    // a public build timestamp, not a credential or user identifier.
+    // Use Supabase's existing CORS-allowed x-client-info header rather than
+    // introducing a new cross-origin header that might fail browser preflight.
+    headers: { 'x-client-info': 'supabase-js-web/2.53.0 hotelcare/' + String(typeof __HOTELCARE_BUILD_AT__ === 'number' ? __HOTELCARE_BUILD_AT__ : 0) },
+    fetch: createSupabaseEgressGuard(fetch),
+  },
   auth: {
     storage: brokeredPreviewStorage(),
     persistSession: true,

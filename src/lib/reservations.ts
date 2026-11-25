@@ -7,6 +7,7 @@ export interface ReservationGuestJoin {
   email?: string | null;
   phone?: string | null;
   vip_status?: string | null;
+  id_document_number?: string | null;
 }
 
 export interface ReservationLike {
@@ -25,6 +26,18 @@ export interface ReservationLike {
   adults?: number | null;
   children?: number | null;
   room_id?: string | null;
+  // Reported by Previo, written only by the reservation importer.
+  pms_reservation_id?: string | null;
+  pms_voucher?: string | null;
+  pms_status_id?: number | null;
+  pms_payment_status?: string | null;
+  pms_channel?: string | null;
+  pms_option_expires_at?: string | null;
+  pms_contact_name?: string | null;
+  pms_contact_email?: string | null;
+  pms_paid_amount?: number | string | null;
+  /** Set when Previo no longer returns this booking; hidden from the plan. */
+  pms_missing_since?: string | null;
 }
 
 export const ACTIVE_STATUSES = ["pending", "confirmed", "checked_in"] as const;
@@ -70,12 +83,90 @@ export function isPmsManaged(r: Pick<ReservationLike, "source">): boolean {
   return (r.source || "").toLowerCase() === "previo";
 }
 
+const SOURCE_LABELS: Record<string, string> = {
+  direct: "Direct",
+  walk_in: "Walk-in",
+  phone: "Phone",
+  email: "Email",
+  booking_com: "Booking.com",
+  expedia: "Expedia",
+  previo: "Previo",
+  previo_snapshot: "Previo",
+  other: "Other",
+  website: "Website",
+};
+
+/**
+ * Planner badge per sales channel: the letter the channel is known by and its
+ * brand colour, so a receptionist recognises the source at a glance. These are
+ * coloured initials, not the partners' logo artwork.
+ */
+const CHANNELS: ReadonlyArray<readonly [RegExp, string, string, string]> = [
+  // pattern, key, letter, badge classes
+  [/booking/, "booking", "B.", "bg-[#003580] text-white"],
+  [/expedia|hotels\.com|ebookers|orbitz/, "expedia", "E", "bg-[#FDDB32] text-[#191E3B]"],
+  [/airbnb/, "airbnb", "A", "bg-[#FF5A5F] text-white"],
+  [/agoda/, "agoda", "a", "bg-white text-[#5392F9] ring-1 ring-[#5392F9]/50"],
+  [/szallas|szállás/, "szallas", "Sz", "bg-[#E4002B] text-white"],
+  [/hotelbeds|bedbank/, "hotelbeds", "H", "bg-[#F58220] text-white"],
+  [/trip\.com|ctrip/, "trip", "T", "bg-[#287DFA] text-white"],
+  [/google/, "google", "G", "bg-white text-[#4285F4] ring-1 ring-[#4285F4]/50"],
+  [/tripadvisor/, "tripadvisor", "Ta", "bg-[#34E0A1] text-black"],
+  [/hostelworld/, "hostelworld", "Hw", "bg-[#F25621] text-white"],
+  [/hrs\b/, "hrs", "H", "bg-[#C8102E] text-white"],
+  // HotelCare's own website booking engine (source = "website").
+  [/^website$/, "website", "W", "bg-emerald-600 text-white"],
+  [/reservation ?\+|web|website|booking engine|online/, "web", "R+", "bg-emerald-100 text-emerald-900 ring-1 ring-emerald-500/50"],
+  [/channex/, "channex", "C", "bg-violet-600 text-white"],
+  [/previo/, "previo", "P", "bg-slate-200 text-slate-800"],
+  [/walk/, "walk_in", "W", "bg-slate-700 text-white"],
+  [/direct/, "direct", "D", "bg-slate-700 text-white"],
+];
+const NEUTRAL_BADGE = "bg-black/15 text-current";
+
+/**
+ * Sales channel of a booking: the partner Previo reports (e.g. "Booking.com")
+ * when there is one, otherwise the HotelCare source. `letter` is the planner badge.
+ */
+export function reservationChannel(
+  r: Pick<ReservationLike, "source" | "pms_channel"> & { ota_name?: string | null },
+): { label: string; letter: string; key: string; badgeClass: string } {
+  // Older imports stored Previo's technical names ("Booking.com XML", "AgodaXML").
+  const channel = (r.pms_channel ?? r.ota_name ?? "").trim().replace(/\s*XML$/i, "").replace(/V\d+$/i, "").trim();
+  const source = (r.source ?? "").trim();
+  const label = channel || SOURCE_LABELS[source.toLowerCase()] || source.replaceAll("_", " ") || "—";
+  const name = (channel || source).toLowerCase().replaceAll("_", " ");
+  const known = CHANNELS.find(([pattern]) => pattern.test(name));
+  const initial = channel.match(/[\p{L}\p{N}]/u)?.[0]?.toUpperCase();
+  return known
+    ? { label, letter: known[2], key: known[1], badgeClass: known[3] }
+    : { label, letter: initial || "R", key: "other", badgeClass: NEUTRAL_BADGE };
+}
+
+/** A pending Previo booking is either an option (holds the room until it expires) or on the waiting list. */
+export function pmsHoldKind(
+  r: Pick<ReservationLike, "status" | "pms_status_id">,
+): "option" | "waiting_list" | null {
+  if (r.status !== "pending") return null;
+  if (Number(r.pms_status_id) === 1) return "option";
+  if (Number(r.pms_status_id) === 6) return "waiting_list";
+  return null;
+}
+
+/** What Previo says about payment, for Previo-managed bookings only. */
+export function pmsPaymentNote(
+  r: Pick<ReservationLike, "source" | "pms_payment_status">,
+): "paid" | "partial" | null {
+  if (!isPmsManaged(r)) return null;
+  return r.pms_payment_status === "paid" || r.pms_payment_status === "partial" ? r.pms_payment_status : null;
+}
+
 /**
  * Human label for the reservation's guest. Never invents a name:
  * joined guest profile -> PMS-provided guest label -> PMS booking ref.
  */
 export function reservationGuestLabel(
-  r: ReservationLike,
+  r: Partial<ReservationLike> & Record<string, unknown>,
   pmsFallbackPrefix = "Previo",
 ): string {
   const g = r.guests;
@@ -138,6 +229,7 @@ export function isLateArrivalCandidate(r: ReservationLike, today: string): boole
 export function reservationSearchText(r: ReservationLike & { rooms?: { room_number?: string | null } | null }): string {
   const g = r.guests;
   return [
+    g?.id_document_number,
     g?.first_name,
     g?.last_name,
     g?.email,
@@ -146,6 +238,11 @@ export function reservationSearchText(r: ReservationLike & { rooms?: { room_numb
     r.reservation_number,
     r.source_reservation_id,
     r.rooms?.room_number,
+    r.pms_voucher,
+    r.pms_reservation_id,
+    r.pms_channel,
+    r.pms_contact_name,
+    r.pms_contact_email,
   ]
     .filter(Boolean)
     .join(" ")
@@ -185,6 +282,7 @@ export function roomReadiness(room?: { status?: string | null } | null): RoomRea
 
 /** Lifecycle error codes raised by the pms_* RPCs -> translation keys. */
 export const LIFECYCLE_ERROR_KEYS: Record<string, string> = {
+  NO_ELIGIBLE_GUESTS: "pms.err.noEligibleGuests",
   RESERVATION_NOT_FOUND: "pms.err.reservationNotFound",
   ACCESS_DENIED: "pms.err.accessDenied",
   INVALID_STATUS: "pms.err.invalidStatus",
@@ -203,6 +301,7 @@ export const LIFECYCLE_ERROR_KEYS: Record<string, string> = {
   INVALID_AMOUNT: "pms.err.invalidAmount",
   INVALID_DESCRIPTION: "pms.err.invalidDescription",
   INVALID_CHARGE_TYPE: "pms.err.invalidChargeType",
+  POST_DEPARTURE_REQUIRES_MANAGER: "pms.err.postDepartureRequiresManager",
   UNSUPPORTED_STATUS: "pms.err.invalidStatus",
   HOTEL_REQUIRED: "pms.err.hotelRequired",
   ROOM_LOCKED_WHILE_CHECKED_IN: "pms.err.roomLockedWhileCheckedIn",

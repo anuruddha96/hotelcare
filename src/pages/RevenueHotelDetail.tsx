@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { claimRevenueSync, fetchRevenueSyncInfo, fetchRevenueWaitState } from "@/lib/revenueFreshness";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,8 +16,8 @@ import { toast } from "sonner";
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Upload, TrendingUp, TrendingDown,
   AlertTriangle, Loader2, Check, Edit3, X, Calendar as CalIcon, BarChart3,
-  Settings2, Sparkles, Plus, RefreshCw, Bot, History as HistoryIcon, Gauge, Activity,
-  PieChart, Binoculars, Mail,
+  Settings2, Sparkles, Plus, RefreshCw, Bot, History as HistoryIcon,
+  Binoculars, Mail, Target, Wallet,
 } from "lucide-react";
 import SegmentPerformancePanel from "@/components/revenue/SegmentPerformancePanel";
 import YearOverYearPanel from "@/components/revenue/YearOverYearPanel";
@@ -27,7 +27,11 @@ import MorningDigestPanel from "@/components/revenue/MorningDigestPanel";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
 import { setRevenueCurrency, useRevenueCurrency, money, getRevenueCurrency } from "@/lib/revenueCurrency";
-import { PICKUP_WINDOW_48H } from "@/lib/revenueAnalytics";
+import { DEFAULT_PICKUP_WINDOW_DAYS } from "@/lib/revenueAnalytics";
+
+// Six months of stay dates must be on hand or the later month cards never
+// leave their loading state and far-out bookings taken today are trimmed away.
+const BASE_HORIZON_DAYS = 210;
 import RoomsSetupTab from "@/components/revenue/settings/RoomsSetupTab";
 import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmentTab";
 import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
@@ -44,13 +48,15 @@ import EventsPanel from "@/components/revenue/EventsPanel";
 import DemandPricingPanel from "@/components/revenue/DemandPricingPanel";
 
 import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
-import RevenueToolsBar from "@/components/revenue/RevenueToolsBar";
+import RevenueInsightsHub from "@/components/revenue/RevenueInsightsHub";
+import ChannelEconomicsPanel from "@/components/revenue/channels/ChannelEconomicsPanel";
 
 import PickupMovementBoard from "@/components/revenue/PickupMovementBoard";
 import MarketIntelligenceChart from "@/components/revenue/MarketIntelligenceChart";
 import { useTenant } from "@/contexts/TenantContext";
 import TodaysSalesAdrGoal from "@/components/revenue/TodaysSalesAdrGoal";
 import MonthPerformanceHeader from "@/components/revenue/MonthPerformanceHeader";
+
 import { buildDemandBoard } from "@/lib/demandScore";
 import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePanel";
 
@@ -58,13 +64,16 @@ import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePa
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { isRevenueAdmin } from "@/lib/roleAccess";
+import { capabilitiesFor } from "@/lib/accessPolicy";
 import { Header } from "@/components/layout/Header";
 import TrialEndedNotice from "@/components/revenue/TrialEndedNotice";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
+import { NativeAriCalendar } from "@/components/rates/NativeAriCalendar";
 import { formatDistance } from "date-fns";
 import { setTabHotel } from "@/lib/tabHotel";
 import { HotelSwitchOverlay } from "@/components/layout/HotelSwitchOverlay";
 import { RevenueSkeleton } from "@/components/revenue/RevenueSkeleton";
+import { useTranslation } from "@/hooks/useTranslation";
 
 
 
@@ -102,8 +111,60 @@ function startOfMonth(d: Date) { const x = new Date(d); x.setUTCDate(1); x.setUT
 function addDays(d: Date, n: number) { const x = new Date(d); x.setUTCDate(x.getUTCDate()+n); return x; }
 function iso(d: Date) { return d.toISOString().slice(0,10); }
 
+/**
+ * Route component: hotels where HotelCare is the PMS of record get the native
+ * revenue experience (Rate & Pickup calendar with multi-OTA pricing); Previo
+ * hotels keep the full Previo-driven revenue page below. One Revenue module —
+ * there is no separate "Rates & availability" section.
+ */
+const NATIVE_VIEW_ROLES = ["admin", "top_management", "top_management_manager", "manager", "reception_manager", "reception", "front_office"];
+
 export default function RevenueHotelDetail() {
+  const { hotelId, organizationSlug } = useParams<{ hotelId: string; organizationSlug: string }>();
+  const { profile: navProfile } = useAuth();
+  const [native, setNative] = useState<boolean | null>(null);
+  useEffect(() => {
+    let on = true;
+    setNative(null);
+    if (!hotelId) { setNative(false); return; }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc('pms_ari_native_hotel', { _hotel_id: hotelId })
+      .then(({ data }: { data: boolean | null }) => { if (on) setNative(data === true); })
+      .catch(() => { if (on) setNative(false); });
+    return () => { on = false; };
+  }, [hotelId]);
+
+  if (native === null) {
+    return <div className="min-h-screen bg-background"><Header /><div className="flex items-center justify-center py-24"><RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Loading" /></div></div>;
+  }
+  if (native && hotelId) {
+    if (navProfile && !navProfile.is_super_admin && !NATIVE_VIEW_ROLES.includes(navProfile.role)) {
+      return <Navigate to={organizationSlug ? `/${organizationSlug}` : "/"} replace />;
+    }
+    return <div className="min-h-screen bg-background"><Header />
+      <main className="container mx-auto px-3 sm:px-6 py-4 space-y-4">
+        <MainTabsBar current="revenue" />
+        <NativeAriCalendar hotelId={hotelId} />
+        {/* Same channel economics as Previo hotels, from HotelCare's own bookings. */}
+        {navProfile && (navProfile.is_super_admin || isRevenueAdmin(navProfile.role)) && (
+          <section className="rounded-xl border bg-card p-3">
+            <ChannelEconomicsPanel
+              hotelId={hotelId}
+              selectedMonth={new Date().toISOString().slice(0, 7)}
+              canEdit={isRevenueAdmin(navProfile.role) || !!navProfile.is_super_admin}
+            />
+          </section>
+        )}
+      </main>
+    </div>;
+  }
+  return <PrevioRevenueHotelDetail />;
+}
+
+function PrevioRevenueHotelDetail() {
   const { profile, loading, applyAssignedHotel } = useAuth();
+  const { language } = useTranslation();
+  const hu = language === 'hu';
   const { hotels: tenantHotels, loading: tenantLoading } = useTenant();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const revenueOrgSlug = organizationSlug ?? null;
@@ -133,17 +194,18 @@ export default function RevenueHotelDetail() {
 
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("grid");
-  // Default to the automation's own rolling 48h window so the pickup row and
-  // the purple dots always describe the same stretch of time.
-  const [pickupWindow, setPickupWindow] = useState<number>(PICKUP_WINDOW_48H);
+  // All venues open on yesterday + today (Budapest calendar dates).
+  // A rolling 48-hour automation comparison remains available in the selector.
+  const [pickupWindow, setPickupWindow] = useState<number>(DEFAULT_PICKUP_WINDOW_DAYS);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  // The calendar tells us how far it is scrolled; data is loaded to match so a
-  // 9- or 12-month view is never blank at the far end. It only ever grows
-  // within a session to avoid re-fetching when scrolling back.
-  const [horizonDays, setHorizonDays] = useState(190);
+  // The six-month outlook needs roughly 210 stay dates on hand, otherwise the
+  // later month cards never leave their "loading" state and bookings taken
+  // today for far-out stay dates are trimmed away from the counters.
+  const [horizonDays, setHorizonDays] = useState(BASE_HORIZON_DAYS);
   const growHorizon = useCallback((days: number) => {
-    setHorizonDays((current) => (days > current ? Math.min(365, days) : current));
+    setHorizonDays(Math.max(BASE_HORIZON_DAYS, Math.min(365, Math.ceil(days))));
   }, []);
+
   const live = useRevenueHotelData(hotelId ?? null, revenueOrgSlug, horizonDays, pickupWindow);
 
   // Internal demand grade per date (booking pace, pickup, pressure, lead time).
@@ -168,13 +230,26 @@ export default function RevenueHotelDetail() {
     let cancelled = false;
     (async () => {
       const { data: session } = await supabase.auth.getUser();
-      const { data: profile } = await supabase.from("profiles")
-        .select("organization_slug").eq("id", session.user?.id ?? "").maybeSingle();
+      const [{ data: profile }, { data: hotelConfig }, { data: revenueSettings }] = await Promise.all([
+        supabase.from("profiles")
+          .select("organization_slug").eq("id", session.user?.id ?? "").maybeSingle(),
+        (supabase as any).from("hotel_configurations")
+          .select("market_city,market_country").eq("hotel_id", hotelId ?? "").maybeSingle(),
+        (supabase as any).from("hotel_revenue_settings")
+          .select("market_city,market_country").eq("hotel_id", hotelId ?? "").maybeSingle(),
+      ]);
       if (!profile?.organization_slug) return;
+
+      const marketCity = hotelConfig?.market_city || revenueSettings?.market_city || "Budapest";
+      const marketCountry = hotelConfig?.market_country || revenueSettings?.market_country || "Hungary";
       const { data } = await (supabase as any).from("demand_events")
         .select("title,event_date,end_date,expected_impact,recurs_annually,category,venue,url,notes")
         .eq("organization_slug", profile.organization_slug)
+        .ilike("city", marketCity)
+        .ilike("country", marketCountry)
         .eq("approved", true)
+        .not("url", "is", null)
+        .neq("url", "")
         .limit(1000);
       if (!cancelled) setDemandEvents((data ?? []) as any);
     })();
@@ -229,7 +304,10 @@ export default function RevenueHotelDetail() {
   }, [live.rates]);
 
 
-  // Rooms still sellable per room type and date.
+  // Previo's calendar availability is authoritative for "rooms left".
+  // The sync stores the PMS value per room type/date. Reservation-derived
+  // inventory is only a fallback when the Previo availability privilege is
+  // unavailable or a particular date has not been mirrored yet.
   const leftByTypeDate = useMemo(() => {
     const soldBy = new Map<string, number>();
     for (const n of live.nights) {
@@ -237,16 +315,27 @@ export default function RevenueHotelDetail() {
       const k = `${n.room_type_name}|${n.stay_date}`;
       soldBy.set(k, (soldBy.get(k) ?? 0) + 1);
     }
+
+    const authoritative = new Map<string, number>();
+    for (const row of live.availability) {
+      authoritative.set(`${row.obk_id}|${row.stay_date}`, Math.max(0, Number(row.availability) || 0));
+    }
+
     const out = new Map<string, number>();
     for (const rt of live.roomTypes) {
-      if (rt.is_sellable === false) continue;
+      if (!rt.pms_room_id || (rt.num_rooms || 0) <= 0) continue;
       for (const m of live.metrics) {
-        const k = `${rt.name}|${m.stay_date}`;
-        out.set(k, Math.max(0, (rt.num_rooms || 0) - (soldBy.get(k) ?? 0)));
+        const displayKey = `${rt.name}|${m.stay_date}`;
+        const pmsKey = `${rt.pms_room_id}|${m.stay_date}`;
+        out.set(
+          displayKey,
+          authoritative.get(pmsKey)
+            ?? Math.max(0, (rt.num_rooms || 0) - (soldBy.get(displayKey) ?? 0)),
+        );
       }
     }
     return out;
-  }, [live.nights, live.roomTypes, live.metrics]);
+  }, [live.nights, live.roomTypes, live.metrics, live.availability]);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -273,14 +362,42 @@ export default function RevenueHotelDetail() {
   // short status line tells the user an update is landing.
   const [bgRefreshing, setBgRefreshing] = useState(false);
   const [bgFailed, setBgFailed] = useState(false);
-  const [freshConfirm, setFreshConfirm] = useState<{ minutes: number } | null>(null);
   const [syncHistoryOpen, setSyncHistoryOpen] = useState(false);
+  const [roomCatalogBusy, setRoomCatalogBusy] = useState(false);
   const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
   const autoSyncedHotelRef = useRef<string | null>(null);
   const syncingRef = useRef(false);
   const activeHotelRef = useRef(hotelId);
   const loadInFlightRef = useRef<{ hotelId: string; promise: Promise<void> } | null>(null);
   activeHotelRef.current = hotelId;
+
+  /**
+   * Pull just the room-type catalog. No pricing publishes or reservation reads;
+   * the normal revenue scheduler will continue updating rates automatically.
+   */
+  async function refreshRoomCatalog() {
+    if (!hotelId || roomCatalogBusy) return;
+    setRoomCatalogBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("previo-revenue-sync", {
+        body: { hotelId, mode: "room_types_only" },
+      });
+      if (error) throw new Error(error.message);
+      if (!data || data.success === false) {
+        throw new Error(data?.errors?.[0] || "Previo did not confirm room type synchronization");
+      }
+      await live.refreshRoomTypes();
+      if (!data.physicalCatalogVerified) {
+        toast.warning("Room types refreshed, but physical inventory could not be independently verified in Previo.");
+      } else {
+        toast.success(`${data.activeRoomTypes} active room types · ${data.zeroInventoryTypes} empty types hidden from the calendar`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Room type refresh failed");
+    } finally {
+      setRoomCatalogBusy(false);
+    }
+  }
 
   /**
    * Pull fresh Previo revenue + occupancy data.
@@ -396,9 +513,9 @@ export default function RevenueHotelDetail() {
   }
 
   /**
-   * What "Sync now" does, in three honest cases: confirm when the data is
-   * already fresh, explain when an update is already running, refresh when the
-   * data is stale.
+   * "Sync now" is an explicit request to re-read Previo even when the previous
+   * sync is less than 30 minutes old. The backend lease still prevents
+   * overlapping pulls; a manager must not need a second confirmation click.
    */
   async function requestSync() {
     if (!hotelId) return;
@@ -409,12 +526,8 @@ export default function RevenueHotelDetail() {
       );
       return;
     }
-    const info = await fetchRevenueSyncInfo(hotelId).catch(() => null);
-    if (info?.at && !info.stale) {
-      const minutes = Math.max(1, Math.round((Date.now() - new Date(info.at).getTime()) / 60000));
-      setFreshConfirm({ minutes });
-      return;
-    }
+    // Managers use this after editing prices directly in Previo. A recent
+    // automatic sync does not prove that those subsequent edits were imported.
     void runSync(true);
   }
 
@@ -544,7 +657,8 @@ export default function RevenueHotelDetail() {
     const [{ data: h }, { data: s }, { data: dr }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: occSnaps }] = await Promise.all([
       supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", targetHotelId).maybeSingle(),
       supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
-        .eq("hotel_id", targetHotelId).gte("stay_date", near).lte("stay_date", horizon)
+        .eq("hotel_id", targetHotelId)
+        .eq("source", "previo_sync_diff").gte("stay_date", near).lte("stay_date", horizon)
         .order("captured_at", { ascending: false }).limit(4000),
       (supabase as any).from("daily_rates").select("stay_date,rate_eur,occupancy_pct,source")
         .eq("hotel_id", targetHotelId).gte("stay_date", near).lte("stay_date", horizon).limit(2000),
@@ -597,7 +711,8 @@ export default function RevenueHotelDetail() {
     try {
       const [{ data: s }, { data: r }, { data: ev }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }, { data: occSnaps }, { data: dec }, { data: lp }] = await Promise.all([
         supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
-          .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon)
+          .eq("hotel_id", targetHotelId)
+          .eq("source", "previo_sync_diff").gte("stay_date", past).lte("stay_date", horizon)
           .order("captured_at", { ascending: false }).limit(10000),
         supabase.from("rate_recommendations").select("*")
           .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
@@ -1020,23 +1135,6 @@ export default function RevenueHotelDetail() {
         </div>
       )}
 
-      {/* Refreshing fresh data is allowed, but never by accident. */}
-      <Dialog open={!!freshConfirm} onOpenChange={(o) => { if (!o) setFreshConfirm(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Your data is already up to date</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            These figures are from {freshConfirm?.minutes} minute{freshConfirm?.minutes === 1 ? "" : "s"} ago.
-            Refreshing pulls everything from Previo again and takes about a minute.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFreshConfirm(null)}>Keep current data</Button>
-            <Button onClick={() => { setFreshConfirm(null); void runSync(true); }}>Refresh anyway</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Sync progress — engaging status while Previo data lands */}
 
       {syncing && (
@@ -1090,28 +1188,36 @@ export default function RevenueHotelDetail() {
             <RefreshCw className={`h-3.5 w-3.5 text-muted-foreground ${(syncing || syncWaiting || bgRefreshing || serverRefreshing) ? "animate-spin" : ""}`} />
             <span className="text-muted-foreground">
               {syncing || bgRefreshing || serverRefreshing
-                ? syncStep || "Updating from Previo…"
+                ? syncStep || (hu ? "Frissítés a Previóból…" : "Updating from Previo…")
                 : syncWaiting
-                  ? "Refresh queued — this page will update automatically."
+                  ? (hu ? "Frissítés várakozik – az oldal automatikusan frissül." : "Refresh queued — this page will update automatically.")
                   : syncError || bgFailed
-                    ? "The last refresh did not complete."
+                    ? (hu ? "A legutóbbi frissítés nem fejeződött be." : "The last refresh did not complete.")
                     : live.lastSyncAt
-                      ? `Last synced ${new Date(live.lastSyncAt).toLocaleString()}${live.lastSyncBy ? ` by ${live.lastSyncBy}` : ""}`
-                      : "No successful revenue sync recorded yet."}
+                      ? `${hu ? "Utoljára szinkronizálva" : "Last synced"} ${new Date(live.lastSyncAt).toLocaleString()}${live.lastSyncBy ? (hu ? " · " : " by ") + live.lastSyncBy : ""}`
+                      : (hu ? "Még nincs sikeres bevételi szinkron." : "No successful revenue sync recorded yet.")}
             </span>
             {live.extending && (
-              <span className="text-muted-foreground">· loading the rest of the year…</span>
+              <span className="text-muted-foreground">· {hu ? "Kiválasztott naptári napok betöltése…" : "loading selected calendar dates…"}</span>
             )}
             <div className="ml-auto flex items-center gap-1.5">
               {isTechnicalAdmin && (
                 <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setSyncHistoryOpen(true)}>
-                  <HistoryIcon className="h-3.5 w-3.5" /> History
+                  <HistoryIcon className="h-3.5 w-3.5" /> {hu ? "Előzmények" : "History"}
+                </Button>
+              )}
+              {revAdmin && (
+                <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => void refreshRoomCatalog()}
+                  disabled={roomCatalogBusy || syncing || syncWaiting || bgRefreshing || serverRefreshing}
+                  title={hu ? "Új Previo-kategóriák és szobaszámok egyeztetése az árak és foglalások letöltése nélkül" : "Discover new Previo categories and reconcile physical room counts without pulling rates and bookings"}>
+                  {roomCatalogBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  {hu ? "Szobatípusok frissítése" : "Refresh room types"}
                 </Button>
               )}
               <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => void requestSync()}
                 disabled={syncing || syncWaiting || bgRefreshing || serverRefreshing}>
                 {(syncing || syncWaiting || bgRefreshing || serverRefreshing) && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Sync now
+                {hu ? "Szinkronizálás most" : "Sync now"}
               </Button>
             </div>
           </div>
@@ -1122,7 +1228,7 @@ export default function RevenueHotelDetail() {
 
           <Dialog open={syncHistoryOpen} onOpenChange={setSyncHistoryOpen}>
             <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
-              <DialogHeader><DialogTitle>Revenue sync history</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>{hu ? "Bevételi szinkronizálás előzményei" : "Revenue sync history"}</DialogTitle></DialogHeader>
               {hotelId && <RevenueSyncHistory hotelId={hotelId} limit={30} />}
             </DialogContent>
           </Dialog>
@@ -1135,7 +1241,11 @@ export default function RevenueHotelDetail() {
             hotelId={hotelId ?? null}
             canEdit={isTechnicalAdmin}
             roomsAvailable={live.roomsAvailable}
+            excludedRoomTypeIds={live.excludedRoomTypeIds}
+            inventoryMismatch={live.inventoryMismatch}
+            configuredRooms={live.configuredRooms}
             selectedMonth={selectedMonth}
+            comparisonHotels={tenantHotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))}
             onSelectedMonthChange={setSelectedMonth}
             nights={live.nights}
             cancellations={live.cancellations}
@@ -1147,8 +1257,9 @@ export default function RevenueHotelDetail() {
 
 
 
+
           <RateStrategyGrid
-            loading={live.loading}
+            loading={live.loading || live.extending}
             today={live.today}
             hotelId={hotelId ?? null}
             organizationSlug={organizationSlug ?? null}
@@ -1156,6 +1267,8 @@ export default function RevenueHotelDetail() {
             rates={live.rates}
             metrics={live.metrics}
             nights={live.nights}
+            cancellations={live.cancellations}
+            lastSyncAt={live.lastSyncAt}
             thresholds={live.thresholds}
             canEditRates={revAdmin}
             pickupWindowDays={pickupWindow}
@@ -1165,6 +1278,7 @@ export default function RevenueHotelDetail() {
             leftByTypeDate={leftByTypeDate}
             soldOutPrices={live.soldOutPrices}
             onRatesUpdated={live.reload}
+            onAvailabilityUpdated={live.refreshAvailability}
             onHorizonDaysChange={growHorizon}
           />
 
@@ -1179,110 +1293,174 @@ export default function RevenueHotelDetail() {
             selectedMonth={selectedMonth} 
             eventsByDate={eventsByDate}
             ourRateByDate={ourRateByDate}
-
-          />
-
-          <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
-          <PickupMovementBoard
-            metrics={live.metrics}
-            windowDays={pickupWindow}
-            nights={live.nights}
-            cancellations={live.cancellations}
-            hotelId={hotelId ?? null}
-            organizationSlug={organizationSlug ?? null}
-            rates={live.rates}
-            canEdit={revAdmin}
-            onRatesUpdated={live.reload}
-          />
-
-          <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
-
-
-           <RevenueToolsBar
-            tools={[
-              {
-                key: "segments",
-                label: "Segments & channels",
-                icon: <PieChart className="h-4 w-4" />,
-                featureKey: "revenue.segments",
-                render: () => (
-                  <SegmentPerformancePanel nights={live.nights} selectedMonth={selectedMonth} />
-                ),
-              },
-              {
-                key: "yoy",
-                label: "Year over year",
-                icon: <BarChart3 className="h-4 w-4" />,
-                featureKey: "revenue.yoy",
-                render: () => <YearOverYearPanel hotelId={hotelId ?? null} />,
-              },
-              {
-                key: "compset",
-                label: "Competitor rates",
-                icon: <Binoculars className="h-4 w-4" />,
-                featureKey: "revenue.compset",
-                render: () => (
-                  <CompetitorRatePanel
-                    hotelId={hotelId ?? null}
-                    organizationSlug={organizationSlug ?? null}
-                    canEdit={revAdmin}
-                    ratesByDate={ourRateByDate}
-                  />
-                ),
-              },
-              {
-                key: "digest",
-                label: "Morning e-mail",
-                icon: <Mail className="h-4 w-4" />,
-                featureKey: "revenue.digest",
-                render: () => (
-                  <MorningDigestPanel
-                    hotelId={hotelId ?? null}
-                    organizationSlug={organizationSlug ?? null}
-                    canEdit={revAdmin}
-                  />
-                ),
-              },
-              ...(isTechnicalAdmin
-                ? [
-                    {
-                      key: "demand",
-                      label: "Demand desk",
-                      icon: <Gauge className="h-4 w-4" />,
-                      render: () => (
-                        <DemandPricingPanel
+            reservationMovement={
+              <PickupMovementBoard
+                          key={hotelId}
+                          publishedCurrency={live.publishedCurrency ?? null}
+                          metrics={live.metrics}
+                          windowDays={pickupWindow}
+                          nights={live.nights}
+                          cancellations={live.cancellations}
                           hotelId={hotelId ?? null}
                           organizationSlug={organizationSlug ?? null}
-                          today={live.today}
-                          nights={live.nights}
                           rates={live.rates}
                           canEdit={revAdmin}
+                          onRatesUpdated={live.reload}
+                          lastSyncAt={live.lastSyncAt}
                         />
-                      ),
-                    },
-                    {
-                      key: "pulse",
-                      label: "Revenue pulse",
-                      icon: <Activity className="h-4 w-4" />,
-                      render: () => (
-                        <RevenuePulsePanel
-                          today={live.today}
-                          metrics={live.metrics}
-                          roomsAvailable={live.roomsAvailable}
-                          thresholds={live.thresholds}
-                        />
-                      ),
-                    },
-                    {
-                      key: "ai",
-                      label: "AI intelligence",
-                      icon: <Sparkles className="h-4 w-4" />,
-                      render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
-                    },
-                  ]
-                : []),
+            }
+
+          />
+
+
+          {/* Analysis lives in one place under the charts, grouped by the
+              question it answers: on track? where does revenue come from and
+              what do we keep? what is the market doing? what is reported? */}
+          <RevenueInsightsHub
+            title={hu ? "Elemzések és döntéstámogatás" : "Analysis & decisions"}
+            sections={[
+              {
+                key: "performance",
+                label: hu ? "Teljesítmény" : "Performance",
+                icon: <Target className="h-4 w-4" />,
+                question: hu
+                  ? "Tartjuk a célt? A mai eladások az ADR-célhoz és az előző évhez mérve."
+                  : "Are we on track? Today's sales against the ADR goal, and against last year.",
+                items: [
+                  // Sales targets are sensitive: top management and above, and Controlling.
+                  ...(capabilitiesFor(profile).salesGoal
+                    ? [{
+                        key: "goal",
+                        label: hu ? "Mai eladások és ADR-cél" : "Today's sales & ADR goal",
+                        render: () => <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />,
+                      }]
+                    : []),
+                  {
+                    key: "yoy",
+                    label: hu ? "Éves összehasonlítás" : "Year over year",
+                    featureKey: "revenue.yoy",
+                    render: () => <YearOverYearPanel hotelId={hotelId ?? null} />,
+                  },
+                ],
+              },
+              {
+                key: "channels",
+                label: hu ? "Csatornák és nettó bevétel" : "Channels & net revenue",
+                icon: <Wallet className="h-4 w-4" />,
+                question: hu
+                  ? "Honnan jön a bevétel, és mennyi marad a szállodánál az OTA-jutalék után?"
+                  : "Where does revenue come from, and how much does the hotel keep after OTA commission?",
+                items: [
+                  {
+                    key: "economics",
+                    label: hu ? "Nettó bevétel és jutalék" : "Net revenue & commission",
+                    featureKey: "revenue.channelEconomics",
+                    render: () => (
+                      <ChannelEconomicsPanel
+                        hotelId={hotelId ?? null}
+                        hotelName={tenantHotels.find((h) => h.hotel_id === hotelId)?.hotel_name ?? hotelId ?? null}
+                        selectedMonth={selectedMonth}
+                        canEdit={revAdmin}
+                      />
+                    ),
+                  },
+                  {
+                    key: "mix",
+                    label: hu ? "Csatornamix az előző hónaphoz képest" : "Channel mix vs last month",
+                    featureKey: "revenue.segments",
+                    render: () => <SegmentPerformancePanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />,
+                  },
+                ],
+              },
+              {
+                key: "market",
+                label: hu ? "Piac és kereslet" : "Market & demand",
+                icon: <Binoculars className="h-4 w-4" />,
+                question: hu
+                  ? "Mit csinál a piac? Versenytársi árak, események és kereslet."
+                  : "What is the market doing? Competitor prices, events and demand.",
+                items: [
+                  {
+                    key: "compset",
+                    label: hu ? "Versenytársi árak" : "Competitor rates",
+                    featureKey: "revenue.compset",
+                    render: () => (
+                      <CompetitorRatePanel
+                        hotelId={hotelId ?? null}
+                        organizationSlug={organizationSlug ?? null}
+                        canEdit={revAdmin}
+                        ratesByDate={ourRateByDate}
+                      />
+                    ),
+                  },
+                  {
+                    key: "events",
+                    label: hu ? "Események" : "Events",
+                    render: () => <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />,
+                  },
+                  ...(isTechnicalAdmin
+                    ? [{
+                        key: "demand",
+                        label: hu ? "Keresletelemzés" : "Demand desk",
+                        render: () => (
+                          <DemandPricingPanel
+                            hotelId={hotelId ?? null}
+                            organizationSlug={organizationSlug ?? null}
+                            today={live.today}
+                            nights={live.nights}
+                            rates={live.rates}
+                            canEdit={revAdmin}
+                          />
+                        ),
+                      }]
+                    : []),
+                ],
+              },
+              {
+                key: "reports",
+                label: hu ? "Jelentések és AI" : "Reports & AI",
+                icon: <Mail className="h-4 w-4" />,
+                question: hu
+                  ? "Mit kap meg a vezetés automatikusan, és mit lát az elemzés?"
+                  : "What does management receive automatically, and what does the analysis see?",
+                items: [
+                  {
+                    key: "digest",
+                    label: hu ? "Reggeli e-mail" : "Morning e-mail",
+                    featureKey: "revenue.digest",
+                    render: () => (
+                      <MorningDigestPanel
+                        hotelId={hotelId ?? null}
+                        organizationSlug={organizationSlug ?? null}
+                        canEdit={revAdmin}
+                      />
+                    ),
+                  },
+                  ...(isTechnicalAdmin
+                    ? [
+                        {
+                          key: "pulse",
+                          label: hu ? "Bevételi pillanatkép" : "Revenue pulse",
+                          render: () => (
+                            <RevenuePulsePanel
+                              today={live.today}
+                              metrics={live.metrics}
+                              roomsAvailable={live.roomsAvailable}
+                              thresholds={live.thresholds}
+                            />
+                          ),
+                        },
+                        {
+                          key: "ai",
+                          label: hu ? "AI elemzés" : "AI intelligence",
+                          render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
+                        },
+                      ]
+                    : []),
+                ],
+              },
             ]}
-           />
+          />
 
 
 
@@ -1861,17 +2039,31 @@ function MarketEventsPanel({ hotelId, orgSlug, onCopied }: { hotelId: string; or
   const [items, setItems] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<string>("all");
+  const [marketCity, setMarketCity] = useState("Budapest");
+  const [marketCountry, setMarketCountry] = useState("Hungary");
   async function load() {
     const today = new Date().toISOString().slice(0, 10);
+    const { data: hotelConfig } = await (supabase as any)
+      .from("hotel_configurations")
+      .select("market_city,market_country")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    const city = hotelConfig?.market_city || "Budapest";
+    const country = hotelConfig?.market_country || "Hungary";
+    setMarketCity(city);
+    setMarketCountry(country);
+
     const { data } = await (supabase as any).from("market_events")
-      .select("*").eq("city", "budapest").gte("event_date", today)
+      .select("*").eq("city", city.toLowerCase()).gte("event_date", today)
       .order("event_date", { ascending: true }).limit(200);
     setItems(data ?? []);
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [hotelId]);
   async function refreshAI() {
     setBusy(true);
-    const { data, error } = await supabase.functions.invoke("revenue-events-fetch", { body: {} });
+    const { data, error } = await supabase.functions.invoke("revenue-events-fetch", {
+      body: { city: marketCity, country: marketCountry },
+    });
     setBusy(false);
     if (error || (data && data.ok === false)) { toast.error(data?.error || error?.message || "Failed"); return; }
     toast.success(`Refreshed: ${data?.added ?? 0} events added`);
@@ -1890,7 +2082,7 @@ function MarketEventsPanel({ hotelId, orgSlug, onCopied }: { hotelId: string; or
   return (
     <Card><CardContent className="p-4 space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="text-sm font-semibold">Budapest market events (AI)</div>
+        <div className="text-sm font-semibold">{marketCity} market events (AI)</div>
         <div className="flex gap-2 items-center">
           <Select value={filter} onValueChange={setFilter}>
             <SelectTrigger className="h-8 w-32"><SelectValue /></SelectTrigger>

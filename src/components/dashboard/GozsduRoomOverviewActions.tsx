@@ -1,0 +1,498 @@
+import React, { useRef, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
+import { hasManagerPowers } from '@/lib/roleAccess';
+import { todayBudapest } from '@/lib/budapestTime';
+import { GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME, getGozsduHousekeepingCycle } from '@/lib/gozsdu-housekeeping';
+import { GOZSDU_ROOM_OVERRIDE_KEY, readGozsduRoomOverride, type GozsduRoomBucket } from '@/lib/gozsduRoomBucketOverride';
+import { gozsduDropBucket } from '@/lib/gozsduRoomDropTarget';
+import { isGozsduNoShow } from '@/lib/gozsduPmsRoster';
+import { assignRoomToStaff, isAssignmentInProgressError, readHousekeeperDragPayload, readRoomDragPayload } from '@/lib/hkAssignmentDnd';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from 'sonner';
+import { GozsduCourtRoomOverview } from './GozsduCourtRoomOverview';
+import { GozsduRoomEssentials } from './GozsduRoomEssentials';
+import { RoomAssignmentHistory } from './RoomAssignmentHistory';
+import { RoomDetailDialog } from './RoomDetailDialog';
+
+type Props = React.ComponentProps<typeof GozsduCourtRoomOverview>;
+type Service = 'towel_change' | 'change_room';
+type RoomRow = {
+  id: string; hotel: string | null; room_number: string; room_name: string | null;
+  status: string | null; notes: string | null; room_type: string | null;
+  floor_number: number | null; room_size_sqm: number | null;
+  last_cleaned_at: string | null; last_cleaned_by: string | null;
+  is_checkout_room: boolean | null; pms_metadata: any;
+};
+type Assignment = { id: string; assigned_to: string; status: string; assignment_type: string };
+const HOTEL_KEYS = [GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME];
+const ROOM_SELECT = 'id,hotel,room_number,room_name,status,notes,room_type,floor_number,room_size_sqm,last_cleaned_at,last_cleaned_by,is_checkout_room,pms_metadata';
+const SECTION_BUCKETS: GozsduRoomBucket[] = ['checkout', 'daily', 'service', 'other'];
+
+/** Gozsdu has distinct PMS display labels and internal room IDs. All click and
+ * drag actions resolve the ID and stay within this property's live inventory.
+ * The full manager controls below use the same ID; the generic text-based
+ * quick hub must not be attached, as it can select a different room. */
+export function GozsduRoomOverviewActions(props: Props) {
+  const { user, profile } = useAuth();
+  const { t } = useTranslation();
+  const role = String(profile?.role || '').toLowerCase();
+  const canManage = hasManagerPowers(profile?.role) || role === 'supervisor';
+  const canOpen = canManage || role === 'reception';
+  const canEdit = canManage && props.selectedDate >= todayBudapest();
+  const [open, setOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [room, setRoom] = useState<RoomRow | null>(null);
+  const [label, setLabel] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [bucket, setBucket] = useState<GozsduRoomBucket | ''>('');
+  const [service, setService] = useState<Service>('towel_change');
+  const [reason, setReason] = useState('');
+  const [staffId, setStaffId] = useState('keep');
+  const [currentStaff, setCurrentStaff] = useState<string | null>(null);
+  const [locked, setLocked] = useState(false);
+  const [dropZone, setDropZone] = useState<string | null>(null);
+  const movingRoom = useRef(false);
+  const requestId = useRef(0);
+  const lastDragEnded = useRef(0);
+  const availableStaff = Object.entries(props.staffMap)
+    .filter(([id, name]) => !!id && !!name?.trim())
+    .sort((a, b) => a[1].localeCompare(b[1]));
+
+  const sectionTitle = (value: GozsduRoomBucket) => value === 'checkout'
+    ? t('gozsdu.checkoutCleaning')
+    : value === 'daily'
+      ? 'Daily stayover cleaning'
+      : value === 'service'
+        ? t('gozsdu.secondDayCleaning')
+        : t('gozsdu.otherNoService');
+
+  const roomStatusLabel = (value: string | null) => value === 'dirty'
+    ? t('gozsdu.statusDirty')
+    : value === 'out_of_order'
+      ? t('gozsdu.statusOutOfOrder')
+      : value === 'clean'
+        ? t('roomOverview.statusClean')
+        : value || t('gozsdu.statusUnknown');
+
+  const openRoom = async (id: string, targetBucket: GozsduRoomBucket | null = null, targetStaff = 'keep') => {
+    if (!canOpen || !id) return;
+    const current = ++requestId.current;
+    setRoom(null);
+    setLabel(t('gozsdu.roomDialogTitle'));
+    setBucket('');
+    setStaffId('keep');
+    setCurrentStaff(null);
+    setLocked(false);
+    setLoading(true);
+    setOpen(true);
+    try {
+      const [roomResult, registryResult, assignmentResult] = await Promise.all([
+        supabase.from('rooms').select(ROOM_SELECT)
+          .eq('id', id).in('hotel', HOTEL_KEYS).maybeSingle(),
+        (supabase as any).from('gozsdu_housekeeping_room_registry')
+          .select('room_id,pms_room_name,service_status').eq('room_id', id).maybeSingle(),
+        supabase.from('room_assignments')
+          .select('id,assigned_to,status,assignment_type').eq('room_id', id).eq('assignment_date', props.selectedDate),
+      ]);
+      if (current !== requestId.current) return;
+      if (roomResult.error) throw roomResult.error;
+      if (registryResult.error) throw registryResult.error;
+      if (assignmentResult.error) throw assignmentResult.error;
+      const found = roomResult.data as RoomRow | null;
+      const registered = registryResult.data;
+      if (!found || !registered) throw new Error('This room is not mapped to Gozsdu. Refresh the room registry.');
+      if (registered.service_status !== 'operating') throw new Error('This room is unavailable for housekeeping.');
+      // The room board uses dated, confirmed PMS evidence. Do not block a valid
+       // checked-out room because its old inferred no-show marker remains true.
+       if (isGozsduNoShow(found, props.selectedDate)) {
+         throw new Error('Confirmed no-show rooms cannot be assigned or moved to cleaning.');
+       }
+      const rows = (assignmentResult.data || []) as Assignment[];
+      const existing = rows.find(row => row.status !== 'completed') || rows[0] || null;
+      const override = readGozsduRoomOverride(found.pms_metadata, props.selectedDate);
+      const cycle = getGozsduHousekeepingCycle({
+        currentNight: found.pms_metadata?.currentNight,
+        totalNights: found.pms_metadata?.totalNights,
+        isCheckout: false,
+      }).service;
+      const inferred: GozsduRoomBucket = found.is_checkout_room ? 'checkout' : cycle !== 'none' ? 'service' : 'other';
+      setRoom(found);
+      setLabel(registered.pms_room_name || found.room_number);
+      setBucket(targetBucket || override?.bucket || inferred);
+      setService(override?.service === 'change_room' || (!override && cycle === 'change_room') ? 'change_room' : 'towel_change');
+      setReason(override?.reason || '');
+      setCurrentStaff(existing?.assigned_to || null);
+      setStaffId(targetStaff !== 'keep' && !!props.staffMap[targetStaff] ? targetStaff : 'keep');
+      setLocked(rows.some(row => row.status === 'in_progress' || row.status === 'completed'));
+    } catch (error) {
+      console.error('[Gozsdu] room lookup by ID failed', error);
+      if (current === requestId.current) {
+        toast.error(error instanceof Error ? error.message : 'Could not open this room.');
+        setOpen(false);
+      }
+    } finally {
+      if (current === requestId.current) setLoading(false);
+    }
+  };
+
+  const onChipClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!canOpen || Date.now() - lastDragEnded.current < 350) return;
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-room-id]') : null;
+    if (!target?.dataset.roomId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void openRoom(target.dataset.roomId, gozsduDropBucket(target));
+  };
+
+  const onDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!canEdit) return;
+    const types = Array.from(event.dataTransfer.types, value => value.toLowerCase());
+    const section = gozsduDropBucket(event.target);
+    const roomTarget = event.target instanceof Element ? event.target.closest('[data-room-id]') : null;
+    if ((section && types.includes('roomid')) || (roomTarget && types.includes('housekeeperid'))) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      setDropZone(section || 'housekeeper');
+    }
+  };
+
+  // Manager drag-and-drop controls the DATE-SCOPED housekeeping plan only,
+  // never Previo occupancy, stay dates, arrival or departure flags.
+  const moveRoomOnDrop = async (roomId: string, destination: GozsduRoomBucket) => {
+    if (!canEdit || movingRoom.current) return;
+    movingRoom.current = true;
+    let original: Record<string, any> | null = null;
+    let persisted = false;
+    try {
+      const [roomResult, registryResult, assignmentsResult] = await Promise.all([
+        supabase.from('rooms').select(ROOM_SELECT).eq('id', roomId).in('hotel', HOTEL_KEYS).maybeSingle(),
+        (supabase as any).from('gozsdu_housekeeping_room_registry')
+          .select('room_id,pms_room_name,service_status').eq('room_id', roomId).maybeSingle(),
+        supabase.from('room_assignments').select('id,assigned_to,status,assignment_type')
+          .eq('room_id', roomId).eq('assignment_date', props.selectedDate),
+      ]);
+      if (roomResult.error) throw roomResult.error;
+      if (registryResult.error) throw registryResult.error;
+      if (assignmentsResult.error) throw assignmentsResult.error;
+      const fresh = roomResult.data as RoomRow | null;
+      const entry = registryResult.data;
+      if (!fresh || entry?.service_status !== 'operating') throw new Error('Gozsdu room unavailable.');
+      if (isGozsduNoShow(fresh, props.selectedDate)) throw new Error('Confirmed no-show rooms cannot be moved.');
+      const tasks = (assignmentsResult.data || []) as Assignment[];
+      if (tasks.some(task => task.status !== 'assigned'))
+        throw new Error('Cleaning is already started or finished. Room plan is locked.');
+      original = fresh.pms_metadata && typeof fresh.pms_metadata === 'object'
+        && !Array.isArray(fresh.pms_metadata) ? fresh.pms_metadata : {};
+      const allOverrides = original[GOZSDU_ROOM_OVERRIDE_KEY] && typeof original[GOZSDU_ROOM_OVERRIDE_KEY] === 'object'
+        ? original[GOZSDU_ROOM_OVERRIDE_KEY] as Record<string, any> : {};
+      const previous = readGozsduRoomOverride(original, props.selectedDate);
+      if (previous?.bucket === destination) {
+        toast.info('Room ' + entry.pms_room_name + ' is already in ' + sectionTitle(destination));
+        return;
+      }
+      const cycle = getGozsduHousekeepingCycle({
+        currentNight: original.currentNight, totalNights: original.totalNights,
+      }).service;
+      const service: 'none' | Service = destination === 'service'
+        ? previous?.bucket === 'service' && previous.service !== 'none'
+          ? previous.service : cycle === 'change_room' ? 'change_room' : 'towel_change'
+        : 'none';
+      const history = Array.isArray(allOverrides[props.selectedDate]?.history)
+        ? allOverrides[props.selectedDate].history.slice(-18) : [];
+      if (previous) history.push({ ...previous, history: undefined });
+      const metadata = {
+        ...original,
+        [GOZSDU_ROOM_OVERRIDE_KEY]: {
+          ...allOverrides,
+          [props.selectedDate]: {
+            date: props.selectedDate, bucket: destination, service,
+            reason: 'Manager drag-and-drop on room overview',
+            changedAt: new Date().toISOString(), changedBy: profile?.id || user?.id || '',
+            history,
+          },
+        },
+      };
+      const { data: written, error: writeError } = await supabase.from('rooms')
+        .update({ pms_metadata: metadata } as any).eq('id', roomId).in('hotel', HOTEL_KEYS).select('id');
+      if (writeError || written?.length !== 1)
+        throw writeError || new Error('No room updated: check manager permissions.');
+      persisted = true;
+      if (tasks.length) {
+        if (destination === 'other') {
+          const { data: deleted, error } = await supabase.from('room_assignments')
+            .delete().eq('room_id', roomId).eq('assignment_date', props.selectedDate)
+            .eq('status', 'assigned').select('id');
+          if (error || deleted?.length !== tasks.length)
+            throw error || new Error('Assignment changed while moving room.');
+        } else {
+          const { data: updated, error } = await supabase.from('room_assignments')
+            .update({ assignment_type: destination === 'checkout' ? 'checkout_cleaning' : 'daily_cleaning' } as any)
+            .eq('room_id', roomId).eq('assignment_date', props.selectedDate)
+            .eq('status', 'assigned').select('id');
+          if (error || updated?.length !== tasks.length)
+            throw error || new Error('Assignment changed while moving room.');
+        }
+      }
+      toast.success(entry.pms_room_name + ' moved to ' + sectionTitle(destination) + '. Housekeeping updated; PMS unchanged.');
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      if (persisted && original) {
+        const { error: rollbackError } = await supabase.from('rooms')
+          .update({ pms_metadata: original } as any).eq('id', roomId).in('hotel', HOTEL_KEYS);
+        if (rollbackError) console.error('[Gozsdu] drag rollback failed', rollbackError);
+      }
+      console.error('[Gozsdu] drag move failed', error);
+      toast.error(error instanceof Error ? error.message : 'Room move failed.');
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } finally {
+      movingRoom.current = false;
+    }
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!canEdit) return;
+    const destination = gozsduDropBucket(event.target);
+    const draggedRoom = readRoomDragPayload(event);
+    if (draggedRoom && destination) {
+      event.preventDefault();
+      event.stopPropagation();
+      setDropZone(null);
+      void moveRoomOnDrop(draggedRoom.roomId, destination);
+      return;
+    }
+    const roomTarget = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-room-id]') : null;
+    const draggedStaff = readHousekeeperDragPayload(event);
+    if (roomTarget?.dataset.roomId && draggedStaff) {
+      event.preventDefault();
+      event.stopPropagation();
+      setDropZone(null);
+      void openRoom(roomTarget.dataset.roomId, gozsduDropBucket(roomTarget), draggedStaff.staffId);
+    }
+  };
+
+  const save = async () => {
+    if (!room || !bucket || !canEdit || saving || locked) return;
+    if (staffId !== 'keep' && bucket === 'other') {
+      toast.warning('Choose Checkout or Second-day cleaning before assigning a housekeeper.');
+      return;
+    }
+    setSaving(true);
+    let previousMetadata: Record<string, any> | null = null;
+    let metadataSaved = false;
+    let assignmentTypes: Assignment[] = [];
+    try {
+      const [freshResult, registryResult, assignmentsResult] = await Promise.all([
+        supabase.from('rooms').select('id,hotel,pms_metadata').eq('id', room.id).in('hotel', HOTEL_KEYS).maybeSingle(),
+        (supabase as any).from('gozsdu_housekeeping_room_registry').select('room_id,service_status').eq('room_id', room.id).maybeSingle(),
+        supabase.from('room_assignments').select('id,assigned_to,status,assignment_type')
+          .eq('room_id', room.id).eq('assignment_date', props.selectedDate),
+      ]);
+      if (freshResult.error) throw freshResult.error;
+      if (registryResult.error) throw registryResult.error;
+      if (assignmentsResult.error) throw assignmentsResult.error;
+      const fresh = freshResult.data;
+      if (!fresh || registryResult.data?.service_status !== 'operating') throw new Error('This Gozsdu room is no longer available. Refresh and retry.');
+      // Re-read at save time so a real, newly confirmed no-show is still blocked.
+       // A dated checked-out reservation wins over stale inference flags.
+       if (isGozsduNoShow(fresh as never, props.selectedDate)) {
+         throw new Error('Confirmed no-show rooms cannot be assigned to cleaning.');
+       }
+      assignmentTypes = (assignmentsResult.data || []) as Assignment[];
+      if (assignmentTypes.some(row => row.status === 'in_progress' || row.status === 'completed')) {
+        throw new Error('Cleaning has started or finished. Resolve the active assignment before changing this room.');
+      }
+      if (staffId !== 'keep') {
+        if (!props.staffMap[staffId] || !profile?.organization_slug) throw new Error('Select an eligible Gozsdu housekeeper.');
+        const { data: member, error: memberError } = await supabase.from('profiles')
+          .select('id').eq('id', staffId).eq('organization_slug', profile.organization_slug)
+          .in('assigned_hotel', HOTEL_KEYS).maybeSingle();
+        if (memberError) throw memberError;
+        if (!member) throw new Error('This housekeeper is not assigned to Gozsdu Court.');
+      }
+      previousMetadata = fresh.pms_metadata && typeof fresh.pms_metadata === 'object' && !Array.isArray(fresh.pms_metadata)
+        ? fresh.pms_metadata as Record<string, any> : {};
+      const previousOverrides: Record<string, unknown> = previousMetadata[GOZSDU_ROOM_OVERRIDE_KEY]
+        && typeof previousMetadata[GOZSDU_ROOM_OVERRIDE_KEY] === 'object'
+        ? previousMetadata[GOZSDU_ROOM_OVERRIDE_KEY] : {};
+      const nextMetadata = {
+        ...previousMetadata,
+        [GOZSDU_ROOM_OVERRIDE_KEY]: {
+          ...previousOverrides,
+          [props.selectedDate]: {
+            date: props.selectedDate,
+            bucket,
+            service: bucket === 'service' ? service : 'none',
+            reason: reason.trim(),
+            changedAt: new Date().toISOString(),
+            changedBy: profile?.id || user?.id || '',
+          },
+        },
+      };
+      const { data: savedRooms, error: writeError } = await supabase.from('rooms')
+        .update({ pms_metadata: nextMetadata } as any).eq('id', room.id).in('hotel', HOTEL_KEYS).select('id');
+      if (writeError) throw writeError;
+      if (savedRooms?.length !== 1) throw new Error('Room update was not permitted for this property.');
+      metadataSaved = true;
+      if (assignmentTypes.length) {
+        if (bucket === 'other') {
+          const { data: deleted, error } = await supabase.from('room_assignments')
+            .delete().eq('room_id', room.id).eq('assignment_date', props.selectedDate)
+            .eq('status', 'assigned').select('id');
+          if (error || deleted?.length !== assignmentTypes.length) throw error || new Error('Cleaning began during this move. Refresh and retry.');
+        } else {
+          const { data: changed, error } = await supabase.from('room_assignments')
+            .update({ assignment_type: bucket === 'checkout' ? 'checkout_cleaning' : 'daily_cleaning' } as any)
+            .eq('room_id', room.id).eq('assignment_date', props.selectedDate).eq('status', 'assigned').select('id');
+          if (error || changed?.length !== assignmentTypes.length) throw error || new Error('Cleaning began during this move. Refresh and retry.');
+        }
+      }
+      if (staffId !== 'keep') {
+        await assignRoomToStaff({
+          roomId: room.id, staffId, assignmentDate: props.selectedDate,
+          assignedBy: profile?.id || user?.id || '', organizationSlug: profile?.organization_slug || null,
+          isCheckoutRoom: bucket === 'checkout',
+        });
+      }
+      toast.success(staffId === 'keep'
+        ? `Room ${label} moved to ${sectionTitle(bucket as GozsduRoomBucket)}`
+        : `Room ${label} assigned to ${props.staffMap[staffId]} · ${bucket === 'checkout' ? 'Checkout' : service === 'change_room' ? 'Full cleaning / textile change' : 'Towel change'}`);
+      setOpen(false);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      console.error('[Gozsdu] cleaning/assignment change failed', error);
+      // Best-effort recovery of the date override and previous assignment types.
+      if (metadataSaved && previousMetadata) {
+        const { error: rollbackError } = await supabase.from('rooms').update({ pms_metadata: previousMetadata } as any)
+          .eq('id', room.id).in('hotel', HOTEL_KEYS);
+        if (rollbackError) console.error('[Gozsdu] metadata rollback failed', rollbackError);
+        for (const previous of assignmentTypes) {
+          const { error: typeError } = await supabase.from('room_assignments')
+            .update({ assignment_type: previous.assignment_type } as any).eq('id', previous.id);
+          if (typeError) console.error('[Gozsdu] assignment rollback failed', typeError);
+        }
+        window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+      }
+      if (isAssignmentInProgressError(error)) toast.warning('Cleaning has already started; assignment cannot be changed.');
+      else toast.error(error instanceof Error ? error.message : 'Could not save the cleaning assignment.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const serviceLabel = bucket === 'checkout' ? 'Checkout'
+    : bucket === 'daily' ? 'Daily stayover cleaning'
+      : bucket === 'service' ? service === 'change_room' ? 'Second-day · complete textile change' : 'Second-day · towel change'
+      : 'Other rooms';
+
+  return (
+    <>
+      <div onClickCapture={onChipClick} onDragOverCapture={onDragOver} onDropCapture={onDrop}
+        onDragEndCapture={() => { lastDragEnded.current = Date.now(); setDropZone(null); }}>
+        {canEdit && <div className="mb-2 space-y-2 rounded-lg border border-primary/30 bg-muted/30 p-2" aria-label={t('gozsdu.assignmentControlsAria')}>
+          <p className="text-xs text-muted-foreground">{t('gozsdu.assignmentControlsHelp')}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {SECTION_BUCKETS.map(section => <div key={section}
+              onDragOver={event => { if (Array.from(event.dataTransfer.types).some(type => type.toLowerCase() === 'roomid')) { event.preventDefault(); setDropZone(section); } }}
+              onDrop={event => { const payload = readRoomDragPayload(event); if (!payload) return; event.preventDefault(); event.stopPropagation(); setDropZone(null); void moveRoomOnDrop(payload.roomId, section); }}
+              className={`rounded-md border border-dashed px-2 py-1.5 text-xs font-medium transition-colors ${dropZone === section ? 'border-primary bg-primary/15 ring-2 ring-primary' : 'border-border bg-background'}`}>
+              {t('gozsdu.dropRoomHere')} → {sectionTitle(section)}
+            </div>)}
+          </div>
+          {availableStaff.length > 0 && <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">{t('gozsdu.assignTo')}</span>
+            {availableStaff.map(([id, name]) => <div key={id}
+              onDragOver={event => { if (Array.from(event.dataTransfer.types).some(type => type.toLowerCase() === 'roomid')) { event.preventDefault(); setDropZone(id); } }}
+              onDrop={event => { const payload = readRoomDragPayload(event); if (!payload) return; event.preventDefault(); event.stopPropagation(); setDropZone(null); void openRoom(payload.roomId, null, id); }}
+              className={`rounded-full border px-2 py-1 text-xs ${dropZone === id ? 'border-primary bg-primary/15 ring-2 ring-primary' : 'bg-background'}`}
+              title={`${t('gozsdu.assignTo')} ${name}`}>{name}</div>)}
+          </div>}
+        </div>}
+        <GozsduCourtRoomOverview {...props} />
+      </div>
+      <Dialog open={open} onOpenChange={next => { if (!next) requestId.current++; setOpen(next); }}>
+        <DialogContent className="flex max-h-[94dvh] w-[calc(100vw-1.25rem)] max-w-3xl flex-col overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-slate-50 via-white to-sky-50 px-4 py-4 sm:px-5">
+            <DialogTitle>{t('gozsdu.roomDialogTitle')} {label} · Gozsdu Court Budapest</DialogTitle>
+            <p className="text-xs text-muted-foreground">{props.selectedDate}</p>
+          </DialogHeader>
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
+            {loading ? <p className="text-sm text-muted-foreground">{t('gozsdu.loadingRoomDetails')}</p> : room ? (
+              <>
+                <section className="space-y-4 rounded-xl border border-primary/20 bg-muted/20 p-3 sm:p-4" aria-label={t('gozsdu.cleaningPlan')}>
+                  <div>
+                    <h3 className="font-semibold">{t('gozsdu.cleaningPlan')}</h3>
+                    <p className="text-xs text-muted-foreground">{t('gozsdu.roomStatus')}: {roomStatusLabel(room.status)} · {t('gozsdu.currentlyAssigned')}: {currentStaff ? props.staffMap[currentStaff] || t('gozsdu.assignedHousekeeper') : t('gozsdu.unassigned')}</p>
+                  </div>
+                  {locked && <p role="alert" className="rounded border border-amber-400 bg-amber-50 p-2 text-xs text-amber-900">{t('gozsdu.cleaningLocked')}</p>}
+                  {canEdit && !locked ? <>
+                    <label className="block space-y-1 text-sm font-medium">{t('gozsdu.cleaningSection')}
+                      <Select value={bucket} onValueChange={value => setBucket(value as GozsduRoomBucket)}>
+                        <SelectTrigger><SelectValue placeholder={t('gozsdu.chooseCleaningSection')} /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="checkout">{t('gozsdu.checkoutCleaning')}</SelectItem>
+                          <SelectItem value="daily">Daily stayover cleaning</SelectItem>
+                          <SelectItem value="service">{t('gozsdu.secondDayCleaning')}</SelectItem>
+                          <SelectItem value="other">{t('gozsdu.otherNoService')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </label>
+                    {bucket === 'service' && <label className="block space-y-1 text-sm font-medium">{t('gozsdu.cleaningRequired')}
+                      <Select value={service} onValueChange={value => setService(value as Service)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="towel_change">{t('gozsdu.towelChange')}</SelectItem>
+                          <SelectItem value="change_room">{t('gozsdu.fullTextileChange')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </label>}
+                    <label className="block space-y-1 text-sm font-medium">{t('gozsdu.assignHousekeeper')}
+                      <Select value={staffId} onValueChange={setStaffId}>
+                        <SelectTrigger><SelectValue placeholder={t('gozsdu.chooseHousekeeper')} /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="keep">{currentStaff ? t('gozsdu.keepExistingHousekeeper') : t('gozsdu.doNotAssignYet')}</SelectItem>
+                          {availableStaff.map(([id, name]) => <SelectItem key={id} value={id}>{name}{props.signedInHousekeepers?.some(person => person.id === id) ? ` · ${t('gozsdu.signedIn')}` : ''}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </label>
+                    <label className="block space-y-1 text-sm font-medium">{t('gozsdu.reasonOptional')}
+                      <Input value={reason} onChange={event => setReason(event.target.value)} maxLength={200} placeholder={t('gozsdu.reasonPlaceholder')} />
+                    </label>
+                    <p className="text-xs text-muted-foreground">{t('gozsdu.planScopeHint')}</p>
+                    <Button className="w-full" disabled={saving || !bucket || (bucket === 'other' && staffId !== 'keep')}
+                      onClick={() => void save()}>{saving ? t('gozsdu.saving') : staffId === 'keep' ? t('gozsdu.saveCleaningSection') : t('gozsdu.saveAssignRoom')}</Button>
+                  </> : <p className="text-xs text-muted-foreground">{t('gozsdu.managerOnlyHint')}</p>}
+                </section>
+                {hasManagerPowers(profile?.role) && (
+                  <RoomAssignmentHistory hotel={GOZSDU_COURT_HOTEL_ID} roomId={room.id}
+                    roomNumber={label} selectedDate={props.selectedDate} />
+                )}
+                <GozsduRoomEssentials key={`${room.id}:${props.selectedDate}`} roomId={room.id}
+                  roomLabel={label} selectedDate={props.selectedDate} serviceLabel={serviceLabel}
+                  staffMap={props.staffMap} onChanged={() => { if (room?.id) void openRoom(room.id); }} />
+                <Button variant="outline" className="w-full" onClick={() => { setOpen(false); setDetailsOpen(true); }}>{t('gozsdu.openFullRoomDetails')}</Button>
+              </>
+            ) : <p className="text-sm text-muted-foreground">{t('gozsdu.roomUnavailable')}</p>}
+          </div>
+        </DialogContent>
+      </Dialog>
+      <RoomDetailDialog
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        room={room ? {
+          id: room.id, room_number: room.room_number, room_name: room.room_name || undefined,
+          hotel: room.hotel || GOZSDU_COURT_HOTEL_NAME, status: room.status || 'dirty',
+          room_type: room.room_type || undefined, floor_number: room.floor_number ?? undefined,
+          notes: room.notes || undefined, last_cleaned_at: room.last_cleaned_at || undefined,
+          last_cleaned_by: room.last_cleaned_by || undefined, room_size_sqm: room.room_size_sqm ?? undefined,
+        } : null}
+        onRoomUpdated={() => window.dispatchEvent(new CustomEvent('hk-assignments-changed'))}
+      />
+    </>
+  );
+}

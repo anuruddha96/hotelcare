@@ -8,6 +8,11 @@ const FLAGS = {
   ROOM_CLEANING: '[ROOM_CLEANING]',
 } as const;
 
+// Historical Room Notes Planner shadows briefly used this implementation
+// marker inside rooms.notes. It is not operational information and must never
+// be shown to managers or housekeepers, even from stale/cached room data.
+const HOTELCARE_PLANNED_LABEL = /\[HotelCare planned\]\s*/gi;
+
 export interface RoomServiceFlags {
   collectExtraTowels: boolean;
   roomCleaning: boolean;
@@ -29,7 +34,7 @@ export function parseRoomFlags(notes: string | null): RoomServiceFlags {
   Object.values(FLAGS).forEach(flag => {
     cleanNotes = cleanNotes.replace(flag, '');
   });
-  cleanNotes = cleanNotes.trim();
+  cleanNotes = cleanNotes.replace(HOTELCARE_PLANNED_LABEL, '').trim();
 
   return { collectExtraTowels, roomCleaning, cleanNotes };
 }

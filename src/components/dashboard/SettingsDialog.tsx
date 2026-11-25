@@ -17,6 +17,9 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
 import { useTranslation } from '@/hooks/useTranslation';
 import { BrowserLocationHelpDialog } from './BrowserLocationHelpDialog';
+import { ensurePushSubscription } from '@/lib/pushSubscriptionManager';
+import { getNotificationEnvironment } from '@/lib/notificationPlatform';
+import { NotificationSetupHelp } from './NotificationSetupHelp';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -29,9 +32,14 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
   const { profile } = useAuth();
   const { t } = useTranslation();
   const { requestNotificationPermission, notificationPermission, playNotificationSound, ensureAudioUnlocked } = useNotifications();
-  const { preferences, updatePreferences, clearBannerDismissal } = useNotificationPreferences();
+  const { preferences, updatePreferences, dismissBanner } = useNotificationPreferences();
+  const device = getNotificationEnvironment();
   const [isLoading, setIsLoading] = useState(false);
   const [isTogglingNotifications, setIsTogglingNotifications] = useState(false);
+  const [pushStatus, setPushStatus] = useState<'checking' | 'ready' | 'disabled' | 'error'>('checking');
+  const [pushStatusError, setPushStatusError] = useState('');
+  const [isRepairingPush, setIsRepairingPush] = useState(false);
+  const [isTestingPush, setIsTestingPush] = useState(false);
   const [activeTab, setActiveTab] = useState<string>(initialTab || 'account');
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -150,6 +158,54 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
     }
   };
 
+  // Check the current device, not just the account-wide permission toggle.
+  // A user's iPhone may have permission but no active Apple Push endpoint.
+  useEffect(() => {
+    if (!open || activeTab !== 'notifications') return;
+    if (!preferences.browser_notifications_enabled || notificationPermission !== 'granted' || !device.canRequest) {
+      setPushStatus('disabled');
+      return;
+    }
+    let cancelled = false;
+    setPushStatus('checking');
+    void ensurePushSubscription().then((subscription) => {
+      if (cancelled) return;
+      setPushStatus(subscription ? 'ready' : 'error');
+      if (!subscription) setPushStatusError('No active Web Push subscription on this device.');
+    }).catch((error) => {
+      if (cancelled) return;
+      setPushStatus('error');
+      setPushStatusError(error instanceof Error ? error.message : 'Could not register this device.');
+    });
+    return () => { cancelled = true; };
+  }, [open, activeTab, preferences.browser_notifications_enabled, notificationPermission, device.canRequest]);
+
+  const handleRepairPush = async () => {
+    setIsRepairingPush(true);
+    try {
+      if (notificationPermission !== 'granted') {
+        toast.error(t('notificationSetup.failed'));
+        return;
+      }
+      if (!preferences.browser_notifications_enabled) {
+        const enabled = await updatePreferences({ browser_notifications_enabled: true });
+        if (!enabled) throw new Error('Could not enable Web Push for this account.');
+      }
+      const subscription = await ensurePushSubscription({ forceRenew: true });
+      if (!subscription) throw new Error('The phone did not create a push subscription.');
+      setPushStatus('ready');
+      setPushStatusError('');
+      dismissBanner();
+      toast.success('This device was registered again. Send a test push to verify delivery.');
+    } catch (error) {
+      setPushStatus('error');
+      setPushStatusError(error instanceof Error ? error.message : 'Device registration failed');
+      toast.error('Unable to repair this device. See the notification status below.');
+    } finally {
+      setIsRepairingPush(false);
+    }
+  };
+
   const handleToggleBrowserNotifications = async (enabled: boolean) => {
     setIsTogglingNotifications(true);
     try {
@@ -157,17 +213,33 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
       ensureAudioUnlocked();
 
       if (enabled) {
+        if (!device.canRequest || notificationPermission === 'denied') {
+          toast.info(t(device.needsInstall ? 'notificationSetup.iosBrowser' : 'notificationSetup.failed'));
+          return;
+        }
         // Request permission first
         const granted = await requestNotificationPermission();
         if (granted) {
-          await updatePreferences({ browser_notifications_enabled: true });
-          clearBannerDismissal(); // Clear any previous dismissal
-          toast.success(t('notifications.enabled'));
+          const registered = await updatePreferences({ browser_notifications_enabled: true });
+          if (!registered) {
+            setPushStatus('error');
+            setPushStatusError(t('notificationSetup.failed'));
+            toast.error('Permission granted, but background push registration failed.');
+          } else {
+            setPushStatus('ready');
+            setPushStatusError('');
+            dismissBanner();
+            toast.success('Device registered for HotelCare push notifications.');
+          }
         } else {
-          toast.error(t('notifications.permissionDenied'));
+          setPushStatus('error');
+          setPushStatusError(t('notificationSetup.failed'));
+          toast.error('HotelCare could not enable background push on this device.');
         }
       } else {
-        await updatePreferences({ browser_notifications_enabled: false });
+        const disabled = await updatePreferences({ browser_notifications_enabled: false });
+        if (!disabled) throw new Error('Could not disable HotelCare notifications');
+        setPushStatus('disabled');
         toast.info(t('notifications.disabled'));
       }
     } catch (error) {
@@ -185,22 +257,32 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
     }
   };
 
-  const handleTestNotification = () => {
-    playNotificationSound();
-    toast.success(t('notifications.testSuccess'), {
-      duration: 3000
-    });
-
-    // Also try browser notification if enabled
-    if (notificationPermission === 'granted' && preferences.browser_notifications_enabled) {
-      try {
-        new Notification(t('notifications.testTitle'), {
-          body: t('notifications.testBody'),
-          icon: '/favicon.ico'
-        });
-      } catch (error) {
-        console.log('Browser notification test failed:', error);
+  const handleTestNotification = async () => {
+    if (isTestingPush) return;
+    setIsTestingPush(true);
+    try {
+      if (!preferences.browser_notifications_enabled || notificationPermission !== 'granted') {
+        throw new Error('Enable notifications first.');
       }
+      const subscription = await ensurePushSubscription();
+      if (!subscription) throw new Error('This device has no registered Web Push endpoint.');
+      const { data, error } = await (supabase as any).rpc('hotelcare_test_my_push');
+      if (error) throw error;
+      if (!data?.ok) {
+        const issue = data?.reason === 'rate_limited' ? 'Please wait 60 seconds before testing again.'
+          : data?.reason === 'no_registered_device' ? 'No registered device found. Use Repair Device.'
+          : data?.reason === 'notifications_disabled' ? 'Enable notifications in Settings.'
+          : 'Push server could not queue the test. Please retry.';
+        throw new Error(issue);
+      }
+      playNotificationSound();
+      toast.success('Test push queued to your devices. Check your device’s notification center.', { duration: 7000 });
+    } catch (error) {
+      // A rate limit, network error, or server queue failure does not revoke
+      // this device's registered subscription. Keep device health separate.
+      toast.error(error instanceof Error ? error.message : 'Push test failed');
+    } finally {
+      setIsTestingPush(false);
     }
   };
 
@@ -297,6 +379,14 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                <NotificationSetupHelp permission={notificationPermission} />
+                {device.canRequest && notificationPermission !== 'denied'
+                  && (notificationPermission !== 'granted' || !preferences.browser_notifications_enabled) && (
+                  <Button type="button" className="h-auto min-h-11 w-full whitespace-normal py-2"
+                    disabled={isTogglingNotifications} onClick={() => void handleToggleBrowserNotifications(true)}>
+                    {isTogglingNotifications ? t('notificationSetup.enabling') : t('notificationSetup.enable')}
+                  </Button>
+                )}
                 {/* Browser Notifications Toggle */}
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
@@ -313,7 +403,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
                   <Switch
                     checked={preferences.browser_notifications_enabled && notificationPermission === 'granted'}
                     onCheckedChange={handleToggleBrowserNotifications}
-                    disabled={isTogglingNotifications || notificationPermission === 'denied'}
+                    disabled={isTogglingNotifications || notificationPermission === 'denied' || !device.canRequest}
                   />
                 </div>
 
@@ -334,16 +424,36 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
                   />
                 </div>
 
-                {/* Test Notification Button */}
-                <div className="pt-4 border-t">
-                  <Button
-                    variant="outline"
-                    onClick={handleTestNotification}
-                    className="w-full"
-                  >
-                    <Bell className="h-4 w-4 mr-2" />
-                    {t('notifications.sendTest')}
+                {/* Device-specific registration health. A granted permission
+                    alone is NOT proof this iPhone is registered for Web Push. */}
+                <div className="rounded-lg border p-3 space-y-2 text-sm">
+                  <p className="font-medium">Push notifications on this device</p>
+                  <p className={pushStatus === 'ready' ? 'text-green-700 dark:text-green-400' : pushStatus === 'error' ? 'text-destructive' : 'text-muted-foreground'}>
+                    {pushStatus === 'checking' ? 'Checking this device’s subscription…'
+                      : pushStatus === 'ready' ? 'Device registered with HotelCare push service'
+                      : pushStatus === 'disabled' ? 'Notifications are not enabled on this device'
+                      : 'Device is not ready for push notifications'}
+                  </p>
+                  {pushStatus === 'error' && <p className="text-xs text-destructive">{pushStatusError}</p>}
+                  <Button type="button" variant="outline" size="sm"
+                    disabled={isRepairingPush || notificationPermission !== 'granted' || !device.canRequest}
+                    onClick={handleRepairPush}
+                    className="w-full">
+                    {isRepairingPush ? 'Repairing…' : 'Repair / re-register this device'}
                   </Button>
+                </div>
+
+                {/* Real server-to-device push; unlike new Notification(), this
+                    tests the same APNs delivery path used when the app is closed. */}
+                <div className="pt-4 border-t space-y-2">
+                  <Button variant="outline" onClick={handleTestNotification}
+                    disabled={isTestingPush || pushStatus !== 'ready'} className="w-full">
+                    <Bell className="h-4 w-4 mr-2" />
+                    {isTestingPush ? 'Sending…' : 'Send real push test'}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    The test is sent only to your own registered devices. A successful request means the test was queued. Check your device to confirm delivery.
+                  </p>
                 </div>
               </CardContent>
             </Card>

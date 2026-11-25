@@ -1,0 +1,65 @@
+/*
+ * Hotel Memories Budapest only: the "C/O+1 / Departs tomorrow" hint is not
+ * operationally useful on this room board. Keep the underlying PMS departure
+ * metadata untouched and suppress only its room-chip and legend presentation.
+ */
+.hotel-memories-room-overview span[title="Guest departs tomorrow — plan checkout cleaning"] {
+  display: none !important;
+}
+
+.hotel-memories-room-overview .cursor-help:has(> span.bg-indigo-600) {
+  display: none !important;
+}
+
+/*
+ * Housekeeping history needs exception states to remain visually dominant even
+ * when the saved final room status is clean. A room that had DND or No Service
+ * during the business day should not look like an ordinary green completed room.
+ *
+ * These rules intentionally key off the room-board state markers already
+ * rendered by both the live and saved-history boards. That keeps the visual
+ * language consistent without changing the underlying saved status.
+ */
+#hotel-room-overview .ring-purple-500 {
+  --tw-ring-color: rgb(220 38 38) !important;
+}
+
+#hotel-room-overview .relative.ring-purple-500 {
+  background-color: rgb(254 202 202) !important;
+  border-color: rgb(220 38 38) !important;
+  color: rgb(127 29 29) !important;
+}
+
+/*
+ * The saved historical board already keeps the DND event as a sticky flag, but
+ * previously only showed the red emphasis + stop icon. Add the explicit DND
+ * text badge so a past day reads the same way as the current-day board.
+ * `transition-all` is present on the live interactive room chip and absent on
+ * the saved-history chip, preventing a duplicate DND badge on today's board.
+ */
+#hotel-room-overview .relative.ring-purple-500:not(.transition-all)::after {
+  content: 'DND';
+  display: inline-block;
+  margin-left: 0.125rem;
+  padding: 0 0.125rem;
+  border-radius: 0.125rem;
+  background-color: rgb(220 38 38);
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.1;
+  vertical-align: baseline;
+}
+
+/* No Service gets a darker rose treatment so it is distinguishable from DND. */
+#hotel-room-overview .relative:has(> span.bg-gray-500) {
+  background-color: rgb(253 164 175) !important;
+  border-color: rgb(190 18 60) !important;
+  color: rgb(76 5 25) !important;
+  box-shadow: 0 0 0 2px rgb(190 18 60 / 0.22) !important;
+}
+
+#hotel-room-overview span.bg-gray-500 {
+  background-color: rgb(159 18 57) !important;
+  color: white !important;
+}

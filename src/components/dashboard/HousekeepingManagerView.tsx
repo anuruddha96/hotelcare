@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { SlntTeamPoolSummary } from './SlntTeamPoolSummary';
+import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -19,21 +21,25 @@ import { DoneRoomsDialog } from './DoneRoomsDialog';
 import { EarlySignoutApprovalView } from './EarlySignoutApprovalView';
 import { AutoRoomAssignment } from './AutoRoomAssignment';
 import { HotelRoomOverview } from './HotelRoomOverview';
+import { FutureHousekeepingOverview } from './FutureHousekeepingOverview';
 import { PublicAreaAssignment } from './PublicAreaAssignment';
 import { AssignmentSuccessAnimation } from './AssignmentSuccessAnimation';
 import { PmsRefreshButton } from './PmsRefreshButton';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { resolveCanonicalHotelId, resolveHotelKeys } from '@/lib/hotelKeys';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { venueEdgeStyle } from '@/lib/venueColors';
 import { addDays } from 'date-fns';
-import { todayBudapest } from '@/lib/budapestTime';
+import { todayBudapest, rollForwardSelectedBusinessDate } from '@/lib/budapestTime';
 import { useVenues } from '@/hooks/useVenues';
+import { getSlntRosterNotice, slntRosterAllowsManualAssignment, type SlntRosterNotice } from '@/lib/slntRosterNotice';
 import {
   initStagedScope,
   stageMove,
@@ -145,18 +151,25 @@ interface HousekeepingManagerViewProps {
 
 export function HousekeepingManagerView({ onActiveInnerTabChange }: HousekeepingManagerViewProps = {}) {
   const { user, profile } = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const hu = language === 'hu';
   const terms = usePropertyTerms();
-  const { venuesEnabled } = useTenantFeatures();
+  const { venuesEnabled, orgSlug } = useTenantFeatures();
+  const activeOrganizationSlug = orgSlug || profile?.organization_slug || null;
+  const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes((activeOrganizationSlug || '').toLowerCase());
+  const slntPoolMode = useSlntSimplifiedHousekeeping() === true && isSlntTenant;
   const { venueName } = useVenues();
   // Managers/supervisors may move work between housekeepers by drag & drop.
   const canDragAssign = !!profile?.role && ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'supervisor'].includes(profile.role);
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayBudapest());
+  const isFutureDate = selectedDate > todayBudapest();
+  const previousBusinessDateRef = useRef(todayBudapest());
   const [loading, setLoading] = useState(true);
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
   const [autoAssignDialogOpen, setAutoAssignDialogOpen] = useState(false);
+  const [includeCleanRoomMode, setIncludeCleanRoomMode] = useState(false);
   const [publicAreaDialogOpen, setPublicAreaDialogOpen] = useState(false);
   const [bulkUnassignMode, setBulkUnassignMode] = useState(false);
   const [selectedAssignments, setSelectedAssignments] = useState<string[]>([]);
@@ -174,22 +187,60 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [doneRoomsDialogOpen, setDoneRoomsDialogOpen] = useState(false);
   const [staffAttendance, setStaffAttendance] = useState<Record<string, any>>({});
   const [staffSchedules, setStaffSchedules] = useState<Record<string, ScheduledShift>>({});
+  const [slntRosterNotice, setSlntRosterNotice] = useState<SlntRosterNotice | null>(null);
+  const [slntVerifiedKey, setSlntVerifiedKey] = useState<string | null>(null);
+  const scheduleRequestId = useRef(0);
+  const slntRosterReady = slntPoolMode || !isSlntTenant || slntRosterAllowsManualAssignment(slntVerifiedKey === `${profile?.assigned_hotel}|${selectedDate}`, slntRosterNotice);
+  const openSlntStaffSchedule = () => {
+    if (!profile?.assigned_hotel) return;
+    window.dispatchEvent(new CustomEvent('hotelcare:open-slnt-staff-schedule', {
+      detail: { hotel: profile.assigned_hotel, date: selectedDate },
+    }));
+  };
   const [selectedStaff, setSelectedStaff] = useState<{ id: string; name: string } | null>(null);
   const [managerHotelName, setManagerHotelName] = useState<string>('');
   const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
   const [successAnimation, setSuccessAnimation] = useState<{ show: boolean; roomCount: number; staffCount: number }>({ show: false, roomCount: 0, staffCount: 0 });
 
   // Staged (unsaved) drag & drop moves — no dialog per move, one blanket apply.
-  const stagedEnabled = venuesEnabled && canDragAssign;
+  const stagedEnabled = venuesEnabled && canDragAssign && !isFutureDate;
   const { moves: stagedMoves, restored: stagedRestored } = useStagedMoves();
   const [applying, setApplying] = useState(false);
+
+  // An open Team View must move to the new Budapest workday without
+  // changing a deliberately selected date or losing unsaved assignments.
+  useEffect(() => {
+    const checkBusinessDay = () => {
+      const current = todayBudapest();
+      const previous = previousBusinessDateRef.current;
+      if (current === previous) return;
+      previousBusinessDateRef.current = current;
+      const next = rollForwardSelectedBusinessDate(
+        selectedDate, previous, current, stagedMoves.length > 0,
+      );
+      if (next !== selectedDate) setSelectedDate(next);
+      else if (selectedDate === previous && stagedMoves.length > 0) {
+        toast.warning("A new Budapest workday started. Save or discard your unsaved room moves before switching dates.");
+      }
+    };
+    const timer = window.setInterval(checkBusinessDay, 30_000);
+    window.addEventListener("focus", checkBusinessDay);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", checkBusinessDay);
+    };
+  }, [selectedDate, stagedMoves.length]);
 
   // Tap-to-assign: units picked on the board above are staged onto whichever
   // housekeeper the manager taps in the sticky bar (works on touch and mouse).
   const selectedUnits = useUnitSelection();
   const assignSelectionTo = (staff: { id: string; full_name: string } | null) => {
     if (selectedUnits.length === 0) return;
-    if (staff && venuesEnabled) {
+    if (staff && !slntRosterReady) {
+      toast.error(slntRosterNotice?.message ?? 'Checking the published SLNT roster. Please wait.');
+      return;
+    }
+    if (staff && venuesEnabled && !slntPoolMode && slntRosterNotice?.kind !== 'missing') {
       const shift = staffSchedules[staff.id];
       const allowedVenues = new Set(shift?.staff_schedule_venues?.map((row) => row.venue_id) ?? []);
       const selectedVenueIds = selectedUnits.map((unit) => roomAssignments.find((room) => room.room_id === unit.roomId)?.venue_id).filter(Boolean) as string[];
@@ -246,6 +297,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     setDragActive(false);
     const payload = readRoomDragPayload(e);
     if (!payload) return;
+    if (!slntRosterReady) { toast.error(slntRosterNotice?.message ?? 'Checking the published SLNT roster. Please wait.'); return; }
     if (payload.bulk && payload.bulk.length > 0 && stagedEnabled) {
       let staged = 0;
       payload.bulk.forEach(item => {
@@ -312,6 +364,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const applyStagedMoves = async () => {
     if (!user?.id || stagedMoves.length === 0) return;
+    if (!slntRosterReady) { toast.error(slntRosterNotice?.message ?? 'Checking the published SLNT roster. Please wait.'); return; }
     setApplying(true);
     const applied: string[] = [];
     const failed: string[] = [];
@@ -323,8 +376,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
             staffId: move.toStaffId,
             assignmentDate: selectedDate,
             assignedBy: user.id,
-            organizationSlug: profile?.organization_slug ?? null,
+            organizationSlug: activeOrganizationSlug,
             isCheckoutRoom: move.sourceType === 'checkout',
+            preventOutOfOrder: isSlntTenant,
           });
         } else {
           await unassignRoom(move.roomId, selectedDate);
@@ -350,7 +404,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     fetchStaffAttendance();
     fetchStaffSchedules();
     fetchManagerHotelName();
-  }, [selectedDate, profile?.assigned_hotel]);
+  }, [selectedDate, profile?.assigned_hotel, venuesEnabled]);
 
   // Keep the cards in sync when the unit board unassigns something.
   useEffect(() => {
@@ -384,11 +438,23 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   }, [stagedEnabled]);
 
 
-  // Real-time subscriptions for live updates
+  // Real-time subscriptions for live updates. A full PMS/housekeeping
+  // reconciliation may mutate dozens of assignments in one burst. Refresh the
+  // manager summaries once per burst instead of twice for every changed row.
   useEffect(() => {
+    let assignmentRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleAssignmentRefresh = () => {
+      if (assignmentRefreshTimer) window.clearTimeout(assignmentRefreshTimer);
+      assignmentRefreshTimer = setTimeout(() => {
+        assignmentRefreshTimer = null;
+        console.log('Assignment changes settled, refreshing manager data');
+        void Promise.all([fetchTeamAssignments(), fetchRoomAssignments()]);
+      }, 650);
+    };
+
     // Subscribe to profile changes (new housekeeping staff)
     const profilesChannel = supabase
-      .channel('profiles-changes')
+      .channel(`profiles-changes-${selectedDate}`)
       .on(
         'postgres_changes',
         {
@@ -399,32 +465,29 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         },
         () => {
           console.log('Profile change detected, refreshing staff list');
-          fetchHousekeepingStaff();
+          void fetchHousekeepingStaff();
         }
       )
       .subscribe();
 
-    // Subscribe to room assignment changes
+    // Only today's/selected day's assignment mutations matter to this view.
     const assignmentsChannel = supabase
-      .channel('assignments-changes')
+      .channel(`assignments-changes-${selectedDate}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'room_assignments'
+          table: 'room_assignments',
+          filter: `assignment_date=eq.${selectedDate}`
         },
-        () => {
-          console.log('Assignment change detected, refreshing data');
-          fetchTeamAssignments();
-          fetchRoomAssignments();
-        }
+        scheduleAssignmentRefresh
       )
       .subscribe();
 
     // Subscribe to staff attendance changes (for break status)
     const attendanceChannel = supabase
-      .channel('attendance-changes')
+      .channel(`attendance-changes-${selectedDate}`)
       .on(
         'postgres_changes',
         {
@@ -435,15 +498,16 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         },
         () => {
           console.log('Attendance change detected, refreshing attendance data');
-          fetchStaffAttendance();
+          void fetchStaffAttendance();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(profilesChannel);
-      supabase.removeChannel(assignmentsChannel);
-      supabase.removeChannel(attendanceChannel);
+      if (assignmentRefreshTimer) window.clearTimeout(assignmentRefreshTimer);
+      void supabase.removeChannel(profilesChannel);
+      void supabase.removeChannel(assignmentsChannel);
+      void supabase.removeChannel(attendanceChannel);
     };
   }, [selectedDate]);
 
@@ -535,7 +599,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
       const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('room_assignments')
-        .select('assigned_to, status, room_id')
+        .select('id, assigned_to, status, room_id, created_at')
         .eq('assignment_date', selectedDate);
 
       if (assignmentsError) throw assignmentsError;
@@ -555,7 +619,23 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         ? (assignmentsData || []).filter((a: any) => roomMap.has(a.room_id))
         : (assignmentsData || []);
 
-      const summaryMap = new Map<string, TeamAssignment>();
+      // Count only the latest room assignment for Hotel Memories. A supervisor
+      // recheck creates a fresh row and preserves the earlier completed one
+      // for approval history; it must not inflate Done/Working/room counts.
+      const memoriesCurrent = selectCurrentHousekeepingAssignments(
+        filteredData.filter(row => isHotelMemoriesBudapest(roomMap.get(row.room_id)?.hotel)),
+      );
+      const currentData = filteredData.filter(row =>
+        !isHotelMemoriesBudapest(roomMap.get(row.room_id)?.hotel)
+        || memoriesCurrent.get(row.room_id)?.id === row.id,
+      );
+
+      // SLNT individual cleaner cards only track rooms that cleaning has
+      // actually started. Unstarted tasks remain on the Team B card.
+      const activeCurrentData = slntPoolMode
+        ? currentData.filter(a => ['in_progress','completed','dnd_pending_retry'].includes(a.status))
+        : currentData;
+            const summaryMap = new Map<string, TeamAssignment>();
 
       // Initialize all staff with zero counts so cards always show
       housekeepingStaff.forEach(staff => {
@@ -571,7 +651,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
       });
 
-      filteredData.forEach((row: any) => {
+      activeCurrentData.forEach((row: any) => {
         const staffId = row.assigned_to as string;
         let summary = summaryMap.get(staffId);
         if (!summary) {
@@ -617,6 +697,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           room_id,
           assigned_to,
           status,
+          created_at,
           rooms!inner(room_number, hotel, venue_id)
         `)
         .eq('assignment_date', selectedDate);
@@ -627,7 +708,14 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         ? (data || []).filter((item: any) => item.rooms?.hotel && hotelKeys.includes(item.rooms.hotel))
         : (data || []);
 
-      const assignments = filteredData.map((item: any) => ({
+      const currentMemories = selectCurrentHousekeepingAssignments(
+        filteredData.filter((item: any) => isHotelMemoriesBudapest(item.rooms?.hotel)),
+      );
+      const assignments = filteredData.filter((item: any) =>
+        (!isHotelMemoriesBudapest(item.rooms?.hotel)
+          || currentMemories.get(item.room_id)?.id === item.id)
+        && (!slntPoolMode || ['in_progress','completed','dnd_pending_retry'].includes(item.status)),
+      ).map((item: any) => ({
         id: item.id,
         room_id: item.room_id,
         assigned_to: item.assigned_to,
@@ -664,10 +752,79 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   };
 
   const fetchStaffSchedules = async () => {
-    if (!venuesEnabled || !profile?.assigned_hotel) { setStaffSchedules({}); return; }
+    const requestId = ++scheduleRequestId.current;
+    if (!venuesEnabled || !profile?.assigned_hotel) {
+      setStaffSchedules({});
+      setSlntVerifiedKey(null);
+      setSlntRosterNotice(isSlntTenant ? {
+        kind: 'setup',
+        message: 'Select an SLNT property with venue scheduling enabled to load its published roster.',
+        action: 'retry',
+      } : null);
+      return;
+    }
+    if (slntPoolMode) {
+      // Team B uses virtual default-working availability, not published shifts.
+      // A missing roster is normal and must never disable today's property view.
+      setStaffSchedules({});
+      setSlntRosterNotice(null);
+      setSlntVerifiedKey(`${profile.assigned_hotel}|${selectedDate}`);
+      return;
+    }
+    if (isSlntTenant) {
+      // Only a successful published-roster RPC can establish that no shifts exist.
+      // Failed RPCs (including a missing migration) must never be called "no roster".
+      setStaffSchedules({});
+      setSlntVerifiedKey(null);
+      setSlntRosterNotice(null);
+      try {
+        const hotelId = await resolveCanonicalHotelId(profile.assigned_hotel);
+        if (!hotelId) {
+          if (requestId === scheduleRequestId.current) {
+            setSlntRosterNotice({
+              kind: 'setup', message: 'The selected SLNT hotel could not be resolved. Ask your HotelCare administrator to check its configuration.',
+              action: 'retry',
+            });
+          }
+          return;
+        }
+        const { data, error } = await (supabase as any).rpc('slnt_housekeeping_published_roster', {
+          _hotel: hotelId, _day: selectedDate,
+        });
+        if (error) throw error;
+        if (requestId !== scheduleRequestId.current) return;
+        const rows = data ?? [];
+        const published: Record<string, ScheduledShift> = {};
+        for (const row of rows) {
+          published[row.user_id] = {
+            status: 'published', shift_start: row.shift_start, shift_end: row.shift_end,
+            staff_schedule_venues: (row.venue_ids ?? []).map((id: string) => ({ venue_id: id })),
+          };
+        }
+        setStaffSchedules(published);
+        setSlntRosterNotice(getSlntRosterNotice(rows.length, selectedDate));
+        // A successful RPC verifies the roster state even when it is empty.
+        // Empty is a valid SLNT operating mode: manual room assignment stays available.
+        setSlntVerifiedKey(`${profile.assigned_hotel}|${selectedDate}`);
+      } catch (cause) {
+        if (requestId !== scheduleRequestId.current) return;
+        console.error('[SLNT HK roster] failed verification', cause);
+        setStaffSchedules({});
+        setSlntVerifiedKey(null);
+        const error = cause as { code?: string; message?: string };
+        setSlntRosterNotice(getSlntRosterNotice(0, selectedDate, {
+          code: error?.code, message: error?.message,
+        }));
+      }
+      return;
+    }
+    // Existing RD and other tenant schedule behaviour remains unchanged.
+    setSlntRosterNotice(null);
+    setSlntVerifiedKey(null);
     const { data } = await (supabase as any).from('staff_schedules')
       .select('user_id,status,shift_start,shift_end,staff_schedule_venues(venue_id)')
       .eq('hotel_id', profile.assigned_hotel).eq('work_date', selectedDate).in('status', ['published', 'off']);
+    if (requestId !== scheduleRequestId.current) return;
     const scheduleMap: Record<string, ScheduledShift> = {};
     for (const row of data ?? []) scheduleMap[row.user_id] = row as ScheduledShift;
     setStaffSchedules(scheduleMap);
@@ -749,7 +906,8 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       const sub = detail.subTab;
-      if (sub === 'team' || sub === 'early-signout') setInnerTab(sub);
+      if (sub === 'manage' || sub === 'team') setInnerTab('team');
+      else if (sub === 'early-signout') setInnerTab(sub);
     };
     window.addEventListener('tour:navigate', handler);
     window.addEventListener('training-navigate', handler);
@@ -769,7 +927,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   return (
     <>
     <Tabs value={innerTab} onValueChange={(val) => { setInnerTab(val); onActiveInnerTabChange?.(val); }} className="space-y-6">
-      {!isReception && (
+      {!isReception && !isSlntTenant && (
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="team" className="text-xs sm:text-sm truncate" data-training="team-view-tab">{t('manager.teamView')}</TabsTrigger>
           <TabsTrigger value="early-signout" className="text-xs sm:text-sm truncate" data-training="pending-approvals">{t('manager.earlySignOutApprovals')}</TabsTrigger>
@@ -777,30 +935,52 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       <TabsContent value="team" className="space-y-6" data-training="team-view">
+      {isSlntTenant && !slntPoolMode && slntRosterNotice && (
+        <div
+          role={slntRosterNotice.kind === 'missing' ? 'status' : 'alert'}
+          className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${slntRosterNotice.kind === 'missing' ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-destructive/60 bg-destructive/5 text-destructive'}`}
+        >
+          <p className="flex-1 min-w-52">{slntRosterNotice.message}</p>
+          <div className="flex flex-wrap gap-2">
+            {slntRosterNotice.action === 'schedule' && (
+              <Button size="sm" variant="outline" onClick={openSlntStaffSchedule}>Open Staff schedule</Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => void fetchStaffSchedules()}>
+              {slntRosterNotice.action === 'schedule' ? 'Check roster' : 'Retry roster'}
+            </Button>
+          </div>
+        </div>
+      )}
+      {isSlntTenant && !slntPoolMode && !slntRosterNotice && !slntRosterReady && (
+        <div role="status" className="rounded-md border p-3 text-sm text-muted-foreground">
+          Checking the published SLNT roster for {selectedDate}…
+        </div>
+      )}
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl font-semibold">{t('team.management')}</h2>
+          <h2 className="text-xl font-semibold">{isSlntTenant ? (hu ? 'Mai munka' : 'Today’s work') : t('team.management')}</h2>
           {venuesEnabled && <div className="inline-flex rounded-md border p-1 gap-1">
-            <Button size="sm" variant={selectedDate === todayBudapest() ? 'default' : 'ghost'} onClick={() => setSelectedDate(todayBudapest())}>Today</Button>
-            <Button size="sm" variant={selectedDate === format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd') ? 'default' : 'ghost'} onClick={() => setSelectedDate(format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd'))}>Tomorrow</Button>
+            <Button size="sm" variant={selectedDate === todayBudapest() ? 'default' : 'ghost'} onClick={() => setSelectedDate(todayBudapest())}>{hu ? 'Ma' : 'Today'}</Button>
+            <Button size="sm" variant={selectedDate === format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd') ? 'default' : 'ghost'} onClick={() => setSelectedDate(format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd'))}>{hu ? 'Holnap' : 'Tomorrow'}</Button>
           </div>}
           <input
             type="date"
+            data-training="manager-team-date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
             className="px-3 py-2 border rounded-md"
           />
-          {venuesEnabled && selectedDate > todayBudapest() && <Badge variant="outline" className="gap-1"><Calendar className="h-3 w-3" />Prepared work · activates on this date</Badge>}
+          {isFutureDate && <Badge variant="outline" className="gap-1 border-amber-300 bg-amber-50 text-amber-900"><Calendar className="h-3 w-3" />Future plan for {selectedDate} · today's work is not being edited</Badge>}
         </div>
         
         <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">
-          {profile && hasManagerPowers(profile.role) && (
+          {!isFutureDate && profile && hasManagerPowers(profile.role) && (
             <PmsRefreshButton />
           )}
           {profile && hasManagerPowers(profile.role) && (
             <>
-              <Button
+              {!isFutureDate && !isSlntTenant && <Button
                 variant={bulkUnassignMode ? "destructive" : "outline"}
                 onClick={() => {
                   setBulkUnassignMode(!bulkUnassignMode);
@@ -810,9 +990,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
               >
                 <Trash2 className="h-4 w-4" />
                 {bulkUnassignMode ? t('common.cancel') : t('team.bulkUnassign')}
-              </Button>
+              </Button>}
               
-              {bulkUnassignMode && selectedAssignments.length > 0 && (
+              {!isFutureDate && !isSlntTenant && bulkUnassignMode && selectedAssignments.length > 0 && (
                 <Button
                   variant="destructive"
                   onClick={() => setUnassignDialogOpen(true)}
@@ -826,37 +1006,52 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 variant="default"
                 data-tour="auto-assign-btn"
                 data-training="auto-assign-btn"
-                onClick={() => setAutoAssignDialogOpen(true)}
+                onClick={() => { setIncludeCleanRoomMode(false); setAutoAssignDialogOpen(true); }}
+                disabled={!slntRosterReady}
                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Wand2 className="h-4 w-4" />
-                <span className="truncate">{t('manager.autoAssign')}</span>
+                <span className="truncate">{isSlntTenant ? (hu ? 'Újraelosztás' : 'Rebalance') : t('manager.autoAssign')}</span>
                </Button>
+               {!isFutureDate && !isSlntTenant && (
+                 <Button
+                   type="button"
+                   variant="outline"
+                   onClick={() => { setIncludeCleanRoomMode(true); setAutoAssignDialogOpen(true); }}
+                   className="flex items-center gap-2 w-full sm:w-auto touch-manipulation"
+                   title="Assign eligible clean rooms without changing their Previo status"
+                 >
+                   <CheckCircle className="h-4 w-4" />
+                   Assign Clean Rooms
+                 </Button>
+               )}
 
-               <Button
+               {!isFutureDate && !isSlntTenant && <Button
                  variant="outline"
                  onClick={() => setPublicAreaDialogOpen(true)}
+                 disabled={!slntRosterReady}
                  className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                >
                  <MapPin className="h-4 w-4" />
                  <span className="truncate">{t('manager.publicAreas')}</span>
-               </Button>
+               </Button>}
                
-               <Button 
+               {!isFutureDate && !isSlntTenant && <Button 
                  variant="outline"
                  className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                  onClick={() => setAssignmentDialogOpen(true)}
+                 disabled={!slntRosterReady}
                >
                  <Plus className="h-4 w-4" />
                  {t('team.assignRoom')}
-               </Button>
+               </Button>}
              </>
            )}
          </div>
        </div>
 
       {/* Assignment Dialogs - conditionally mounted to prevent invisible overlays */}
-      {assignmentDialogOpen && (
+      {!isFutureDate && assignmentDialogOpen && (
         <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
           <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
@@ -875,11 +1070,12 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           open={autoAssignDialogOpen}
           onOpenChange={setAutoAssignDialogOpen}
           selectedDate={selectedDate}
+          includeCleanRoomsByDefault={includeCleanRoomMode}
           onAssignmentCreated={handleAssignmentCreated}
         />
       )}
 
-      {publicAreaDialogOpen && (
+      {!isFutureDate && publicAreaDialogOpen && (
         <PublicAreaAssignment
           open={publicAreaDialogOpen}
           onOpenChange={setPublicAreaDialogOpen}
@@ -891,8 +1087,26 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         />
       )}
 
-      {/* Hotel Room Overview */}
-      {managerHotelName && (
+      {/* SLNT shared pool must be the first operational section, above Property Overview. */}
+      {slntPoolMode && <SlntTeamPoolSummary selectedDate={selectedDate} staff={housekeepingStaff} />}
+
+      {/* The live room board represents TODAY'S mutable Previo cleaning flags.
+          Future dates MUST use date-scoped PMS reservation rows and dated plans. */}
+      {isFutureDate && isSlntTenant && (
+        <div role="note" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          SLNT future shifts and room allocations are managed in the Next 14 days assignments planner.
+          Today's live board is hidden to prevent accidental housekeeping changes.
+        </div>
+      )}
+      {isFutureDate && !isSlntTenant && managerHotelName && activeOrganizationSlug && (
+        <FutureHousekeepingOverview
+          selectedDate={selectedDate}
+          hotelName={managerHotelName}
+          organizationSlug={activeOrganizationSlug}
+          refreshKey={overviewRefreshKey}
+        />
+      )}
+      {!isFutureDate && managerHotelName && (
         <HotelRoomOverview
           selectedDate={selectedDate}
           hotelName={managerHotelName}
@@ -912,7 +1126,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         />
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+
+      {!isFutureDate && <>
+      <div className={`grid grid-cols-1 ${isSlntTenant ? "xl:grid-cols-2 gap-3" : "md:grid-cols-2 lg:grid-cols-3 gap-4"}`}>
         {[...housekeepingStaff].sort((a, b) => {
           const aCount = teamAssignments.find(t => t.staff_id === a.id)?.total_assigned || 0;
           const bCount = teamAssignments.find(t => t.staff_id === b.id)?.total_assigned || 0;
@@ -940,6 +1157,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           return (
             <Card
               key={staff.id}
+              data-training="manager-team-card"
               className={`transition-all duration-200 ${
                 isDropTarget
                   ? 'ring-2 ring-primary shadow-lg scale-[1.02] bg-primary/5'
@@ -955,18 +1173,18 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
               onDrop={canDragAssign ? (e) => handleDropOnStaff(e, staff) : undefined}
 
             >
-              <CardHeader className="pb-3">
+              <CardHeader className={isSlntTenant ? "px-3 py-3 pb-2" : "pb-3"}>
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle className="text-lg">{staff.full_name}</CardTitle>
-                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <CardTitle className={isSlntTenant ? "text-base" : "text-lg"}>{staff.full_name}</CardTitle>
+                    {!isSlntTenant && <div className="mt-1 flex flex-wrap items-center gap-1">
                       <span className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground max-w-[180px] truncate">
                         @{(staff.email || '').split('@')[0] || staff.nickname || staff.full_name}
                       </span>
                       {staff.nickname && (
                         <span className="text-[11px] text-muted-foreground">({staff.nickname})</span>
                       )}
-                    </div>
+                    </div>}
                     {staffAttendance[staff.id]?.status === 'on_break' && (
                       <div className="mt-2 space-y-1">
                         <Badge className="bg-amber-500 text-white text-xs font-semibold">
@@ -982,10 +1200,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     )}
                     {venuesEnabled && (() => {
                       const shift = staffSchedules[staff.id];
-                      if (!shift) return <Badge variant="outline" className="mt-2 text-[10px]">Not scheduled</Badge>;
-                      if (shift.status === 'off') return <Badge variant="secondary" className="mt-2 text-[10px]">Scheduled off</Badge>;
+                      if (!shift) return isSlntTenant ? null : <Badge variant="outline" className="mt-2 text-[10px]">Not scheduled</Badge>;
+                      if (shift.status === 'off') return isSlntTenant ? null : <Badge variant="secondary" className="mt-2 text-[10px]">Scheduled off</Badge>;
                       const names = shift.staff_schedule_venues?.map((row) => venueName(row.venue_id)).filter(Boolean).join(', ');
-                      return <div className="mt-2 text-[10px] text-muted-foreground"><span className="font-medium text-foreground">{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</span>{names ? ` · ${names}` : ''}</div>;
+                      return <div className="mt-2 text-[10px] text-muted-foreground"><span className="font-medium text-foreground">{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</span>{!isSlntTenant && names ? ` · ${names}` : ''}</div>;
                     })()}
                   </div>
                   <Badge variant={assignment?.total_assigned ? "default" : "secondary"}>
@@ -993,7 +1211,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className={isSlntTenant ? "space-y-2 px-3 pb-3" : "space-y-3"}>
                 {/* Assigned unit chips — drag one out to unassign, drop one in to assign. */}
                 {venuesEnabled && (
                   <div
@@ -1003,7 +1221,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   >
                     {myChips.length === 0 && (
                       <span className="text-xs text-muted-foreground self-center">
-                        {isDropTarget ? `Drop to assign` : hasSelection ? `Tap to assign ${selectedUnits.length} selected` : `Tap ${terms.unitPlural.toLowerCase()} above, then tap here`}
+                        {slntPoolMode ? (hu ? 'Még egy szobát sem kezdtek el' : 'No rooms started yet') : isDropTarget ? `Drop to assign` : hasSelection ? `Tap to assign ${selectedUnits.length} selected` : `Tap ${terms.unitPlural.toLowerCase()} above, then tap here`}
                       </span>
                     )}
                     {myChips.map((a) => (
@@ -1047,7 +1265,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     {/* Progress Bar */}
                     <div className="space-y-1">
                       <div className="flex justify-between text-sm">
-                        <span>{t('team.progress')}</span>
+                        <span>{isSlntTenant ? `${assignment.completed || 0} done · ${Math.max(0, (assignment.total_assigned || 0) - (assignment.completed || 0))} remaining` : t('team.progress')}</span>
                         <span>{progressPercentage}%</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
@@ -1059,7 +1277,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     </div>
 
                     {/* Status Breakdown */}
-                        <div className="grid grid-cols-4 gap-2 text-center">
+                        <div className={`grid grid-cols-4 gap-2 text-center ${isSlntTenant ? "border-t pt-2" : ""}`}>
                       <div 
                         className="cursor-pointer hover:bg-green-50 rounded p-1 transition-colors"
                         onClick={() => {
@@ -1194,7 +1412,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       </div>
 
       {/* Quick Stats */}
-      <Card>
+      <Card data-training="manager-team-summary">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
@@ -1223,6 +1441,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         </CardContent>
       </Card>
 
+      </>}
       {/* Confirmation Dialog */}
       <AlertDialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>
         <AlertDialogContent>
@@ -1400,8 +1619,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   staffId: pendingAssign.staffId,
                   assignmentDate: selectedDate,
                   assignedBy: user.id,
-                  organizationSlug: profile?.organization_slug ?? null,
+                  organizationSlug: activeOrganizationSlug,
                   isCheckoutRoom: pendingAssign.sourceType === 'checkout',
+                  preventOutOfOrder: isSlntTenant,
                 });
                 toast.success(`${pendingAssign.roomNumber} → ${pendingAssign.staffName}`);
                 setPendingAssign(null);

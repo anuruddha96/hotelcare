@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,16 +9,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
-import { hasManagerPowers } from '@/lib/roleAccess';
-import { format, startOfDay, endOfDay } from 'date-fns';
+import { hasManagerPowers, isExecutiveRole } from '@/lib/roleAccess';
+import { format, endOfDay } from 'date-fns';
 import { Calendar as CalendarIcon, Package, Search, Eye, CheckCircle, Trash2, Plus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { LostAndFoundDialog } from './LostAndFoundDialog';
 import { useTranslation } from '@/hooks/useTranslation';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { isLostFoundItemVisibleInHotel, LOST_FOUND_UPDATED_EVENT } from '@/lib/lostFoundVisibility';
+import { lostFoundLocationLabel } from '@/lib/lostFoundLocation';
+import type { LangKey } from '@/lib/lostFoundItems';
 
 interface LostAndFoundItem {
   id: string;
-  room_id: string;
+  room_id: string | null;
+  hotel: string | null;
+  found_location: string | null;
   item_description: string;
   photo_urls: string[];
   found_date: string;
@@ -30,15 +36,16 @@ interface LostAndFoundItem {
   rooms: {
     room_number: string;
     hotel: string;
-  };
+  } | null;
   profiles: {
     full_name: string;
-  };
+  } | null;
 }
 
 export function LostAndFoundManagement() {
   const { user, profile } = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const lang = (['en', 'hu', 'es', 'vi', 'mn', 'uk'].includes(language) ? language : 'en') as LangKey;
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [items, setItems] = useState<LostAndFoundItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -49,39 +56,19 @@ export function LostAndFoundManagement() {
   const [claimedBy, setClaimedBy] = useState('');
   const [showAddDialog, setShowAddDialog] = useState(false);
 
-  const canDelete = (profile?.role && ['admin'].includes(profile.role)) || profile?.is_super_admin;
-  const canAddItems = hasManagerPowers(profile?.role);
+  const canDelete = profile?.role === 'admin' || isExecutiveRole(profile?.role) || profile?.is_super_admin;
+  // Reception already has the database insert permission for lost_and_found.
+  const canAddItems = hasManagerPowers(profile?.role) || profile?.role === 'reception';
 
-  useEffect(() => {
-    fetchLostAndFound();
-  }, [selectedDate]);
-
-  const fetchLostAndFound = async () => {
+  const fetchLostAndFound = useCallback(async () => {
     setLoading(true);
     try {
       const endDate = endOfDay(selectedDate);
       const userHotel = profile?.assigned_hotel;
 
-      // Resolve hotel name via hotel_configurations for proper matching
-      let resolvedHotelNames: string[] = [];
-      if (userHotel) {
-        const { data: hotelConfigs } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_id, hotel_name');
-        
-        if (hotelConfigs) {
-          const match = hotelConfigs.find(
-            c => c.hotel_id === userHotel || c.hotel_name === userHotel
-          );
-          if (match) {
-            resolvedHotelNames = [match.hotel_id, match.hotel_name].filter(Boolean);
-          } else {
-            resolvedHotelNames = [userHotel];
-          }
-        } else {
-          resolvedHotelNames = [userHotel];
-        }
-      }
+      const resolvedHotelNames = userHotel
+        ? await resolveHotelKeys(userHotel)
+        : [];
 
       // Fetch ALL uncollected items + date-filtered claimed items
       const { data, error } = await supabase
@@ -118,10 +105,15 @@ export function LostAndFoundManagement() {
       
       let filteredData = data || [];
 
-      // Filter by hotel
+      // Filter by the selected property using the persisted hotel scope. The
+      // linked room remains a compatibility fallback for older room records.
       if (resolvedHotelNames.length > 0) {
-        filteredData = filteredData.filter((item: any) => 
-          resolvedHotelNames.includes(item.rooms?.hotel)
+        filteredData = filteredData.filter((item: any) =>
+          isLostFoundItemVisibleInHotel(item, {
+            hotelKeys: resolvedHotelNames,
+            organizationSlug: profile?.organization_slug,
+            userId: user?.id,
+          }),
         );
       }
 
@@ -144,7 +136,37 @@ export function LostAndFoundManagement() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [profile?.assigned_hotel, profile?.organization_slug, selectedDate, user?.id]);
+
+  useEffect(() => {
+    void fetchLostAndFound();
+  }, [fetchLostAndFound]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let timer: number | null = null;
+    const refreshSoon = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void fetchLostAndFound(), 250);
+    };
+
+    window.addEventListener(LOST_FOUND_UPDATED_EVENT, refreshSoon);
+    const channel = supabase
+      .channel(`lost-found-management-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'lost_and_found' },
+        refreshSoon,
+      )
+      .subscribe();
+
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      window.removeEventListener(LOST_FOUND_UPDATED_EVENT, refreshSoon);
+      void supabase.removeChannel(channel);
+    };
+  }, [fetchLostAndFound, user?.id]);
 
   const handleClaimItem = async () => {
     if (!selectedItem || !claimedBy.trim()) return;
@@ -213,7 +235,9 @@ export function LostAndFoundManagement() {
   };
 
   const filteredItems = searchRoom
-    ? items.filter(item => item.rooms?.room_number.includes(searchRoom))
+    ? items.filter(item =>
+        lostFoundLocationLabel(item, lang).toLocaleLowerCase().includes(searchRoom.trim().toLocaleLowerCase()) ||
+        item.rooms?.room_number?.toLocaleLowerCase().includes(searchRoom.trim().toLocaleLowerCase()))
     : items;
 
   return (
@@ -255,7 +279,7 @@ export function LostAndFoundManagement() {
             <div className="flex items-center gap-2">
               <Search className="h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder={t('lostFound.searchByRoom')}
+                placeholder={language === 'hu' ? 'Szoba vagy helyszín keresése' : 'Search room or location'}
                 value={searchRoom}
                 onChange={(e) => setSearchRoom(e.target.value)}
                 className="w-[200px]"
@@ -302,12 +326,14 @@ export function LostAndFoundManagement() {
                       
                       <div className="text-sm text-muted-foreground space-y-1">
                         <div className="flex items-center justify-between">
-                          <span>{t('lostFound.room')}:</span>
-                          <Badge variant="outline">{item.rooms?.room_number || 'N/A'}</Badge>
+                          <span>{language === 'hu' ? 'Helyszín' : 'Location'}:</span>
+                          <Badge variant="outline" className="max-w-[65%] text-right whitespace-normal">
+                            {lostFoundLocationLabel(item, lang)}
+                          </Badge>
                         </div>
                         <div className="flex items-center justify-between">
                           <span>{t('lostFound.hotel')}:</span>
-                          <span className="text-xs">{item.rooms?.hotel || 'N/A'}</span>
+                          <span className="text-xs">{item.rooms?.hotel || item.hotel || 'N/A'}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span>{t('lostFound.found')}:</span>
@@ -390,10 +416,10 @@ export function LostAndFoundManagement() {
                   <strong>Item:</strong> {selectedItem.item_description}
                 </div>
                 <div>
-                  <strong>Room:</strong> {selectedItem.rooms?.room_number || 'N/A'}
+                  <strong>{language === 'hu' ? 'Helyszín' : 'Location'}:</strong> {lostFoundLocationLabel(selectedItem, lang)}
                 </div>
                 <div>
-                  <strong>Hotel:</strong> {selectedItem.rooms?.hotel || 'N/A'}
+                  <strong>Hotel:</strong> {selectedItem.rooms?.hotel || selectedItem.hotel || 'N/A'}
                 </div>
                 <div>
                   <strong>Status:</strong> <Badge>{selectedItem.status}</Badge>
@@ -479,6 +505,7 @@ export function LostAndFoundManagement() {
           roomNumber="General"
           roomId={null}
           assignmentId={null}
+          allowLocationSelection
           onItemReported={() => {
             fetchLostAndFound();
             setShowAddDialog(false);

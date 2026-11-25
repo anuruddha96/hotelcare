@@ -1,0 +1,2 @@
+create index ottofiori_ai_policies_review_idx on public.ottofiori_ai_price_policies(review_id);
+create index ottofiori_ai_policies_decision_idx on public.ottofiori_ai_price_policies(decision_id);

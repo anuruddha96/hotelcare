@@ -1,0 +1,180 @@
+import { act, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import RevenueCalendarExperience from "@/components/revenue/RevenueCalendarExperience";
+
+function touch(type: string, x: number, y: number) {
+  const point = { clientX: x, clientY: y } as Touch;
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "touches", {
+    value: type === "touchend" ? [] : [point],
+    configurable: true,
+  });
+  Object.defineProperty(event, "changedTouches", {
+    value: [point],
+    configurable: true,
+  });
+  return event;
+}
+
+function mediaResult(query: string, matches: boolean) {
+  return {
+    matches,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  } as MediaQueryList;
+}
+
+describe("RevenueCalendarExperience", () => {
+  beforeEach(() => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query: string) =>
+      mediaResult(query, query.includes("767")),
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = "";
+  });
+
+  it("marks the revenue calendar and its scrolling pane", async () => {
+    render(<RevenueCalendarExperience />);
+    const card = document.createElement("div");
+    card.setAttribute("data-training", "revenue-grid");
+    const pane = document.createElement("div");
+    pane.className = "relative overflow-auto overscroll-x-contain";
+    card.appendChild(pane);
+    document.body.appendChild(card);
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(card.dataset.rateCalendarV2).toBe("true");
+    expect(pane.dataset.rateGridScroll).toBe("true");
+  });
+
+  it("marks the calendar as actively scrolling so expensive effects can pause", async () => {
+    render(<RevenueCalendarExperience />);
+    const card = document.createElement("div");
+    card.setAttribute("data-training", "revenue-grid");
+    const pane = document.createElement("div");
+    pane.className = "relative overflow-auto overscroll-x-contain";
+    card.appendChild(pane);
+    document.body.appendChild(card);
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    pane.dispatchEvent(new Event("scroll"));
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(card.dataset.rateCalendarScrolling).toBe("true");
+  });
+
+  it("clips scrolling header cells without clipping the frozen left-column ancestor", () => {
+    const { container } = render(<RevenueCalendarExperience />);
+    const css = container.querySelector("style[data-revenue-calendar-v2]")?.textContent ?? "";
+
+    expect(css).toContain(":not(.sticky.left-0)");
+
+    const dateRowRule = css.match(/\.sticky\.top-0 > div:nth-child\(2\) \{([^}]*)\}/)?.[1] ?? "";
+    expect(dateRowRule).not.toContain("overflow: hidden");
+  });
+
+  it("hands a vertical boundary swipe to the page", async () => {
+    const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
+    render(<RevenueCalendarExperience />);
+    const card = document.createElement("div");
+    card.setAttribute("data-training", "revenue-grid");
+    const pane = document.createElement("div");
+    pane.className = "relative overflow-auto overscroll-x-contain";
+    Object.defineProperty(pane, "clientHeight", { value: 300, configurable: true });
+    Object.defineProperty(pane, "scrollHeight", { value: 600, configurable: true });
+    pane.scrollTop = 300;
+    card.appendChild(pane);
+    document.body.appendChild(card);
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    card.classList.add("fixed");
+    pane.dispatchEvent(touch("touchstart", 100, 200));
+    pane.dispatchEvent(touch("touchmove", 100, 150));
+
+    expect(scrollBy).toHaveBeenCalled();
+  });
+
+  it("does not intercept vertical page swipes in the normal portrait calendar", async () => {
+    Object.defineProperty(window, "innerWidth", { value: 390, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 844, configurable: true });
+    const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
+    render(<RevenueCalendarExperience />);
+    const card = document.createElement("div");
+    card.setAttribute("data-training", "revenue-grid");
+    const pane = document.createElement("div");
+    pane.className = "relative overflow-auto overscroll-x-contain";
+    Object.defineProperty(pane, "clientHeight", { value: 300, configurable: true });
+    Object.defineProperty(pane, "scrollHeight", { value: 1600, configurable: true });
+    pane.scrollTop = 350;
+    card.appendChild(pane);
+    document.body.appendChild(card);
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(card.dataset.rateCalendarDevice).toBe("mobile-portrait");
+    pane.dispatchEvent(touch("touchstart", 100, 240));
+    pane.dispatchEvent(touch("touchmove", 100, 180));
+    pane.dispatchEvent(touch("touchend", 100, 180));
+    // No nested-pane scroll handling runs without the expanded-mode class.
+    pane.dispatchEvent(touch("touchstart", 100, 240));
+    pane.dispatchEvent(touch("touchmove", 100, 180));
+
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it("keeps repeated vertical swipes inside a rotated phone grid until a boundary", async () => {
+    Object.defineProperty(window, "innerWidth", { value: 844, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 390, configurable: true });
+    vi.mocked(window.matchMedia).mockImplementation((query: string) =>
+      mediaResult(query, query.includes("pointer: coarse")),
+    );
+
+    const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
+    render(<RevenueCalendarExperience />);
+    const card = document.createElement("div");
+    card.setAttribute("data-training", "revenue-grid");
+    const pane = document.createElement("div");
+    pane.className = "relative overflow-auto overscroll-x-contain";
+    Object.defineProperty(pane, "clientHeight", { value: 200, configurable: true });
+    Object.defineProperty(pane, "scrollHeight", { value: 800, configurable: true });
+    pane.scrollTop = 200;
+    card.appendChild(pane);
+    document.body.appendChild(card);
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(card.dataset.rateCalendarDevice).toBe("mobile-landscape");
+    card.classList.add("fixed");
+
+    pane.dispatchEvent(touch("touchstart", 120, 240));
+    pane.dispatchEvent(touch("touchmove", 120, 180));
+    pane.dispatchEvent(touch("touchend", 120, 180));
+    pane.dispatchEvent(touch("touchstart", 120, 240));
+    pane.dispatchEvent(touch("touchmove", 120, 180));
+
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+});

@@ -1,8 +1,10 @@
+import { swapAssignmentOwnerId, swapAssignmentPreviewOwners } from '@/lib/autoAssignmentHousekeeperSwap';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useVenues } from '@/hooks/useVenues';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -31,6 +33,7 @@ import {
   Printer,
   RefreshCw,
   Shuffle,
+  Shirt,
   Trash2,
   Undo2,
   Users,
@@ -39,7 +42,8 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { resolveCanonicalHotelId, resolveHotelKeys } from '@/lib/hotelKeys';
+import { reportClientError } from '@/lib/clientErrorReporter';
 import {
   AssignmentPreview,
   BREAK_TIME_MINUTES,
@@ -67,10 +71,49 @@ import {
   sectionTaskMinutesForStaff,
   type HousekeepingSectionTaskTemplate,
 } from '@/lib/housekeepingSectionTasks';
+import { moveSelectedRooms } from '@/lib/autoAssignmentBulkMove';
+import { generateSmartHousekeepingPlan, type HousekeepingPlanningGoal } from '@/lib/housekeepingSmartPlanner';
+import { sanitizeStaffPreferences } from '@/lib/housekeepingAssignmentLearning';
+import { buildMemoriesHistoricalPreferences, getLiveRoomDisplayStatus, isProtectedLiveAssignment, stableAssignmentSeed, type LiveRoomProgress } from '@/lib/autoAssignLiveBoard';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { isRoomEligibleForAutoAssign } from '@/lib/autoAssignRoomEligibility';
 import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { getLocalDateString } from '@/lib/utils';
+import { isPotentialCheckoutRoom } from '@/lib/nextDayHousekeepingSnapshot';
+import { groupFutureHousekeepingRooms } from '@/lib/futureHousekeepingDay';
+import type { OttofioriNightForecast } from '@/lib/ottofioriNextDayForecast';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { todayBudapest } from '@/lib/budapestTime';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { overlayMemoriesDailyCarryOnRooms } from '@/lib/memoriesDailyBoardCarry';
+import { TodayHousekeepingPlanReviewDialog } from './TodayHousekeepingPlanReviewDialog';
+import { nextDayAutoAssignUiText } from '@/lib/nextDayAutoAssignUiTranslations';
+import { hasManagerPowers } from '@/lib/roleAccess';
+import { isActiveGozsduLaundryner } from '@/lib/gozsduLaundryDutySession';
+import { gozsduCanReviewAssignment, gozsduPreviewCoversWork } from '@/lib/gozsduAutoAssignGuard';
+import { gozsduAllocationRespectsBuildings } from '@/lib/gozsduBuildingAssignment';
+import { fetchVerifiedGozsduAutoAssignRooms } from '@/lib/gozsduVerifiedAutoAssign';
+import {
+  activeWorkOwnedByExcludedStaff,
+  hasAutoAssignStaffPoolChanged,
+  selectedOwnerOverrides,
+} from '@/lib/autoAssignStaffAvailability';
+import {
+  getAutoAssignWorkStatus,
+  resolveAutoAssignHotelRosterScope,
+  resolveAutoAssignStaffDefaults,
+  scheduleDurationMinutes,
+  type AutoAssignScheduleRow,
+  type AutoAssignStaffDefaultSource,
+} from '@/lib/autoAssignScheduleRoster';
+import {
+  buildTomorrowAutoAssignRooms,
+  compatibleHousekeepingSnapshotTime,
+  ensureTomorrowPmsSnapshot,
+  loadExistingNextDayPlan,
+  saveApprovedNextDayAutoAssignPlan,
+  type NextDayPlan,
+} from '@/lib/nextDayAutoAssignBridge';
 
 const PUBLIC_AREAS = [
   { key: 'lobby_cleaning', name: 'Lobby', icon: '🏨' },
@@ -90,8 +133,16 @@ interface AutoRoomAssignmentProps {
   onOpenChange: (open: boolean) => void;
   selectedDate: string;
   onAssignmentCreated: (roomCount?: number, staffCount?: number) => void;
+  planningMode?: 'live' | 'next-day';
+  pmsSyncedAt?: string | null;
+  /** Provided only for Ottofiori next-day preparation; null = not verified. */
+  nightForecast?: OttofioriNightForecast | null;
+  laundryDutyIds?: readonly string[];
+  laundryDutyCommitRevision?: number;
+  includeCleanRoomsByDefault?: boolean;
 }
 
+const EMPTY_LAUNDRY_DUTY: readonly string[] = [];
 type Step = 'select-staff' | 'preview' | 'confirm' | 'public-areas';
 
 type ExistingAssignment = {
@@ -104,6 +155,7 @@ type ExistingAssignment = {
   ready_to_clean: boolean | null;
   pms_hold: boolean | null;
   pms_hold_reason: string | null;
+  supervisor_approved?: boolean | null;
 };
 
 interface SavedState {
@@ -112,6 +164,9 @@ interface SavedState {
   excludedRoomIds?: string[];
   maintenanceHoldRoomIds?: string[];
   savedAt: number;
+  lockedRoomIds?: string[];
+  sectionTaskOwners?: Array<[string, string]>;
+  publishedRoomOwners?: Array<[string, string]>;
 }
 
 const isCheckoutLike = (room: RoomForAssignment): boolean =>
@@ -123,11 +178,11 @@ const needsTowelChange = (room: RoomForAssignment): boolean =>
 const needsLinenChange = (room: RoomForAssignment): boolean =>
   !!room.linen_change_required && !isCheckoutLike(room);
 
-function getSaveKey(hotel: string | null | undefined, date: string): string {
+function getSaveKey(organization: string | null | undefined, hotel: string | null | undefined, date: string): string {
   // v2 invalidates drafts created by the old dirty-only room filter. Without
   // this, a manager could reopen today's two-room draft after the fix and
   // still not see the full PMS workload until manually regenerating it.
-  return `auto_assignment_v2_${hotel || 'unknown'}_${date}`;
+  return `auto_assignment_v3_${organization || 'unknown'}_${hotel || 'unknown'}_${date}`;
 }
 
 function roomOrdinal(roomNumber: string): number {
@@ -137,9 +192,9 @@ function roomOrdinal(roomNumber: string): number {
 
 function sortPreviewRooms(rooms: RoomForAssignment[]): RoomForAssignment[] {
   return [...rooms].sort((a, b) => {
-    const aCheckout = isCheckoutLike(a);
-    const bCheckout = isCheckoutLike(b);
-    if (aCheckout !== bCheckout) return aCheckout ? -1 : 1;
+    const rank = (room: RoomForAssignment) => isPotentialCheckoutRoom(room) ? 1 : isCheckoutLike(room) ? 0 : 2;
+    const rankDiff = rank(a) - rank(b);
+    if (rankDiff !== 0) return rankDiff;
     const floorA = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
     const floorB = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
     if (floorA !== floorB) return floorA - floorB;
@@ -166,23 +221,45 @@ export function AutoRoomAssignment({
   onOpenChange,
   selectedDate,
   onAssignmentCreated,
+  planningMode = 'live',
+  pmsSyncedAt = null,
+  nightForecast,
+  laundryDutyIds = EMPTY_LAUNDRY_DUTY,
+  laundryDutyCommitRevision = 0,
+  includeCleanRoomsByDefault = false,
 }: AutoRoomAssignmentProps) {
   const { user, profile } = useAuth();
-  const { t } = useTranslation();
+  const { venueName } = useVenues();
+  const { t, language } = useTranslation();
+  const nt = (key: Parameters<typeof nextDayAutoAssignUiText>[0]) => nextDayAutoAssignUiText(key, language);
   const isMobile = useIsMobile();
+  const isNextDayPlanning = planningMode === 'next-day';
+  const isGozsdu = isGozsduCourtHotel(profile?.assigned_hotel);
+  const isLaundryner = (staffId: string) => isGozsdu
+    && (laundryDutyIds.includes(staffId) || isActiveGozsduLaundryner(staffId));
 
   const [step, setStep] = useState<Step>('select-staff');
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [tomorrowApprovalError, setTomorrowApprovalError] = useState<string | null>(null);
   const [allStaff, setAllStaff] = useState<StaffForAssignment[]>([]);
   const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(new Set());
   const [checkedInStaff, setCheckedInStaff] = useState<Set<string>>(new Set());
   const [dirtyRooms, setDirtyRooms] = useState<RoomForAssignment[]>([]);
+  const [includeCleanRooms, setIncludeCleanRooms] = useState(includeCleanRoomsByDefault);
+  const [pmsVerificationError, setPmsVerificationError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [savedTodayPlan, setSavedTodayPlan] = useState<{
+    id: string; plan_date: string; status: 'released'; auto_release: boolean;
+  } | null>(null);
+  const [showSavedTodayPlan, setShowSavedTodayPlan] = useState(false);
   const [excludedRoomIds, setExcludedRoomIds] = useState<Set<string>>(new Set());
   const [maintenanceHoldRoomIds, setMaintenanceHoldRoomIds] = useState<Set<string>>(new Set());
   const [assignmentPreviews, setAssignmentPreviews] = useState<AssignmentPreview[]>([]);
   const [previewHistory, setPreviewHistory] = useState<AssignmentPreview[][]>([]);
   const [selectedRoomForMove, setSelectedRoomForMove] = useState<{ roomId: string; fromStaffId: string } | null>(null);
+  const [bulkSelectedRoomIds, setBulkSelectedRoomIds] = useState<Set<string>>(new Set());
+  const [bulkDestinationStaffId, setBulkDestinationStaffId] = useState<string>('');
   const [dragOverStaffId, setDragOverStaffId] = useState<string | null>(null);
   const [draggingRoomId, setDraggingRoomId] = useState<string | null>(null);
   const [justDroppedRoomId, setJustDroppedRoomId] = useState<string | null>(null);
@@ -196,19 +273,79 @@ export function AutoRoomAssignment({
   const [overAllocatedStaff, setOverAllocatedStaff] = useState<AssignmentPreview[]>([]);
   const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map());
   const [sectionTaskTemplates, setSectionTaskTemplates] = useState<HousekeepingSectionTaskTemplate[]>([]);
-  // Manager overrides of the automatic public-area owner, keyed by section task id.
   const [sectionTaskOwners, setSectionTaskOwners] = useState<Map<string, string>>(new Map());
-  // Public-area work already started/finished today: owner is fixed, no reassignment.
   const [lockedSectionTasks, setLockedSectionTasks] = useState<Map<string, { status: string; assignedTo: string | null }>>(new Map());
   const [draggingAreaTaskId, setDraggingAreaTaskId] = useState<string | null>(null);
+  const [nextDayPlan, setNextDayPlan] = useState<NextDayPlan | null>(null);
+  const [nextDayPmsSyncedAt, setNextDayPmsSyncedAt] = useState<string | null>(pmsSyncedAt);
+  const [autoRelease, setAutoRelease] = useState(true);
+
+  useEffect(() => {
+    if (open) setTomorrowApprovalError(null);
+  }, [open, selectedDate]);
+  const [sharedByRoom, setSharedByRoom] = useState<Map<string, string>>(new Map());
+  const [suggestedByRoom, setSuggestedByRoom] = useState<Map<string, string>>(new Map());
+  const [staffDefaultSource, setStaffDefaultSource] = useState<AutoAssignStaffDefaultSource>('attendance_fallback');
+  const [publishedRosterRows, setPublishedRosterRows] = useState<AutoAssignScheduleRow[]>([]);
+  const [planningGoal, setPlanningGoal] = useState<HousekeepingPlanningGoal>('rebalance');
+  const [planningExplanation, setPlanningExplanation] = useState('');
+  const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(new Set());
+  const [lockHistory, setLockHistory] = useState<Set<string>[]>([]);
+  const [workloadHistory, setWorkloadHistory] = useState<Array<{
+    sectionOwners: Map<string, string>;
+    publicOwners: Map<string, string>;
+  }>>([]);
+  const [swapFrom, setSwapFrom] = useState('');
+  const [swapTo, setSwapTo] = useState('');
+  const [historicalSampleCount, setHistoricalSampleCount] = useState(0);
+  const [historicalPreferences, setHistoricalPreferences] = useState<Record<string, string[]>>({});
+  const [roomProgressById, setRoomProgressById] = useState<Map<string, LiveRoomProgress>>(new Map());
 
   const existingAssignmentsRef = useRef<Map<string, ExistingAssignment>>(new Map());
   const hotelKeysRef = useRef<string[]>([]);
   const managerHotelRef = useRef<string>('');
   const draftRestoredRef = useRef(false);
+  const restoredPublishedOwnersRef = useRef<Array<[string, string]> | null>(null);
+  const laundryCommitRef = useRef(laundryDutyCommitRevision);
   const roomSectionsRef = useRef<Map<string, { id: string; name: string }>>(new Map());
 
-  const saveKey = getSaveKey(profile?.assigned_hotel, selectedDate);
+  useEffect(() => {
+    if (!open || !isGozsdu || isNextDayPlanning || selectedDate !== todayBudapest()
+        || !profile?.organization_slug) {
+      setSavedTodayPlan(null);
+      setShowSavedTodayPlan(false);
+      return;
+    }
+    let active = true;
+    void (async () => {
+      const { data, error } = await (supabase as any)
+        .from('next_day_housekeeping_plans')
+        .select('id,plan_date,status,auto_release')
+        .eq('organization_slug', profile.organization_slug)
+        .eq('hotel_id', 'gozsdu-court')
+        .eq('plan_date', selectedDate)
+        .eq('status', 'released')
+        .maybeSingle();
+      if (!active) return;
+      if (error) {
+        console.warn('[Gozsdu] Could not load today\'s released plan', error);
+        return;
+      }
+      setSavedTodayPlan(data || null);
+    })();
+    return () => { active = false; };
+  }, [open, isGozsdu, isNextDayPlanning, selectedDate, profile?.organization_slug]);
+
+  const saveKey = getSaveKey(profile?.organization_slug, profile?.assigned_hotel, selectedDate);
+  const cleaningStaffIds = useMemo(
+    () => new Set([...selectedStaffIds].filter(id => !isGozsdu || !isActiveGozsduLaundryner(id))),
+    [selectedStaffIds, isGozsdu, laundryDutyIds],
+  );
+
+  const publishedScheduleByStaff = useMemo(
+    () => new Map<string, AutoAssignScheduleRow>(publishedRosterRows.map(row => [row.user_id, row])),
+    [publishedRosterRows],
+  );
 
   const effectiveRooms = useMemo(
     () => dirtyRooms.filter(room => !excludedRoomIds.has(room.id) && !maintenanceHoldRoomIds.has(room.id)),
@@ -223,20 +360,29 @@ export function AutoRoomAssignment({
     return { preview, room };
   }, [assignmentPreviews, selectedRoomForMove]);
 
+  const bulkRoomContexts = useMemo(() => assignmentPreviews.flatMap(person =>
+    person.rooms.filter(room => bulkSelectedRoomIds.has(room.id))
+      .map(room => ({ room, fromStaffId: person.staffId })),
+  ), [assignmentPreviews, bulkSelectedRoomIds]);
+
+  useEffect(() => {
+    const available = new Set(assignmentPreviews.flatMap(person => person.rooms.map(room => room.id)));
+    setBulkSelectedRoomIds(previous => {
+      const valid = new Set([...previous].filter(id => available.has(id)));
+      return valid.size === previous.size ? previous : valid;
+    });
+  }, [assignmentPreviews]);
+
   const automaticSectionTasks = useMemo(
     () => assignSectionTasksToStaff(assignmentPreviews, sectionTaskTemplates),
     [assignmentPreviews, sectionTaskTemplates],
   );
 
-  /**
-   * The public-area work as the manager currently sees it: automatic owner,
-   * overridden by a drag/shuffle, and finally pinned to the real owner when
-   * the task is already in progress or done for the day.
-   */
   const sectionTasks = useMemo(() => automaticSectionTasks.map(task => {
     const locked = lockedSectionTasks.get(task.id);
     const lockedOwnerId = locked && locked.status !== 'assigned' ? locked.assignedTo : null;
-    const ownerId = lockedOwnerId || sectionTaskOwners.get(task.id) || task.staff_id;
+    // Published public-area owners remain stable when a room is moved in the preview.
+    const ownerId = lockedOwnerId || sectionTaskOwners.get(task.id) || locked?.assignedTo || task.staff_id;
     const ownerName = assignmentPreviews.find(p => p.staffId === ownerId)?.staffName
       || allStaff.find(s => s.id === ownerId)?.full_name
       || task.staff_name;
@@ -260,6 +406,26 @@ export function AutoRoomAssignment({
     ), 1);
   }, [assignmentPreviews, sectionTasks, staffIdsWithWork]);
 
+  const bulkDestination = assignmentPreviews.find(person => person.staffId === bulkDestinationStaffId);
+  const bulkMovableRooms = bulkRoomContexts.filter(entry => entry.fromStaffId !== bulkDestinationStaffId);
+  const bulkProjectedMinutes = bulkDestination
+    ? calculateTimeEstimation([...bulkDestination.rooms, ...bulkMovableRooms.map(entry => entry.room)]).totalWithBreak
+      + sectionTaskMinutesForStaff(sectionTasks, bulkDestination.staffId)
+    : null;
+
+  const toggleBulkRooms = (roomIds: string[]) => {
+    if (!roomIds.length) return;
+    setBulkSelectedRoomIds(previous => {
+      const next = new Set(previous);
+      const allSelected = roomIds.every(id => next.has(id));
+      for (const id of roomIds) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  };
+
   const getManagerHotel = async (): Promise<string | null> => {
     if (!profile?.assigned_hotel) return null;
     const { data } = await supabase
@@ -279,67 +445,62 @@ export function AutoRoomAssignment({
     } as RoomForAssignment;
   };
 
+  const loadMemoriesDailyBoardCarry = async (): Promise<Array<{ room_id: string; carry_forward: unknown }>> => {
+    if (isNextDayPlanning || selectedDate !== todayBudapest() || !isHotelMemoriesBudapest(managerHotelRef.current || profile?.assigned_hotel)) return [];
+    const { data, error } = await (supabase as any)
+      .from('hc_memories_daily_carry_board')
+      .select('room_id, carry_forward')
+      .eq('business_date', selectedDate);
+    if (error) throw new Error('Hotel Memories carry-forward tasks are unavailable: ' + error.message);
+    return (data || []) as Array<{ room_id: string; carry_forward: unknown }>;
+  };
+
   const refreshLiveRoomState = async () => {
-    const keys = hotelKeysRef.current;
-    if (!open || keys.length === 0) return;
-
-    const { data: roomRows, error: roomErr } = await supabase
+    // Poll for progress only. A realtime/PMS event must NEVER recalculate,
+    // remove or re-order rooms on a manager's published or edited board.
+    if (isNextDayPlanning || !open || !hotelKeysRef.current.length || !profile?.organization_slug) return;
+    const { data: hotelRooms, error: roomError } = await supabase
       .from('rooms')
-      .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
-      .in('hotel', keys);
-    if (roomErr || !roomRows) return;
-
-    const roomIds = roomRows.map(room => room.id);
-    let assignmentRows: any[] = [];
-    if (roomIds.length > 0) {
-      const { data } = await supabase
+      .select('id')
+      .in('hotel', hotelKeysRef.current)
+      .eq('organization_slug', profile.organization_slug);
+    if (roomError) throw roomError;
+    const roomIds = (hotelRooms || []).map(room => room.id);
+    if (roomIds.length) {
+      const { data, error } = await supabase
         .from('room_assignments')
-        .select('room_id, assigned_to, ready_to_clean, pms_hold, pms_hold_reason, status, assignment_type')
+        .select('room_id, assigned_to, status, supervisor_approved')
         .eq('assignment_date', selectedDate)
         .in('room_id', roomIds);
-      assignmentRows = data || [];
+      if (error) throw error;
+      setRoomProgressById(new Map((data || []).map(row => [row.room_id, row as LiveRoomProgress])));
     }
-
-    const assignmentMap = new Map(assignmentRows.map(row => [row.room_id, row]));
-    const activeRoomIds = new Set(assignmentRows
-      .filter(row => ['assigned', 'in_progress', 'dnd_pending_retry'].includes(row.status))
-      .map(row => row.room_id));
-    const completedRoomIds = new Set(assignmentRows
-      .filter(row => row.status === 'completed')
-      .map(row => row.room_id));
-    const availableRooms = roomRows
-      .filter(room => isRoomEligibleForAutoAssign(room, {
-        hasActiveAssignment: activeRoomIds.has(room.id),
-        hasCompletedAssignment: completedRoomIds.has(room.id),
-      }))
-      .map(room => ({
-        ...addSectionContext(room),
-        ready_to_clean: assignmentMap.get(room.id)?.ready_to_clean ?? false,
-      })) as RoomForAssignment[];
-    const availableRoomMap = new Map(availableRooms.map(room => [room.id, room]));
-
-    setDirtyRooms(availableRooms);
-
-    setAssignmentPreviews(previous => previous.map(preview =>
-      buildPreview(
-        preview.staffId,
-        preview.staffName,
-        preview.rooms
-          .map(room => availableRoomMap.get(room.id))
-          .filter(Boolean) as RoomForAssignment[],
-      ),
-    ));
+    const taskIds = sectionTaskTemplates.map(task => task.id);
+    if (taskIds.length) {
+      const { data, error } = await (supabase as any)
+        .from('general_tasks')
+        .select('housekeeping_section_task_id,status,assigned_to')
+        .eq('hotel', managerHotelRef.current)
+        .eq('assigned_date', selectedDate)
+        .in('housekeeping_section_task_id', taskIds);
+      if (error) throw error;
+      setLockedSectionTasks(new Map((data || []).map((task: any) =>
+        [task.housekeeping_section_task_id, { status: task.status, assignedTo: task.assigned_to }])));
+    }
   };
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || isNextDayPlanning) return;
     let cancelled = false;
     let debounce: ReturnType<typeof setTimeout> | null = null;
 
     const schedule = () => {
       if (cancelled) return;
       if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => void refreshLiveRoomState(), 250);
+      debounce = setTimeout(() => {
+        void refreshLiveRoomState().catch(error =>
+          console.warn('[HMB Auto Assign] Unable to verify outstanding carry tasks:', error));
+      }, 250);
     };
 
     const channel = supabase
@@ -367,10 +528,16 @@ export function AutoRoomAssignment({
       window.removeEventListener('pms-sync-completed', onPmsSync);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [open, selectedDate, profile?.assigned_hotel]);
+  }, [open, selectedDate, profile?.assigned_hotel, profile?.organization_slug, isNextDayPlanning, sectionTaskTemplates]);
 
-  const fetchData = async (preserveDraft: boolean = false) => {
+  useEffect(() => {
+    if (isNextDayPlanning && pmsSyncedAt) setNextDayPmsSyncedAt(pmsSyncedAt);
+  }, [isNextDayPlanning, pmsSyncedAt]);
+
+  const fetchData = async (preserveDraft: boolean = false, includeCleanOverride = includeCleanRooms) => {
     setLoading(true);
+    setPmsVerificationError(null);
+    setLoadError(null);
     try {
       if (!profile?.organization_slug) throw new Error('Organization access could not be verified');
       const hotelName = await getManagerHotel();
@@ -384,7 +551,7 @@ export function AutoRoomAssignment({
       const hotelKeys = resolvedKeys.length ? resolvedKeys : [hotelName];
       hotelKeysRef.current = hotelKeys;
 
-      const { data: staffData, error: staffErr } = await supabase
+      const { data: localStaffData, error: staffErr } = await supabase
         .from('profiles')
         .select('id, full_name, nickname')
         .or('role.eq.housekeeping,acts_as_housekeeper.eq.true')
@@ -392,22 +559,97 @@ export function AutoRoomAssignment({
         .eq('organization_slug', profile.organization_slug)
         .order('full_name');
       if (staffErr) throw staffErr;
-      const staffList = (staffData || []) as StaffForAssignment[];
-      setAllStaff(staffList);
+      const rawLocalStaff = (localStaffData || []) as StaffForAssignment[];
+      const rawLocalStaffIds = new Set(rawLocalStaff.map(staff => staff.id));
 
+      let scheduleResult = await (supabase as any)
+        .from('staff_schedules')
+        .select('id,hotel_id,user_id,work_date,shift_start,shift_end,status,work_status,notes,published_at,staff_schedule_venues(venue_id)')
+        .eq('organization_slug', profile.organization_slug)
+        .eq('work_date', selectedDate);
+
+      if (scheduleResult.error && String(scheduleResult.error.message ?? '').toLowerCase().includes('work_status')) {
+        scheduleResult = await (supabase as any)
+          .from('staff_schedules')
+          .select('id,hotel_id,user_id,work_date,shift_start,shift_end,status,notes,published_at,staff_schedule_venues(venue_id)')
+          .eq('organization_slug', profile.organization_slug)
+          .eq('work_date', selectedDate);
+      }
+      if (scheduleResult.error) throw scheduleResult.error;
+
+      const { data: venueRows, error: venueError } = await supabase
+        .from('venues')
+        .select('id, hotel_id')
+        .eq('organization_slug', profile.organization_slug);
+      if (venueError) throw venueError;
+
+      const currentHotelIds = new Set<string>([
+        ...(hotelKeys || []),
+        ...(profile.assigned_hotel ? [profile.assigned_hotel] : []),
+      ]);
+      const venueHotelById = new Map<string, string>(
+        (venueRows || []).map((venue: any) => [venue.id, venue.hotel_id]),
+      );
+      const allScheduleRows = (scheduleResult.data || []) as AutoAssignScheduleRow[];
+      const rosterScope = resolveAutoAssignHotelRosterScope(
+        allScheduleRows,
+        currentHotelIds,
+        venueHotelById,
+        rawLocalStaffIds,
+      );
+
+      const localStaff = rawLocalStaff.filter(staff => !rosterScope.excludedLocalStaffIds.has(staff.id));
+      let incomingStaff: StaffForAssignment[] = [];
+      if (rosterScope.incomingStaffIds.size > 0) {
+        const { data: borrowedData, error: borrowedError } = await supabase
+          .from('profiles')
+          .select('id, full_name, nickname')
+          .or('role.eq.housekeeping,acts_as_housekeeper.eq.true')
+          .in('id', Array.from(rosterScope.incomingStaffIds))
+          .eq('organization_slug', profile.organization_slug)
+          .order('full_name');
+        if (borrowedError) throw borrowedError;
+        incomingStaff = (borrowedData || []) as StaffForAssignment[];
+      }
+
+      const staffById = new Map<string, StaffForAssignment>();
+      for (const staff of [...localStaff, ...incomingStaff]) staffById.set(staff.id, staff);
+      const scheduleRows = rosterScope.scheduleRows;
+
+      // Staff choices are property-scoped. A manager may choose any cleaner
+      // assigned to this hotel plus an explicitly published incoming transfer,
+      // but never the whole organization's housekeeping directory. This keeps
+      // Ottofiori, Memories, Mika and Gozsdu isolated from each other's lists.
+      // Published transfers are already added through incomingStaff above.
+
+      const staffList = Array.from(staffById.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
+      setAllStaff(staffList);
       const hotelStaffIds = new Set(staffList.map(staff => staff.id));
-      const { data: attendanceData } = await supabase
-        .from('staff_attendance')
-        .select('user_id')
-        .eq('work_date', selectedDate)
-        .in('status', ['checked_in', 'on_break']);
-      const checked = new Set((attendanceData || []).map(row => row.user_id).filter(id => hotelStaffIds.has(id)));
+
+      let attendanceStaffIds: string[] = [];
+      let staffDefaults = resolveAutoAssignStaffDefaults(scheduleRows, attendanceStaffIds, hotelStaffIds);
+
+      if (!staffDefaults.hasPublishedRoster) {
+        const { data: attendanceData, error: attendanceError } = await supabase
+          .from('staff_attendance')
+          .select('user_id')
+          .eq('work_date', selectedDate)
+          .in('status', ['checked_in', 'on_break']);
+        if (attendanceError) throw attendanceError;
+        attendanceStaffIds = (attendanceData || []).map(row => row.user_id);
+        staffDefaults = resolveAutoAssignStaffDefaults(scheduleRows, attendanceStaffIds, hotelStaffIds);
+      }
+
+      const checked = new Set(staffDefaults.selectedStaffIds);
       setCheckedInStaff(checked);
+      setStaffDefaultSource(staffDefaults.source);
+      setPublishedRosterRows(staffDefaults.publishedRows);
 
       const { data: roomRows, error: roomsErr } = await supabase
         .from('rooms')
         .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
-        .in('hotel', hotelKeys);
+        .in('hotel', hotelKeys)
+        .eq('organization_slug', profile.organization_slug);
       if (roomsErr) throw roomsErr;
 
       const { data: sectionRows, error: sectionError } = await (supabase as any)
@@ -445,10 +687,8 @@ export function AutoRoomAssignment({
         sectionTaskRows = sectionTasksResult.data || [];
       }
 
-      // Public-area rows already created for this hotel/date: anything past
-      // 'assigned' is being worked on and must keep its current owner.
       const sectionTaskIds = sectionTaskRows.map((task: any) => task.id);
-      if (sectionTaskIds.length > 0) {
+      if (!isNextDayPlanning && sectionTaskIds.length > 0) {
         const { data: liveTaskRows } = await (supabase as any)
           .from('general_tasks')
           .select('housekeeping_section_task_id, status, assigned_to')
@@ -476,51 +716,154 @@ export function AutoRoomAssignment({
         } as HousekeepingSectionTaskTemplate] : [];
       }));
 
-      const allHotelRooms = (roomRows || []).map(addSectionContext);
-      const roomIds = allHotelRooms.map(room => room.id);
-      let assignmentRows: ExistingAssignment[] = [];
-      if (roomIds.length > 0) {
-        const { data, error } = await supabase
-          .from('room_assignments')
-          .select('id, room_id, assigned_to, assignment_type, status, priority, ready_to_clean, pms_hold, pms_hold_reason')
-          .eq('assignment_date', selectedDate)
-          .in('room_id', roomIds);
-        if (error) throw error;
-        assignmentRows = (data || []) as ExistingAssignment[];
+      const allHotelRooms = overlayMemoriesDailyCarryOnRooms(
+        (roomRows || []).map(addSectionContext),
+        await loadMemoriesDailyBoardCarry(),
+        selectedDate, todayBudapest(),
+      );
+      const verifiedLiveRooms = isGozsdu && !isNextDayPlanning
+        ? await fetchVerifiedGozsduAutoAssignRooms(allHotelRooms, profile.organization_slug, selectedDate)
+        : allHotelRooms;
+      let workingRooms: RoomForAssignment[] = [];
+      let existingRows: ExistingAssignment[] = [];
+      let selectedFromDb = new Set<string>(checked);
+      let savedManagerRoomIds = new Set<string>();
+
+      if (isNextDayPlanning) {
+        if (!profile.assigned_hotel) throw new Error('Hotel access is missing');
+        const [workload, saved] = await Promise.all([
+          buildTomorrowAutoAssignRooms({
+            organizationSlug: profile.organization_slug,
+            hotelId: profile.assigned_hotel,
+            selectedDate,
+            roomRows: allHotelRooms,
+            pmsSyncedAt,
+          }),
+          loadExistingNextDayPlan({
+            organizationSlug: profile.organization_slug,
+            hotelId: profile.assigned_hotel,
+            selectedDate,
+          }),
+        ]);
+        workingRooms = workload.rooms;
+        setNextDayPlan(saved.plan);
+        setAutoRelease(saved.plan?.auto_release ?? true);
+        setNextDayPmsSyncedAt(pmsSyncedAt || workload.capturedAt || saved.plan?.pms_synced_at || null);
+
+        savedManagerRoomIds = new Set(saved.items.filter(item => item.recommendation_context?.manager_changed === true).map(item => item.room_id));
+        const primaryItems = saved.items.filter(item =>
+          item.source !== 'shared' && item.recommendation_context?.assignment_role !== 'shared'
+        );
+        const sharedItems = saved.items.filter(item =>
+          item.source === 'shared' || item.recommendation_context?.assignment_role === 'shared'
+        );
+        setSharedByRoom(new Map(sharedItems.map(item => [item.room_id, item.assigned_to])));
+        setSuggestedByRoom(new Map(primaryItems.map(item => [
+          item.room_id,
+          item.recommendation_context?.suggested_staff_id || item.assigned_to,
+        ])));
+        setSectionTaskOwners(new Map(saved.areas.flatMap(area =>
+          area.source === 'mapped' && area.section_task_id
+            ? [[area.section_task_id, area.assigned_to] as [string, string]]
+            : []
+        )));
+        setPublicAreaAssignments(new Map(saved.areas.flatMap(area =>
+          area.source === 'manual' && area.task_key.startsWith('manual:')
+            ? [[area.task_key.slice('manual:'.length), area.assigned_to] as [string, string]]
+            : []
+        )));
+
+        existingRows = primaryItems.map(item => ({
+          id: item.id,
+          room_id: item.room_id,
+          assigned_to: item.assigned_to,
+          assignment_type: item.assignment_type,
+          status: 'assigned',
+          priority: item.priority,
+          ready_to_clean: item.assignment_type === 'daily_cleaning',
+          pms_hold: false,
+          pms_hold_reason: null,
+        }));
+        const planOwners = new Set(existingRows.map(row => row.assigned_to));
+        selectedFromDb = new Set([
+          ...Array.from(checked),
+          ...saved.staffIds,
+          ...Array.from(planOwners),
+          ...sharedItems.map(item => item.assigned_to),
+        ]);
+      } else {
+        setNextDayPlan(null);
+        setAutoRelease(true);
+        setSharedByRoom(new Map());
+        setSuggestedByRoom(new Map());
+        const roomIds = allHotelRooms.map(room => room.id);
+        if (roomIds.length > 0) {
+          const { data, error } = await supabase
+            .from('room_assignments')
+            .select('id, room_id, assigned_to, assignment_type, status, priority, ready_to_clean, pms_hold, pms_hold_reason, supervisor_approved')
+            .eq('assignment_date', selectedDate)
+            .in('room_id', roomIds);
+          if (error) throw error;
+          const assignmentRows = (data || []) as ExistingAssignment[];
+          existingRows = assignmentRows.filter(row =>
+            ['assigned', 'in_progress', 'dnd_pending_retry', 'completed'].includes(row.status)
+          );
+          setRoomProgressById(new Map(assignmentRows.map(row => [row.room_id, row as LiveRoomProgress])));
+          const completedRoomIds = new Set(assignmentRows
+            .filter(row => row.status === 'completed')
+            .map(row => row.room_id));
+          const assignedRoomIds = new Set(existingRows.map(row => row.room_id));
+          workingRooms = verifiedLiveRooms
+            .filter(room => assignedRoomIds.has(room.id) || completedRoomIds.has(room.id) || isRoomEligibleForAutoAssign(room, {
+              hasActiveAssignment: assignedRoomIds.has(room.id),
+              hasCompletedAssignment: completedRoomIds.has(room.id),
+              includeCleanOperatingRooms: includeCleanOverride,
+            }))
+            .map(room => ({
+              ...room,
+              ready_to_clean: existingRows.find(row => row.room_id === room.id)?.ready_to_clean ?? false,
+            }));
+        } else {
+          workingRooms = [];
+        }
+        const ownerIds = new Set(existingRows.map(row => row.assigned_to));
+        selectedFromDb = new Set<string>([...Array.from(checked), ...Array.from(ownerIds)]);
       }
 
-      const existingRows = assignmentRows.filter(row =>
-        ['assigned', 'in_progress', 'dnd_pending_retry'].includes(row.status)
-      );
-      const completedRoomIds = new Set(assignmentRows
-        .filter(row => row.status === 'completed')
-        .map(row => row.room_id));
-
+      if (isGozsdu && existingRows.some(row => isActiveGozsduLaundryner(row.assigned_to))) {
+        throw new Error('A Laundryner still owns cleaning work. Resolve this conflict before Auto Assign.');
+      }
+      if (isGozsdu) {
+        selectedFromDb = new Set([...selectedFromDb].filter(id => !isActiveGozsduLaundryner(id)));
+      }
       existingAssignmentsRef.current = new Map(existingRows.map(row => [row.room_id, row]));
-      const existingByRoom = existingAssignmentsRef.current;
-      const assignedRoomIds = new Set(existingRows.map(row => row.room_id));
-      const workingRooms = allHotelRooms
-        .filter(room => isRoomEligibleForAutoAssign(room, {
-          hasActiveAssignment: assignedRoomIds.has(room.id),
-          hasCompletedAssignment: completedRoomIds.has(room.id),
-        }))
-        .map(room => ({
-          ...room,
-          ready_to_clean: existingByRoom.get(room.id)?.ready_to_clean ?? false,
-        }));
       setDirtyRooms(workingRooms);
 
-      const ownerIds = new Set(existingRows.map(row => row.assigned_to));
-      const selectedFromDb = new Set<string>([...Array.from(checked), ...Array.from(ownerIds)]);
+      // A manager's unfinished local edits survive closing/reopening ONLY when
+      // the exact published owners are unchanged and work has not started.
+      // If another user updated live work, the database takes priority.
+      const sortedOwners = (rows: Array<[string, string]>) =>
+        [...rows].sort(([roomA], [roomB]) => roomA.localeCompare(roomB));
+      const publishedOwners = sortedOwners(existingRows.map(row => [row.room_id, row.assigned_to]));
+      const savedPublishedOwners = restoredPublishedOwnersRef.current;
+      const canRestorePublishedDraft = preserveDraft
+        && !!savedPublishedOwners
+        && !isNextDayPlanning
+        && !existingRows.some(row => isProtectedLiveAssignment(row.status))
+        && JSON.stringify(publishedOwners) === JSON.stringify(sortedOwners(savedPublishedOwners));
 
-      if (!preserveDraft) {
+      if (preserveDraft && existingRows.length > 0 && !canRestorePublishedDraft && !isNextDayPlanning) {
+        localStorage.removeItem(saveKey);
+        toast.info('The published morning plan has changed or cleaning has started. The live assignments were loaded to protect staff work.');
+      }
+      if (!preserveDraft || (!isNextDayPlanning && existingRows.length > 0 && !canRestorePublishedDraft)) {
         if (existingRows.length > 0) {
           setEditingExistingAssignments(true);
           setSelectedStaffIds(selectedFromDb);
           const roomMap = new Map(workingRooms.map(room => [room.id, room]));
           const staffById = new Map(staffList.map(staff => [staff.id, staff]));
+          const ownerIds = new Set(existingRows.map(row => row.assigned_to));
           const previewStaff: StaffForAssignment[] = [];
-
           for (const staff of staffList) {
             if (selectedFromDb.has(staff.id)) previewStaff.push(staff);
           }
@@ -529,7 +872,6 @@ export function AutoRoomAssignment({
               previewStaff.push({ id: ownerId, full_name: `Staff ${ownerId.slice(0, 6)}`, nickname: null });
             }
           }
-
           const previews = previewStaff.map(staff => {
             const rooms = existingRows
               .filter(row => row.assigned_to === staff.id)
@@ -540,12 +882,19 @@ export function AutoRoomAssignment({
           setAssignmentPreviews(previews);
           setFairnessMetrics(computeFairnessMetrics(previews));
           setPreviewHistory([]);
+          setPlanningExplanation('Existing assignment loaded. Regeneration preserves manager-adjusted rooms.');
+          setLockedRoomIds(new Set(isNextDayPlanning
+            ? [...savedManagerRoomIds]
+            : existingRows.filter(row => isProtectedLiveAssignment(row.status)).map(row => row.room_id)));
+          if (!isNextDayPlanning) setRestoredFromSave(false);
           setStep('preview');
         } else {
           setEditingExistingAssignments(false);
-          setSelectedStaffIds(checked);
+          setSelectedStaffIds(selectedFromDb);
           setAssignmentPreviews([]);
           setFairnessMetrics(null);
+          setPlanningExplanation('');
+          setLockedRoomIds(new Set());
           setStep('select-staff');
         }
       } else {
@@ -571,13 +920,62 @@ export function AutoRoomAssignment({
 
       const { data: patternData } = await supabase
         .from('assignment_patterns')
-        .select('room_number_a, room_number_b, pair_count')
+        .select('room_number_a, room_number_b, pair_count, last_seen_at')
         .eq('hotel', hotelName)
-        .eq('organization_slug', profile.organization_slug);
-      setRoomAffinity(patternData?.length ? buildAffinityMap(patternData) : undefined);
+        .eq('organization_slug', profile.organization_slug)
+        .order('pair_count', { ascending: false })
+        .limit(1000);
+      const recentPatterns = (patternData || []).flatMap(pattern => {
+        const age = pattern.last_seen_at ? (Date.now() - Date.parse(pattern.last_seen_at)) / 86400000 : 999;
+        if (!Number.isFinite(age) || age < 0 || age > 180 || pattern.pair_count < 2) return [];
+        return [{ ...pattern, pair_count: Math.max(1, Math.round(pattern.pair_count * Math.exp(-age / 90))) }];
+      });
+      setRoomAffinity(recentPatterns.length >= 3 ? buildAffinityMap(recentPatterns) : undefined);
+      const { data: learningProfile } = await (supabase as any)
+        .from('housekeeping_assignment_learning_profiles')
+        .select('sample_count,correction_count,staff_preferences')
+        .eq('organization_slug', profile.organization_slug)
+        .eq('hotel_id', profile.assigned_hotel)
+        .maybeSingle();
+      const samples = Math.max(0, Number(learningProfile?.sample_count) || 0);
+      setHistoricalSampleCount(samples);
+      const validStaffIds = new Set(staffList.map(staff => staff.id));
+      const localPrefs = sanitizeStaffPreferences(learningProfile?.staff_preferences);
+      const managerPreferences = samples >= 5
+        ? Object.fromEntries(Object.entries(localPrefs).filter(([id]) => validStaffIds.has(id))) : {};
+      if (isHotelMemoriesBudapest(hotelName) && !isNextDayPlanning) {
+        // Historical completed routes are weak advisory input, NEVER an
+        // instruction to change or overwrite a published manager assignment.
+        const cutoff = new Date(new Date(selectedDate + 'T12:00:00Z').getTime() - 14 * 86400000)
+          .toISOString().slice(0, 10);
+        const { data: history, error: historyError } = await supabase
+          .from('room_assignments')
+          .select('room_id,assigned_to,assignment_date')
+          .in('room_id', allHotelRooms.map(room => room.id))
+          .gte('assignment_date', cutoff)
+          .lt('assignment_date', selectedDate)
+          .eq('status', 'completed')
+          .order('assignment_date', { ascending: false })
+          .limit(1000);
+        if (historyError) console.warn('[Memories Auto Assign] route learning unavailable', historyError);
+        const learned = buildMemoriesHistoricalPreferences(history || [], allHotelRooms, validStaffIds);
+        setHistoricalSampleCount(Math.max(samples, learned.sampleCount));
+        setHistoricalPreferences({ ...learned.preferences, ...managerPreferences });
+      } else {
+        setHistoricalPreferences(managerPreferences);
+      }
     } catch (error) {
       console.error('[AutoRoomAssignment] fetch failed:', error);
-      toast.error(t('autoAssign.failedToLoad'));
+      setLoadError(error instanceof Error ? error.message : 'Unable to load assignment data');
+      setDirtyRooms([]);
+      if (isGozsdu && error instanceof Error) {
+        // Keep a true verification failure visible without suggesting that a
+        // zero-room result is an authoritative PMS result.
+        setPmsVerificationError(error.message);
+        setDirtyRooms([]);
+      } else {
+        toast.error(t('autoAssign.failedToLoad'));
+      }
     } finally {
       setLoading(false);
     }
@@ -587,13 +985,21 @@ export function AutoRoomAssignment({
     if (!open) return;
 
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
     setShowOverAllocationDialog(false);
     setPublicAreaAssignments(new Map());
     setPreviewHistory([]);
+    setLockHistory([]);
+    setPlanningExplanation('');
 
     let restored = false;
+    restoredPublishedOwnersRef.current = null;
     try {
-      const saved = localStorage.getItem(saveKey);
+      const carryForwardMarkerKey = `hk_carry_forward_v1_${profile?.organization_slug || 'unknown'}_${profile?.assigned_hotel || 'unknown'}_${selectedDate}`;
+      const hasTaggedCarryForwardDraft = isGozsdu && localStorage.getItem(carryForwardMarkerKey) !== null;
+      if (isGozsdu && !hasTaggedCarryForwardDraft) localStorage.removeItem(saveKey);
+      const saved = isGozsdu && !hasTaggedCarryForwardDraft ? null : localStorage.getItem(saveKey);
       if (saved) {
         const data: SavedState = JSON.parse(saved);
         if (Date.now() - data.savedAt < 12 * 60 * 60 * 1000 && data.previews?.length > 0) {
@@ -604,6 +1010,9 @@ export function AutoRoomAssignment({
           setExcludedRoomIds(new Set(data.excludedRoomIds || []));
           setMaintenanceHoldRoomIds(new Set(data.maintenanceHoldRoomIds || []));
           setRestoredFromSave(true);
+          setLockedRoomIds(new Set(data.lockedRoomIds || []));
+           setSectionTaskOwners(new Map(data.sectionTaskOwners || []));
+           restoredPublishedOwnersRef.current = data.publishedRoomOwners || null;
           setStep('preview');
         } else {
           localStorage.removeItem(saveKey);
@@ -623,7 +1032,27 @@ export function AutoRoomAssignment({
   }, [open, selectedDate]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !isGozsdu || laundryCommitRef.current === laundryDutyCommitRevision) return;
+    laundryCommitRef.current = laundryDutyCommitRevision;
+    setSelectedStaffIds(previous => new Set([...previous].filter(id => !isLaundryner(id))));
+    setAssignmentPreviews([]);
+    setFairnessMetrics(null);
+    setPreviewHistory([]);
+    setLockHistory([]);
+    setLockedRoomIds(new Set());
+    setSectionTaskOwners(new Map());
+    setSharedByRoom(new Map());
+    setSuggestedByRoom(new Map());
+    setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
+    setStep('select-staff');
+  }, [open, isGozsdu, laundryDutyCommitRevision, laundryDutyIds]);
+
+  useEffect(() => {
+    const carryForwardMarkerKey = `hk_carry_forward_v1_${profile?.organization_slug || 'unknown'}_${profile?.assigned_hotel || 'unknown'}_${selectedDate}`;
+    const hasTaggedCarryForwardDraft = isGozsdu && localStorage.getItem(carryForwardMarkerKey) !== null;
+    if (!open || (isGozsdu && !hasTaggedCarryForwardDraft)) return;
     if (selectedStaffIds.size === 0 && assignmentPreviews.length === 0) return;
     const data: SavedState = {
       staffIds: Array.from(selectedStaffIds),
@@ -631,13 +1060,15 @@ export function AutoRoomAssignment({
       excludedRoomIds: Array.from(excludedRoomIds),
       maintenanceHoldRoomIds: Array.from(maintenanceHoldRoomIds),
       savedAt: Date.now(),
+      lockedRoomIds: Array.from(lockedRoomIds),
+      sectionTaskOwners: Array.from(sectionTaskOwners),
+      publishedRoomOwners: Array.from(existingAssignmentsRef.current.values()).map(row => [row.room_id, row.assigned_to]),
     };
     try {
       localStorage.setItem(saveKey, JSON.stringify(data));
     } catch {
-      // Browser storage is best-effort only.
     }
-  }, [open, saveKey, selectedStaffIds, assignmentPreviews, excludedRoomIds, maintenanceHoldRoomIds]);
+  }, [open, saveKey, isGozsdu, selectedStaffIds, assignmentPreviews, excludedRoomIds, maintenanceHoldRoomIds, lockedRoomIds, sectionTaskOwners]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -650,10 +1081,14 @@ export function AutoRoomAssignment({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [step, previewHistory]);
+  }, [step, previewHistory, lockHistory, workloadHistory]);
 
   const pushHistory = (previews: AssignmentPreview[]) => {
     setPreviewHistory(history => [...history.slice(-19), previews]);
+    setLockHistory(history => [...history.slice(-19), new Set(lockedRoomIds)]);
+    setWorkloadHistory(history => [...history.slice(-19), {
+      sectionOwners: sectionTaskOwners, publicOwners: publicAreaAssignments,
+    }]);
   };
 
   const handleUndo = () => {
@@ -661,11 +1096,20 @@ export function AutoRoomAssignment({
     const previous = previewHistory[previewHistory.length - 1];
     const restoredRoomIds = new Set(previous.flatMap(preview => preview.rooms.map(room => room.id)));
     setPreviewHistory(history => history.slice(0, -1));
+    setLockedRoomIds(lockHistory[lockHistory.length - 1] || new Set());
+    setLockHistory(history => history.slice(0, -1));
+    const workload = workloadHistory.at(-1);
+    if (workload && isHotelMemoriesBudapest(managerHotelRef.current || profile?.assigned_hotel || '')) {
+      setSectionTaskOwners(workload.sectionOwners);
+      setPublicAreaAssignments(workload.publicOwners);
+    }
+    setWorkloadHistory(history => history.slice(0, -1));
     setAssignmentPreviews(previous);
     setFairnessMetrics(computeFairnessMetrics(previous));
     setMaintenanceHoldRoomIds(ids => new Set(Array.from(ids).filter(id => !restoredRoomIds.has(id))));
     setExcludedRoomIds(ids => new Set(Array.from(ids).filter(id => !restoredRoomIds.has(id))));
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
     toast.success(t('autoAssign.undoSuccess'));
   };
 
@@ -674,11 +1118,18 @@ export function AutoRoomAssignment({
     setRestoredFromSave(false);
     setExcludedRoomIds(new Set());
     setMaintenanceHoldRoomIds(new Set());
+    setLockedRoomIds(new Set());
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
     void fetchData(false);
   };
 
   const toggleStaffSelection = (staffId: string) => {
+    if (isLaundryner(staffId)) {
+      toast.info('This employee is on Laundryner duty. Remove that duty first to assign cleaning rooms.');
+      return;
+    }
     setSelectedStaffIds(previous => {
       const next = new Set(previous);
       if (next.has(staffId)) next.delete(staffId);
@@ -697,9 +1148,15 @@ export function AutoRoomAssignment({
   };
 
   const handleGeneratePreview = async () => {
-    const selectedStaff = allStaff.filter(staff => selectedStaffIds.has(staff.id));
+    const selectedStaff = allStaff.filter(staff => cleaningStaffIds.has(staff.id));
     const roomsToAssign = effectiveRooms;
-    if (selectedStaff.length === 0 || roomsToAssign.length === 0) return;
+    const staffPoolChanged = hasAutoAssignStaffPoolChanged(assignmentPreviews, cleaningStaffIds);
+    if (selectedStaff.length === 0 || roomsToAssign.length === 0) {
+      if (isGozsdu) toast.warning(selectedStaff.length === 0
+        ? 'Select at least one cleaning housekeeper. Laundryners cannot receive rooms.'
+        : 'There are no eligible rooms to assign. Refresh PMS or check exclusions.');
+      return;
+    }
 
     const hotelName = managerHotelRef.current || await getManagerHotel();
     let hotelConfig: HotelAssignmentConfig = { hotelName: hotelName || undefined };
@@ -712,17 +1169,14 @@ export function AutoRoomAssignment({
         .maybeSingle();
       const settings = (configData?.settings as any) || {};
       if (settings.wing_zone_mapping) hotelConfig.wingZoneMapping = settings.wing_zone_mapping;
-
-      const insightsKey = `ai_insights_${hotelName}`;
-      const cached = localStorage.getItem(insightsKey);
-      if (cached) {
-        const insights = JSON.parse(cached);
-        if (Date.now() - (insights.cachedAt || 0) < 7 * 24 * 60 * 60 * 1000) {
-          hotelConfig.staffPreferences = insights.staff_preferences;
-        }
+      hotelConfig.staffPreferences = historicalPreferences;
+      if (isHotelMemoriesBudapest(hotelName)) {
+        hotelConfig.floorPenaltyMultiplier = 1.7;
+        hotelConfig.roomProximityWeight = 3.5;
+        hotelConfig.floorOwnershipBonus = 330;
+        hotelConfig.affinityBonusMultiplier = 60;
       }
     } catch {
-      // Smart settings are optional; assignment still works with algorithm defaults.
     }
 
     try {
@@ -731,6 +1185,7 @@ export function AutoRoomAssignment({
         .from('hotel_autoassign_profiles')
         .select('floor_grouping_weight, checkout_first')
         .in('hotel_id', searchKeys)
+        .eq('organization_slug', profile?.organization_slug || '')
         .limit(1)
         .maybeSingle();
       if (profileRow?.floor_grouping_weight != null) {
@@ -740,43 +1195,168 @@ export function AutoRoomAssignment({
         hotelConfig.checkoutFirstGrouping = !!profileRow.checkout_first;
       }
     } catch {
-      // Per-hotel tuning is optional.
     }
 
-    let best: AssignmentPreview[] | null = null;
-    let bestMetrics: FairnessMetrics | null = null;
-    let bestScore = Infinity;
-    for (let i = 0; i < 10; i++) {
-      const candidate = autoAssignRooms(
-        roomsToAssign,
-        selectedStaff,
-        wingProximity,
-        roomAffinity,
-        { ...hotelConfig, randomSeed: Date.now() + i * 7919 },
-      );
-      const metrics = computeFairnessMetrics(candidate);
-      if (metrics.score < bestScore) {
-        best = candidate;
-        bestMetrics = metrics;
-        bestScore = metrics.score;
+    const shiftMinutes = new Map<string, number>();
+    for (const staff of selectedStaff) {
+      const minutes = scheduleDurationMinutes(publishedScheduleByStaff.get(staff.id));
+      if (minutes !== null) shiftMinutes.set(staff.id, minutes);
+    }
+    const nextSectionTaskOwners = selectedOwnerOverrides(sectionTaskOwners, cleaningStaffIds);
+    const fixedAreaOwners = new Map(nextSectionTaskOwners);
+    lockedSectionTasks.forEach((value, taskId) => {
+      if (value.status !== 'assigned' && value.assignedTo) fixedAreaOwners.set(taskId, value.assignedTo);
+    });
+    let currentWorkRows: Array<{ room_id: string; assigned_to: string; status: string }> = [];
+    if (!isNextDayPlanning && roomsToAssign.length) {
+      const { data: currentWork, error: currentWorkError } = await supabase
+        .from('room_assignments')
+        .select('room_id,assigned_to,status')
+        .eq('assignment_date', selectedDate)
+        .in('room_id', roomsToAssign.map(room => room.id));
+      if (currentWorkError) {
+        toast.error('Cannot verify current room ownership. Refresh before regenerating.');
+        return;
+      }
+      currentWorkRows = (currentWork || []) as Array<{ room_id: string; assigned_to: string; status: string }>;
+      const excludedActiveWork = activeWorkOwnedByExcludedStaff(currentWorkRows, cleaningStaffIds);
+      if (excludedActiveWork.length > 0) {
+        const roomNameById = new Map(roomsToAssign.map(room => [room.id, room.room_number]));
+        const excludedIds = new Set(excludedActiveWork.map(row => row.assigned_to));
+        const excludedNames = allStaff
+          .filter(staff => excludedIds.has(staff.id))
+          .map(staff => staff.nickname || staff.full_name);
+        const roomNames = excludedActiveWork
+          .map(row => roomNameById.get(row.room_id) || row.room_id)
+          .slice(0, 5)
+          .join(', ');
+        toast.error(`${excludedNames.join(', ') || 'A deselected housekeeper'} already has work in progress${roomNames ? ` in room(s) ${roomNames}` : ''}. Finish or manually reassign that active work first; assigned-but-not-started rooms can be redistributed automatically.`);
+        return;
+      }
+      const previewOwners = new Map(assignmentPreviews.flatMap(person =>
+        person.rooms.map(room => [room.id, person.staffId] as const)));
+      for (const row of currentWorkRows) {
+        if (row.status !== 'in_progress' && row.status !== 'dnd_pending_retry') continue;
+        if (previewOwners.get(row.room_id) !== row.assigned_to) {
+          toast.error('An in-progress room changed since the preview. Refresh before regenerating.');
+          return;
+        }
       }
     }
 
-    const previews = best || autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, hotelConfig);
+    const previousOwners = new Map(assignmentPreviews.flatMap(person =>
+      person.rooms.map(room => [room.id, person.staffId] as const)));
+    const fixedRoomOwners = new Map<string, string>();
+    for (const roomId of lockedRoomIds) {
+      const ownerId = previousOwners.get(roomId);
+      if (ownerId && cleaningStaffIds.has(ownerId)) fixedRoomOwners.set(roomId, ownerId);
+    }
+    for (const row of currentWorkRows) {
+      if ((row.status === 'in_progress' || row.status === 'dnd_pending_retry')
+        && cleaningStaffIds.has(row.assigned_to)) {
+        fixedRoomOwners.set(row.room_id, row.assigned_to);
+      }
+    }
+    const enforcedLocks = new Set(fixedRoomOwners.keys());
+    hotelConfig.staffPreferences = historicalPreferences;
+    const result = generateSmartHousekeepingPlan({
+      rooms: roomsToAssign,
+      staff: selectedStaff,
+      organizationSlug: profile?.organization_slug || '',
+      hotelId: profile?.assigned_hotel || '',
+      hotelConfig,
+      goal: planningGoal,
+      previous: staffPoolChanged ? undefined : assignmentPreviews.length ? assignmentPreviews : undefined,
+      lockedRoomIds: enforcedLocks,
+      fixedRoomOwners,
+      shiftMinutes,
+      publicAreaTemplates: sectionTaskTemplates,
+      fixedAreaOwners,
+      wingProximity,
+      affinity: roomAffinity,
+      historicalSampleCount,
+      gozsdu: isGozsdu,
+      seed: stableAssignmentSeed(hotelName || '', selectedDate, planningGoal, selectedStaff.map(staff => staff.id), roomsToAssign.map(room => room.id)),
+    });
+    setPlanningExplanation(staffPoolChanged
+      ? `Staff availability changed. ${result.reason}`
+      : result.reason);
+    if (!result.changed || !result.plan) {
+      if (result.plan) toast.info(result.reason);
+      else toast.error(result.reason);
+      return;
+    }
+    const previews = result.plan;
+    if (isGozsdu && !gozsduPreviewCoversWork(previews, roomsToAssign.length, cleaningStaffIds, isLaundryner)) {
+      toast.error('Allocation incomplete: check building routes, unavailable rooms and staffing.');
+      return;
+    }
     pushHistory(assignmentPreviews);
     setAssignmentPreviews(previews);
-    setFairnessMetrics(bestMetrics || computeFairnessMetrics(previews));
+    // Freeze public-area owners at deliberate generation; moving one room must not shuffle areas.
+    setSectionTaskOwners(new Map(assignSectionTasksToStaff(previews, sectionTaskTemplates)
+      .map(task => [task.id, fixedAreaOwners.get(task.id) || task.staff_id] as [string, string])));
+    if (staffPoolChanged) {
+      setLockedRoomIds(new Set(enforcedLocks));
+      setPublicAreaAssignments(previous => new Map(
+        [...previous].filter(([, staffId]) => cleaningStaffIds.has(staffId)),
+      ));
+      const previousStaff = new Set(assignmentPreviews.map(preview => preview.staffId));
+      const excludedNames = allStaff
+        .filter(staff => previousStaff.has(staff.id) && !cleaningStaffIds.has(staff.id))
+        .map(staff => staff.nickname || staff.full_name);
+      if (excludedNames.length) {
+        toast.success(`${excludedNames.join(', ')} skipped. Eligible rooms were redistributed across ${selectedStaff.length} selected cleaner${selectedStaff.length === 1 ? '' : 's'}.`);
+      }
+    }
+    if (isNextDayPlanning) {
+      setSuggestedByRoom(new Map(previews.flatMap(preview =>
+        preview.rooms.map(room => [room.id, preview.staffId] as [string, string]),
+      )));
+      setSharedByRoom(new Map());
+    }
+    setFairnessMetrics(computeFairnessMetrics(previews));
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
     setStep('preview');
   };
 
   const applyRoomMove = (roomId: string, fromStaffId: string, toStaffId: string) => {
     if (!roomId || !fromStaffId || !toStaffId || fromStaffId === toStaffId) return;
+    if (!isNextDayPlanning && isProtectedLiveAssignment(roomProgressById.get(roomId)?.status)) {
+      toast.warning('This room is already being cleaned or finished. Its published owner cannot be changed.');
+      return;
+    }
+    const managerOverride = isGozsdu && hasManagerPowers(profile?.role);
+    const next = moveRoom(assignmentPreviews, roomId, fromStaffId, toStaffId, managerOverride);
+    if (isGozsdu && next === assignmentPreviews) {
+      toast.warning(isLaundryner(toStaffId)
+        ? 'Laundryners cannot receive cleaning rooms.'
+        : 'These buildings cannot be combined automatically. Only managers can override manually.');
+      return;
+    }
+    if (managerOverride && !gozsduAllocationRespectsBuildings(next)) {
+      toast.info('Manager override: this housekeeper now has rooms across mapped buildings. Automatic allocation rules remain unchanged.');
+    }
     pushHistory(assignmentPreviews);
-    const next = moveRoom(assignmentPreviews, roomId, fromStaffId, toStaffId);
+    setLockedRoomIds(previous => new Set([...previous, roomId]));
     setAssignmentPreviews(next);
+    if (isNextDayPlanning && sharedByRoom.get(roomId) === toStaffId) {
+      setSharedByRoom(previous => {
+        const updated = new Map(previous);
+        updated.delete(roomId);
+        return updated;
+      });
+    }
     setFairnessMetrics(computeFairnessMetrics(next));
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(previous => {
+      if (!previous.has(roomId)) return previous;
+      const nextSelection = new Set(previous);
+      nextSelection.delete(roomId);
+      return nextSelection;
+    });
     setJustDroppedRoomId(roomId);
     setJustDroppedStaffId(toStaffId);
     setTimeout(() => {
@@ -785,8 +1365,57 @@ export function AutoRoomAssignment({
     }, 650);
   };
 
-  const removeRoomFromPreview = (roomId: string, fromStaffId: string, markExcluded: boolean = true) => {
+  const handleBulkRoomMove = () => {
+    if (!bulkDestinationStaffId || !cleaningStaffIds.has(bulkDestinationStaffId) || isLaundryner(bulkDestinationStaffId)) {
+      toast.warning('Choose an eligible housekeeper from this hotel. Laundryners cannot receive rooms.');
+      return;
+    }
+    if (!isNextDayPlanning && [...bulkSelectedRoomIds].some(id => isProtectedLiveAssignment(roomProgressById.get(id)?.status))) {
+      toast.warning('A selected room is already in progress or finished. Deselect it before moving other rooms.');
+      return;
+    }
+    const managerOverride = isGozsdu && hasManagerPowers(profile?.role);
+    const result = moveSelectedRooms(
+      assignmentPreviews, [...bulkSelectedRoomIds], bulkDestinationStaffId,
+      { allowGozsduManagerOverride: managerOverride, destinationIsLaundryner: isLaundryner(bulkDestinationStaffId) },
+    );
+    if (result.error) {
+      toast.warning(result.error === 'restricted_move'
+        ? 'One or more selected rooms cannot be moved under the building rules. Nothing was changed.'
+        : result.error === 'nothing_to_move'
+          ? 'All selected rooms are already with this housekeeper. Choose other rooms.'
+          : 'The selection or housekeeper has changed. Review the rooms and try again. Nothing was moved.');
+      return;
+    }
+    if (managerOverride && !gozsduAllocationRespectsBuildings(result.previews)) {
+      toast.info('Manager override: the selected rooms cross mapped buildings. Automatic allocation rules remain unchanged.');
+    }
     pushHistory(assignmentPreviews);
+    setLockedRoomIds(previous => new Set([...previous, ...result.movedRoomIds]));
+    setAssignmentPreviews(result.previews);
+    setFairnessMetrics(computeFairnessMetrics(result.previews));
+    if (isNextDayPlanning) {
+      setSharedByRoom(previous => {
+        const updated = new Map(previous);
+        result.movedRoomIds.forEach(id => {
+          if (updated.get(id) === bulkDestinationStaffId) updated.delete(id);
+        });
+        return updated;
+      });
+    }
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
+    setSelectedRoomForMove(null);
+    toast.success(`${result.movedRoomIds.length} rooms moved in the preview. Confirm the plan to save.`);
+  };
+
+  const removeRoomFromPreview = (roomId: string, fromStaffId: string, markExcluded: boolean = true) => {
+    if (!isNextDayPlanning && isProtectedLiveAssignment(roomProgressById.get(roomId)?.status)) {
+      toast.warning('Started and completed assignments cannot be removed from the daily record.');
+      return;
+    }
+    pushHistory(assignmentPreviews);
+    setLockedRoomIds(previous => new Set([...previous].filter(id => id !== roomId)));
     const next = assignmentPreviews.map(preview => {
       if (preview.staffId !== fromStaffId) return preview;
       return buildPreview(preview.staffId, preview.staffName, preview.rooms.filter(room => room.id !== roomId));
@@ -796,13 +1425,28 @@ export function AutoRoomAssignment({
     if (markExcluded) {
       setExcludedRoomIds(previous => new Set([...Array.from(previous), roomId]));
     }
+    if (isNextDayPlanning) {
+      setSharedByRoom(previous => {
+        const updated = new Map(previous);
+        updated.delete(roomId);
+        return updated;
+      });
+    }
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(previous => {
+      if (!previous.has(roomId)) return previous;
+      const updated = new Set(previous);
+      updated.delete(roomId);
+      return updated;
+    });
   };
 
   const stageMaintenanceHold = (room: RoomForAssignment, fromStaffId: string) => {
     setMaintenanceHoldRoomIds(previous => new Set([...Array.from(previous), room.id]));
     removeRoomFromPreview(room.id, fromStaffId, true);
-    toast.info(`Room ${room.room_number} will be put on maintenance hold when you confirm.`);
+    toast.info(isNextDayPlanning
+      ? `Room ${room.room_number} will be excluded from tomorrow’s housekeeping plan as a planned maintenance hold.`
+      : `Room ${room.room_number} will be put on maintenance hold when you confirm.`);
   };
 
   const getDropStaffAtPoint = (x: number, y: number, fromStaffId: string): string | null => {
@@ -814,7 +1458,6 @@ export function AutoRoomAssignment({
     return null;
   };
 
-  /** Move one public-area task to another housekeeper (blocked once started). */
   const movePublicAreaTask = (taskId: string, toStaffId: string) => {
     const task = sectionTasks.find(item => item.id === taskId);
     if (!task) return;
@@ -834,9 +1477,8 @@ export function AutoRoomAssignment({
     toast.success(`${task.task_name} → ${toName}`);
   };
 
-  /** Redistribute only the movable public-area tasks across the busiest-last staff. */
   const shufflePublicAreas = () => {
-    const eligible = assignmentPreviews.filter(preview => selectedStaffIds.has(preview.staffId));
+    const eligible = assignmentPreviews.filter(preview => cleaningStaffIds.has(preview.staffId));
     if (eligible.length === 0) return;
     const movable = sectionTasks.filter(task => !task.lockedStatus);
     if (movable.length === 0) {
@@ -844,7 +1486,6 @@ export function AutoRoomAssignment({
       return;
     }
 
-    // Start from the room workload plus the minutes already pinned by locked tasks.
     const load = new Map(eligible.map(preview => [preview.staffId, preview.totalWithBreak]));
     for (const task of sectionTasks) {
       if (!task.lockedStatus) continue;
@@ -866,7 +1507,47 @@ export function AutoRoomAssignment({
     toast.success(`Shuffled ${movable.length} public area${movable.length === 1 ? '' : 's'}.`);
   };
 
+  const showWorkloadSwap = !isNextDayPlanning && hasManagerPowers(profile?.role)
+    && isHotelMemoriesBudapest(managerHotelRef.current || profile?.assigned_hotel || '');
+  const swappableStaff = showWorkloadSwap ? assignmentPreviews.filter(person =>
+    cleaningStaffIds.has(person.staffId)
+    && person.rooms.every(room => !lockedRoomIds.has(room.id) &&
+      !isProtectedLiveAssignment(roomProgressById.get(room.id)?.status))
+    && !sectionTasks.some(task => task.staff_id === person.staffId && task.lockedStatus),
+  ) : [];
+  const swapLabels = language === 'hu'
+    ? { title: 'Munkacsomagok felcserélése', from: 'Első takarító', to: 'Második takarító', action: 'Csere az előnézetben' }
+    : { title: 'Swap workloads', from: 'First housekeeper', to: 'Second housekeeper', action: 'Swap in preview' };
+  const canSwapWorkloads = swapFrom !== swapTo &&
+    [swapFrom, swapTo].every(id => swappableStaff.some(person => person.staffId === id));
+
+  const swapWorkloads = () => {
+    if (!canSwapWorkloads) return;
+    const next = swapAssignmentPreviewOwners(assignmentPreviews, swapFrom, swapTo);
+    if (next === assignmentPreviews) return;
+    pushHistory(assignmentPreviews);
+    setAssignmentPreviews(next);
+    setSectionTaskOwners(new Map(sectionTasks.map(task => [
+      task.id, task.lockedStatus ? task.staff_id : swapAssignmentOwnerId(task.staff_id, swapFrom, swapTo),
+    ])));
+    setPublicAreaAssignments(new Map([...publicAreaAssignments].map(([area, owner]) => [
+      area, swapAssignmentOwnerId(owner, swapFrom, swapTo),
+    ])));
+    setFairnessMetrics(computeFairnessMetrics(next));
+    setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
+    setSwapFrom('');
+    setSwapTo('');
+  };
+
   const handleProceedToConfirm = () => {
+    if (isGozsdu && (!gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)
+      || (!hasManagerPowers(profile?.role) && !gozsduAllocationRespectsBuildings(assignmentPreviews)))) {
+      toast.error('No valid cleaning allocation to confirm. Select a cleaning housekeeper and regenerate.');
+      setStep('select-staff');
+      return;
+    }
     const overAllocated = assignmentPreviews
       .filter(preview => staffIdsWithWork.has(preview.staffId))
       .map(preview => {
@@ -930,7 +1611,28 @@ export function AutoRoomAssignment({
   };
 
   const handleConfirmAssignment = async () => {
+    // A future planner must never fall through to the live room-assignment
+    // mutation path. A date rollover also invalidates an open future plan.
+    if (!isNextDayPlanning && selectedDate > todayBudapest()) {
+      toast.error('Future assignments can only be saved as dated plans. Reopen Auto Assign for ' + selectedDate + '.');
+      return;
+    }
+    if (isNextDayPlanning && selectedDate <= todayBudapest()) {
+      toast.error('This planning date is now today or in the past. Refresh Team View before editing.');
+      return;
+    }
     if (!user || !profile?.organization_slug) return;
+    if (isGozsdu && (!gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)
+      || (!hasManagerPowers(profile?.role) && !gozsduAllocationRespectsBuildings(assignmentPreviews))
+      || sectionTasks.some(task => isLaundryner(task.staff_id)))) {
+      toast.error('The allocation is empty or conflicts with Laundryner duty. Regenerate before saving.');
+      setStep('select-staff');
+      return;
+    }
+    if (isNextDayPlanning) {
+      setStep('public-areas');
+      return;
+    }
     setSubmitting(true);
     try {
       const finalEntries = assignmentPreviews.flatMap(preview => preview.rooms
@@ -955,9 +1657,14 @@ export function AutoRoomAssignment({
         currentRows = (data || []) as ExistingAssignment[];
       }
       const currentByRoom = new Map(currentRows.map(row => [row.room_id, row]));
+      for (const current of currentRows) {
+        if (!isProtectedLiveAssignment(current.status)) continue;
+        const desired = finalEntries.find(entry => entry.room.id === current.room_id);
+        if (!desired || desired.staffId !== current.assigned_to || maintenanceHoldRoomIds.has(current.room_id)) {
+          throw new Error('An in-progress or completed assignment changed while this plan was open. Reopen the published board before saving.');
+        }
+      }
 
-      // Stage-specific maintenance hold: only the selected room is changed.
-      // Reservation/PMS data and all other room statuses remain untouched.
       for (const roomId of maintenanceHoldRoomIds) {
         const room = dirtyRooms.find(candidate => candidate.id === roomId);
         if (!room) continue;
@@ -982,9 +1689,6 @@ export function AutoRoomAssignment({
         if (error) throw error;
       }
 
-      // Delta-only save. Unchanged assignments are not written. A moved room
-      // updates only assigned_to/assigned_by via the shared safe helper, which
-      // preserves ready_to_clean, PMS hold, notes, progress and timestamps.
       for (const { room, staffId } of finalEntries) {
         const current = currentByRoom.get(room.id);
         if (current?.assigned_to === staffId) continue;
@@ -1001,15 +1705,11 @@ export function AutoRoomAssignment({
         });
       }
 
-      // Only rooms that were part of the manager's original editable board can
-      // be removed. This prevents a save from deleting unrelated assignments.
       for (const roomId of initialIds) {
         if (!finalIds.has(roomId) && currentByRoom.has(roomId)) {
           await unassignRoom(roomId, selectedDate);
         }
       }
-      // A maintenance hold on a newly-current assignment must also release the
-      // cleaner, but again only for that explicit room.
       for (const roomId of maintenanceHoldRoomIds) {
         if (!initialIds.has(roomId) && currentByRoom.has(roomId)) {
           await unassignRoom(roomId, selectedDate);
@@ -1036,13 +1736,166 @@ export function AutoRoomAssignment({
       }
     } catch (error) {
       console.error('[AutoRoomAssignment] save failed:', error);
-      toast.error(t('autoAssign.failedToAssign'));
+      toast.error(error instanceof Error ? error.message : t('autoAssign.failedToAssign'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const refreshTomorrowPlanForReview = async () => {
+    if (!isNextDayPlanning || !profile?.assigned_hotel || !profile.organization_slug) return;
+    setSubmitting(true);
+    try {
+      // The original preview may be hours old. Fetch the selected-date PMS again
+      // without changing today's live room state or saving tomorrow's assignments.
+      const canonicalHotelId = await resolveCanonicalHotelId(profile.assigned_hotel);
+      if (!canonicalHotelId) throw new Error('Hotel Mika PMS property could not be resolved.');
+      const refreshed = await ensureTomorrowPmsSnapshot({
+        organizationSlug: profile.organization_slug,
+        hotelId: canonicalHotelId,
+        selectedDate,
+        forceFresh: true,
+        refreshLiveRoomState: false,
+      });
+      if (!refreshed.authoritative) throw new Error('Tomorrow\'s Previo snapshot is not authoritative.');
+      const { data: roomRows, error: roomError } = await supabase.from('rooms')
+        .select('id,room_number,hotel,floor_number,room_size_sqm,room_capacity,is_checkout_room,pms_metadata,status,towel_change_required,linen_change_required,wing,elevator_proximity,room_category,bed_configuration,notes,checkout_time')
+        .eq('organization_slug', profile.organization_slug)
+        .in('hotel', hotelKeysRef.current);
+      if (roomError || !roomRows?.length) throw roomError || new Error('Hotel rooms could not be verified.');
+      const workload = await buildTomorrowAutoAssignRooms({
+        organizationSlug: profile.organization_slug,
+        hotelId: canonicalHotelId,
+        selectedDate,
+        roomRows: roomRows.map(addSectionContext),
+        pmsSyncedAt: refreshed.capturedAt,
+      });
+      if (workload.source !== 'selected-date'
+        || !compatibleHousekeepingSnapshotTime(refreshed.capturedAt, workload.capturedAt)) {
+        throw new Error('Previo data changed during refresh. Try again before approving.');
+      }
+
+      const latestRooms = workload.rooms;
+      const latestById = new Map(latestRooms.map(room => [room.id, room]));
+      const oldById = new Map(assignmentPreviews.flatMap(preview =>
+        preview.rooms.map(room => [room.id, room] as const)));
+      const changed = latestRooms.filter(room => {
+        const old = oldById.get(room.id);
+        return old && (isCheckoutLike(old) !== isCheckoutLike(room)
+          || isPotentialCheckoutRoom(old) !== isPotentialCheckoutRoom(room)
+          || !!old.towel_change_required !== !!room.towel_change_required
+          || !!old.linen_change_required !== !!room.linen_change_required);
+      }).map(room => room.room_number);
+      const held = new Set([...excludedRoomIds, ...maintenanceHoldRoomIds]);
+      const newlyNeeded = latestRooms.filter(room => !held.has(room.id) && !oldById.has(room.id))
+        .map(room => room.room_number);
+      const rebased = assignmentPreviews.map(preview => buildPreview(
+        preview.staffId,
+        preview.staffName,
+        preview.rooms.flatMap(room => {
+          const current = latestById.get(room.id);
+          return current && !held.has(room.id) ? [current] : [];
+        }),
+      ));
+
+      // Preserve selected cleaners, manual room owners and public-area choices.
+      // Never silently assign new rooms or approve a changed cleaning type.
+      setDirtyRooms(latestRooms);
+      setAssignmentPreviews(rebased);
+      setFairnessMetrics(computeFairnessMetrics(rebased));
+      setPreviewHistory([]);
+      setLockHistory([]);
+      setLockedRoomIds(previous => new Set([...previous].filter(id => latestById.has(id))));
+      setNextDayPmsSyncedAt(refreshed.capturedAt);
+      setTomorrowApprovalError(null);
+      setStep('preview');
+      setPlanningExplanation(newlyNeeded.length
+        ? `Previo added ${newlyNeeded.length} service room(s): ${newlyNeeded.slice(0, 5).join(', ')}. Regenerate the preview to allocate them before approval.`
+        : changed.length
+          ? `Previo changed cleaning requirements for ${changed.slice(0, 5).join(', ')}. Room owners are preserved; review the updated services and times before approval.`
+          : 'Latest Previo snapshot loaded. Review the room allocation before approval.');
+      toast.info(`Previo workload for ${selectedDate} refreshed. Review the room assignments before approval.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not refresh tomorrow\'s PMS snapshot.';
+      setTomorrowApprovalError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleAssignPublicAreas = async () => {
+    if (!isNextDayPlanning && selectedDate > todayBudapest()) {
+      toast.error('Future public-area work must be saved with the dated plan, not today\'s live tasks.');
+      return;
+    }
+    if (isNextDayPlanning && selectedDate <= todayBudapest()) {
+      toast.error('The selected planning date is no longer in the future. Refresh Team View.');
+      return;
+    }
+    if (isNextDayPlanning) {
+      if (!user || !profile?.organization_slug || !profile.assigned_hotel || !nextDayPmsSyncedAt) {
+        const message = 'Tomorrow PMS data is missing. Close and reopen Auto Assign to refresh it.';
+        setTomorrowApprovalError(message);
+        toast.error(message);
+        return;
+      }
+      setTomorrowApprovalError(null);
+      setSubmitting(true);
+      try {
+        const scheduleByUser = publishedScheduleByStaff;
+        const manualAreaTasks = Array.from(publicAreaAssignments.entries()).flatMap(([areaKey, staffId]) => {
+          const area = PUBLIC_AREAS.find(candidate => candidate.key === areaKey);
+          return area ? [{ key: area.key, name: area.name, assignedTo: staffId }] : [];
+        });
+        const saved = await saveApprovedNextDayAutoAssignPlan({
+          userId: user.id,
+          organizationSlug: profile.organization_slug,
+          hotelId: profile.assigned_hotel,
+          hotelName: managerHotelRef.current || profile.assigned_hotel,
+          selectedDate,
+          pmsSyncedAt: nextDayPmsSyncedAt,
+          previews: assignmentPreviews,
+          selectedStaffIds: Array.from(cleaningStaffIds),
+          scheduleByUser,
+          excludedRoomIds: Array.from(excludedRoomIds),
+          maintenanceHoldRoomIds: Array.from(maintenanceHoldRoomIds),
+          autoRelease,
+          existingPlan: nextDayPlan,
+          suggestedByRoom,
+          sharedByRoom,
+          mappedAreaTasks: sectionTasks.map(task => ({
+            id: task.id,
+            task_name: task.task_name,
+            staff_id: task.staff_id,
+            section_id: task.section_id,
+            estimated_duration: task.estimated_duration,
+            sort_order: task.sort_order,
+          })),
+          manualAreaTasks,
+        });
+        localStorage.removeItem(saveKey);
+        window.dispatchEvent(new CustomEvent('hk-next-day-plan-changed', {
+          detail: { hotelId: profile.assigned_hotel, planDate: selectedDate, planId: saved.planId },
+        }));
+        onAssignmentCreated(saved.roomCount, cleaningStaffIds.size);
+        toast.success(`Future plan for ${selectedDate} approved: ${saved.roomCount} rooms · ${saved.areaCount} public-area tasks · release ${autoRelease ? '08:00' : 'held'}.`);
+        onOpenChange(false);
+      } catch (error) {
+        console.error('[AutoRoomAssignment] tomorrow plan save failed:', error);
+        void reportClientError(error, {
+          context: 'next-day-housekeeping-plan-approval',
+          action: `approve-${profile.assigned_hotel}-${selectedDate}`,
+        });
+        const message = error instanceof Error ? error.message : 'Could not approve tomorrow’s plan.';
+        setTomorrowApprovalError(message);
+        toast.error(message);
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     if (publicAreaAssignments.size === 0 || !user) {
       onOpenChange(false);
       return;
@@ -1093,15 +1946,17 @@ export function AutoRoomAssignment({
         <h2>${preview.staffName}</h2>
         <p>${selectedDate} · ${preview.rooms.length} rooms · ${mappedTasks.length} mapped areas · ${formatMinutesToTime(totalMinutes)}</p>
         <table style="width:100%;border-collapse:collapse">
-          <tr><th style="border:1px solid #ddd;padding:6px">Room</th><th style="border:1px solid #ddd;padding:6px">Type</th><th style="border:1px solid #ddd;padding:6px">Floor</th><th style="border:1px solid #ddd;padding:6px">Special</th></tr>
+          <tr><th style="border:1px solid #ddd;padding:6px">Room</th><th style="border:1px solid #ddd;padding:6px">Type</th><th style="border:1px solid #ddd;padding:6px">${isGozsdu ? 'Building' : 'Floor'}</th><th style="border:1px solid #ddd;padding:6px">Special</th></tr>
           ${sortPreviewRooms(preview.rooms).map(room => {
             const special = [
-              room.ready_to_clean || isPmsRtcToday(room.pms_metadata as any) ? 'RTC' : '',
+              !isPotentialCheckoutRoom(room) && (room.ready_to_clean || isPmsRtcToday(room.pms_metadata as any)) ? 'RTC' : '',
+              isPotentialCheckoutRoom(room) ? 'Unsold now' : '',
               needsTowelChange(room) ? 'Towel' : '',
               needsLinenChange(room) ? 'Clean Room' : '',
               room.bed_configuration ? `Bed: ${room.bed_configuration}` : '',
             ].filter(Boolean).join(', ');
-            return `<tr><td style="border:1px solid #ddd;padding:6px"><b>${room.room_number}</b></td><td style="border:1px solid #ddd;padding:6px">${isCheckoutLike(room) ? 'Checkout' : 'Daily'}</td><td style="border:1px solid #ddd;padding:6px">F${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}</td><td style="border:1px solid #ddd;padding:6px">${special || '—'}</td></tr>`;
+            const type = isPotentialCheckoutRoom(room) ? 'Unsold now' : isCheckoutLike(room) ? 'Checkout' : 'Daily';
+            return `<tr><td style="border:1px solid #ddd;padding:6px"><b>${roomDisplayName(room)}</b></td><td style="border:1px solid #ddd;padding:6px">${type}</td><td style="border:1px solid #ddd;padding:6px">${isGozsdu ? room.housekeeping_section_name || 'Unmapped building' : `F${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}`}</td><td style="border:1px solid #ddd;padding:6px">${special || '—'}</td></tr>`;
           }).join('')}
         </table>
         ${mappedTasks.length ? `<h3 style="margin-top:20px">Mapped area work</h3><ul>${mappedTasks.map(task => `<li>${task.icon} <b>${task.task_name}</b> — ${task.section_name} (${task.estimated_duration} min)</li>`).join('')}</ul>` : ''}
@@ -1128,7 +1983,20 @@ export function AutoRoomAssignment({
     return category.substring(0, 4);
   };
 
+  const roomDisplayName = (room: RoomForAssignment): string =>
+    isGozsdu ? (room.pms_metadata?.gozsduAvailability?.pmsRoomName || room.room_number) : room.room_number;
+
   const groupByFloor = (rooms: RoomForAssignment[]) => {
+    if (isGozsdu) {
+      const mapped = new Map<string, RoomForAssignment[]>();
+      for (const room of rooms) {
+        const building = room.housekeeping_section_name || 'Unmapped building';
+        if (!mapped.has(building)) mapped.set(building, []);
+        mapped.get(building)!.push(room);
+      }
+      return Array.from(mapped.entries()).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+        .map(([floor, group]) => ({ floor, rooms: sortPreviewRooms(group) }));
+    }
     const map = new Map<number, RoomForAssignment[]>();
     for (const room of rooms) {
       const floor = room.floor_number ?? getFloorFromRoomNumber(room.room_number);
@@ -1137,30 +2005,44 @@ export function AutoRoomAssignment({
     }
     return Array.from(map.entries())
       .sort(([a], [b]) => a - b)
-      .map(([floor, floorRooms]) => ({ floor, rooms: sortPreviewRooms(floorRooms) }));
+      .map(([floor, floorRooms]) => ({ floor: String(floor), rooms: sortPreviewRooms(floorRooms) }));
   };
 
   const renderRoomChip = (room: RoomForAssignment, preview: AssignmentPreview) => {
     const selected = selectedRoomForMove?.roomId === room.id;
+    const roomProgress = isNextDayPlanning ? undefined : roomProgressById.get(room.id);
+    const displayStatus = getLiveRoomDisplayStatus(roomProgress);
+    const protectedWork = !isNextDayPlanning && isProtectedLiveAssignment(roomProgress?.status);
+    const checkedForBulk = bulkSelectedRoomIds.has(room.id);
+    const potentialCheckout = isPotentialCheckoutRoom(room);
     const checkout = isCheckoutLike(room);
-    const rtc = checkout && (room.ready_to_clean === true || isPmsRtcToday(room.pms_metadata as any));
+    const rtc = !potentialCheckout && checkout && (room.ready_to_clean === true || isPmsRtcToday(room.pms_metadata as any));
     const held = room.status === 'out_of_order';
-    const color = held
+    const color = displayStatus === 'done'
+      ? 'bg-emerald-200 text-emerald-900 border border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200'
+      : displayStatus === 'pending_approval'
+        ? 'bg-violet-200 text-violet-900 border border-violet-500 dark:bg-violet-900/50 dark:text-violet-200'
+      : displayStatus === 'cleaning'
+        ? 'bg-sky-200 text-sky-900 border border-sky-500 dark:bg-sky-900/50 dark:text-sky-200'
+      : held
       ? 'bg-red-100 text-red-900 hover:bg-red-200 dark:bg-red-900/40 dark:text-red-200'
-      : checkout
-        ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
-        : 'bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300';
+      : potentialCheckout
+        ? 'bg-violet-100 text-violet-900 hover:bg-violet-200 dark:bg-violet-900/35 dark:text-violet-200'
+        : checkout
+          ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
+          : 'bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300';
 
     return (
       <motion.div
         key={room.id}
-        layout
-        drag
+        layout={false}
+        drag={!protectedWork}
         dragMomentum={false}
         dragElastic={0.16}
         dragSnapToOrigin
-        whileDrag={{ scale: 1.08, zIndex: 80, boxShadow: '0 12px 30px rgba(15,23,42,.24)' }}
+        whileDrag={protectedWork ? undefined : { scale: 1.08, zIndex: 80, boxShadow: '0 12px 30px rgba(15,23,42,.24)' }}
         onDragStart={() => {
+          if (protectedWork) return;
           setDraggingRoomId(room.id);
           setSelectedRoomForMove(null);
         }}
@@ -1173,23 +2055,37 @@ export function AutoRoomAssignment({
         }}
         onTap={event => {
           event.stopPropagation();
+          if (protectedWork) return;
           if (selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId) {
             applyRoomMove(selectedRoomForMove.roomId, selectedRoomForMove.fromStaffId, preview.staffId);
             return;
           }
           setSelectedRoomForMove(selected ? null : { roomId: room.id, fromStaffId: preview.staffId });
         }}
-        className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] leading-tight font-medium select-none touch-none cursor-grab active:cursor-grabbing ${color} ${
-          selected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''
+        className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] leading-tight font-medium select-none touch-none ${protectedWork ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} ${color} ${
+          selected ? 'ring-2 ring-primary ring-offset-1 scale-105' : checkedForBulk ? 'ring-2 ring-sky-500 ring-offset-1' : ''
         } ${draggingRoomId === room.id ? 'opacity-75' : ''} ${justDroppedRoomId === room.id ? 'ring-2 ring-green-500' : ''}`}
-        title={`Room ${room.room_number}${rtc ? ' · Ready to clean' : ''}${held ? ' · Maintenance hold' : ''}`}
+        title={`Room ${roomDisplayName(room)} · ${displayStatus === 'done' ? 'Done' : displayStatus === 'pending_approval' ? 'Awaiting supervisor approval' : displayStatus === 'cleaning' ? 'Cleaning' : 'Assigned'}${potentialCheckout ? ' · Unsold now · final cleaning type set after morning PMS sync' : ''}${rtc ? ' · Ready to clean' : ''}${held ? ' · Maintenance hold' : ''}`}
       >
-        <span className="font-semibold">{room.room_number}</span>
+        <button
+          type="button"
+          disabled={protectedWork}
+          aria-label={`${checkedForBulk ? 'Deselect' : 'Select'} room ${roomDisplayName(room)} for bulk assignment`}
+          aria-pressed={checkedForBulk}
+          title={checkedForBulk ? 'Remove from bulk selection' : 'Select for bulk assignment'}
+          onPointerDown={event => event.stopPropagation()}
+          onClick={event => { event.stopPropagation(); toggleBulkRooms([room.id]); }}
+          className={`mr-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 bg-background/90 ${checkedForBulk ? 'border-sky-600 bg-sky-600 text-white' : 'border-current/50 text-current'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
+        >{checkedForBulk ? <Check className="h-3 w-3" /> : <span className="h-1 w-1 rounded-full bg-current opacity-30" />}</button>
+        <span className="font-semibold">{roomDisplayName(room)}</span>
+        {displayStatus !== 'assigned' && <span className="rounded bg-background/80 px-1 text-[8px] font-semibold">{displayStatus === 'done' ? 'Done' : displayStatus === 'pending_approval' ? 'Approval' : 'Cleaning'}</span>}
+        {potentialCheckout && <span className="rounded bg-violet-700 px-1 text-[8px] font-extrabold text-white" title="Unsold now · final cleaning type set after morning PMS sync">UNSOLD</span>}
+        {lockedRoomIds.has(room.id) && !protectedWork && <button type="button" className="rounded border border-amber-500 px-1 text-[9px]" title="Manual assignment locked; tap to allow auto-regeneration" aria-label={'Unlock room ' + roomDisplayName(room)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); setLockedRoomIds(previous => new Set([...previous].filter(id => id !== room.id))); }}>🔒</button>}
         {rtc && <span className="rounded bg-green-600 px-0.5 text-[8px] font-extrabold text-white">RTC</span>}
         {held && <span className="rounded bg-red-600 px-0.5 text-[8px] font-extrabold text-white">HOLD</span>}
         {room.room_category && <span className="text-[9px] opacity-70">{getCategoryShortName(room.room_category)}</span>}
-        {needsTowelChange(room) && <span className="text-[9px] font-bold text-blue-600">T</span>}
-        {needsLinenChange(room) && <span className="text-[9px] font-bold text-orange-600">C</span>}
+        {needsTowelChange(room) && <span aria-label="Towel change" title="Towel change" className="rounded bg-blue-700 px-1.5 py-0.5 text-[12px] font-black leading-none text-white shadow-sm">T</span>}
+        {needsLinenChange(room) && <span aria-label="Change room" title="Change room" className="rounded bg-orange-600 px-1.5 py-0.5 text-[12px] font-black leading-none text-white shadow-sm">C</span>}
         {room.bed_configuration && <span className="text-[9px] opacity-70">🛏️{room.bed_configuration.slice(0, 6)}</span>}
       </motion.div>
     );
@@ -1198,7 +2094,7 @@ export function AutoRoomAssignment({
   const renderPublicAreaChip = (task: (typeof sectionTasks)[number], ownerStaffId: string) => (
     <motion.div
       key={task.id}
-      layout
+      layout={false}
       data-public-area-task-id={task.id}
       drag={!task.lockedStatus}
       dragMomentum={false}
@@ -1220,7 +2116,7 @@ export function AutoRoomAssignment({
         setDragOverStaffId(null);
         if (target) movePublicAreaTask(task.id, target);
       }}
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] leading-tight font-medium select-none touch-none border border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200 ${
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] leading-tight font-medium select-none touch-none border ${task.lockedStatus === 'completed' ? 'border-emerald-500 bg-emerald-200 text-emerald-900 dark:bg-emerald-900/50' : task.lockedStatus === 'in_progress' ? 'border-sky-500 bg-sky-200 text-sky-900 dark:bg-sky-900/50' : 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200'} ${
         task.lockedStatus
           ? 'cursor-not-allowed border-dashed opacity-70'
           : 'cursor-grab active:cursor-grabbing hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
@@ -1238,59 +2134,235 @@ export function AutoRoomAssignment({
     </motion.div>
   );
 
+  const laundrynerStaff = isGozsdu ? allStaff.filter(staff => isLaundryner(staff.id)) : [];
+
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className={`max-h-[92vh] flex flex-col p-3 sm:p-6 gap-2 sm:gap-4 ${step === 'preview' ? 'max-w-[100vw] sm:max-w-[95vw] w-full' : 'max-w-4xl'}`}>
+      <Dialog open={open && !showSavedTodayPlan} onOpenChange={onOpenChange}>
+        <DialogContent className={`flex min-h-0 flex-col gap-2 p-3 sm:gap-4 sm:p-6 ${isGozsdu ? 'h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden sm:h-[min(92vh,900px)] sm:w-[95vw] sm:max-w-[95vw]' : `max-h-[92vh] ${step === 'preview' ? 'max-w-[100vw] sm:max-w-[95vw] w-full' : 'max-w-4xl'}`}`}>
           <DialogHeader>
             <DialogTitle className="flex flex-wrap items-center gap-2">
               <Wand2 className="h-5 w-5" />
               {t('autoAssign.title')}
               {editingExistingAssignments && <Badge variant="outline" className="border-blue-300 text-blue-700">Editing current assignments</Badge>}
               {restoredFromSave && <Badge variant="outline" className="border-green-300 text-green-700">{t('autoAssign.restored')}</Badge>}
-              <Badge variant="outline" className="border-emerald-300 text-emerald-700">● Live</Badge>
+              <Badge variant="outline" className={isNextDayPlanning ? 'border-blue-300 text-blue-700' : 'border-emerald-300 text-emerald-700'}>{isNextDayPlanning ? `Future plan · ${selectedDate}` : `● ${nt('live')}`}</Badge>
             </DialogTitle>
           </DialogHeader>
-
-          <div className="flex flex-wrap items-center justify-center gap-1.5 py-1">
+          {isNextDayPlanning && (
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span><strong>Editing future housekeeping for {selectedDate}.</strong> This is a dated plan only.
+              Today's active room assignments, ongoing cleaning, RTC status and supervisor approvals will not be modified.
+              {autoRelease ? ' The approved plan is scheduled to release at 08:00 Budapest time on the selected date.' : ' Automatic release is disabled.'}</span>
+            </div>
+          )}
+          <div className={isGozsdu ? 'grid grid-cols-4 items-center gap-1 py-1 text-center sm:flex sm:flex-wrap sm:justify-center' : 'flex flex-wrap items-center justify-center gap-1.5 py-1'}>
             <Badge variant={step === 'select-staff' ? 'default' : 'secondary'} className="text-xs">1. {t('autoAssign.stepStaff')}</Badge>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <ArrowRight className={`h-3 w-3 text-muted-foreground ${isGozsdu ? 'hidden sm:block' : ''}`} />
             <Badge variant={step === 'preview' ? 'default' : 'secondary'} className="text-xs">2. {t('autoAssign.stepPreview')}</Badge>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <ArrowRight className={`h-3 w-3 text-muted-foreground ${isGozsdu ? 'hidden sm:block' : ''}`} />
             <Badge variant={step === 'confirm' ? 'default' : 'secondary'} className="text-xs">3. {t('autoAssign.stepConfirm')}</Badge>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <ArrowRight className={`h-3 w-3 text-muted-foreground ${isGozsdu ? 'hidden sm:block' : ''}`} />
             <Badge variant={step === 'public-areas' ? 'default' : 'secondary'} className="text-xs">4. {t('autoAssign.stepPublicAreas')}</Badge>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-1">
+          {isGozsdu && !loading && step !== 'select-staff' && (
+            <div data-testid="gozsdu-laundryner-progress-summary" role="status" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-emerald-300 bg-emerald-50/70 px-2.5 py-1.5 text-xs text-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100">
+              <span className="inline-flex shrink-0 items-center gap-1 font-semibold"><Shirt className="h-3.5 w-3.5" />{nt('laundryDuty')} ({laundrynerStaff.length})</span>
+              {laundrynerStaff.length > 0
+                ? laundrynerStaff.map(staff => <Badge key={staff.id} variant="outline" className="max-w-full border-emerald-400 bg-background text-[11px] text-emerald-800 dark:text-emerald-100"><Check className="mr-1 h-3 w-3 shrink-0" /><span className="truncate">{staff.nickname || staff.full_name}</span></Badge>)
+                : <span>{nt('noneSelected')}</span>}
+              <span className="text-[11px] text-muted-foreground">{nt('laundryZeroWork')}</span>
+            </div>
+          )}
+
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-1">
             {loading ? (
               <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+            ) : loadError ? (
+              <div role="alert" className="mx-auto max-w-xl space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-5 text-center">
+                <AlertTriangle className="mx-auto h-8 w-8 text-destructive" />
+                <p className="font-semibold">{String(language).toLowerCase().startsWith('hu') ? 'A személyzet és a szobák betöltése nem sikerült.' : 'Staff and rooms could not be loaded.'}</p>
+                <p className="text-sm text-muted-foreground">{String(language).toLowerCase().startsWith('hu') ? 'A 0 szoba nem ellenőrzött állapot. A mentett beosztások változatlanok.' : 'The room count is not verified. Saved assignments have not been changed.'}</p>
+                <p className="break-words text-xs text-muted-foreground">{loadError}</p>
+                <Button type="button" variant="outline" onClick={() => void fetchData(false)}><RefreshCw className="mr-2 h-4 w-4" />{String(language).toLowerCase().startsWith('hu') ? 'Betöltés újra' : 'Retry loading'}</Button>
+              </div>
             ) : step === 'select-staff' ? (
               <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-3 rounded-lg bg-muted p-3">
+                {isGozsdu && <div data-gozsdu-laundryner-slot className="min-w-0" />}
+                {isGozsdu && !isNextDayPlanning && (
+                  <div className="flex items-start gap-3 rounded-lg border bg-muted/40 p-3">
+                    <Checkbox
+                      id="extra-clean-rooms"
+                      checked={includeCleanRooms}
+                      onCheckedChange={checked => {
+                        const next = checked === true;
+                        setIncludeCleanRooms(next);
+                        void fetchData(false, next);
+                      }}
+                    />
+                    <label htmlFor="extra-clean-rooms" className="cursor-pointer text-sm leading-relaxed">
+                      <strong>Include clean operating rooms</strong> for extra cleaning.
+                      No clean/dirty status changes are sent to Previo.
+                      Unavailable, non-guest, out-of-order and completed rooms stay excluded.
+                    </label>
+                  </div>
+                )}
+                {!isGozsdu && !isNextDayPlanning && includeCleanRooms && (
+                  <p role="status" className="rounded-lg border bg-muted/40 p-3 text-sm">
+                    Clean rooms can be assigned without first changing their clean/dirty status.
+                  </p>
+                )}
+                {isGozsdu && !isNextDayPlanning && savedTodayPlan && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-300 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
+                    <p className="text-xs font-medium text-sky-900 dark:text-sky-100">
+                      {String(language).toLowerCase().startsWith('hu')
+                        ? 'A mai beosztás már ki lett adva. A helyettesítést a mentett beosztásban kezeld.'
+                        : 'Today\'s saved plan has already been released. Change absent staff in the saved plan.'}
+                    </p>
+                    <Button type="button" size="sm" onClick={() => setShowSavedTodayPlan(true)}>
+                      <Users className="mr-2 h-4 w-4" />
+                      {String(language).toLowerCase().startsWith('hu')
+                        ? 'Mai beosztás · Helyettesítés'
+                        : 'Today\'s saved plan · Replace staff'}
+                    </Button>
+                  </div>
+                )}
+
+                <div className={`grid ${isNextDayPlanning ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-3 rounded-lg bg-muted p-3`}>
                   <div className="text-center"><p className="text-2xl font-bold">{effectiveRooms.length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.totalRooms')}</p></div>
-                  <div className="text-center"><p className="text-2xl font-bold text-amber-600">{effectiveRooms.filter(isCheckoutLike).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.checkouts')}</p></div>
+                  <div className="text-center"><p className="text-2xl font-bold text-amber-600">{effectiveRooms.filter(room => isCheckoutLike(room) && !isPotentialCheckoutRoom(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.checkouts')}</p></div>
+                  {isNextDayPlanning && <div className="text-center">
+                    <p className="text-2xl font-bold text-violet-600">{nightForecast !== undefined
+                      ? (nightForecast?.nightUnbooked ?? '—')
+                      : effectiveRooms.filter(isPotentialCheckoutRoom).length}</p>
+                    <p className="text-xs text-muted-foreground">{nightForecast !== undefined ? `Unbooked ${selectedDate} night` : nt('unsoldNow')}</p>
+                  </div>}
                   <div className="text-center"><p className="text-2xl font-bold text-blue-600">{effectiveRooms.filter(room => !isCheckoutLike(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.daily')}</p></div>
                 </div>
 
+                {isNextDayPlanning && (() => {
+                  const workload = groupFutureHousekeepingRooms(effectiveRooms, selectedDate);
+                  return (
+                    <div className="rounded-lg border bg-card px-3 py-2 text-xs" role="status">
+                      <strong>Morning work on {selectedDate}:</strong>{' '}
+                      {workload.checkouts.length} confirmed checkouts ·{' '}
+                      {workload.dayTwoStayovers.length} day-2 stayovers ·{' '}
+                      {workload.laterStayovers.length} day-3+ stayovers ·{' '}
+                      {workload.otherStayovers.length} stayovers (night not verified) ·{' '}
+                      {workload.unbookedMorning.length} unsold / provisional rooms
+                    </div>
+                  );
+                })()}
+                {isNextDayPlanning && nightForecast !== undefined && (
+                  <div role={nightForecast ? 'status' : 'alert'} className={nightForecast
+                    ? 'rounded-lg border border-sky-300 bg-sky-50 p-3 text-sm text-sky-950 dark:bg-sky-950/30 dark:text-sky-100'
+                    : 'rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100'}>
+                    {nightForecast ? (
+                      <>
+                        <p className="font-semibold">Previo {selectedDate} night · {nightForecast.checkIns} check-ins · {nightForecast.nightBooked} booked · {nightForecast.nightUnbooked} unbooked</p>
+                        <p className="mt-1 text-xs">Arriving rooms: {nightForecast.checkInRooms.join(', ') || 'None'}.
+                          The {effectiveRooms.length} rooms above are the morning housekeeping workload, based on guests occupying the previous night.
+                          Unbooked rooms tonight may still need checkout cleaning this morning.</p>
+                      </>
+                    ) : (
+                      <p>Selected-night arrivals and availability could not be independently verified from matching Previo snapshots. The morning housekeeping counts are not an occupancy forecast. Refresh PMS before relying on tonight’s inventory.</p>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-3 text-sm dark:bg-blue-950/30">
                   <Clock className="h-4 w-4 text-blue-600" />
-                  <span>{t('autoAssign.checkoutRooms')}: <b>{CHECKOUT_MINUTES} min</b> · {t('autoAssign.dailyRooms')}: <b>{DAILY_MINUTES} min</b> · {t('autoAssign.break')}: <b>{BREAK_TIME_MINUTES} min</b></span>
+                  <span>{isNextDayPlanning ? nt('cleaningTimeNote') : isGozsdu ? 'Cleaning times use each room’s configured size and verified beds; Laundryners receive no rooms.' : <>{t('autoAssign.checkoutRooms')}: <b>{CHECKOUT_MINUTES} min</b> · {t('autoAssign.dailyRooms')}: <b>{DAILY_MINUTES} min</b> · {t('autoAssign.break')}: <b>{BREAK_TIME_MINUTES} min</b></>}</span>
                 </div>
 
                 {dirtyRooms.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground"><AlertCircle className="mx-auto mb-3 h-10 w-10 opacity-50" /><p>{t('autoAssign.noDirtyRooms')}</p></div>
+                  <div className="py-8 text-center text-muted-foreground">
+                    <AlertCircle className="mx-auto mb-3 h-10 w-10 opacity-50" />
+                    <p>{pmsVerificationError
+                      ? (String(language).toLowerCase().startsWith('hu') ? 'A Previo szobák ellenőrzése nem sikerült. Az új automatikus beosztás leállt.' : 'Previo coverage not verified. New automatic assignment is paused.')
+                      : t('autoAssign.noDirtyRooms')}</p>
+                    {pmsVerificationError && (
+                      <p role="alert" className="mx-auto mt-2 max-w-xl break-words text-xs text-amber-700 dark:text-amber-300">
+                        {pmsVerificationError}
+                      </p>
+                    )}
+                    {pmsVerificationError && (
+                      <Button className="ml-2 mt-4" type="button" variant="outline" onClick={() => void fetchData(false)}>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        {String(language).toLowerCase().startsWith('hu') ? 'Ellenőrzés újra' : 'Retry verification'}
+                      </Button>
+                    )}
+                    {isGozsdu && !isNextDayPlanning && (
+                      <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed">
+                        {String(language).toLowerCase().startsWith('hu')
+                          ? 'A tegnap elkészített, ma kiadott beosztás nem tűnt el. A személyzet cseréjéhez zárd be ezt az ablakot, nyisd meg a Mai előkészített beosztást, és válaszd a Helyettesítés lehetőséget. Nem szükséges új PMS-szinkron.'
+                          : 'Yesterday’s released schedule is still saved. To replace a sick staff member, close this window, open Today’s Prepared Plan and choose Replace staff. A new PMS refresh is not required.'}
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <>
-                    <h3 className="flex items-center gap-2 font-medium"><Users className="h-4 w-4" />{t('autoAssign.selectHousekeepers')} ({selectedStaffIds.size} {t('autoAssign.selected')})</h3>
+                    <div className="space-y-1">
+                      <h3 className="flex items-center gap-2 font-medium"><Users className="h-4 w-4" />{t('autoAssign.selectHousekeepers')} ({cleaningStaffIds.size} {t('autoAssign.selected')})</h3>
+                      <p className="text-xs text-muted-foreground">
+                        {staffDefaultSource === 'published_schedule'
+                          ? 'Published roster for ' + selectedDate + ' is the default. Staff marked Working are preselected; managers can still add or remove cleaners before generating.'
+                          : 'No published roster exists for ' + selectedDate + '. Checked-in staff are used only as a fallback; managers can still add or remove cleaners.'}
+                      </p>
+                    </div>
                     <div className="grid max-h-[38vh] grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
                       {allStaff.map(staff => {
-                        const selected = selectedStaffIds.has(staff.id);
+                        const laundryner = isLaundryner(staff.id);
+                        const selected = !laundryner && cleaningStaffIds.has(staff.id);
+                        const scheduleRow = publishedScheduleByStaff.get(staff.id);
+                        const scheduleStatus = scheduleRow ? getAutoAssignWorkStatus(scheduleRow) : null;
+                        const defaultSelected = checkedInStaff.has(staff.id);
+                        const manualSelected = selected && !defaultSelected;
+                        const scheduledHours = scheduleRow?.shift_start && scheduleRow?.shift_end
+                          ? scheduleRow.shift_start.slice(0, 5) + '–' + scheduleRow.shift_end.slice(0, 5)
+                          : null;
+                        const scheduledVenues = (scheduleRow?.staff_schedule_venues || [])
+                          .map(item => venueName(item.venue_id) || item.venue_id);
+                        const scheduleStatusLabel = scheduleStatus
+                          ? scheduleStatus.charAt(0).toUpperCase() + scheduleStatus.slice(1)
+                          : null;
+                        const staffButtonClass = [
+                          'flex items-center gap-3 rounded-lg border p-3 text-left',
+                          laundryner
+                            ? 'cursor-not-allowed border-emerald-300 bg-emerald-50/60 opacity-80 dark:bg-emerald-950/20'
+                            : selected ? 'border-primary bg-primary/5' : 'hover:bg-muted',
+                        ].join(' ');
                         return (
-                          <button key={staff.id} type="button" onClick={() => toggleStaffSelection(staff.id)} className={`flex items-center gap-3 rounded-lg border p-3 text-left ${selected ? 'border-primary bg-primary/5' : 'hover:bg-muted'}`}>
-                            <Checkbox checked={selected} />
-                            <span className="min-w-0 flex-1"><span className="block truncate font-medium">{staff.full_name}</span>{staff.nickname && <span className="block truncate text-xs text-muted-foreground">{staff.nickname}</span>}</span>
-                            {checkedInStaff.has(staff.id) && <Badge variant="outline" className="border-green-500 text-green-600"><Check className="mr-1 h-3 w-3" />{t('autoAssign.checkedIn')}</Badge>}
+                          <button key={staff.id} type="button" disabled={laundryner} onClick={() => toggleStaffSelection(staff.id)} className={staffButtonClass}>
+                            {laundryner
+                              ? <span aria-label="Selected as Laundryner duty, not for cleaning" className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-emerald-600 bg-emerald-600 text-white"><Check className="h-3 w-3" /></span>
+                              : <Checkbox checked={selected} />}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">{staff.full_name}</span>
+                              {staff.nickname && <span className="block truncate text-xs text-muted-foreground">{staff.nickname}</span>}
+                              {scheduledVenues.length > 0 && (
+                                <span className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-muted-foreground">
+                                  <MapPin className="h-3 w-3 shrink-0" />{scheduledVenues.join(', ')}
+                                </span>
+                              )}
+                            </span>
+                            <span className="flex shrink-0 flex-wrap justify-end gap-1">
+                              {laundryner && <Badge variant="secondary" className="border border-emerald-400 text-[10px]">✓ 🧺 Laundryner</Badge>}
+                              {defaultSelected && (
+                                <Badge variant="outline" className="border-green-500 text-green-600">
+                                  <Check className="mr-1 h-3 w-3" />
+                                  {staffDefaultSource === 'published_schedule'
+                                    ? <>Scheduled{scheduledHours ? ' · ' + scheduledHours : ''}</>
+                                    : t('autoAssign.checkedIn')}
+                                </Badge>
+                              )}
+                              {staffDefaultSource === 'published_schedule' && scheduleRow && !defaultSelected && scheduleStatusLabel && (
+                                <Badge variant="outline" className="text-[10px]">{scheduleStatusLabel}{scheduledHours && scheduleStatus === 'training' ? ' · ' + scheduledHours : ''}</Badge>
+                              )}
+                              {manualSelected && <Badge variant="secondary" className="text-[10px]">Manual</Badge>}
+                            </span>
                           </button>
                         );
                       })}
@@ -1304,7 +2376,7 @@ export function AutoRoomAssignment({
                       <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
                         {dirtyRooms.map(room => {
                           const excluded = excludedRoomIds.has(room.id);
-                          return <button key={room.id} type="button" onClick={() => toggleRoomExclusion(room.id)} className={`rounded border px-2 py-1 text-xs font-medium ${excluded ? 'border-red-400 bg-red-100 text-red-800 line-through' : 'bg-muted'}`}>{room.room_number}{excluded ? ' ✕' : ''}</button>;
+                          return <button key={room.id} type="button" onClick={() => toggleRoomExclusion(room.id)} className={`rounded border px-2 py-1 text-xs font-medium ${excluded ? 'border-red-400 bg-red-100 text-red-800 line-through' : isPotentialCheckoutRoom(room) ? 'border-violet-300 bg-violet-50 text-violet-800 dark:bg-violet-950/30 dark:text-violet-200' : 'bg-muted'}`}>{roomDisplayName(room)}{isPotentialCheckoutRoom(room) ? ' · UNSOLD' : ''}{excluded ? ' ✕' : ''}</button>;
                         })}
                       </div>
                     </div>
@@ -1316,14 +2388,35 @@ export function AutoRoomAssignment({
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm">
                   <p><strong>{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)}</strong> {t('autoAssign.rooms')} + <strong>{sectionTasks.length}</strong> mapped area tasks → <strong>{staffIdsWithWork.size}</strong> {t('autoAssign.staff')}</p>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                    <span>🟨 {t('autoAssign.checkout')}</span><span>🟦 {t('autoAssign.daily')}</span><span>🧹 mapped area</span><span className="font-bold text-green-600">RTC</span><span className="font-bold text-red-600">HOLD</span><span className="font-bold text-blue-600">T</span><span className="font-bold text-orange-600">C</span>
+                    <span>🟨 {t('autoAssign.checkout')}</span>{isNextDayPlanning && <span>🟪 {nt('unsoldNow')}</span>}<span>🟦 {t('autoAssign.daily')}</span><span>🧹 mapped area</span><span className="font-medium text-emerald-700">● Done</span><span className="font-medium text-violet-700">● Awaiting approval</span><span className="font-medium text-sky-700">● Cleaning</span><span className="font-bold text-green-600">RTC</span><span className="font-bold text-red-600">HOLD</span><span className="font-bold text-blue-600">T</span><span className="font-bold text-orange-600">C</span>
                   </div>
-                  {fairnessMetrics && <div className="flex flex-wrap gap-2 text-xs"><span>CO±{fairnessMetrics.checkoutDiff}</span><span>Daily±{fairnessMetrics.dailyDiff}</span><span>⏱{fairnessMetrics.timeSpreadMinutes}m</span><span>F↔{fairnessMetrics.splitFloorCount}</span></div>}
+                  {fairnessMetrics && <div className="flex flex-wrap gap-2 text-xs"><span>CO±{fairnessMetrics.checkoutDiff}</span><span>Daily±{fairnessMetrics.dailyDiff}</span><span>⏱{fairnessMetrics.timeSpreadMinutes}m</span><span>{isGozsdu ? 'Building' : 'F'}↔{fairnessMetrics.splitFloorCount}</span></div>}
                 </div>
 
-                <div className={isMobile && assignmentPreviews.length >= 3 ? 'grid grid-cols-2 gap-2 overflow-y-auto' : 'flex gap-2 overflow-x-auto'}>
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs">
+                  <label htmlFor="hk-planning-goal" className="font-semibold">{nt('regenerationGoal')}</label>
+                  <Select value={planningGoal} onValueChange={value => setPlanningGoal(value as HousekeepingPlanningGoal)}>
+                    <SelectTrigger id="hk-planning-goal" aria-label={nt('regenerationGoal')} className="h-8 w-full sm:w-[220px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="rebalance">{nt('rebalance')}</SelectItem>
+                      <SelectItem value="locality">{nt('locality')}</SelectItem>
+                      <SelectItem value="checkouts">{nt('checkoutsGoal')}</SelectItem>
+                      <SelectItem value="alternative">{nt('alternative')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-muted-foreground">{lockedRoomIds.size} {nt('lockedRooms')}</span>
+                  {planningExplanation && <p role="status" className="w-full text-foreground">{planningExplanation}</p>}
+                </div>
+                <div role="note" className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border border-sky-200 bg-sky-50/70 px-2.5 py-1.5 text-[11px] text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
+                  <span>{nt('oneRoomHint')}</span>
+                  <span>{nt('severalRoomsHint')}</span>
+                  <span className="text-muted-foreground">{nt('previewNotSaved')}</span>
+                </div>
+
+                <div className={isMobile && assignmentPreviews.length >= 3 ? (isGozsdu ? 'grid grid-cols-1 min-[520px]:grid-cols-2 gap-2' : 'grid grid-cols-2 gap-2 overflow-y-auto') : 'flex gap-2 overflow-x-auto'}>
                   {assignmentPreviews.map(preview => {
-                    const checkouts = preview.rooms.filter(isCheckoutLike);
+                    const checkouts = preview.rooms.filter(room => isCheckoutLike(room) && !isPotentialCheckoutRoom(room));
+                    const unsold = preview.rooms.filter(isPotentialCheckoutRoom);
                     const daily = preview.rooms.filter(room => !isCheckoutLike(room));
                     const isDropTarget = selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId;
                     const isDragOver = dragOverStaffId === preview.staffId;
@@ -1335,23 +2428,24 @@ export function AutoRoomAssignment({
                     const style: React.CSSProperties = isMobile && assignmentPreviews.length >= 3 ? { minWidth: 0 } : { minWidth: isMobile ? 150 : 200, flex: '1 1 0' };
                     return (
                       <motion.div
-                        layout
+                        layout={false}
                         key={preview.staffId}
                         data-staff-drop-id={preview.staffId}
                         style={style}
                         onClick={() => isDropTarget && selectedRoomForMove && applyRoomMove(selectedRoomForMove.roomId, selectedRoomForMove.fromStaffId, preview.staffId)}
-                        className={`flex min-h-[130px] flex-col rounded-lg border ${isDropTarget ? 'ring-2 ring-primary' : ''} ${isDragOver ? 'border-dashed bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950/30' : ''} ${justDroppedStaffId === preview.staffId ? 'ring-2 ring-green-500' : ''} ${exceedsShift ? 'border-destructive' : ''}`}
+                        className={`flex min-h-[130px] flex-col rounded-lg border ${bulkDestinationStaffId === preview.staffId ? 'ring-2 ring-sky-500 bg-sky-50/30 dark:bg-sky-950/20' : ''} ${isDropTarget ? 'ring-2 ring-primary' : ''} ${isDragOver ? 'border-dashed bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950/30' : ''} ${justDroppedStaffId === preview.staffId ? 'ring-2 ring-green-500' : ''} ${exceedsShift ? 'border-destructive' : ''}`}
                       >
                         <div className="border-b bg-muted/40 px-2 py-1.5">
-                          <div className="flex items-center justify-between gap-1"><span className="truncate text-xs font-semibold">{preview.staffName}</span>{exceedsShift && <AlertTriangle className="h-3 w-3 text-destructive" />}</div>
-                          <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground"><span>{checkouts.length}co · {daily.length}d · {mappedTasks.length} areas</span><span>{formatMinutesToTime(totalWithAreas)}</span></div>
+                          <div className="flex items-center justify-between gap-1"><span className="min-w-0 truncate text-xs font-semibold">{preview.staffName}</span><Button type="button" size="sm" variant={bulkDestinationStaffId === preview.staffId ? 'default' : 'outline'} aria-pressed={bulkDestinationStaffId === preview.staffId} className="h-6 shrink-0 px-1 text-[9px]" onClick={event => { event.stopPropagation(); setBulkDestinationStaffId(preview.staffId); }}>{bulkDestinationStaffId === preview.staffId ? `✓ ${nt('assignHere')}` : nt('assignHere')}</Button>{exceedsShift && <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" />}</div>
+                          <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground"><span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium sm:text-xs"><span><strong className="text-foreground">{checkouts.length}</strong> Checkouts</span>{unsold.length > 0 && <span><strong className="text-foreground">{unsold.length}</strong> Unsold</span>}<span><strong className="text-foreground">{daily.length}</strong> Daily</span><span><strong className="text-foreground">{mappedTasks.length}</strong> Public Areas</span></span><span>{formatMinutesToTime(totalWithAreas)}</span></div>
                           <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted"><div className={`h-full ${exceedsShift ? 'bg-destructive' : workload > 80 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${workload}%` }} /></div>
                         </div>
                         <div className="flex-1 space-y-1.5 overflow-y-auto p-1.5">
-                          {checkouts.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.checkouts')}</p>{groupByFloor(checkouts).map(group => <div key={`co-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">F{group.floor}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
-                          {daily.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.daily')}</p>{groupByFloor(daily).map(group => <div key={`d-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">F{group.floor}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
-                          {mappedTasks.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">Public areas · drag to reassign</p><div className="flex flex-wrap gap-1">{mappedTasks.map(task => renderPublicAreaChip(task, preview.staffId))}</div></div>}
-                          {preview.rooms.length === 0 && mappedTasks.length === 0 && <div className={`rounded border border-dashed p-3 text-center text-[10px] text-muted-foreground ${isDragOver ? 'border-primary bg-primary/5' : ''}`}>Drop a room or public area here</div>}
+                          {checkouts.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-xs font-extrabold uppercase tracking-wide text-foreground">{t('autoAssign.checkouts')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(checkouts.map(room => room.id)); }}>{checkouts.every(room => bulkSelectedRoomIds.has(room.id)) ? nt('deselectAll') : nt('selectAll')}</button></div>{groupByFloor(checkouts).map(group => <div key={`co-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
+                          {unsold.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-xs font-extrabold uppercase tracking-wide text-violet-700 dark:text-violet-300">{nt('unsoldNow')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(unsold.map(room => room.id)); }}>{unsold.every(room => bulkSelectedRoomIds.has(room.id)) ? nt('deselectAll') : nt('selectAll')}</button></div>{groupByFloor(unsold).map(group => <div key={`unsold-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
+                          {daily.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-xs font-extrabold uppercase tracking-wide text-foreground">{t('autoAssign.daily')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(daily.map(room => room.id)); }}>{daily.every(room => bulkSelectedRoomIds.has(room.id)) ? nt('deselectAll') : nt('selectAll')}</button></div>{groupByFloor(daily).map(group => <div key={`d-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
+                          {mappedTasks.length > 0 && <div><p className="mb-1 text-xs font-extrabold uppercase tracking-wide text-foreground">{nt('publicAreas')}</p><div className="flex flex-wrap gap-1">{mappedTasks.map(task => renderPublicAreaChip(task, preview.staffId))}</div></div>}
+                          {preview.rooms.length === 0 && mappedTasks.length === 0 && <div className={`rounded border border-dashed p-3 text-center text-[10px] text-muted-foreground ${isDragOver ? 'border-primary bg-primary/5' : ''}`}>{nt('dropHere')}</div>}
                         </div>
                       </motion.div>
                     );
@@ -1372,54 +2466,141 @@ export function AutoRoomAssignment({
 
                 {selectedRoomContext ? (
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 shadow-sm">
-                    <span className="text-xs font-medium">Room {selectedRoomContext.room.room_number} selected</span>
-                    <span className="text-[10px] text-muted-foreground">Tap another staff column to move it, or:</span>
-                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => removeRoomFromPreview(selectedRoomContext.room.id, selectedRoomContext.preview.staffId, true)}><X className="mr-1 h-3.5 w-3.5" />Remove assignment</Button>
-                    <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => stageMaintenanceHold(selectedRoomContext.room, selectedRoomContext.preview.staffId)}><Wrench className="mr-1 h-3.5 w-3.5" />Maintenance hold</Button>
-                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedRoomForMove(null)}>Cancel</Button>
+                    <span className="text-xs font-medium">{nt('roomSelected')}: {selectedRoomContext.room.room_number}</span>
+                    <span className="text-[10px] text-muted-foreground">{nt('tapAnotherStaff')}</span>
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => removeRoomFromPreview(selectedRoomContext.room.id, selectedRoomContext.preview.staffId, true)}><X className="mr-1 h-3.5 w-3.5" />{nt('removeAssignment')}</Button>
+                    <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => stageMaintenanceHold(selectedRoomContext.room, selectedRoomContext.preview.staffId)}><Wrench className="mr-1 h-3.5 w-3.5" />{nt('maintenanceHold')}</Button>
+                    {isNextDayPlanning && cleaningStaffIds.size > 1 && (
+                      <Select
+                        value={sharedByRoom.get(selectedRoomContext.room.id) || 'none'}
+                        onValueChange={value => setSharedByRoom(previous => {
+                          const next = new Map(previous);
+                          if (value === 'none') next.delete(selectedRoomContext.room.id);
+                          else next.set(selectedRoomContext.room.id, value);
+                          return next;
+                        })}
+                      >
+                        <SelectTrigger className="h-7 w-[190px] text-xs"><Users className="mr-1 h-3.5 w-3.5" /><SelectValue placeholder={nt('shareCleaning')} /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">{nt('notShared')}</SelectItem>
+                          {allStaff
+                            .filter(staff => cleaningStaffIds.has(staff.id) && staff.id !== selectedRoomContext.preview.staffId)
+                            .map(staff => <SelectItem key={staff.id} value={staff.id}>Share with {staff.full_name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedRoomForMove(null)}>{nt('cancel')}</Button>
                   </div>
                 ) : (
+                  {swappableStaff.length > 1 && (
+                    <fieldset className="flex flex-wrap items-end gap-2 rounded-lg border px-3 py-2">
+                      <legend className="px-1 text-xs font-medium">{swapLabels.title}</legend>
+                      {([{ label: swapLabels.from, value: swapFrom, change: setSwapFrom },
+                        { label: swapLabels.to, value: swapTo, change: setSwapTo }]).map(({ label, value, change }) => (
+                        <label key={label} className="flex min-w-32 grow flex-col gap-1 text-xs">
+                          {label}
+                          <select value={value} onChange={(event) => change(event.target.value)}
+                            className="h-10 rounded border bg-background px-2 text-sm">
+                            <option value="">—</option>
+                            {swappableStaff.map(person => <option key={person.staffId} value={person.staffId}>{person.staffName}</option>)}
+                          </select>
+                        </label>
+                      ))}
+                      <Button type="button" variant="outline" disabled={!canSwapWorkloads} onClick={swapWorkloads}>{swapLabels.action}</Button>
+                    </fieldset>
+                  )}
                   <p className="text-center text-[10px] text-muted-foreground">{t('autoAssign.dragToReassign')} · public areas use the same drag-and-drop columns · {t('autoAssign.tapToMove')} · tap a room for Remove / Maintenance</p>
                 )}
 
-                {maintenanceHoldRoomIds.size > 0 && <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:bg-red-950/30 dark:text-red-200"><Wrench className="mr-1 inline h-3.5 w-3.5" />{maintenanceHoldRoomIds.size} room{maintenanceHoldRoomIds.size === 1 ? '' : 's'} will be placed on maintenance hold when you confirm.</div>}
+                {maintenanceHoldRoomIds.size > 0 && <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:bg-red-950/30 dark:text-red-200"><Wrench className="mr-1 inline h-3.5 w-3.5" />{maintenanceHoldRoomIds.size} room{maintenanceHoldRoomIds.size === 1 ? '' : 's'} {isNextDayPlanning ? 'will be excluded from tomorrow’s plan as planned maintenance holds.' : 'will be placed on maintenance hold when you confirm.'}</div>}
               </div>
             ) : step === 'confirm' ? (
               <div className="space-y-4 py-6 text-center">
                 <Check className="mx-auto h-14 w-14 text-green-600" />
                 <h3 className="text-xl font-semibold">{editingExistingAssignments ? 'Save assignment changes' : t('autoAssign.readyToAssign')}</h3>
                 <p className="text-muted-foreground">{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)} {t('autoAssign.roomsWillBeAssigned')} {staffIdsWithWork.size} {t('autoAssign.housekeepers')}. {sectionTasks.length} mapped area tasks will follow their nearest section owner.</p>
+                {isNextDayPlanning && assignmentPreviews.some(preview => preview.rooms.some(isPotentialCheckoutRoom)) && (
+                  <p className="mx-auto max-w-xl rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
+                    <strong>{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.filter(isPotentialCheckoutRoom).length, 0)} room(s) are unsold now.</strong> They are provisional planning rooms only. Fresh morning PMS data will decide whether each becomes a checkout, a property-specific stay-over service, or no housekeeping task.
+                  </p>
+                )}
                 {editingExistingAssignments && <p className="mx-auto max-w-xl rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">Only changed rooms will be written. Untouched assignments, ready-to-clean flags, progress, notes and PMS hold data stay unchanged.</p>}
                 {maintenanceHoldRoomIds.size > 0 && <p className="mx-auto max-w-xl rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950/30 dark:text-red-200">{maintenanceHoldRoomIds.size} selected room{maintenanceHoldRoomIds.size === 1 ? '' : 's'} will be marked Out of Order / Maintenance and removed from housekeeping assignment.</p>}
                 <div className="space-y-2 text-left">
                   {assignmentPreviews.filter(preview => staffIdsWithWork.has(preview.staffId)).map(preview => { const areaCount = sectionTasks.filter(task => task.staff_id === preview.staffId).length; const total = preview.totalWithBreak + sectionTaskMinutesForStaff(sectionTasks, preview.staffId); return <div key={preview.staffId} className="flex items-center justify-between rounded bg-muted p-2"><span className="font-medium">{preview.staffName}</span><div className="flex items-center gap-2"><Badge variant="outline">{preview.rooms.length} {t('autoAssign.rooms')}</Badge><Badge variant="outline">{areaCount} areas</Badge><span className="text-sm text-green-600">{formatMinutesToTime(total)}</span></div></div>; })}
                 </div>
+                {isNextDayPlanning && (
+                  <label className="mx-auto flex max-w-xl cursor-pointer items-start gap-3 rounded-xl border bg-card p-4 text-left">
+                    <Checkbox checked={autoRelease} onCheckedChange={value => setAutoRelease(value === true)} className="mt-0.5" />
+                    <span>
+                      <span className="font-medium">{nt('autoRelease')}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{nt('autoReleaseHint')}</span>
+                    </span>
+                  </label>
+                )}
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="text-center"><Check className="mx-auto mb-2 h-12 w-12 text-green-600" /><h3 className="text-lg font-semibold">{t('autoAssign.roomsAssignedSuccess')}</h3><p className="text-sm text-muted-foreground">Mapped section tasks are already assigned. Add only any extra one-off public areas needed today.</p></div>
+                <div className="text-center"><Check className="mx-auto mb-2 h-12 w-12 text-green-600" /><h3 className="text-lg font-semibold">{isNextDayPlanning ? nt('reviewPublicAreas') : t('autoAssign.roomsAssignedSuccess')}</h3><p className="text-sm text-muted-foreground">{isNextDayPlanning ? 'Mapped section tasks are included in the same 08:00 plan. Add any extra one-off public areas, then approve the complete plan.' : 'Mapped section tasks are already assigned. Add only any extra one-off public areas needed today.'}</p></div>
+                {isNextDayPlanning && submitting && (
+                  <div role="status" className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
+                    Checking Previo reservations for {selectedDate} and staff permissions before approval.
+                  </div>
+                )}
+                {isNextDayPlanning && tomorrowApprovalError && (
+                  <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <strong>Plan for {selectedDate} was not approved.</strong>
+                      <p className="mt-1 break-words">{tomorrowApprovalError}</p>
+                      <p className="mt-1 text-xs">The plan was not approved. Refresh Previo and review changed room services without losing your manual room owners or public-area selections.</p>
+                      <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => void refreshTomorrowPlanForReview()} disabled={submitting}>
+                        <RefreshCw className="mr-2 h-4 w-4" /> Refresh PMS &amp; review assignments
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-2">
-                  {PUBLIC_AREAS.map(area => <div key={area.key} className="flex items-center gap-3 rounded-lg border p-3"><span className="text-lg">{area.icon}</span><span className="min-w-0 flex-1 text-sm font-medium">{area.name}</span><Select value={publicAreaAssignments.get(area.key) || ''} onValueChange={value => setPublicAreaAssignments(previous => { const next = new Map(previous); if (value === 'none') next.delete(area.key); else next.set(area.key, value); return next; })}><SelectTrigger className="w-[160px]"><SelectValue placeholder={t('autoAssign.notAssigned')} /></SelectTrigger><SelectContent><SelectItem value="none">{t('autoAssign.notAssigned')}</SelectItem>{allStaff.filter(staff => selectedStaffIds.has(staff.id)).map(staff => <SelectItem key={staff.id} value={staff.id}>{staff.full_name}</SelectItem>)}</SelectContent></Select></div>)}
+                  {PUBLIC_AREAS.map(area => <div key={area.key} className="flex items-center gap-3 rounded-lg border p-3"><span className="text-lg">{area.icon}</span><span className="min-w-0 flex-1 text-sm font-medium">{area.name}</span><Select value={publicAreaAssignments.get(area.key) || ''} onValueChange={value => setPublicAreaAssignments(previous => { const next = new Map(previous); if (value === 'none') next.delete(area.key); else next.set(area.key, value); return next; })}><SelectTrigger className="w-[160px]"><SelectValue placeholder={t('autoAssign.notAssigned')} /></SelectTrigger><SelectContent><SelectItem value="none">{t('autoAssign.notAssigned')}</SelectItem>{allStaff.filter(staff => cleaningStaffIds.has(staff.id)).map(staff => <SelectItem key={staff.id} value={staff.id}>{staff.full_name}</SelectItem>)}</SelectContent></Select></div>)}
                 </div>
               </div>
             )}
           </div>
 
-          <DialogFooter className="flex-shrink-0 gap-2">
-            {step === 'select-staff' && <><Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button><Button onClick={handleGeneratePreview} disabled={selectedStaffIds.size === 0 || effectiveRooms.length === 0}>{t('autoAssign.generatePreview')}<ArrowRight className="ml-2 h-4 w-4" /></Button></>}
+          {step === 'preview' && bulkRoomContexts.length > 0 && (
+            <div data-testid="auto-assign-bulk-bar" className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border-2 border-sky-300 bg-background p-2 shadow-sm">
+              <span className="text-xs font-semibold">{bulkRoomContexts.length} selected · {bulkRoomContexts.filter(entry => entry.room.is_checkout_room || entry.room.pms_metadata?.scheduledDepartureToday === true).length} checkout · {bulkRoomContexts.filter(entry => !isCheckoutLike(entry.room)).length} daily</span>
+              <Select value={bulkDestinationStaffId || undefined} onValueChange={setBulkDestinationStaffId}>
+                <SelectTrigger className="h-8 min-w-[145px] flex-1 text-xs sm:max-w-[230px]" aria-label="Bulk assignment destination housekeeper"><SelectValue placeholder="Choose housekeeper" /></SelectTrigger>
+                <SelectContent>{assignmentPreviews.filter(person => cleaningStaffIds.has(person.staffId) && !isLaundryner(person.staffId)).map(person => <SelectItem key={person.staffId} value={person.staffId}>{person.staffName}</SelectItem>)}</SelectContent>
+              </Select>
+              {bulkProjectedMinutes !== null && <span className={`text-[11px] ${bulkProjectedMinutes > STANDARD_SHIFT_MINUTES ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}>After move: {formatMinutesToTime(bulkProjectedMinutes)}{bulkProjectedMinutes > STANDARD_SHIFT_MINUTES ? ' · exceeds shift' : ''}</span>}
+              <Button type="button" size="sm" className="h-8 flex-1 sm:flex-none" disabled={!bulkDestinationStaffId || bulkMovableRooms.length === 0 || !cleaningStaffIds.has(bulkDestinationStaffId) || isLaundryner(bulkDestinationStaffId)} onClick={handleBulkRoomMove}>Done · Move {bulkMovableRooms.length} room{bulkMovableRooms.length === 1 ? '' : 's'}</Button>
+              <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setBulkSelectedRoomIds(new Set())}>Clear selection</Button>
+              <span className="w-full text-[10px] text-muted-foreground">This changes the preview only. Use Proceed to Confirm to save.</span>
+            </div>
+          )}
+
+          <DialogFooter className={isGozsdu ? '!grid grid-cols-2 gap-2 border-t pt-2 sm:!flex sm:flex-wrap sm:justify-end' : 'flex-shrink-0 gap-2'}>
+            {step === 'select-staff' && <><Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button><Button data-training="auto-assign-preview" onClick={handleGeneratePreview} disabled={!!loadError || cleaningStaffIds.size === 0 || effectiveRooms.length === 0}>{t('autoAssign.generatePreview')}<ArrowRight className="ml-2 h-4 w-4" /></Button></>}
             {step === 'preview' && <>
               {restoredFromSave && <Button variant="ghost" size="sm" className="mr-auto text-muted-foreground" onClick={handleClearSaved}><Trash2 className="mr-1 h-3.5 w-3.5" />{t('autoAssign.clearSaved')}</Button>}
               {previewHistory.length > 0 && <Button variant="ghost" size="sm" onClick={handleUndo}><Undo2 className="mr-1 h-3.5 w-3.5" />{t('autoAssign.undo')} ({previewHistory.length})</Button>}
               <Button variant="outline" onClick={() => setStep('select-staff')}>{t('autoAssign.back')}</Button>
-              <Button variant="outline" onClick={handleGeneratePreview}><RefreshCw className="mr-2 h-4 w-4" />{t('autoAssign.regenerate')}</Button>
-              <Button onClick={handleProceedToConfirm}>{editingExistingAssignments ? 'Review changes' : t('autoAssign.proceedToConfirm')}<ArrowRight className="ml-2 h-4 w-4" /></Button>
+              <Button variant="outline" onClick={handleGeneratePreview} disabled={isGozsdu && (cleaningStaffIds.size === 0 || effectiveRooms.length === 0)}><RefreshCw className="mr-2 h-4 w-4" />{t('autoAssign.regenerate')}</Button>
+              <Button data-training="auto-assign-review" onClick={handleProceedToConfirm} disabled={!!loadError || (isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner))} className={isGozsdu ? 'col-span-2 sm:w-auto' : undefined}>{editingExistingAssignments ? nt('reviewChanges') : t('autoAssign.proceedToConfirm')}<ArrowRight className="ml-2 h-4 w-4" /></Button>
             </>}
-            {step === 'confirm' && <><Button variant="outline" onClick={() => setStep('preview')}>{t('autoAssign.back')}</Button><Button variant="outline" onClick={handlePrintAssignments}><Printer className="mr-2 h-4 w-4" />{t('autoAssign.print')}</Button><Button onClick={handleConfirmAssignment} disabled={submitting}>{submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t('autoAssign.assigning')}</> : <><Check className="mr-2 h-4 w-4" />{editingExistingAssignments ? 'Save Changes' : t('autoAssign.confirmAndAssign')}</>}</Button></>}
-            {step === 'public-areas' && <><Button variant="outline" onClick={() => onOpenChange(false)}>{t('autoAssign.skipAndClose')}</Button><Button onClick={handleAssignPublicAreas} disabled={submitting || publicAreaAssignments.size === 0}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MapPin className="mr-2 h-4 w-4" />}{t('autoAssign.assignAreas')} ({publicAreaAssignments.size})</Button></>}
+            {step === 'confirm' && <><Button variant="outline" onClick={() => setStep('preview')}>{t('autoAssign.back')}</Button><Button variant="outline" onClick={handlePrintAssignments}><Printer className="mr-2 h-4 w-4" />{t('autoAssign.print')}</Button><Button data-training="auto-assign-publish" onClick={handleConfirmAssignment} disabled={!!loadError || submitting || (isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner))}>{submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t('autoAssign.assigning')}</> : <><Check className="mr-2 h-4 w-4" />{isNextDayPlanning ? nt('continuePublicAreas') : editingExistingAssignments ? 'Save Changes' : t('autoAssign.confirmAndAssign')}</>}</Button></>}
+            {step === 'public-areas' && <><Button variant="outline" onClick={() => isNextDayPlanning ? setStep('confirm') : onOpenChange(false)}>{isNextDayPlanning ? t('autoAssign.back') : t('autoAssign.skipAndClose')}</Button><Button onClick={handleAssignPublicAreas} disabled={submitting || (!isNextDayPlanning && publicAreaAssignments.size === 0)}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MapPin className="mr-2 h-4 w-4" />}{isNextDayPlanning ? (tomorrowApprovalError ? `Retry approval (${sectionTasks.length + publicAreaAssignments.size})` : `${nt('approvePlan')} (${sectionTasks.length + publicAreaAssignments.size})`) : `${t('autoAssign.assignAreas')} (${publicAreaAssignments.size})`}</Button></>}
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      <TodayHousekeepingPlanReviewDialog
+        open={open && showSavedTodayPlan}
+        onOpenChange={setShowSavedTodayPlan}
+        plan={savedTodayPlan}
+      />
       <AlertDialog open={showOverAllocationDialog} onOpenChange={setShowOverAllocationDialog}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="h-5 w-5" />{t('autoAssign.shiftExceeded')}</AlertDialogTitle><AlertDialogDescription asChild><div className="space-y-3"><p>{t('autoAssign.shiftExceededDesc')}</p>{overAllocatedStaff.map(staff => <div key={staff.staffId} className="flex items-center justify-between rounded bg-destructive/10 p-2"><span>{staff.staffName}</span><b>{formatMinutesToTime(staff.totalWithBreak)}</b></div>)}</div></AlertDialogDescription></AlertDialogHeader>

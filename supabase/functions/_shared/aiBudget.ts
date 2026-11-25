@@ -9,7 +9,7 @@
 
 type Admin = {
   from: (t: string) => any;
-  rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: any; error: any }>;
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: any; error: any }>;
 };
 
 /** USD per 1M tokens, input/output. Rough public list prices. */
@@ -18,6 +18,19 @@ const TOKEN_PRICES: Record<string, { in: number; out: number }> = {
   "gpt-4o-mini": { in: 0.15, out: 0.6 },
   "gpt-4.1": { in: 2, out: 8 },
   "gpt-4.1-mini": { in: 0.4, out: 1.6 },
+  "gemini-3.5-flash-lite": { in: 0.3, out: 2.5 },
+  "gemini-3.5-flash": { in: 2.0, out: 12.0 },
+  "gemini-3.6-flash": { in: 2.0, out: 12.0 },
+  // 2026 published USD / 1M input and output tokens (excluding discounts
+  // for cached tokens or any tool/long-context surcharges).
+  "gpt-6-luna": { in: 0.10, out: 0.50 },
+  "gpt-6.1-terra": { in: 1, out: 5 },
+  "gpt-5.6": { in: 4, out: 20 },
+  "gpt-5.6-sol": { in: 4, out: 20 },
+  "gpt-5.6-terra": { in: 2, out: 12 },
+  "gpt-5.6-luna": { in: 0.2, out: 1.2 },
+  "gpt-5-mini": { in: 0.25, out: 2 },
+  "gpt-5": { in: 1.25, out: 10 },
 };
 
 /** USD per web-search tool call, by search context size. */
@@ -30,7 +43,7 @@ export function estimateAiCost(opts: {
   webSearches?: number;
   searchContext?: "low" | "medium" | "high";
 }): number {
-  const price = TOKEN_PRICES[String(opts.model ?? "")] ?? TOKEN_PRICES["gpt-4o-mini"];
+  const price = TOKEN_PRICES[String(opts.model ?? "")] ?? TOKEN_PRICES["gpt-5.6-sol"]; // unknowns conservatively estimated, not silently cheap
   const tokens =
     ((opts.inputTokens ?? 0) / 1_000_000) * price.in +
     ((opts.outputTokens ?? 0) / 1_000_000) * price.out;
@@ -124,7 +137,7 @@ export async function logAiUsage(
   },
 ): Promise<void> {
   try {
-    await admin.from("ai_usage_log").insert({
+    const { error: insertError } = await admin.from("ai_usage_log").insert({
       organization_slug: entry.organizationSlug ?? null,
       hotel_id: entry.hotelId ?? null,
       function_name: entry.functionName,
@@ -136,6 +149,7 @@ export async function logAiUsage(
       ok: entry.ok ?? true,
       error: entry.error ?? null,
     });
+    if (insertError) console.error("AI_USAGE_LOG_WRITE_FAILED", entry.functionName, insertError.message);
   } catch (e) {
     console.error("logAiUsage failed", e);
   }

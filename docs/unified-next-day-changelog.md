@@ -1,0 +1,7 @@
+- Tomorrow uses the same Auto Room Assignment board and 4-step flow.
+- Selected-date Previo snapshot remains authoritative.
+- Tomorrow staff defaults come from schedules.
+- Confirm is plan-only; no live room assignments are created early.
+- Mapped and manual public areas release with the room plan at 08:00.
+- Shared room helper selection remains available for tomorrow.
+- Mika Team View trusts same-day PMS-confirmed Clean status.

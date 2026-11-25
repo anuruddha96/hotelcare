@@ -1,0 +1,166 @@
+/*
+ * Rate & Pickup calendar row-separation invariant.
+ *
+ * RevenueCalendarExperience intentionally compacts the sticky summary header,
+ * while RateStrategyGrid keeps the date buttons on zoom-aware inline heights.
+ * When the wrapper was forced shorter than those buttons, the bottom of the
+ * date cells painted into the Pickup row (most visible on mobile, but possible
+ * on desktop zoom levels too). Keep the wrapper content-sized so the date lane
+ * always ends before Pickup begins.
+ *
+ * These selectors are deliberately more specific than the progressive
+ * enhancement style injected at runtime, so the invariant holds regardless of
+ * stylesheet insertion order. This is presentation-only: no rates, pickup
+ * calculations, inventory, restrictions, or PMS writes are affected.
+ */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(2) {
+  height: auto !important;
+  min-height: 38px !important;
+}
+
+/* The date button owns the zoom-aware height. Clip only inside its own lane as
+   a final paint guard; it must never render over the Pickup row. */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(2) > button[data-date] {
+  overflow: hidden !important;
+}
+
+/* Pickup may contain a second line (last movement / rooms lost). Let content
+   determine the real row height instead of forcing it into the compact signal
+   height used for one-line metrics. */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(3) {
+  height: auto !important;
+  min-height: 30px !important;
+}
+
+/* The summary cells at the top are decision signals, not free-flowing text.
+   Never let a long movement label, availability value, or market annotation
+   paint into the next date/row. The full explanation is still available from
+   the native title / tap detail. */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(3) > :not(.sticky.left-0),
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(4) > :not(.sticky.left-0),
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(5) > :not(.sticky.left-0),
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(6) > :not(.sticky.left-0),
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(7) > :not(.sticky.left-0) {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Demand + market deliberately has two compact lines. Give that row enough
+   room to render both without falling into Events, and truncate the market
+   summary inside its own date cell on narrow columns. */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-hc-competitor-pricing-row="1"] {
+  height: auto !important;
+  min-height: 31px !important;
+  overflow: hidden !important;
+}
+
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-hc-competitor-pricing-row="1"] > button {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  padding-left: 1px !important;
+  padding-right: 1px !important;
+}
+
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-hc-competitor-pricing-row="1"] > button::before,
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-hc-competitor-pricing-row="1"] > button::after {
+  display: block !important;
+  max-width: calc(100% - 2px) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* The Events band is one flex row: its frozen label spans the full height
+   of all visible event lanes while the date timeline alone clips event cards.
+   Do not cap this parent row or its sticky label (the JS computes its height). */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > [data-rate-event-row="true"] {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] [data-rate-event-row="true"] > .sticky.left-0 {
+  z-index: 60 !important;
+  align-self: stretch;
+  background: hsl(var(--card)) !important;
+}
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] [data-rate-event-timeline="true"] {
+  overflow: hidden !important;
+  isolation: isolate;
+}
+
+@media (max-width: 767px) {
+  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(2) {
+    height: auto !important;
+    min-height: 34px !important;
+  }
+
+  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(3) {
+    height: auto !important;
+    min-height: 27px !important;
+  }
+
+  /* Pickup timestamps are useful in the tooltip but create a second scrolling
+     sentence across every phone column. Keep the net pickup number visible and
+     remove only that secondary timestamp line on the grid itself. */
+  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(3)
+    > div:not(.sticky.left-0) > span[class*="max-w-"] {
+    display: none !important;
+  }
+
+  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
+    [data-hc-competitor-pricing-row="1"] {
+    min-height: 30px !important;
+  }
+
+  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
+    [data-hc-competitor-pricing-row="1"] > button::before {
+    font-size: 9px !important;
+    line-height: 10px !important;
+  }
+
+  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
+    [data-hc-competitor-pricing-row="1"] > button::after {
+    font-size: 7px !important;
+    line-height: 8px !important;
+  }
+
+
+}
+
+/* Landscape phones deliberately stay denser, but the lanes must still be
+   independent. The date buttons continue to decide their zoom-aware height. */
+[data-rate-calendar-device="mobile-landscape"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(2) {
+  height: auto !important;
+  min-height: 30px !important;
+}
+
+[data-rate-calendar-device="mobile-landscape"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(3) {
+  height: auto !important;
+  min-height: 24px !important;
+}
+
+[data-rate-calendar-device="mobile-landscape"][data-rate-calendar-v2="true"]
+  [data-hc-competitor-pricing-row="1"] {
+  min-height: 27px !important;
+}

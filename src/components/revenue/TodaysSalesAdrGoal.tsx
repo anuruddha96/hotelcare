@@ -9,16 +9,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Area, Bar, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer,
+  Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer,
   Tooltip as RTooltip, XAxis, YAxis,
 } from "recharts";
 import {
   ChevronDown, Gauge, Info, Lightbulb, Loader2, Target, TrendingUp,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
-import { currencySymbol } from "@/lib/revenueCurrency";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { addDays, budapestDayOf, countsTowardRevenueSalesPickup, eur } from "@/lib/revenueAnalytics";
+import { convert, currencySymbol, toBaseCurrency, useRevenueCurrency } from "@/lib/revenueCurrency";
+import { buildPeriodRevenueSalesGoals, periodTotalToDaily } from "@/lib/revenueSalesGoals";
+import {
+  buildSalesPerformanceSeries,
+  getSalesPerformancePace,
+  shiftIsoMonths,
+  shiftIsoYears,
+  type SalesPerformanceMetric,
+} from "@/lib/revenueSalesPerformance";
 
 /* ------------------------------------------------------------------ types */
 
@@ -64,17 +71,17 @@ export interface SalesGoals {
   promoBudget: number;
 }
 
+// A property with no shared settings has no implied target. Management must
+// configure and save the targets explicitly; booking data never seeds them.
 const DEFAULT_GOALS: SalesGoals = {
-  targetAdr: 120,
-  targetRoomNights: 10,
-  targetValue: 1200,
+  targetAdr: 0,
+  targetRoomNights: 0,
+  targetValue: 0,
   promoBudget: 0,
 };
 
 type PresetKey = "today" | "yesterday" | "last7" | "month" | "custom";
-type CompareKey = "goal" | "yesterday" | "lastweek";
-type BookingFilter = "all" | "below" | "above" | "direct" | "ota";
-type SortKey = "created" | "adr_asc" | "adr_desc" | "value" | "arrival";
+type CompareKey = "goal" | "yesterday" | "lastweek" | "lastmonth" | "lastyear" | "custom";
 
 const OTA_HINTS = ["booking", "expedia", "agoda", "airbnb", "hotelbeds", "hrs", "trivago", "ota", "hostelworld", "despegar", "tripadvisor"];
 
@@ -109,6 +116,13 @@ function fmtDay(d: string) {
 
 function pct(n: number) {
   return `${Math.round(n * 10) / 10}%`;
+}
+
+/** Keep controlled currency inputs readable while preserving base values. */
+function goalDisplayValue(value: number): number {
+  const displayed = convert(value);
+  if (displayed === null) return 0;
+  return Math.round(displayed * 100) / 100;
 }
 
 interface AiSignal {
@@ -167,10 +181,11 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [stayFrom, setStayFrom] = useState(today);
   const [stayTo, setStayTo] = useState(addDays(today, 365));
   const [showCancelled, setShowCancelled] = useState(false);
-  const isMobile = useIsMobile();
-  const [compare, setCompare] = useState<CompareKey>("goal");
-  const [filter, setFilter] = useState<BookingFilter>("all");
-  const [sort, setSort] = useState<SortKey>("created");
+  const revenueCurrency = useRevenueCurrency();
+  const [compare, setCompare] = useState<CompareKey>("lastweek");
+  const [compareCustomFrom, setCompareCustomFrom] = useState(addDays(today, -7));
+  const [compareCustomTo, setCompareCustomTo] = useState(addDays(today, -7));
+  const [chartMetric, setChartMetric] = useState<SalesPerformanceMetric>("value");
   const [futureNights, setFutureNights] = useState(3);
 
   const [bookedFrom, bookedTo] = useMemo<[string, string]>(() => {
@@ -183,60 +198,117 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     }
   }, [preset, today, customFrom, customTo]);
 
+  const comparisonRange = useMemo<[string, string] | null>(() => {
+    switch (compare) {
+      case "yesterday":
+        return [addDays(bookedFrom, -1), addDays(bookedTo, -1)];
+      case "lastweek":
+        return [addDays(bookedFrom, -7), addDays(bookedTo, -7)];
+      case "lastmonth":
+        return [shiftIsoMonths(bookedFrom, -1), shiftIsoMonths(bookedTo, -1)];
+      case "lastyear":
+        return [shiftIsoYears(bookedFrom, -1), shiftIsoYears(bookedTo, -1)];
+      case "custom":
+        return compareCustomFrom && compareCustomTo
+          ? [compareCustomFrom, compareCustomTo]
+          : null;
+      default:
+        return null;
+    }
+  }, [compare, bookedFrom, bookedTo, compareCustomFrom, compareCustomTo]);
+
   /* --------------------------------------------------------------- goals */
-  // Goals live in the database per property, in that property's own currency
-  // (SLNT publishes forints), so every manager sees the same target instead of
-  // a euro default saved on one laptop.
-  const storageKey = `hc.revenue.salesGoals.${hotelId ?? "default"}`;
+  // The database is the single source of truth for property goals. Monetary
+  // values are stored in the property's PMS/base currency, while the controls
+  // are shown and edited in the user's active display currency.
   const [goals, setGoals] = useState<SalesGoals>(DEFAULT_GOALS);
+  const [goalDraft, setGoalDraft] = useState<SalesGoals>(DEFAULT_GOALS);
   const [goalsOpen, setGoalsOpen] = useState(false);
-  const [, setGoalsSeeded] = useState(false);
+  const [goalsLoading, setGoalsLoading] = useState(false);
+  const [goalsSaving, setGoalsSaving] = useState(false);
+  const [goalsDirty, setGoalsDirty] = useState(false);
+  const [goalsError, setGoalsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!hotelId) return;
     let cancelled = false;
-    setGoalsSeeded(false);
+    setGoals(DEFAULT_GOALS);
+    setGoalDraft(DEFAULT_GOALS);
+    setGoalsDirty(false);
+    setGoalsError(null);
+
+    if (!hotelId) {
+      setGoalsLoading(false);
+      return () => { cancelled = true; };
+    }
+
+    setGoalsLoading(true);
     void (async () => {
-      const { data } = await (supabase.from("hotel_revenue_settings") as any)
+      const { data, error } = await (supabase.from("hotel_revenue_settings") as any)
         .select("target_adr, target_room_nights, target_booking_value, promo_budget")
         .eq("hotel_id", hotelId)
         .maybeSingle();
       if (cancelled) return;
-      const row = (data ?? {}) as Record<string, number | null>;
-      if (row.target_adr != null) {
-        setGoals({
-          targetAdr: Number(row.target_adr) || 0,
-          targetRoomNights: Number(row.target_room_nights ?? DEFAULT_GOALS.targetRoomNights),
-          targetValue: Number(row.target_booking_value ?? 0),
-          promoBudget: Number(row.promo_budget ?? 0),
-        });
-        setGoalsSeeded(true);
+
+      if (error) {
+        setGoalsError("Could not load the shared targets for this property. Existing targets were not changed.");
+        setGoalsLoading(false);
         return;
       }
-      // No shared goal yet — fall back to this device's old saved goals, if any.
-      try {
-        const raw = localStorage.getItem(storageKey);
-        if (raw) { setGoals({ ...DEFAULT_GOALS, ...JSON.parse(raw) }); setGoalsSeeded(true); return; }
-      } catch { /* ignore unreadable storage */ }
-      setGoals(DEFAULT_GOALS);
+
+      const row = data as Record<string, number | null> | null;
+      const next: SalesGoals = row ? {
+        targetAdr: Number(row.target_adr ?? 0),
+        targetRoomNights: Number(row.target_room_nights ?? 0),
+        targetValue: Number(row.target_booking_value ?? 0),
+        promoBudget: Number(row.promo_budget ?? 0),
+      } : DEFAULT_GOALS;
+
+      setGoals(next);
+      setGoalDraft(next);
+      setGoalsDirty(false);
+      setGoalsLoading(false);
     })();
+
     return () => { cancelled = true; };
-  }, [hotelId, storageKey]);
+  }, [hotelId]);
 
-  const saveGoals = useCallback((next: SalesGoals) => {
+  const updateGoalDraft = useCallback((patch: Partial<SalesGoals>) => {
+    setGoalDraft((previous) => ({ ...previous, ...patch }));
+    setGoalsDirty(true);
+    setGoalsError(null);
+  }, []);
+
+  const saveGoals = useCallback(async () => {
+    if (!hotelId || !goalsDirty || goalsSaving) return;
+    const next = { ...goalDraft };
+    setGoalsSaving(true);
+    setGoalsError(null);
+
+    // The settings row already exists for every revenue-enabled property. Using
+    // UPDATE instead of UPSERT avoids the INSERT RLS path, which requires
+    // organization_slug and was rejecting otherwise-valid manager saves.
+    const { data: savedRow, error } = await (supabase.from("hotel_revenue_settings") as any)
+      .update({
+        target_adr: next.targetAdr,
+        target_room_nights: next.targetRoomNights,
+        target_booking_value: next.targetValue,
+        promo_budget: next.promoBudget,
+      } as any)
+      .eq("hotel_id", hotelId)
+      .select("hotel_id")
+      .maybeSingle();
+
+    if (error || !savedRow) {
+      setGoalsError("Could not save the targets for this property. Your previous shared targets are still active.");
+      setGoalsSaving(false);
+      return;
+    }
+
     setGoals(next);
-    setGoalsSeeded(true);
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* ignore */ }
-    if (!hotelId) return;
-    void (supabase.from("hotel_revenue_settings") as any).upsert({
-      hotel_id: hotelId,
-      target_adr: next.targetAdr,
-      target_room_nights: next.targetRoomNights,
-      target_booking_value: next.targetValue,
-      promo_budget: next.promoBudget,
-    } as any, { onConflict: "hotel_id" });
-  }, [storageKey, hotelId]);
-
+    setGoalDraft(next);
+    setGoalsDirty(false);
+    setGoalsSaving(false);
+  }, [goalDraft, goalsDirty, goalsSaving, hotelId]);
 
   /* ---------------------------------------------------------------- data */
   const [rows, setRows] = useState<NightRow[]>([]);
@@ -246,10 +318,14 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const load = useCallback(async () => {
     if (!hotelId) { setLoading(false); return; }
     setLoading(true);
-    // Reach back far enough to also cover the comparison periods (yesterday and
-    // the same weekday last week), and one extra day either side for timezone.
-    const wideFrom = `${addDays(bookedFrom, -8)}T00:00:00Z`;
-    const wideTo = `${addDays(bookedTo, 1)}T23:59:59Z`;
+    // Pull both the selected production period and its active comparison range.
+    // The extra day on each side protects Budapest/UTC boundary conversions.
+    const compareFrom = comparisonRange?.[0] ?? bookedFrom;
+    const compareTo = comparisonRange?.[1] ?? bookedTo;
+    const earliestDay = [bookedFrom, compareFrom].sort()[0];
+    const latestDay = [bookedTo, compareTo].sort().at(-1) ?? bookedTo;
+    const wideFrom = `${addDays(earliestDay, -1)}T00:00:00Z`;
+    const wideTo = `${addDays(latestDay, 1)}T23:59:59Z`;
     const cols = "res_id, room_key, stay_date, room_type_name, guests, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, status_id";
     const [live, cancelled, cancelledInPeriod] = await Promise.all([
       supabase.from("revenue_booking_nights").select(cols)
@@ -274,7 +350,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     }
     setCancelledRows(Array.from(merged.values()));
     setLoading(false);
-  }, [hotelId, bookedFrom, bookedTo]);
+  }, [hotelId, bookedFrom, bookedTo, comparisonRange]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -286,7 +362,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     const build = (list: NightRow[], cancelledFeed: boolean): SaleBooking[] => {
       const byRes = new Map<string, NightRow[]>();
       for (const r of list) {
-        if (!r.created_at_pms) continue;
+        if (!r.created_at_pms || !countsTowardRevenueSalesPickup(r)) continue;
         if (stayFilterOn && (r.stay_date < stayFrom || r.stay_date > stayTo)) continue;
         const k = `${r.res_id}|${r.room_key ?? ""}`;
         const bucket = byRes.get(k);
@@ -333,11 +409,20 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   /** Only the live ones drive every KPI. */
   const liveBookings = useMemo(() => periodBookings.filter((b) => !b.cancelled), [periodBookings]);
 
-  // Revenue goals are management inputs. Booking data must never infer, overwrite,
-  // or persist ADR/room-night/value targets automatically. If a shared target has
-  // not been configured yet, the UI keeps the existing/default value until a
-  // manager explicitly changes it in the Goals controls.
+  // Targets are stored as DAILY management baselines. The selected booking-created
+  // range scales room-night, booking-value and optional promotion totals in real time;
+  // ADR stays a rate and therefore never scales with the number of days.
+  const periodGoals = useMemo(
+    () => buildPeriodRevenueSalesGoals(goals, bookedFrom, bookedTo),
+    [goals, bookedFrom, bookedTo],
+  );
+  const draftPeriodGoals = useMemo(
+    () => buildPeriodRevenueSalesGoals(goalDraft, bookedFrom, bookedTo),
+    [goalDraft, bookedFrom, bookedTo],
+  );
 
+  // Revenue goals are management inputs. Booking data must never infer, overwrite,
+  // or persist ADR/room-night/value targets automatically.
 
   const kpi = useMemo(() => {
     const roomNights = liveBookings.reduce((s, b) => s + b.roomNights, 0);
@@ -352,7 +437,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     const cancelledNights = cancelledInPeriod.reduce((s, b) => s + b.roomNights, 0);
     const cancelledRevenue = cancelledInPeriod.reduce((s, b) => s + b.revenue, 0);
     const adr = roomNights ? revenue / roomNights : null;
-    const variance = adr === null ? null : adr - goals.targetAdr;
+    const variance = adr === null || !goals.targetAdr ? null : adr - goals.targetAdr;
     return {
       bookings: reservationIds.size,
       roomGroups: liveBookings.length,
@@ -366,15 +451,15 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       variance,
       variancePct: adr === null || !goals.targetAdr ? null : ((adr - goals.targetAdr) / goals.targetAdr) * 100,
       adrGoalPct: adr === null || !goals.targetAdr ? 0 : (adr / goals.targetAdr) * 100,
-      valueGoalPct: goals.targetValue ? (revenue / goals.targetValue) * 100 : 0,
-      nightsGoalPct: goals.targetRoomNights ? (roomNights / goals.targetRoomNights) * 100 : 0,
+      valueGoalPct: periodGoals.targetValue ? (revenue / periodGoals.targetValue) * 100 : 0,
+      nightsGoalPct: periodGoals.targetRoomNights ? (roomNights / periodGoals.targetRoomNights) * 100 : 0,
       los: reservationIds.size ? roomNights / reservationIds.size : 0,
     };
-  }, [liveBookings, allBookings, bookedFrom, bookedTo, goals]);
+  }, [liveBookings, allBookings, bookedFrom, bookedTo, goals, periodGoals]);
 
   /** green / amber / red against the ADR target. */
   const adrTone = useMemo(() => {
-    if (kpi.adr === null) return "neutral" as const;
+    if (kpi.adr === null || !goals.targetAdr) return "neutral" as const;
     if (kpi.adr >= goals.targetAdr) return "good" as const;
     if (kpi.adr >= goals.targetAdr * 0.9) return "warn" as const;
     return "bad" as const;
@@ -390,62 +475,95 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   /* --------------------------------------------------------------- chart */
   const nowMinutes = budapestMinutes(new Date().toISOString());
   const isTodayPeriod = bookedFrom === today && bookedTo === today;
+  const isSingleDayPeriod = bookedFrom === bookedTo;
 
-  const chart = useMemo(() => {
-    const cutoff = isTodayPeriod ? nowMinutes : 24 * 60 - 1;
-    const buckets: number[] = [];
-    for (let m = 0; m <= cutoff; m += 120) buckets.push(m);
-    if (buckets[buckets.length - 1] < cutoff) buckets.push(cutoff);
+  const chart = useMemo(() => buildSalesPerformanceSeries({
+    bookings: allBookings,
+    from: bookedFrom,
+    to: bookedTo,
+    today,
+    nowMinutes,
+    compare,
+    customCompareFrom: compare === "custom" ? compareCustomFrom : null,
+    customCompareTo: compare === "custom" ? compareCustomTo : null,
+    goals: {
+      days: periodGoals.days,
+      targetValue: periodGoals.targetValue,
+      targetRoomNights: periodGoals.targetRoomNights,
+      targetAdr: goals.targetAdr,
+    },
+  }), [
+    allBookings,
+    bookedFrom,
+    bookedTo,
+    today,
+    nowMinutes,
+    compare,
+    compareCustomFrom,
+    compareCustomTo,
+    periodGoals.days,
+    periodGoals.targetValue,
+    periodGoals.targetRoomNights,
+    goals.targetAdr,
+  ]);
 
-    const seriesFor = (list: SaleBooking[]) => {
-      let value = 0, nights = 0;
-      return buckets.map((m) => {
-        let windowValue = 0;
-        const windowRes = new Set<string>();
-        for (const b of list) {
-          if (b.createdMinutes <= m && b.createdMinutes > m - 120) {
-            value += b.revenue; nights += b.roomNights;
-            windowValue += b.revenue; windowRes.add(b.res_id);
-          }
-        }
-        return { value: Math.round(value), nights, windowValue: Math.round(windowValue), windowBookings: windowRes.size };
-      });
-    };
+  const pace = useMemo(() => getSalesPerformancePace(chart, chartMetric), [chart, chartMetric]);
 
-    const base = seriesFor(liveBookings.slice().sort((a, b) => a.createdMinutes - b.createdMinutes));
+  const compareLabel = compare === "yesterday"
+    ? (isTodayPeriod ? "Yesterday" : "Previous day")
+    : compare === "lastweek"
+      ? (isSingleDayPeriod ? "Same weekday last week" : "Same period last week")
+      : compare === "lastmonth"
+        ? (isSingleDayPeriod ? "Same date last month" : "Same period last month")
+        : compare === "lastyear"
+          ? (isSingleDayPeriod ? "Same date last year" : "Same period last year")
+          : compare === "custom"
+            ? "Custom period"
+          : periodGoals.days === 1
+            ? "Daily goal pace"
+            : `${periodGoals.days}-day goal pace`;
 
-    const compareDay = compare === "yesterday" ? addDays(today, -1)
-      : compare === "lastweek" ? addDays(today, -7) : null;
-    const compareList = compareDay
-      ? allBookings.filter((b) => !b.cancelled && b.createdDay === compareDay)
-        .sort((a, b) => a.createdMinutes - b.createdMinutes)
-      : [];
-    const cmp = compareDay ? seriesFor(compareList) : null;
+  const periodLabel = isTodayPeriod
+    ? "Today"
+    : isSingleDayPeriod
+      ? fmtDay(bookedFrom)
+      : `${fmtDay(bookedFrom)} – ${fmtDay(bookedTo)}`;
 
-    return buckets.map((m, i) => ({
-      label: `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`,
-      value: base[i].value,
-      nights: base[i].nights,
-      // Non-cumulative: what actually got booked inside this two-hour window.
-      windowValue: base[i].windowValue,
-      windowBookings: base[i].windowBookings,
-      adr: base[i].nights ? Math.round(base[i].value / base[i].nights) : null,
-      compare: cmp ? cmp[i].value : goals.targetValue ? Math.round((goals.targetValue * (m + 1)) / (24 * 60)) : null,
-    }));
-  }, [liveBookings, allBookings, compare, today, goals.targetValue, isTodayPeriod, nowMinutes]);
+  const metricDisplayValue = (value: number | null) => {
+    if (value === null || !Number.isFinite(value)) return "—";
+    if (chartMetric === "nights") return `${Math.round(value * 10) / 10} room nights`;
+    return eur(Math.round(value));
+  };
 
-  /** Busiest booking window and the individual booking times behind it. */
+  const paceSummary = pace.delta === null
+    ? compare === "goal"
+      ? `Set the ${chartMetric === "value" ? "booking-value" : chartMetric === "nights" ? "room-night" : "ADR"} target to see goal pace`
+      : `${compareLabel} comparison is not available yet`
+    : `${metricDisplayValue(Math.abs(pace.delta))} ${pace.delta >= 0 ? "ahead of" : "behind"} ${compareLabel.toLowerCase()}`;
+
+  const paceTone = pace.delta === null
+    ? "text-muted-foreground"
+    : pace.delta >= 0
+      ? "text-emerald-600 dark:text-emerald-400"
+      : "text-red-600 dark:text-red-400";
+
+  const netBookingValue = kpi.revenue - kpi.cancelledRevenue;
+
+  /** Busiest booking period and the individual booking times behind it. */
   const bookingTiming = useMemo(() => {
     const withTime = liveBookings.filter((b) => b.created);
     if (withTime.length === 0) return null;
     let peak = chart[0];
-    for (const c of chart) if (c.windowValue > (peak?.windowValue ?? 0)) peak = c;
+    for (const point of chart) {
+      if (point.grossValueWindow > (peak?.grossValueWindow ?? 0)) peak = point;
+    }
     const times = withTime
       .slice()
-      .sort((a, b) => b.createdMinutes - a.createdMinutes)
+      .sort((a, b) => new Date(b.created as string).getTime() - new Date(a.created as string).getTime())
       .map((b) => ({
         key: b.key,
         res: b.res_id,
+        day: b.createdDay,
         time: `${String(Math.floor(b.createdMinutes / 60)).padStart(2, "0")}:${String(b.createdMinutes % 60).padStart(2, "0")}`,
         revenue: b.revenue,
         nights: b.roomNights,
@@ -456,11 +574,9 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     return { peak, times, first, last };
   }, [liveBookings, chart]);
 
-  const compareLabel = compare === "yesterday" ? "Yesterday" : compare === "lastweek" ? "Same weekday last week" : "Daily goal pace";
-
   /* -------------------------------------------------------- ADR recovery */
   const recovery = useMemo(() => {
-    if (kpi.adr === null || kpi.adr >= goals.targetAdr) return null;
+    if (!isTodayPeriod || !goals.targetAdr || kpi.adr === null || kpi.adr >= goals.targetAdr) return null;
     const gap = goals.targetAdr * kpi.roomNights - kpi.revenue;
     const options = [1, 2, 3, 5, 10].map((n) => ({
       n,
@@ -468,7 +584,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     }));
     const chosen = options.find((o) => o.n === futureNights) ?? options[2];
     return { gap, options, chosen, unrealistic: chosen.required > goals.targetAdr * 2.5 };
-  }, [kpi, goals.targetAdr, futureNights]);
+  }, [kpi, goals.targetAdr, futureNights, isTodayPeriod]);
 
   /* ------------------------------------------------------------- leakage */
   interface LeakRow {
@@ -567,7 +683,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         why: `Direct produced ${eur(direct.adr)} ADR versus ${eur(ota.adr)} on OTA today — the same demand is worth more when it comes direct.`,
       });
     }
-    if (kpi.adr !== null && kpi.adr < goals.targetAdr) {
+    if (kpi.adr !== null && goals.targetAdr > 0 && kpi.adr < goals.targetAdr) {
       out.push({
         tone: "warn",
         title: "Upsell superior rooms and add-ons on today's arrivals",
@@ -696,31 +812,13 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     }
   }, [hotelId, today, goals, kpi, recommendations, leakage, liveBookings]);
 
-
-  /* -------------------------------------------------------- booking list */
-  const listed = useMemo(() => {
-    let list = periodBookings.slice();
-    if (filter === "below") list = list.filter((b) => (b.adr ?? 0) < goals.targetAdr);
-    if (filter === "above") list = list.filter((b) => (b.adr ?? 0) >= goals.targetAdr);
-    if (filter === "direct") list = list.filter((b) => b.direct);
-    if (filter === "ota") list = list.filter((b) => !b.direct);
-    list.sort((a, b) => {
-      if (sort === "adr_asc") return (a.adr ?? 0) - (b.adr ?? 0);
-      if (sort === "adr_desc") return (b.adr ?? 0) - (a.adr ?? 0);
-      if (sort === "value") return b.revenue - a.revenue;
-      if (sort === "arrival") return a.stayFrom.localeCompare(b.stayFrom);
-      return (b.created ?? "").localeCompare(a.created ?? "");
-    });
-    return list;
-  }, [periodBookings, filter, sort, goals.targetAdr]);
-
   /* ------------------------------------------------------------ headline */
   const periodWord = preset === "today" ? "Today" : preset === "yesterday" ? "Yesterday" : "In this period";
   const headline = useMemo(() => {
-    if (!kpi.bookings) return "No bookings have been created today yet.";
+    if (!kpi.bookings) return preset === "today" ? "No bookings have been created today yet." : "No bookings were created in the selected period.";
     const worst = leakage.channel[0] ?? leakage.roomType[0];
     const base = `${periodWord} you created ${kpi.bookings} booking${kpi.bookings === 1 ? "" : "s"}, ${kpi.roomNights} room night${kpi.roomNights === 1 ? "" : "s"} and ${eur(Math.round(kpi.revenue))} in room revenue at an ADR of ${eur(kpi.adr)}`;
-    if (kpi.variance === null) return `${base}.`;
+    if (!goals.targetAdr || kpi.variance === null) return `${base}.`;
     if (kpi.variance >= 0) return `${base}, which is ${eur(Math.round(kpi.variance))} above your ${eur(goals.targetAdr)} target.`;
     const cause = worst && worst.diff < 0 ? ` The largest negative impact comes from ${worst.label}.` : "";
     return `${base}, which is ${eur(Math.round(Math.abs(kpi.variance)))} below your ${eur(goals.targetAdr)} target.${cause}`;
@@ -733,7 +831,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-primary" />
-            Today’s Sales &amp; ADR Goal
+            {preset === "today" ? "Today’s Sales & ADR Goal" : "Sales & ADR Goal"}
             <Badge variant="outline" className="font-normal">Budapest time · Live</Badge>
           </CardTitle>
           {/* No manual refresh: the panel follows the page's shared sync. */}
@@ -793,17 +891,17 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         <div className="rounded-md border bg-muted/30 p-2.5 space-y-1.5">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             <strong className="text-foreground">What this panel shows:</strong> everything your team
-            <strong> sold today</strong> — reservations filtered by the date the{" "}
-            <strong>booking was created</strong> (Budapest time), whatever date the guest arrives
+            sold in the <strong>selected booking-created period</strong> (Budapest time), whatever date the guest arrives
             {stayFilterOn ? ", unless you narrow the guest stay dates above" : ""}. It answers
-            "what did we sell today, at what rate, and how far is that from the target?".
+            "what did we sell in this period, at what rate, and how far is that from the matching period target?".
           </p>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             <strong className="text-foreground">Why it can differ from the pickup chart:</strong> the
             Demand &amp; pickup horizon counts rooms gained and lost per <strong>stay date</strong>,
             so a booking made weeks ago and cancelled or shortened today shows as negative pickup there.
-            Cancellations here only count bookings that were both <strong>created and cancelled</strong> in
-            this period — that is why this can read 0 while the chart shows red bars.
+            Cancellations here are assigned to the <strong>day the cancellation happened</strong>, even if the
+            reservation was originally created earlier. This makes the booking-pace chart show the real positive
+            and negative commercial movement during the selected period.
           </p>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             Tap the <Info className="inline h-3 w-3 align-[-1px]" /> on any figure for its exact definition.
@@ -816,16 +914,84 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         <Collapsible open={goalsOpen} onOpenChange={setGoalsOpen}>
           <CollapsibleTrigger asChild>
             <Button variant="outline" className="w-full h-10 justify-between text-sm">
-              <span className="flex items-center gap-2"><Target className="h-4 w-4 text-primary" /> Goals · ADR {eur(goals.targetAdr)}</span>
+              <span className="flex items-center gap-2"><Target className="h-4 w-4 text-primary" /> Goals · ADR {goals.targetAdr ? eur(goals.targetAdr) : "—"} · {periodGoals.days}-day target</span>
               <ChevronDown className={`h-4 w-4 transition-transform ${goalsOpen ? "rotate-180" : ""}`} />
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2 grid grid-cols-2 gap-2">
-            <GoalInput label={`Target ADR (${currencySymbol()})`} value={goals.targetAdr} onChange={(v) => saveGoals({ ...goals, targetAdr: v })} />
-            <GoalInput label="Room-night target" value={goals.targetRoomNights} onChange={(v) => saveGoals({ ...goals, targetRoomNights: v })} />
-            <GoalInput label={`Booking value target (${currencySymbol()})`} value={goals.targetValue} onChange={(v) => saveGoals({ ...goals, targetValue: v })} />
-            <GoalInput label={`Max promotion budget (${currencySymbol()})`} value={goals.promoBudget} onChange={(v) => saveGoals({ ...goals, promoBudget: v })} />
-            <p className="col-span-2 text-[11px] text-muted-foreground">Saved for this property in {currencySymbol()} — everyone on the team sees the same targets.</p>
+            <GoalInput
+              label={`Target ADR (${currencySymbol(revenueCurrency.displayCode)})`}
+              value={goalDisplayValue(goalDraft.targetAdr)}
+              disabled={goalsLoading || goalsSaving}
+              onChange={(v) => {
+                const base = toBaseCurrency(v);
+                if (base !== null) updateGoalDraft({ targetAdr: base });
+              }}
+            />
+            <GoalInput
+              label={`Room-night target · selected ${draftPeriodGoals.days}-day period`}
+              value={Math.round(draftPeriodGoals.targetRoomNights * 100) / 100}
+              disabled={goalsLoading || goalsSaving}
+              onChange={(v) => updateGoalDraft({ targetRoomNights: periodTotalToDaily(v, draftPeriodGoals.days) })}
+            />
+            <GoalInput
+              label={`Booking value target · selected ${draftPeriodGoals.days}-day period (${currencySymbol(revenueCurrency.displayCode)})`}
+              value={goalDisplayValue(draftPeriodGoals.targetValue)}
+              disabled={goalsLoading || goalsSaving}
+              onChange={(v) => {
+                const basePeriodTotal = toBaseCurrency(v);
+                if (basePeriodTotal !== null) updateGoalDraft({
+                  targetValue: periodTotalToDaily(basePeriodTotal, draftPeriodGoals.days),
+                });
+              }}
+            />
+            <GoalInput
+              label={`Max promotion budget · optional · selected ${draftPeriodGoals.days}-day period (${currencySymbol(revenueCurrency.displayCode)})`}
+              value={draftPeriodGoals.promoBudget === null ? "" : goalDisplayValue(draftPeriodGoals.promoBudget)}
+              optional
+              disabled={goalsLoading || goalsSaving}
+              onChange={(v) => {
+                const basePeriodTotal = toBaseCurrency(v);
+                if (basePeriodTotal !== null) updateGoalDraft({
+                  promoBudget: periodTotalToDaily(basePeriodTotal, draftPeriodGoals.days),
+                });
+              }}
+            />
+            <div className="col-span-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] text-muted-foreground">
+                Shared daily baselines are scaled live to the selected {draftPeriodGoals.days}-day period · ADR stays unchanged.
+                {draftPeriodGoals.targetValueIsDerived
+                  ? " Booking value is automatic: ADR × room-night target."
+                  : " Booking value uses the management override."}
+                {" "}Shown in {currencySymbol(revenueCurrency.displayCode)}
+                {revenueCurrency.displayCode !== revenueCurrency.code
+                  ? ` · stored in ${currencySymbol(revenueCurrency.code)}`
+                  : ""}. Changes apply only after Save.
+              </p>
+              <div className="flex items-center gap-1.5">
+                {goalsDirty && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-xs"
+                    disabled={goalsSaving}
+                    onClick={() => { setGoalDraft(goals); setGoalsDirty(false); setGoalsError(null); }}
+                  >
+                    Discard
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={!hotelId || !goalsDirty || goalsLoading || goalsSaving}
+                  onClick={() => void saveGoals()}
+                >
+                  {goalsSaving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                  Save targets
+                </Button>
+              </div>
+            </div>
+            {goalsError && <p className="col-span-2 text-xs text-red-600 dark:text-red-400">{goalsError}</p>}
           </CollapsibleContent>
         </Collapsible>
 
@@ -861,7 +1027,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               />
               <Kpi
                 label="ADR target"
-                value={eur(goals.targetAdr)}
+                value={goals.targetAdr ? eur(goals.targetAdr) : "—"}
                 info="The nightly rate you are aiming for. Set it in Goals above; it is saved for this property so the whole team sees the same target."
               />
               <Kpi
@@ -873,9 +1039,15 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               />
               <Kpi
                 label="Revenue goal"
-                value={pct(kpi.valueGoalPct)}
-                sub={`of ${eur(goals.targetValue)}`}
-                info="Booking value as a share of the booking-value target set in Goals."
+                value={periodGoals.targetValue ? pct(kpi.valueGoalPct) : "—"}
+                sub={periodGoals.targetValue ? `of ${eur(periodGoals.targetValue)} · ${periodGoals.days}-day target` : "Set ADR and room-night targets in Goals"}
+                info="Booking value as a share of the target for the selected booking-created period. Multi-day targets scale automatically from the shared daily baseline."
+              />
+              <Kpi
+                label="Room-night goal"
+                value={periodGoals.targetRoomNights ? pct(kpi.nightsGoalPct) : "—"}
+                sub={periodGoals.targetRoomNights ? `${kpi.roomNights} of ${Math.round(periodGoals.targetRoomNights * 10) / 10} · ${periodGoals.days}-day target` : "Set a room-night target in Goals"}
+                info="Room nights sold as a share of the target for the selected booking-created period. The daily room-night baseline is multiplied by the number of selected days."
               />
               <Kpi
                 label="Avg length of stay"
@@ -887,7 +1059,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                 tone={kpi.cancelled > 0 ? "text-red-600 dark:text-red-400" : undefined}
                 value={kpi.cancelled ? `−${kpi.cancelledNights} n` : "0"}
                 sub={kpi.cancelled ? `${kpi.cancelled} booking${kpi.cancelled === 1 ? "" : "s"} · ${eur(Math.round(kpi.cancelledRevenue))} lost` : "none created in this period"}
-                info="Bookings that were created in this period and are now cancelled or a no-show. A booking made last month but cancelled today is NOT counted here — it still appears as negative pickup in the Demand & pickup horizon, which compares stay-date occupancy day over day. So 0 here with red bars there is normal."
+                info="Reservations cancelled or marked no-show during the selected period. The cancellation is assigned to when it happened, so a reservation created earlier but cancelled today is included in today's negative movement."
               />
               <Kpi
                 label="Net room nights"
@@ -904,18 +1076,20 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                 <span className={`font-semibold ${toneClass}`}>
                   {kpi.adr === null
                     ? "No bookings yet today"
-                    : `${eur(Math.round(kpi.adr))} ADR · ${eur(Math.round(Math.abs(kpi.variance ?? 0)))} ${((kpi.variance ?? 0) >= 0) ? "above" : "below"} target`}
+                    : !goals.targetAdr
+                      ? `${eur(Math.round(kpi.adr))} ADR · target not set`
+                      : `${eur(Math.round(kpi.adr))} ADR · ${eur(Math.round(Math.abs(kpi.variance ?? 0)))} ${((kpi.variance ?? 0) >= 0) ? "above" : "below"} target`}
                 </span>
               </div>
               <Progress
                 value={Math.min(100, kpi.adrGoalPct)}
                 aria-label="Share of the ADR goal achieved"
-                className={adrTone === "good" ? "[&>div]:bg-emerald-500" : adrTone === "warn" ? "[&>div]:bg-amber-500" : "[&>div]:bg-red-500"}
+                className={adrTone === "good" ? "[&>div]:bg-emerald-500" : adrTone === "warn" ? "[&>div]:bg-amber-500" : adrTone === "bad" ? "[&>div]:bg-red-500" : "[&>div]:bg-muted-foreground/40"}
               />
               <div className="flex justify-between text-[11px] text-muted-foreground">
                 <span>{eur(0)}</span>
-                <span>{kpi.adr === null ? "—" : `${pct(kpi.adrGoalPct)} of ADR goal achieved`}</span>
-                <span>{eur(goals.targetAdr)}{kpi.adrGoalPct > 100 ? "+" : ""}</span>
+                <span>{!goals.targetAdr ? "Set an ADR target in Goals" : kpi.adr === null ? "—" : `${pct(kpi.adrGoalPct)} of ADR goal achieved`}</span>
+                <span>{goals.targetAdr ? `${eur(goals.targetAdr)}${kpi.adrGoalPct > 100 ? "+" : ""}` : "—"}</span>
               </div>
               {kpi.cancelled > 0 && (
                 <p className="text-[11px] text-muted-foreground">
@@ -927,92 +1101,247 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             </div>
 
             {/* ------------------------------------------------- chart */}
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-medium">Today’s sales performance</h3>
+            <div className="rounded-lg border p-3 space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold">Booking pace</h3>
+                  <p className="text-[11px] text-muted-foreground">{periodLabel} · booking-created performance</p>
+                </div>
                 <Select value={compare} onValueChange={(v) => setCompare(v as CompareKey)}>
-                  <SelectTrigger className="h-9 w-[210px] text-xs" aria-label="Comparison"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-[205px] max-w-full text-xs" aria-label="Booking pace comparison"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="goal">Versus daily goal</SelectItem>
-                    <SelectItem value="yesterday">Versus yesterday</SelectItem>
-                    <SelectItem value="lastweek">Versus same weekday last week</SelectItem>
+                    <SelectItem value="lastweek">Versus same period last week</SelectItem>
+                    <SelectItem value="lastmonth">Versus same period last month</SelectItem>
+                    <SelectItem value="lastyear">Versus same period last year (YoY)</SelectItem>
+                    <SelectItem value="yesterday">Versus previous day</SelectItem>
+                    <SelectItem value="goal">Versus goal pace</SelectItem>
+                    <SelectItem value="custom">Versus custom period</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chart} margin={{ top: 8, right: 4, left: -8, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
-                    <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                    {/* Compact labels (12k) so large euro totals are never clipped. */}
-                    <YAxis yAxisId="v" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={40}
-                      tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : String(Math.round(v)))} />
-                    <YAxis yAxisId="adr" orientation="right" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={38}
-                      domain={[0, (max: number) => Math.max(goals.targetAdr * 1.4, max * 1.15)]} />
-                    <RTooltip
-                      contentStyle={{ fontSize: 11, padding: "4px 8px" }}
-                      formatter={(value: unknown, name: string, item: any) => {
-                        if (name === "Booked in this window") {
-                          const n = item?.payload?.windowBookings ?? 0;
-                          return [`${eur(Number(value))} · ${n} booking${n === 1 ? "" : "s"}`, name];
-                        }
-                        return [eur(Number(value)), name];
-                      }}
-                      labelFormatter={(l) => `${l} Budapest · booked in the 2h up to this point`}
+
+              {compare === "custom" && (
+                <div className="grid grid-cols-2 gap-2 rounded-md border bg-muted/20 p-3">
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Compare from</Label>
+                    <Input
+                      type="date"
+                      className="h-9"
+                      value={compareCustomFrom}
+                      onChange={(e) => setCompareCustomFrom(e.target.value)}
                     />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <ReferenceLine yAxisId="adr" y={goals.targetAdr} stroke="hsl(var(--primary))" strokeDasharray="5 3"
-                      label={{ value: `ADR target ${eur(goals.targetAdr)}`, position: "right", fontSize: 10, fill: "hsl(var(--primary))" }} />
-                    {/* Bars show WHEN the bookings actually landed, not the running total. */}
-                    <Bar yAxisId="v" dataKey="windowValue" name="Booked in this window"
-                      fill="hsl(199 89% 48% / 0.35)" barSize={14} radius={[3, 3, 0, 0]} />
-                    <Area yAxisId="v" type="monotone" dataKey="value" name="Booking value" stroke="hsl(199 89% 48%)"
-                      fill="hsl(199 89% 48% / 0.15)" strokeWidth={2} />
-                    {/* The pace/compare line is desktop-only: on a phone it just
-                        adds a fifth overlapping series. */}
-                    {!isMobile && (
-                      <Line yAxisId="v" type="monotone" dataKey="compare" name={compareLabel} stroke="hsl(var(--muted-foreground))"
-                        strokeDasharray="4 3" strokeWidth={1.5} dot={false} connectNulls />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Compare to</Label>
+                    <Input
+                      type="date"
+                      className="h-9"
+                      value={compareCustomTo}
+                      onChange={(e) => setCompareCustomTo(e.target.value)}
+                    />
+                  </div>
+                  <p className="col-span-2 text-[10px] text-muted-foreground">
+                    Custom comparison aligns dates in order. For the clearest like-for-like view, select the same number of days as the current period.
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2 rounded-md bg-muted/30 p-3 text-xs">
+                <Mini label="Net booking value" value={eur(Math.round(netBookingValue))} />
+                <Mini label="Net room nights" value={String(kpi.netNights)} />
+                <Mini label="Actual ADR" value={kpi.adr === null ? "—" : eur(Math.round(kpi.adr))} />
+                <Mini
+                  label="Cancellations"
+                  value={kpi.cancelled ? `−${eur(Math.round(kpi.cancelledRevenue))} · ${kpi.cancelledNights} n` : "0"}
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Pace vs {compareLabel}</p>
+                  <p className={`text-sm font-semibold ${paceTone}`}>{paceSummary}</p>
+                </div>
+                {pace.current !== null && (
+                  <div className="shrink-0 text-right">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Current</p>
+                    <p className="text-sm font-semibold tabular-nums">{metricDisplayValue(pace.current)}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 rounded-md border overflow-hidden">
+                {([
+                  ["value", "Value"],
+                  ["nights", "Room nights"],
+                  ["adr", "ADR"],
+                ] as const).map(([key, label]) => (
+                  <Button
+                    key={key}
+                    size="sm"
+                    variant={chartMetric === key ? "secondary" : "ghost"}
+                    className="h-8 rounded-none text-xs"
+                    onClick={() => setChartMetric(key)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+
+              <div className="h-56 sm:h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={chart} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={18}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={42}
+                      tickFormatter={(v: number) => {
+                        if (chartMetric === "nights") return String(Math.round(v * 10) / 10);
+                        if (Math.abs(v) >= 1000) return `${Math.round(v / 100) / 10}k`;
+                        return String(Math.round(v));
+                      }}
+                    />
+                    <RTooltip
+                      contentStyle={{ fontSize: 11, padding: "6px 8px" }}
+                      formatter={(value: unknown, name: string, item: any) => {
+                        const numeric = Number(value);
+                        const isCancellation = name.startsWith("Cancelled");
+                        const amount = isCancellation ? Math.abs(numeric) : numeric;
+                        const formatted = chartMetric === "nights"
+                          ? `${Math.round(amount * 10) / 10} room nights`
+                          : eur(Math.round(amount));
+                        if (name.startsWith("New ")) {
+                          const n = item?.payload?.windowBookings ?? 0;
+                          return [`${formatted} · ${n} booking${n === 1 ? "" : "s"}`, name];
+                        }
+                        if (isCancellation) {
+                          const n = item?.payload?.windowCancellations ?? 0;
+                          return [`−${formatted} · ${n} cancellation${n === 1 ? "" : "s"}`, name];
+                        }
+                        return [formatted, name];
+                      }}
+                      labelFormatter={(label) => isSingleDayPeriod
+                        ? `${label} Budapest time`
+                        : `${label} · booking-created day`}
+                    />
+
+                    {chartMetric !== "adr" && (
+                      <>
+                        <Bar
+                          dataKey={chartMetric === "value" ? "grossValueWindow" : "grossNightsWindow"}
+                          name={chartMetric === "value" ? "New booking value" : "New room nights"}
+                          stackId="activity"
+                          fill="hsl(199 89% 48% / 0.38)"
+                          barSize={16}
+                          radius={[3, 3, 0, 0]}
+                        />
+                        <Bar
+                          dataKey={chartMetric === "value" ? "cancelledValueWindow" : "cancelledNightsWindow"}
+                          name={chartMetric === "value" ? "Cancelled value" : "Cancelled room nights"}
+                          stackId="activity"
+                          fill="hsl(0 72% 51% / 0.52)"
+                          barSize={16}
+                          radius={[0, 0, 3, 3]}
+                        />
+                      </>
                     )}
-                    <Line yAxisId="adr" type="monotone" dataKey="adr" name="ADR" stroke="hsl(160 84% 39%)" strokeWidth={2} dot={false} connectNulls />
+
+                    <Line
+                      type="monotone"
+                      dataKey={chartMetric === "value" ? "netValue" : chartMetric === "nights" ? "netNights" : "adr"}
+                      name={chartMetric === "value" ? "Net booking value" : chartMetric === "nights" ? "Net room nights" : "ADR"}
+                      stroke="hsl(199 89% 48%)"
+                      strokeWidth={2.5}
+                      dot={false}
+                      connectNulls
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey={chartMetric === "value" ? "compareValue" : chartMetric === "nights" ? "compareNights" : "compareAdr"}
+                      name={compareLabel}
+                      stroke="hsl(var(--muted-foreground))"
+                      strokeDasharray="5 4"
+                      strokeWidth={1.75}
+                      dot={false}
+                      connectNulls
+                    />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Bars show what was actually booked in each two-hour window (left axis, {currencySymbol()});
-                the filled line is the running total since 00:00 Budapest and the green line is ADR on the
-                right axis{isMobile ? "" : `, against ${compareLabel.toLowerCase()}`}.
-                Today so far: {kpi.roomNights} room night{kpi.roomNights === 1 ? "" : "s"}.
-                End-of-day goal: {eur(goals.targetValue)} value · {goals.targetRoomNights} room nights.
+
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                {chartMetric !== "adr" && (
+                  <>
+                    <span><span className="inline-block h-2 w-2 rounded-sm bg-sky-500/50 mr-1" />New bookings</span>
+                    <span><span className="inline-block h-2 w-2 rounded-sm bg-red-500/50 mr-1" />Cancellations</span>
+                  </>
+                )}
+                <span><span className="inline-block h-[2px] w-3 bg-sky-500 align-middle mr-1" />{chartMetric === "adr" ? "ADR" : "Cumulative net"}</span>
+                <span><span className="inline-block h-[2px] w-3 border-t border-dashed border-muted-foreground align-middle mr-1" />{compareLabel}</span>
+              </div>
+
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {isSingleDayPeriod
+                  ? "Bars show activity in two-hour booking windows; the solid line shows the cumulative result up to that time."
+                  : "Each bar is one booking-created day; the solid line shows the cumulative result across the selected period."}
+                {" "}Cancellations are negative movement and the comparison line is always visible on mobile.
+                {compare === "lastweek" && " Same period last week is the default benchmark."}
+                {compare === "lastmonth" && " Monthly comparison uses the same calendar date or date range in the previous month."}
+                {compare === "lastyear" && " YoY comparison uses the same calendar date or date range in the previous year, with leap-day dates safely aligned to the last valid February date."}
+                {compare === "custom" && " Custom comparison follows the dates selected above."}
+                {compare === "goal" && " Goal pace uses a transparent linear baseline from the property's configured daily target."}
               </p>
 
               {bookingTiming && (
-                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                    <Mini label="First booking" value={bookingTiming.first?.time ?? "—"} />
-                    <Mini label="Latest booking" value={bookingTiming.last?.time ?? "—"} />
-                    <Mini label="Busiest window" value={bookingTiming.peak ? `${bookingTiming.peak.label}` : "—"} />
-                    <Mini label="Booked in that window" value={eur(bookingTiming.peak?.windowValue ?? 0)} />
+                <Section title="Booking activity details" defaultOpen={false}>
+                  <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <Mini
+                        label="First booking"
+                        value={bookingTiming.first
+                          ? `${isSingleDayPeriod ? "" : `${fmtDay(bookingTiming.first.day)} · `}${bookingTiming.first.time}`
+                          : "—"}
+                      />
+                      <Mini
+                        label="Latest booking"
+                        value={bookingTiming.last
+                          ? `${isSingleDayPeriod ? "" : `${fmtDay(bookingTiming.last.day)} · `}${bookingTiming.last.time}`
+                          : "—"}
+                      />
+                      <Mini label="Busiest period" value={bookingTiming.peak?.label ?? "—"} />
+                      <Mini label="Booked in that period" value={eur(bookingTiming.peak?.grossValueWindow ?? 0)} />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {bookingTiming.times.slice(0, 12).map((t) => (
+                        <span
+                          key={t.key}
+                          className="rounded-md border bg-background px-2 py-1 text-[11px] tabular-nums"
+                          title={`${t.res} · ${t.channel} · ${t.nights} night${t.nights === 1 ? "" : "s"}`}
+                        >
+                          <span className="font-medium">{isSingleDayPeriod ? t.time : `${fmtDay(t.day)} ${t.time}`}</span>
+                          <span className="text-muted-foreground"> · {eur(Math.round(t.revenue))}</span>
+                        </span>
+                      ))}
+                      {bookingTiming.times.length > 12 && (
+                        <span className="px-2 py-1 text-[11px] text-muted-foreground">
+                          +{bookingTiming.times.length - 12} more
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Booking times use Budapest time and come from the reservation creation timestamp in Previo.
+                    </p>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {bookingTiming.times.slice(0, 24).map((t) => (
-                      <span key={t.key}
-                        className="rounded-md border bg-background px-2 py-1 text-[11px] tabular-nums"
-                        title={`${t.res} · ${t.channel} · ${t.nights} night${t.nights === 1 ? "" : "s"}`}>
-                        <span className="font-medium">{t.time}</span>
-                        <span className="text-muted-foreground"> · {eur(Math.round(t.revenue))}</span>
-                      </span>
-                    ))}
-                    {bookingTiming.times.length > 24 && (
-                      <span className="px-2 py-1 text-[11px] text-muted-foreground">
-                        +{bookingTiming.times.length - 24} more
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Booking times are Budapest time, taken from when each reservation was created in Previo.
-                  </p>
-                </div>
+                </Section>
               )}
             </div>
 
@@ -1047,6 +1376,8 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             <Section title="What is lowering today’s ADR?" defaultOpen={false}>
               {liveBookings.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No bookings to analyse yet.</p>
+              ) : !goals.targetAdr ? (
+                <p className="text-sm text-muted-foreground">Set an ADR target in Goals to analyse performance against target.</p>
               ) : (
                 <div className="space-y-3">
                   <LeakTable title="Booking channel" rows={leakage.channel} target={goals.targetAdr} />
@@ -1146,65 +1477,6 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             </Section>
 
 
-
-            {/* ------------------------------------------ booking list */}
-            <Section title={`Bookings created ${preset === "today" ? "today" : "in this period"}`} defaultOpen>
-              <div className="flex flex-wrap items-center gap-2 pb-2">
-                <Select value={filter} onValueChange={(v) => setFilter(v as BookingFilter)}>
-                  <SelectTrigger className="h-9 w-[170px] text-xs" aria-label="Filter bookings"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All bookings</SelectItem>
-                    <SelectItem value="below">Below ADR goal</SelectItem>
-                    <SelectItem value="above">Above ADR goal</SelectItem>
-                    <SelectItem value="direct">Direct only</SelectItem>
-                    <SelectItem value="ota">OTA only</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-                  <SelectTrigger className="h-9 w-[160px] text-xs" aria-label="Sort bookings"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="created">Newest first</SelectItem>
-                    <SelectItem value="adr_asc">Lowest ADR</SelectItem>
-                    <SelectItem value="adr_desc">Highest ADR</SelectItem>
-                    <SelectItem value="value">Highest value</SelectItem>
-                    <SelectItem value="arrival">Arrival date</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {listed.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No bookings have been created today yet.</p>
-              ) : (
-                <ul className="divide-y rounded-md border">
-                  {listed.map((b) => {
-                    const below = (b.adr ?? 0) < goals.targetAdr;
-                    return (
-                      <li key={b.key} className={`p-2 space-y-1 ${b.cancelled ? "opacity-60" : ""}`}>
-                        <div className="flex items-center justify-between gap-2 text-xs">
-                          <span className="text-muted-foreground">{fmtTime(b.created)}</span>
-                          <span className={`font-semibold ${below ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                            {eur(Math.round(b.adr ?? 0))} ADR
-                          </span>
-                        </div>
-                        <div className={`text-sm ${b.cancelled ? "line-through" : ""}`}>
-                          {fmtDay(b.stayFrom)} → {fmtDay(b.stayTo)} · {b.roomNights} night{b.roomNights === 1 ? "" : "s"}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                          <Badge variant="secondary" className="font-normal">{b.roomType}</Badge>
-                          <Badge variant="outline" className="font-normal">{b.channel}</Badge>
-                          <Badge variant="outline" className="font-normal">{b.direct ? "Direct" : "OTA"}</Badge>
-                          <Badge variant="secondary" className="font-normal">{eur(Math.round(b.revenue))}</Badge>
-                          {b.cancelled && <Badge variant="destructive" className="font-normal">Cancelled</Badge>}
-                          <Badge variant={below ? "destructive" : "secondary"} className="font-normal">
-                            {below ? `${eur(Math.round(goals.targetAdr - (b.adr ?? 0)))} below goal` : "At or above goal"}
-                          </Badge>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </Section>
           </>
         )}
       </CardContent>
@@ -1258,12 +1530,30 @@ function Mini({ label, value }: { label: string; value: string }) {
   );
 }
 
-function GoalInput({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function GoalInput({ label, value, onChange, disabled = false, optional = false }: {
+  label: string;
+  value: number | "";
+  onChange: (v: number) => void;
+  disabled?: boolean;
+  optional?: boolean;
+}) {
   return (
     <div>
       <Label className="text-[11px] text-muted-foreground">{label}</Label>
-      <Input type="number" inputMode="decimal" min={0} className="h-9" value={value}
-        onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))} />
+      <Input
+        type="number"
+        inputMode="decimal"
+        min={0}
+        step="any"
+        className="h-9"
+        value={value}
+        placeholder={optional ? "Optional" : undefined}
+        disabled={disabled}
+        onChange={(e) => {
+          if (optional && e.target.value === "") { onChange(0); return; }
+          onChange(Math.max(0, Number(e.target.value) || 0));
+        }}
+      />
     </div>
   );
 }

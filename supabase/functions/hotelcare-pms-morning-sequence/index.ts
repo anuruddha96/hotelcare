@@ -1,0 +1,820 @@
+// One real PMS refresh per property/account per Budapest working day. The cron
+// invokes this endpoint once per ten minutes; no browser session is needed.
+// Existing independent checkout polling, revenue and release preflights stay intact.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "../_shared/previoHousekeepingNote.ts";
+import { findPmsRoomBucketDrift } from "../_shared/pmsRoomBucketPostcondition.ts";
+import { recoverGozsduScheduledDeparture } from "../_shared/gozsduScheduledDepartureEvidence.ts";
+
+const RD_ORDER = ["memories-budapest", "mika-downtown", "ottofiori", "gozsdu-court"];
+const ADMIN_ALERT_EMAIL = "anuruddha.dharmasena@gmail.com";
+const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
+  status, headers: { "Content-Type": "application/json" },
+});
+const message = (e: unknown) => e instanceof Error ? e.message : String(e);
+function equal(a: string, b: string) {
+  if (!a || !b || a.length !== b.length) return false;
+  let difference = 0;
+  for (let i = 0; i < a.length; i++) difference |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return difference === 0;
+}
+function localClock(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Budapest", year: "numeric", month: "2-digit",
+    day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(now);
+  const part = (name: string) => parts.find(p => p.type === name)?.value || "";
+  return {
+    date: `${part("year")}-${part("month")}-${part("day")}`,
+    hour: Number(part("hour")), minute: Number(part("minute")),
+  };
+}
+function orderedHotels(configs: Array<{ hotel_id: string }>) {
+  return [...configs].sort((a, b) => {
+    const ai = RD_ORDER.indexOf(a.hotel_id), bi = RD_ORDER.indexOf(b.hotel_id);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return a.hotel_id.localeCompare(b.hotel_id);
+  });
+}
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
+}
+async function sendPmsFailureAlert(target: string, businessDate: string, failure: string) {
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  if (!apiKey) {
+    console.error(`[PMS alert] RESEND_API_KEY missing; could not alert ${ADMIN_ALERT_EMAIL}`);
+    return;
+  }
+  let from = "HotelCare PMS Monitor <onboarding@resend.dev>";
+  try {
+    const domainsResponse = await fetch("https://api.resend.com/domains", {
+      headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(10000),
+    });
+    if (domainsResponse.ok) {
+      const parsed = await domainsResponse.json().catch(() => ({}));
+      const verified = Array.isArray(parsed?.data)
+        ? parsed.data.find((domain: any) => String(domain?.status || "").toLowerCase() === "verified" && domain?.name)
+        : null;
+      if (verified?.name) from = `HotelCare PMS Monitor <noreply@${verified.name}>`;
+    }
+  } catch (error) {
+    console.error("[PMS alert] verified-domain lookup failed", error);
+  }
+  const subject = `[HotelCare] PMS sync failed: ${target}`;
+  const safeTarget = escapeHtml(target);
+  const safeFailure = escapeHtml(failure);
+  const html = `<h2>HotelCare PMS synchronization failed</h2><p><strong>Target:</strong> ${safeTarget}</p><p><strong>Business date:</strong> ${businessDate}</p><p><strong>Error:</strong></p><pre>${safeFailure}</pre><p>Please check HotelCare PMS Sync Status and Previo connectivity.</p>`;
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ from, to: [ADMIN_ALERT_EMAIL], subject, html }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) console.error(`[PMS alert] Resend ${response.status}: ${await response.text()}`);
+  } catch (error) {
+    console.error("[PMS alert] send failed", error);
+  }
+}
+async function callEdge(url: string, serviceKey: string, name: string, payload: Record<string, unknown>, secret?: string) {
+  const response = await fetch(`${url}/functions/v1/${name}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "apikey": serviceKey,
+      "Authorization": `Bearer ${serviceKey}`, ...(secret ? { "x-worker-secret": secret } : {}) },
+    body: JSON.stringify(payload), signal: AbortSignal.timeout(90000),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.ok === false || body.error || body.result?.ok === false) {
+    throw new Error(`${name}: ${body.error || body.result?.error || `HTTP ${response.status}`}`);
+  }
+  return body;
+}
+
+// The existing server room preflight refreshes Previo's physical room statuses.
+// The manual PMS button also refreshes checkout/daily classification; do this
+// only after a fresh authoritative date-specific reservation snapshot passes.
+async function syncStandardHotel(admin: any, url: string, service: string, secret: string, hotelId: string, date: string, trigger = "portfolio_morning_10min") {
+  const ottofiori = hotelId === "ottofiori";
+  const nextDate = new Date(Date.parse(`${date}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  // Compare physical checkout timestamps in the hotel's business timezone.
+  // Old checkout flags must never leak into a new guest/service day.
+  const localStamp = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const isCheckoutTimestampToday = (raw: unknown): boolean => {
+    const epoch = Date.parse(String(raw || ""));
+    return Number.isFinite(epoch) && localStamp.format(new Date(epoch)) === date;
+  };
+  await callEdge(url, service, "housekeeping-pms-preflight-worker", { mode: "sync_hotel", hotel_id: hotelId }, secret);
+  const overview = await callEdge(url, service, "previo-sync-daily-overview", {
+    hotelId, fromDate: date, days: 2,
+  });
+  if (overview.supported !== true || overview.rowsInserted <= 0) {
+    throw new Error(`${hotelId}: authoritative Previo reservations were not refreshed`);
+  }
+  // The old one-click refresh also fetched reservation-level housekeeping
+  // notes, same-guest continuity and no-show detail. The queue uses that same
+  // Previo reader server-side (with service key + Vault worker secret), never
+  // just the thin daily-overview projection.
+  const rich = await callEdge(url, service, "previo-pms-sync", {
+    hotelId, dryRun: true,
+  }, secret);
+  if (rich.reservationDataAuthoritative !== true || rich.businessDate !== date || !Array.isArray(rich.rows)) {
+    throw new Error(`${hotelId}: reservation details are not authoritative for ${date}; full refresh withheld`);
+  }
+  const richByLabel = new Map<string, any>();
+  for (const entry of rich.rows) {
+    const label = String(entry.Room || "").trim().toLowerCase();
+    if (label && richByLabel.has(label)) throw new Error(`${hotelId}: duplicate physical room in Previo reservation details`);
+    if (label) richByLabel.set(label, entry);
+  }
+  const { data: configurations, error: configError } = await admin.from("pms_configurations")
+    .select("id").eq("hotel_id", hotelId).eq("is_active", true).eq("sync_enabled", true).eq("pms_type", "previo");
+  if (configError || configurations?.length !== 1) throw new Error(`${hotelId}: PMS configuration is missing or ambiguous`);
+  const [mappingResponse, snapshotsResponse, tomorrowResponse] = await Promise.all([
+    admin.from("pms_room_mappings").select("hotelcare_room_id,pms_room_name,pms_room_id")
+      .eq("pms_config_id", configurations[0].id).eq("is_active", true),
+    admin.from("daily_overview_snapshots")
+      .select("id,room_label,status,arrival_date,departure_date,pax,captured_at")
+      .eq("hotel_id", hotelId).eq("business_date", date).eq("source", "previo"),
+    ottofiori
+      ? admin.from("daily_overview_snapshots")
+          .select("room_label,status,arrival_date,departure_date,pax,captured_at")
+          .eq("hotel_id", hotelId).eq("business_date", nextDate).eq("source", "previo")
+      : Promise.resolve({ data: [] as any[], error: null }),
+  ]);
+  if (mappingResponse.error || snapshotsResponse.error || tomorrowResponse.error) {
+    throw new Error(`${hotelId}: mapped reservation lookup failed`);
+  }
+  const mappings = mappingResponse.data || [], snapshots = snapshotsResponse.data || [];
+  if (!mappings.length || !snapshots.length) throw new Error(`${hotelId}: room mappings or reservations are empty`);
+  const gozsdu = hotelId === "gozsdu-court";
+  // Gozsdu can legitimately have a same-day arrival or a confirmed no-show
+  // absent from the occupied-night manifest. Only fresh room metadata from the
+  // Previo preflight is allowed to bridge that gap; unknown rooms still fail closed.
+  const mappedRoomIds = mappings.map((m: any) => String(m.hotelcare_room_id || "")).filter(Boolean);
+  const gozsduRoomsResponse = gozsdu
+    ? await admin.from("rooms")
+        .select("id,pms_metadata,is_checkout_room,guest_count,guest_nights_stayed")
+        .in("id", mappedRoomIds)
+    : { data: [] as any[], error: null };
+  if (gozsduRoomsResponse.error) throw new Error("gozsdu-court: current PMS room state lookup failed");
+  const gozsduRoomById = new Map((gozsduRoomsResponse.data || []).map((r: any) => [String(r.id), r]));
+  if (ottofiori && snapshots.length < 15) throw new Error("ottofiori: incomplete reservation snapshot; classifications unchanged");
+  const byName = new Map<string, any>();
+  for (const row of snapshots) {
+    const key = String(row.room_label || "").trim().toLowerCase();
+    if (!key || byName.has(key)) throw new Error(`${hotelId}: duplicate or blank PMS reservation room label`);
+    byName.set(key, row);
+  }
+  const nextArrivals = new Map<string, any>();
+  if (ottofiori) for (const row of (tomorrowResponse.data || [])) {
+    const key = String(row.room_label || "").trim().toLowerCase();
+    if (row.arrival_date === date && row.departure_date > date && key) {
+      if (nextArrivals.has(key)) throw new Error("ottofiori: ambiguous next-arrival reservation; no classifications changed");
+      nextArrivals.set(key, row);
+    }
+  }
+  const pairs: Array<{ id: string; snapshot: any | null; incoming: any | null; rehydratedArrival?: boolean; rehydratedNoShow?: boolean; verifiedUnsold?: boolean; verifiedArrival?: boolean; verifiedNoShow?: boolean }> = [];
+  const usedRoomIds = new Set<string>();
+  const usedSnapshots = new Set<string>();
+  const rehydratedGozsduRooms: string[] = [];
+  const rehydratedNoShowRooms: string[] = [];
+  const verifiedUnsoldIds = new Set<string>();
+  const verifiedUnsoldRooms: string[] = [];
+  for (const mapping of mappings) {
+    const roomId = String(mapping.hotelcare_room_id || "");
+    const key = String(mapping.pms_room_name || "").trim().toLowerCase();
+    const snapshot = byName.get(key);
+    if (!roomId || usedRoomIds.has(roomId) || (snapshot && usedSnapshots.has(String(snapshot.id)))) {
+      throw new Error(`${hotelId}: duplicate or missing physical room mapping; classifications unchanged`);
+    }
+    let rehydratedArrival = false;
+    let rehydratedNoShow = false;
+    // Vacant rooms are absent from Previo's occupied-night manifest. Require a
+    // second, current-day physical-room roster and matching immutable PMS ID.
+    // No reservation row alone is NEVER sufficient proof of vacancy.
+    const live = richByLabel.get(key);
+    const physicalRoomMatch = !!live && !!mapping.pms_room_id
+      && String(live.RoomId) === String(mapping.pms_room_id);
+    const liveDeparture = String(live?.DepartureDate || live?.ReservationDepartureDate || "");
+    const liveArrival = String(live?.ArrivalDate || live?.ReservationArrivalDate || "");
+    const liveNextArrival = String(live?.NextArrivalArrivalDate || "");
+    const verifiedUnsold = !snapshot && physicalRoomMatch
+      && live.Occupied === "No" && !live.Departure && !live.Arrival
+      && live.IsCheckoutRoom !== true && live.CheckedOut !== true
+      && live.NotArrived !== true && live.IsNoShow !== true
+      && live.IsCancelled !== true
+      // A booking starting tomorrow or later does NOT occupy this room today.
+      // Do not confuse future reservations with today's checkouts/stayovers.
+      && ((!liveArrival && !liveDeparture)
+        || (!!liveArrival && liveArrival > date)
+        || (!!liveDeparture && liveDeparture < date))
+      && liveNextArrival !== date;
+    // A reservation starting today can be absent from the occupied-night
+    // manifest while its guest has not checked in. It is not an unsold room.
+    const verifiedArrival = !snapshot && physicalRoomMatch
+      && live.Arrival && live.NotArrived === true && live.Occupied === "No"
+      && liveArrival === date && liveDeparture > date
+      && live.IsNoShow !== true && live.IsCancelled !== true
+      && live.CheckedOut !== true && live.IsCheckoutRoom !== true;
+    // The occupancy-night overview may still contain a room whose reservation
+    // was never checked in. Rich Previo reservation data is stronger evidence
+    // when it identifies a confirmed or conservatively inferred no-show for
+    // the SAME immutable physical PMS room, even when a snapshot exists.
+    const verifiedNoShow = physicalRoomMatch
+      && live.IsNoShow === true && live.Occupied === "No"
+      && live.NoShowSource === "previo_status_8"
+      && Number(live.RawReservationStatusId) === 8
+      && live.CheckedOut !== true && live.IsCheckoutRoom !== true;
+    // Previo's overnight occupied-night overview can omit a room scheduled to
+    // depart today, particularly when a different booking arrives today.
+    // A fresh, same-physical-room reservation record can recover ONLY the
+    // scheduled-departure bucket, never establish vacancy or physical checkout.
+    const recoveredDeparture = !snapshot && gozsdu
+      ? recoverGozsduScheduledDeparture(live, mapping.pms_room_id, date)
+      : null;
+    if (recoveredDeparture) {
+      console.log(`[PMS morning] ${hotelId}: recovered scheduled departure for mapped room ${String(mapping.pms_room_name)}; physical checkout remains independently gated`);
+    }
+    if (!snapshot && gozsdu && !recoveredDeparture) {
+      const current: any = gozsduRoomById.get(roomId);
+      const meta = current?.pms_metadata && typeof current.pms_metadata === "object" ? current.pms_metadata : {};
+      const availability = meta.gozsduAvailability && typeof meta.gozsduAvailability === "object" ? meta.gozsduAvailability : {};
+      const currentDate = String(meta.pmsSyncDate || meta.lastPmsRefreshDate || "").slice(0, 10);
+      const mappedName = String(mapping.pms_room_name || "").trim().toLowerCase();
+      const liveName = String(availability.pmsRoomName || "").trim().toLowerCase();
+      const statusId = Number(meta.reservationStatusId);
+      const sameMappedOperatingRoom = currentDate === date
+        && availability.status === "operating"
+        && !!mappedName && liveName === mappedName;
+      rehydratedNoShow = sameMappedOperatingRoom
+        && (statusId === 8 || (meta.manual_no_show === true
+          && String(meta.manual_no_show_at || "").slice(0, 10) === date))
+        && meta.isCancelled !== true
+        && meta.occupiedToday !== true
+        && meta.checkedOutToday !== true;
+      rehydratedArrival = !rehydratedNoShow
+        && sameMappedOperatingRoom
+        && meta.arrivalToday === true
+        && Number.isFinite(statusId)
+        && ![7, 8, 9].includes(statusId)
+        && meta.isCancelled !== true
+        && meta.isNoShow !== true
+        && meta.checkedOutToday !== true
+        && meta.scheduledDepartureToday !== true;
+      if (rehydratedArrival) rehydratedGozsduRooms.push(String(mapping.pms_room_name || roomId));
+      if (rehydratedNoShow) rehydratedNoShowRooms.push(String(mapping.pms_room_name || roomId));
+    }
+    if (!snapshot && !recoveredDeparture && !verifiedUnsold && !verifiedArrival && !verifiedNoShow && !ottofiori && !rehydratedArrival && !rehydratedNoShow) {
+      const reason = !live ? "no_physical_roster_row"
+        : !physicalRoomMatch ? "physical_room_id_mismatch"
+        : [
+            "occupied=" + String(live.Occupied),
+            "checkedOut=" + String(live.CheckedOut),
+            "arrival=" + String(Boolean(live.Arrival)),
+            "notArrived=" + String(live.NotArrived),
+            "cancelled=" + String(live.IsCancelled),
+            "noShow=" + String(live.IsNoShow),
+            "arrivalDate=" + liveArrival,
+            "departureDate=" + liveDeparture,
+            "nextArrivalDate=" + liveNextArrival,
+          ].join(";");
+      throw new Error(`${hotelId}: unverified vacancy for room ${String(mapping.pms_room_name)} (${reason}); classifications unchanged`);
+    }
+    if (snapshot && snapshot.status !== "departing" && snapshot.status !== "ongoing") {
+      throw new Error(`${hotelId}: reservation state is not authoritative; classifications unchanged`);
+    }
+    usedRoomIds.add(roomId);
+    if (snapshot) usedSnapshots.add(String(snapshot.id));
+    pairs.push({ id: roomId, snapshot: snapshot || recoveredDeparture || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null, rehydratedArrival, rehydratedNoShow, verifiedUnsold, verifiedArrival, verifiedNoShow });
+    if (verifiedUnsold) {
+      verifiedUnsoldIds.add(roomId);
+      verifiedUnsoldRooms.push(String(mapping.pms_room_name));
+    }
+  }
+  const { data: rooms, error: roomsError } = await admin.from("rooms")
+    .select("id,pms_metadata,is_checkout_room,guest_count,guest_nights_stayed")
+    .in("id", [...usedRoomIds]);
+  if (roomsError || rooms?.length !== pairs.length) throw new Error(`${hotelId}: mapped HotelCare inventory does not match Previo`);
+  const roomById = new Map(rooms.map((r: any) => [String(r.id), r]));
+  const syncedAt = new Date().toISOString();
+  let checkout = 0, daily = 0, overridden = 0, reconciledArrivals = 0, skippedUnknown = 0, noShows = 0, unsold = 0;
+  for (const pair of pairs) {
+    const room: any = roomById.get(pair.id);
+    const s = pair.snapshot;
+    const old = room.pms_metadata && typeof room.pms_metadata === "object" ? room.pms_metadata : {};
+    const metadata: Record<string, any> = { ...old };
+    const previousDate = String(old.lastPmsRefreshDate || old.pmsSyncDate || "").slice(0, 10);
+    if (previousDate && previousDate < date) {
+      for (const field of ["manual_checkout", "manual_daily", "manual_no_show", "manual_checkout_at", "manual_daily_at", "manual_moved_at", "manual_checkout_by", "manual_daily_by", "manual_moved_by"]) delete metadata[field];
+    }
+    const overrideDate = String(old.manual_moved_at || old.manual_checkout_changed_at || old.manual_daily_changed_at || old.manual_checkout_at || old.manual_daily_at || "").slice(0, 10);
+    const manual = overrideDate === date;
+    metadata.pmsSyncDate = date;
+    metadata.lastPmsRefreshDate = date;
+    metadata.lastServerMorningSyncAt = syncedAt;
+    metadata.lastServerMorningSyncSource = trigger;
+
+    if (pair.verifiedUnsold) {
+      // Keep physical cleanliness, work assignments and manager notes intact.
+      // A previous-day checkout must not become today's checkout.
+      metadata.pmsOccupancyStatus = "unsold";
+      metadata.pmsVacancyVerifiedAt = syncedAt;
+      metadata.pmsVacancyEvidence = "current_previo_reservation_snapshot_and_physical_room_roster";
+      metadata.scheduledDepartureToday = false;
+      metadata.scheduledDepartureTomorrow = false;
+      metadata.checkedOutToday = false;
+      metadata.checkedOutAt = null;
+      metadata.readyToClean = false;
+      metadata.readyToCleanDate = null;
+      metadata.arrivalToday = false;
+      metadata.occupiedToday = false;
+      metadata.stayThroughToday = false;
+      metadata.notArrived = false;
+      metadata.isNoShow = false;
+      metadata.arrivalDate = null;
+      metadata.departureDate = null;
+      metadata.reservationId = null;
+      metadata.reservationStatusId = null;
+      metadata.currentNight = null;
+      metadata.totalNights = null;
+      const keepManualCheckout = manual && old.manual_checkout === true && old.manual_daily !== true;
+      const { error: vacancyError } = await admin.from("rooms").update({
+        is_checkout_room: keepManualCheckout,
+        guest_count: 0, guest_nights_stayed: 0,
+        pms_metadata: metadata, updated_at: syncedAt,
+      }).eq("id", pair.id);
+      if (vacancyError) throw new Error(`${hotelId}: verified unsold room update failed: ${vacancyError.message}`);
+      unsold++;
+      if (keepManualCheckout) { checkout++; overridden++; }
+      continue;
+    }
+
+    if (pair.verifiedArrival || pair.verifiedNoShow) {
+      const live = richByLabel.get(
+        String(mappings.find((mapping: any) => String(mapping.hotelcare_room_id || "") === pair.id)?.pms_room_name || "").trim().toLowerCase()
+      );
+      const isNoShow = pair.verifiedNoShow === true;
+      metadata.pmsOccupancyStatus = isNoShow ? "no_show" : "arrival_pending";
+      metadata.noShowSource = isNoShow ? (live?.NoShowSource ?? null) : null;
+      metadata.reservationStatusId = live?.RawReservationStatusId ?? null;
+      metadata.pmsVacancyVerifiedAt = null;
+      metadata.pmsVacancyEvidence = null;
+      metadata.scheduledDepartureToday = false;
+      metadata.scheduledDepartureTomorrow = false;
+      metadata.checkedOutToday = false;
+      metadata.checkedOutAt = null;
+      metadata.readyToClean = false;
+      metadata.readyToCleanDate = null;
+      metadata.arrivalToday = !isNoShow;
+      metadata.notArrived = !isNoShow;
+      metadata.occupiedToday = false;
+      metadata.stayThroughToday = false;
+      metadata.isNoShow = isNoShow;
+      metadata.arrivalDate = live?.ArrivalDate || null;
+      metadata.departureDate = live?.DepartureDate || null;
+      metadata.reservationId = live?.ReservationId || null;
+      const { error: arrivalError } = await admin.from("rooms").update({
+        is_checkout_room: false, guest_count: 0, guest_nights_stayed: 0,
+        pms_metadata: metadata, updated_at: syncedAt,
+      }).eq("id", pair.id);
+      if (arrivalError) throw new Error(`${hotelId}: verified pending arrival/no-show update failed: ${arrivalError.message}`);
+      if (isNoShow) noShows++; else daily++;
+      continue;
+    }
+
+    if (gozsdu && pair.rehydratedNoShow && !s) {
+      metadata.scheduledDepartureToday = false;
+      metadata.checkedOutToday = false;
+      metadata.isNoShow = true;
+      metadata.notArrived = true;
+      metadata.occupiedToday = false;
+      metadata.stayThroughToday = false;
+      const { error: noShowError } = await admin.from("rooms").update({
+        is_checkout_room: false, pms_metadata: metadata, updated_at: syncedAt,
+      }).eq("id", pair.id);
+      if (noShowError) throw new Error(`gozsdu-court: no-show rehydration failed: ${noShowError.message}`);
+      noShows++;
+      continue;
+    }
+
+    if (gozsdu && pair.rehydratedArrival && !s) {
+      // A new arrival may not yet exist in the occupied-night manifest. Preserve
+      // whether it is still waiting or has already checked in; either way it is
+      // an arrival, never yesterday's checkout/daily cleaning task.
+      metadata.scheduledDepartureToday = false;
+      metadata.checkedOutToday = false;
+      metadata.checkedOutAt = null;
+      metadata.readyToClean = false;
+      metadata.readyToCleanDate = null;
+      metadata.arrivalToday = true;
+      metadata.notArrived = old.notArrived === true;
+      metadata.occupiedToday = old.occupiedToday === true;
+      metadata.stayThroughToday = old.occupiedToday === true;
+      const { error: arrivalError } = await admin.from("rooms").update({
+        is_checkout_room: false, pms_metadata: metadata, updated_at: syncedAt,
+      }).eq("id", pair.id);
+      if (arrivalError) throw new Error(`gozsdu-court: arrival rehydration failed: ${arrivalError.message}`);
+      daily++;
+      continue;
+    }
+
+    if (ottofiori && !s) {
+      const confirmedCheckout = previousDate === date && old.checkedOutToday === true;
+      if ((manual && old.manual_checkout === true) || confirmedCheckout) {
+        checkout++; if (manual) overridden++; skippedUnknown++; continue;
+      }
+      if (manual && (old.manual_daily === true || old.manual_checkout === false)) overridden++;
+      const incoming = pair.incoming;
+      const noShowOrNotArrived = old.isNoShow === true || old.manual_no_show === true
+        || (old.notArrived === true && old.occupiedToday !== true);
+      if (!incoming && !noShowOrNotArrived && !manual) {
+        skippedUnknown++;
+        if (room.is_checkout_room) checkout++; else daily++;
+        continue;
+      }
+      metadata.scheduledDepartureToday = false;
+      metadata.scheduledDepartureTomorrow = incoming?.departure_date === nextDate;
+      metadata.stayThroughToday = !!incoming;
+      metadata.checkedOutToday = false;
+      metadata.checkedOutAt = null;
+      metadata.readyToClean = false;
+      metadata.readyToCleanDate = null;
+      if (incoming) {
+        metadata.arrivalDate = incoming.arrival_date;
+        metadata.departureDate = incoming.departure_date;
+        metadata.arrivalToday = true;
+        metadata.notArrived = old.occupiedToday !== true;
+        metadata.occupiedToday = old.occupiedToday === true;
+        if (old.manual_no_show !== true) metadata.isNoShow = false;
+        reconciledArrivals++;
+      } else {
+        metadata.arrivalToday = false;
+      }
+      const { error: missingError } = await admin.from("rooms").update({
+        is_checkout_room: false,
+        guest_count: incoming?.pax ?? room.guest_count,
+        guest_nights_stayed: incoming ? 1 : room.guest_nights_stayed,
+        pms_metadata: metadata, updated_at: syncedAt,
+      }).eq("id", pair.id);
+      if (missingError) throw new Error(`ottofiori: no-show/arrival reconciliation failed: ${missingError.message}`);
+      daily++;
+      continue;
+    }
+
+    const departing = s.status === "departing" && s.departure_date === date;
+    const unarrivedPriorStay = ottofiori && old.notArrived === true
+      && old.occupiedToday !== true && old.checkedOutToday !== true;
+    const noShowPriorStay = ottofiori && old.isNoShow === true && old.checkedOutToday !== true;
+    const effectiveCheckout = manual && (old.manual_daily === true || old.manual_checkout === false)
+      ? false : manual && old.manual_checkout === true ? true
+      : departing && !unarrivedPriorStay && !noShowPriorStay;
+    if (manual) overridden++;
+    if (effectiveCheckout) checkout++; else daily++;
+    metadata.pmsOccupancyStatus = departing ? "departing" : "stayover";
+    metadata.pmsVacancyVerifiedAt = null;
+    metadata.pmsVacancyEvidence = null;
+    metadata.scheduledDepartureToday = ottofiori ? effectiveCheckout : departing;
+    metadata.scheduledDepartureTomorrow = s.departure_date > date && s.departure_date <= nextDate;
+    metadata.arrivalDate = s.arrival_date;
+    metadata.departureDate = s.departure_date;
+    metadata.occupiedToday = ottofiori ? old.occupiedToday === true : true;
+    metadata.stayThroughToday = ottofiori ? !effectiveCheckout : !departing;
+    // Fresh PMS classification is authoritative. A 09-Oct checkout cannot
+    // make a 12-Oct stayover RTC, even when a prior refresh copied metadata.
+    // Preserve physical departures confirmed by today's Previo status 9,
+    // same-day checkout timestamps, and manager-issued RTC on this date.
+    const physicalName = String(mappings.find((m: any) =>
+      String(m.hotelcare_room_id || "") === pair.id)?.pms_room_name || "").trim().toLowerCase();
+    const freshReservation = richByLabel.get(physicalName);
+    // A new authoritative overnight snapshot must not inherit yesterday's NS?
+    // label from the metadata spread. Preserve a fresh, explicit status-8
+    // no-show, but clear outdated inference when the room is in today's
+    // occupied-night manifest. For Ottofiori retain its special reconciliation
+    // unless Previo positively confirms check-in/out.
+    const confirmedInHouse = [3, 5, 6, 9].includes(Number(freshReservation?.RawReservationStatusId));
+    const confirmedPrevioNoShow = Number(freshReservation?.RawReservationStatusId) === 8
+      && freshReservation?.IsNoShow === true;
+    if (!confirmedPrevioNoShow && (!ottofiori || confirmedInHouse)) {
+      metadata.isNoShow = false;
+      metadata.noShowSource = null;
+      if (!ottofiori || confirmedInHouse) metadata.notArrived = false;
+    }
+    const previoCheckedOut = freshReservation?.CheckedOut === true
+      && freshReservation?.DepartureDate === date;
+    const checkoutStampedToday = old.checkedOutToday === true
+      && isCheckoutTimestampToday(old.checkedOutAt);
+    const validPhysicalCheckout = effectiveCheckout
+      && (previoCheckedOut || checkoutStampedToday);
+    const manualRtcToday = isCheckoutTimestampToday(old.manualReadyToCleanAt);
+    metadata.checkedOutToday = validPhysicalCheckout;
+    metadata.checkedOutAt = validPhysicalCheckout
+      ? (checkoutStampedToday ? old.checkedOutAt : syncedAt) : null;
+    metadata.readyToClean = effectiveCheckout && (validPhysicalCheckout || manualRtcToday);
+    metadata.readyToCleanDate = metadata.readyToClean ? date : null;
+    if (ottofiori && s.arrival_date !== old.arrivalDate && old.manual_no_show !== true) {
+      metadata.isNoShow = false;
+      metadata.notArrived = s.arrival_date === date && old.occupiedToday !== true;
+    }
+    const start = s.arrival_date ? Date.parse(`${s.arrival_date}T12:00:00Z`) : NaN;
+    const night = Number.isFinite(start) ? Math.max(1, Math.floor((Date.parse(`${date}T12:00:00Z`) - start) / 86400000) + 1) : room.guest_nights_stayed;
+    const { error: updateError } = await admin.from("rooms").update({
+      is_checkout_room: effectiveCheckout, guest_count: s.pax ?? room.guest_count,
+      guest_nights_stayed: night, pms_metadata: metadata, updated_at: syncedAt,
+    }).eq("id", pair.id);
+    if (updateError) throw new Error(`${hotelId}: mapped room update failed: ${updateError.message}`);
+  }
+  // The screen reads room_assignments as well as rooms. A full PMS refresh
+  // must reconcile untouched assignments to the same authoritative date so
+  // stale checkout work never survives a correct server-side room update.
+  const { data: todayAssignments, error: assignmentError } = await admin.from("room_assignments")
+    .select("id,room_id,assignment_type,status,ready_to_clean")
+    .eq("assignment_date",date).in("room_id", [...usedRoomIds])
+    .in("status",["assigned","dnd_pending_retry","in_progress"]);
+  if (assignmentError) throw new Error(`${hotelId}: could not load today's assignments: ${assignmentError.message}`);
+  const { data: updatedRoomRows, error: roomStateError } = await admin.from("rooms")
+    .select("id,is_checkout_room,pms_metadata").in("id",[...usedRoomIds]);
+  if (roomStateError || !updatedRoomRows || updatedRoomRows.length !== usedRoomIds.size) {
+    throw new Error(`${hotelId}: could not verify updated room states for assignments`);
+  }
+  const syncedRoomById = new Map(updatedRoomRows.map((r: any)=>[String(r.id),r]));
+  let assignmentsCorrected = 0;
+  for (const assignment of todayAssignments || []) {
+    const r:any = syncedRoomById.get(String(assignment.room_id));
+    if (!r) continue;
+    const isCheckout = r.is_checkout_room === true;
+    const desiredType = isCheckout ? "checkout_cleaning" : "daily_cleaning";
+    const meta = r.pms_metadata || {};
+    const checkoutReleased = meta.checkedOutToday === true
+      || (meta.manualReadyToCleanAt && String(meta.manualReadyToCleanAt).slice(0,10)===date)
+      || (meta.readyToClean === true && String(meta.readyToCleanDate||meta.checkedOutAt||"").slice(0,10)===date);
+    const desiredRTC = isCheckout ? Boolean(checkoutReleased) : true;
+    const maySwitchType = assignment.status !== "in_progress" ||
+      (assignment.assignment_type==="checkout_cleaning" && !isCheckout);
+    if (!maySwitchType) continue;
+    const hasTypeMismatch = assignment.assignment_type!==desiredType;
+    const hasRtcMismatch = Boolean(assignment.ready_to_clean)!==desiredRTC;
+    if(!hasTypeMismatch && !hasRtcMismatch)continue;
+    // Do not modify completed work, staff ownership, managers' notes or user
+    // status. Only reconcile an active task's PMS-derived type/readiness.
+    const { error: fixError } = await admin.from("room_assignments").update({
+      assignment_type:desiredType, ready_to_clean:desiredRTC,updated_at:new Date().toISOString()
+    }).eq("id", assignment.id).in("status",["assigned","dnd_pending_retry","in_progress"]);
+    if (fixError) throw new Error(`${hotelId}: assignment ${assignment.id} reconciliation failed: ${fixError.message}`);
+    assignmentsCorrected++;
+  }
+  // Complete the same operational note and confirmed stay lifecycle updates
+  // as the browser refresh. Compare-and-swap on room notes protects managers'
+  // contemporaneous edits. Never copy raw OTA/payment notes to the room card.
+  const enrichmentRoomIds = pairs.map(p=>p.id);
+  const {data: enrichedRooms, error: readError} = await admin.from("rooms")
+    .select("id,notes,pms_metadata,is_checkout_room,towel_change_required,linen_change_required")
+    .in("id",enrichmentRoomIds);
+  if(readError || enrichedRooms?.length !== pairs.length) throw new Error(`${hotelId}: cannot verify fresh room notes`);
+  const enrichedById = new Map((enrichedRooms||[]).map((r:any)=>[String(r.id),r]));
+  let notesSynced = 0, managerNotesProtected = 0, extensionsLinked = 0, noteRowsMissing = 0;
+  for(const mapping of mappings) {
+    const roomId = String(mapping.hotelcare_room_id||"");
+    const key = String(mapping.pms_room_name||"").trim().toLowerCase();
+    const richRow = richByLabel.get(key);
+    const room:any = enrichedById.get(roomId);
+    if(!room || verifiedUnsoldIds.has(roomId))continue;
+    if(!richRow) {noteRowsMissing++;continue;}
+    const old = (room.pms_metadata && typeof room.pms_metadata==="object") ? room.pms_metadata : {};
+    const next:any = {...old,
+      pmsProvider:"previo",
+      reservationId: richRow.ReservationId ?? old.reservationId ?? null,
+      guestFingerprint: richRow.GuestFingerprint ?? old.guestFingerprint ?? null,
+      guestIdentityStrength: richRow.GuestIdentityStrength ?? old.guestIdentityStrength ?? "none",
+      reservationStatusId: richRow.RawReservationStatusId ?? null,
+      currentNight: Number(richRow.CurrentNight||0)||null,
+      totalNights: Number(richRow.TotalNights||0)||null,
+      scheduledDepartureTomorrow: richRow.DepartureTomorrow===true,
+      arrivalDate: richRow.ArrivalDate ?? old.arrivalDate ?? null,
+      departureDate: richRow.DepartureDate ?? old.departureDate ?? null,
+    };
+    const operationalNote = pickPrevioHousekeepingNote(richRow);
+    const noteCompare = reconcileSlntPrevioRoomNote(
+      room.notes, old.noteInternal ?? null, operationalNote,
+    );
+    next.noteInternal = operationalNote;
+    if(noteCompare.managerNotePreserved)managerNotesProtected++;
+    if (richRow.ExtensionLinked===true && richRow.ContinuousStayConfidence==="strong"
+      && Array.isArray(richRow.ContinuousStayReservationIds)
+      && richRow.ContinuousStayReservationIds.length>1) {
+      next.continuousStay = {
+        originalArrivalDate:richRow.ContinuousStayOriginalArrival,
+        finalDepartureDate:richRow.ContinuousStayFinalDeparture,
+        currentNight:richRow.ContinuousStayCurrentNight,
+        totalNights:richRow.ContinuousStayTotalNights,
+        reservationIds:richRow.ContinuousStayReservationIds,
+        segments:richRow.ContinuousStaySegments??[],
+        guestFingerprint:richRow.GuestFingerprint??null,
+        guestIdentityStrength:richRow.GuestIdentityStrength??"strong",
+        linkedBy:"previo_chain",confidence:"strong",updatedAt:new Date().toISOString(),
+      };
+      extensionsLinked++;
+    }
+    const isNewUnarrivedGuest = richRow.NotArrived===true
+      || richRow.IsCancelled===true || richRow.IsNoShow===true;
+    const additional:any={pms_metadata:next,updated_at:new Date().toISOString()};
+    if(isNewUnarrivedGuest){
+      additional.towel_change_required=false;
+      additional.linen_change_required=false;
+    }
+    if(richRow.CheckedOut===true && room.is_checkout_room===true){
+      next.checkedOutToday=true;
+      next.checkedOutAt=next.checkedOutAt||new Date().toISOString();
+      next.readyToClean=true;next.readyToCleanDate=date;
+    }
+    // Compare against last synchronized PMS note, not a manager's arbitrary
+    // plain text. Only a PMS-owned field may be replaced.
+    if(noteCompare.changed)additional.notes=noteCompare.notes;
+    let query=admin.from("rooms").update(additional).eq("id",roomId);
+    if(noteCompare.changed)query=room.notes==null?query.is("notes",null):query.eq("notes",room.notes);
+    let result=await query.select("id").maybeSingle();
+    if(result.error)throw new Error(`${hotelId}: failed to reconcile room ${key}: ${result.error.message}`);
+    if(noteCompare.changed && !result.data){
+      delete additional.notes;
+      // Concurrent manager notes win. Keep only confirmed PMS metadata.
+      result=await admin.from("rooms").update(additional).eq("id",roomId).select("id").maybeSingle();
+      if(result.error||!result.data)throw new Error(`${hotelId}: concurrent note reconciliation failed for room ${key}`);
+      managerNotesProtected++;
+    }else if(noteCompare.changed)notesSynced++;
+  }
+  // Re-read after rich Previo enrichment. Earlier checkout/daily counters
+  // are not proof that subsequent metadata triggers kept those classifications.
+  // A divergent board must never be logged as a successful full refresh.
+  if (ottofiori) {
+    const { data: afterEnrichment, error: verifyError } = await admin.from("rooms")
+      .select("id,is_checkout_room,pms_metadata").in("id",[...usedRoomIds]);
+    if (verifyError || !afterEnrichment ||
+        afterEnrichment.length !== usedRoomIds.size) {
+      throw new Error("ottofiori: final room bucket verification is incomplete");
+    }
+    const drift = findPmsRoomBucketDrift(
+      updatedRoomRows,afterEnrichment,syncedAt,
+    );
+    if (drift.length) {
+      console.error("[PMS room drift] authoritative checkout states changed after enrichment",{
+        hotelId, businessDate:date, rooms:drift,
+      });
+      throw new Error("ottofiori: room checkout/daily classification changed after verified PMS reconciliation; full refresh not confirmed");
+    }
+  }
+  const unmatchedSnapshots = snapshots.length - usedSnapshots.size;
+  const status = unmatchedSnapshots || skippedUnknown ? "partial" : "success";
+  const { error: historyError } = await admin.from("pms_sync_history").insert({
+    hotel_id: hotelId, sync_type: "rooms_refresh", direction: "from_previo", sync_status: status,
+    error_message: unmatchedSnapshots ? `${unmatchedSnapshots} Previo reservation room(s) lack an active mapped physical room`
+      : skippedUnknown ? `${skippedUnknown} room(s) have no authoritative stay; classification preserved` : null,
+    data: { trigger, business_date: date, assignments_corrected: assignmentsCorrected,
+      enriched_notes: notesSynced,manager_notes_protected:managerNotesProtected,
+      strong_extensions_linked:extensionsLinked,rich_roster_unmatched:noteRowsMissing,
+      rooms_updated: pairs.length - skippedUnknown, checkout_rooms: checkout, daily_rooms: daily,
+      manager_overrides_preserved: overridden, unmapped_reservation_rooms: unmatchedSnapshots,
+      expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
+      rehydrated_rooms: rehydratedGozsduRooms, rehydrated_no_show_rooms: rehydratedNoShowRooms,
+      no_show_rooms: noShows, unsold_rooms: unsold, verified_unsold_room_labels: verifiedUnsoldRooms, unresolved_rooms: 0,
+      ...(ottofiori ? { ottofiori_no_show_arrivals_reconciled: reconciledArrivals, unknown_rooms_preserved: skippedUnknown } : {}) },
+  });
+  if (historyError) throw new Error(`${hotelId}: PMS history write failed: ${historyError.message}`);
+  return { rooms_updated: pairs.length - skippedUnknown, checkout_rooms: checkout, daily_rooms: daily,
+    unmapped_reservation_rooms: unmatchedSnapshots, assignments_corrected: assignmentsCorrected,
+    expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
+    enriched_notes:notesSynced,manager_notes_protected:managerNotesProtected,
+    strong_extensions_linked:extensionsLinked,rich_roster_unmatched:noteRowsMissing,
+    rehydrated_rooms: rehydratedGozsduRooms, rehydrated_no_show_rooms: rehydratedNoShowRooms,
+    no_show_rooms: noShows, unsold_rooms: unsold, verified_unsold_room_labels: verifiedUnsoldRooms, unresolved_rooms: 0, status,
+    ...(ottofiori ? { ottofiori_no_show_arrivals_reconciled: reconciledArrivals, unknown_rooms_preserved: skippedUnknown } : {}) };
+}
+
+Deno.serve(async req => {
+  if (req.method !== "POST") return json({ error: "POST required" }, 405);
+  const url = Deno.env.get("SUPABASE_URL")!;
+  const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const admin = createClient(url, service, { auth: { persistSession: false } });
+  const expected = await admin.rpc("get_housekeeping_release_worker_secret");
+  if (expected.error || !equal(req.headers.get("x-worker-secret") || "", String(expected.data || ""))) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+  const body = await req.json().catch(() => ({}));
+  const queued = body?.mode === "queued";
+  // Legacy scheduled invocations remain supported during the cutover, but
+  // after cutover the queue is the only source of new full-refresh work.
+  const clock = localClock();
+  if (!queued && (clock.hour < 6 || clock.hour > 8 || clock.minute % 10 !== 0)) {
+    return json({ ok: true, skipped: true, reason: "outside_Budapest_10min_window" });
+  }
+  if (queued && (typeof body.target_key !== "string" ||
+    !["manual","automatic"].includes(body.request_kind) ||
+    !/^(hotel:[a-z0-9-]+|account:[0-9a-f-]{36})$/.test(body.target_key))) {
+    return json({ error: "Invalid queued PMS target" }, 400);
+  }
+  const [configsRes, accountsRes] = await Promise.all([
+    admin.from("pms_configurations").select("hotel_id").eq("pms_type", "previo")
+      .eq("is_active", true).eq("sync_enabled", true),
+    admin.from("pms_accounts").select("id,label,hotel_id,organization_slug")
+      .eq("organization_slug", "slnt").eq("pms_type", "previo")
+      .eq("is_active", true).eq("sync_paused", false).order("label", { ascending: true }),
+  ]);
+  if (configsRes.error || accountsRes.error) {
+    const failure = `Unable to load PMS synchronization schedule: ${configsRes.error?.message || accountsRes.error?.message || "unknown database error"}`;
+    await sendPmsFailureAlert("PMS schedule", clock.date, failure);
+    return json({ ok: false, error: failure }, 500);
+  }
+  const accounts = accountsRes.data || [];
+  const accountHotels = new Set(accounts.map((a: any) => a.hotel_id));
+  const hotels = orderedHotels((configsRes.data || []).filter((c: any) => !accountHotels.has(c.hotel_id)));
+  const targets = [
+    ...hotels.map(h => ({ type: "hotel", key: `hotel:${h.hotel_id}`, label: h.hotel_id, hotel_id: h.hotel_id, account_id: null as string | null })),
+    ...accounts.map((a: any) => ({ type: "account", key: `account:${a.id}`, label: a.label, hotel_id: a.hotel_id, account_id: String(a.id) })),
+  ];
+  const slot = (clock.hour - 6) * 6 + Math.floor(clock.minute / 10);
+  const target = queued ? targets.find(t => t.key === body.target_key) : targets[slot];
+  if (!target) return json({ ok: false, error: "The requested PMS target is not active" }, 400);
+  const businessDate = clock.date;
+  // The Vault secret alone is not sufficient to start work: every queued
+  // execution must own a currently running, unexpired database claim for the
+  // exact job, target and attempt. This rejects replayed/late worker calls.
+  if (queued) {
+    if (typeof body.job_id !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.job_id) ||
+        !Number.isInteger(body.attempt) || body.attempt < 1) {
+      return json({ ok:false,error:"Missing queued PMS job claim" },400);
+    }
+    const { data:runningJob, error:jobError } = await admin.from("pms_refresh_queue")
+      .select("id,target_key,hotel_id,business_date,request_kind,status,attempt,lease_expires_at")
+      .eq("id",body.job_id).maybeSingle();
+    if (jobError || !runningJob ||
+        runningJob.status !== "running" ||
+        runningJob.target_key !== target.key ||
+        runningJob.hotel_id !== target.hotel_id ||
+        runningJob.business_date !== businessDate ||
+        runningJob.business_date !== body.business_date ||
+        runningJob.request_kind !== body.request_kind ||
+        runningJob.attempt !== body.attempt ||
+        !runningJob.lease_expires_at ||
+        new Date(runningJob.lease_expires_at).getTime() <= Date.now()) {
+      return json({ ok:false,error:"PMS job claim is no longer active" },409);
+    }
+  }
+  // Queue worker has already claimed the global mutex and owns its execution
+  // audit; never create conflicting daily unique constraints for manual runs.
+  const keepMorningAudit = !queued || body.request_kind === "automatic";
+  if (keepMorningAudit) {
+    const claimed = await admin.from("pms_morning_sync_runs").insert({
+      business_date: businessDate, target_key: target.key, slot: Math.max(0,targets.findIndex(t=>t.key===target.key)),
+      status: "running", started_at: new Date().toISOString(),
+    });
+    if (claimed.error?.code === "23505") {
+      const {data: existing} = await admin.from("pms_morning_sync_runs").select("status")
+        .eq("business_date",businessDate).eq("target_key",target.key).maybeSingle();
+      // An existing completed success is a valid idempotent skip, but failures
+      // must not be misreported as successful refreshes.
+      return existing?.status === "success"
+        ? json({ ok: true, skipped: true, status: "success", reason: "already_completed_today", target: target.label })
+        : json({ ok: false, error: "Previous morning PMS attempt is not successful; requires operator review" }, 409);
+    }
+    if (claimed.error) {
+      const failure = `PMS run claim failed: ${claimed.error.message}`;
+      await sendPmsFailureAlert(target.label, businessDate, failure);
+      return json({ ok: false, error: failure }, 500);
+    }
+  }
+  try {
+    const result = target.type === "hotel"
+      ? await syncStandardHotel(admin, url, service, String(expected.data), target.hotel_id, businessDate,
+          queued ? `global_pms_queue_${body.request_kind}` : "portfolio_morning_10min")
+      : await callEdge(url, service, "slnt-pms-morning-sync", {
+          mode: "sync_account", account_id: target.account_id
+        }, String(expected.data));
+    const status = (result as any).status === "partial" ? "partial" : "success";
+    if (keepMorningAudit) {
+      const updated = await admin.from("pms_morning_sync_runs").update({
+        status, completed_at: new Date().toISOString(), result,
+      }).eq("business_date", businessDate).eq("target_key", target.key);
+      if (updated.error) throw new Error(`PMS run audit failed: ${updated.error.message}`);
+    }
+    return json({ ok: true, business_date: businessDate, slot, target: target.label,
+      status, job_id: queued ? body.job_id : null, result });
+  } catch (error) {
+    const failure = message(error);
+    console.error(`[PMS morning sequence] ${target.key}: ${failure}`);
+    if (keepMorningAudit) await admin.from("pms_morning_sync_runs").update({
+      status: "failed", completed_at: new Date().toISOString(), error_message: failure,
+    }).eq("business_date", businessDate).eq("target_key", target.key);
+    await admin.from("pms_sync_history").insert({
+      hotel_id: target.hotel_id, sync_type: "rooms_refresh", direction: "from_previo",
+      sync_status: "failed", error_message: failure,
+      data: { trigger: queued ? "global_pms_queue" : "portfolio_morning_10min",
+        job_id: queued ? body.job_id : null, business_date: businessDate,
+        account_id: target.account_id, scheduled_slot: slot },
+    });
+    await sendPmsFailureAlert(target.label, businessDate, failure);
+    return json({ ok: false, target: target.label, error: failure }, 500);
+  }
+});

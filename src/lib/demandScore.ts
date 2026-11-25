@@ -40,7 +40,7 @@ export interface DemandDay {
 
 export type DemandBand = "very_strong" | "strong" | "normal" | "soft" | "weak";
 
-export const DEMAND_WEIGHTS = { pickup: 0.3, pressure: 0.25, pace: 0.3, leadtime: 0.15 };
+export const DEMAND_WEIGHTS = { pickup: 0.28, pressure: 0.27, pace: 0.3, leadtime: 0.15 };
 
 export const BAND_LABEL: Record<DemandBand, string> = {
   very_strong: "Very strong",
@@ -136,13 +136,36 @@ export function buildDemandBoard({
     const baseline = weekdayAvg.get(dowOf(date)) ?? null;
     const paceVar = baseline && baseline > 0 ? ((sold - baseline) / baseline) * 100 : null;
 
-    const pickupComp = Math.min(100, (pickup7 / 7) * 25);
-    const pressureComp = Math.min(100, occ + (remaining <= 3 ? 20 : 0));
+    // Missing observations are neutral rather than zero. A blank pickup feed
+    // must not turn into an artificial "Low" market signal.
+    const hasBookingEvidence = rows.length > 0 || [...byDate.values()].some((value) => value.length > 0);
+    const pickupComp = hasBookingEvidence ? Math.min(100, (pickup7 / 7) * 25) : 50;
+    const pressureComp = roomsAvailable > 0 ? Math.min(100, occ + (remaining <= 3 && sold > 0 ? 20 : 0)) : 50;
     const paceComp = paceVar === null ? 50 : Math.max(0, Math.min(100, 50 + paceVar));
     const leadComp = Math.max(0, Math.min(100, 100 - Math.abs(lead - 21) * 2));
 
-    const evts = eventsByDate.get(date) ?? [];
-    const evPts = eventPoints(evts);
+    // Deduplicate mirrored/shared-market events before scoring. Count the four
+    // strongest events only: dozens of small listings must never overpower one
+    // genuinely compression-driving congress, concert or sporting fixture.
+    const eventRank = (event: DemandEvent) => {
+      const impact = (event.impact ?? "").toLowerCase();
+      if (impact.includes("very")) return 4;
+      if (impact.includes("high")) return 3;
+      if (impact.includes("medium")) return 2;
+      if (impact.includes("low")) return 1;
+      if (impact.includes("negative")) return -1;
+      return 0;
+    };
+    const uniqueEvents = new Map<string, DemandEvent>();
+    for (const event of eventsByDate.get(date) ?? []) {
+      const key = event.title.trim().toLowerCase();
+      const current = uniqueEvents.get(key);
+      if (!current || eventRank(event) > eventRank(current)) uniqueEvents.set(key, event);
+    }
+    const evts = [...uniqueEvents.values()].sort((a, b) =>
+      eventRank(b) - eventRank(a) || a.title.localeCompare(b.title)
+    );
+    const evPts = eventPoints(evts.slice(0, 4));
     const computed = Math.max(0, Math.min(100, Math.round(
       pickupComp * DEMAND_WEIGHTS.pickup + pressureComp * DEMAND_WEIGHTS.pressure +
       paceComp * DEMAND_WEIGHTS.pace + leadComp * DEMAND_WEIGHTS.leadtime + evPts,

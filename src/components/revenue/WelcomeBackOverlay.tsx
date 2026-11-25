@@ -1,169 +1,163 @@
-// A friendly cover for the moment a long-idle tab comes back to life.
-//
-// Coming back after lunch used to show stale numbers that silently jumped
-// around as the refresh landed. Now the page says hello, names the person,
-// and holds a calm message until the fresh Previo data is in.
-
+// Calm, original welcome layout: show at most one previously unseen thought.
+// The database, not a device's local storage, owns lifetime seen-history.
+// Quote retrieval/refill NEVER blocks entering the workspace.
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
-import {
-  quoteAudienceForRole,
-  quotePoolForAudience,
-  type MotivationalQuote,
-  type QuoteAudience,
-} from "@/lib/roleMotivationalQuotes";
+import { supabase } from "@/integrations/supabase/client";
+import { readLegacyQuoteHistory } from "@/lib/welcomeQuoteHistory";
+import { rememberDisplayedWelcomeQuote, type DisplayedWelcomeQuote } from "@/lib/welcomeQuoteDisplay";
 
 const GREETINGS = [
-  "Welcome back",
-  "Good to see you",
-  "There you are",
-  "Back in the chair",
+  "Welcome back", "Good to see you", "Good to have you back",
+  "Back in the chair", "Ready when you are", "Picking up where you left off",
 ];
 
-/** Today in Budapest, as a stable seed. */
-function budapestDay(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date());
-}
+const GREETING_KEY = "hc.greetingRotation.v2";
+const LOW_STOCK_THRESHOLD = 35;
+type ClaimedQuote = DisplayedWelcomeQuote;
+type QuoteResult = { status: "ready"; quote: ClaimedQuote } | { status: "exhausted" | "error" };
 
-function daySeed(): number {
-  return Array.from(budapestDay()).reduce((sum, char) => sum + char.charCodeAt(0), 0);
-}
+// React Strict Mode or router redirects may mount the loader twice while a
+// request is running. Deduplicate only in-flight claims, never reuse a quote
+// already delivered in a prior visit.
+const pendingClaims = new Map<string, Promise<QuoteResult>>();
 
-/* ------------------------------------------------------------------ */
-/* Role-aware rotation                                                 */
-/* ------------------------------------------------------------------ */
-
-const ROTATION_KEY = "hc.quoteRotation.v2";
-type Rotation = { seen: string[] };
-
-function readRotation(audience: QuoteAudience): Rotation {
-  try {
-    const raw = localStorage.getItem(`${ROTATION_KEY}.${audience}`);
-    const parsed = raw ? (JSON.parse(raw) as Rotation) : null;
-    if (parsed && Array.isArray(parsed.seen)) return { seen: parsed.seen };
-  } catch { /* corrupt or unavailable storage — start a fresh cycle */ }
-  return { seen: [] };
-}
-
-/**
- * Picks the next quote this role has not seen in the current cycle. Each role
- * audience owns its own history, so a housekeeping session can never inherit a
- * revenue/management quote simply because another user used this device first.
- */
-function nextQuote(pool: MotivationalQuote[], audience: QuoteAudience): MotivationalQuote {
-  const safePool = pool.length ? pool : quotePoolForAudience("hospitality");
-  const { seen } = readRotation(audience);
-  let unseen = safePool.filter((line) => !seen.includes(line.id));
-  let history = seen;
-
-  if (unseen.length === 0) {
-    // Cycle complete: reset, but keep the last line out of the running so the
-    // fresh cycle never opens with the quote that just closed the old one.
-    const last = seen[seen.length - 1];
-    unseen = safePool.filter((line) => line.id !== last);
-    history = [];
-    if (unseen.length === 0) unseen = safePool;
+function validatedQuote(data: unknown): ClaimedQuote | null {
+  const candidate: unknown = Array.isArray(data) ? data[0] : null;
+  if (!candidate) return null;
+  if (typeof candidate !== "object" ||
+      !("quote_key" in candidate) || typeof candidate.quote_key !== "string" ||
+      !("quote_text" in candidate) || typeof candidate.quote_text !== "string" ||
+      !("author" in candidate) || typeof candidate.author !== "string") {
+    throw new Error("Unexpected welcome quote response");
   }
+  return candidate as ClaimedQuote;
+}
 
-  const chosen = unseen[Math.floor(Math.random() * unseen.length)];
+async function askForRefill(mode: "exhausted" | "low_stock"): Promise<boolean> {
   try {
-    localStorage.setItem(
-      `${ROTATION_KEY}.${audience}`,
-      JSON.stringify({ seen: [...history, chosen.id].slice(-500) } satisfies Rotation),
-    );
-  } catch { /* private mode — rotation degrades to random, still no crash */ }
+    const { data, error } = await supabase.functions.invoke("welcome-quote-refill", {
+      body: { mode },
+    });
+    return !error && data?.ok === true && Number(data?.inserted || 0) > 0;
+  } catch (error) {
+    console.warn("Welcome quote refill unavailable; login continues.", error);
+    return false;
+  }
+}
+
+function claimOnce(userId: string): Promise<QuoteResult> {
+  const existing = pendingClaims.get(userId);
+  if (existing) return existing;
+  const request: Promise<QuoteResult> = (async () => {
+    try {
+      // Import previous browser histories once, then rely on permanent per-user
+      // database impressions across roles, devices, hotels and future logins.
+      const { data, error } = await supabase.rpc(
+        "claim_welcome_quote" as never,
+        { p_seen_keys: readLegacyQuoteHistory(userId) } as never,
+      );
+      if (error) throw error;
+      let quote = validatedQuote(data);
+      if (!quote) {
+        // No more blank 'you have seen everything' message. Refill the database
+        // using the protected server worker, then claim ONE new quote if ready.
+        if (await askForRefill("exhausted")) {
+          const retried = await supabase.rpc(
+            "claim_welcome_quote" as never,
+            { p_seen_keys: readLegacyQuoteHistory(userId) } as never,
+          );
+          if (retried.error) throw retried.error;
+          quote = validatedQuote(retried.data);
+        }
+      }
+      if (!quote) return { status: "exhausted" };
+
+      // Replenish proactively near the end of this person's role-specific pool.
+      // Run outside the UI flow so a slow OpenAI request cannot delay login.
+      void Promise.resolve(supabase.rpc("welcome_quote_remaining" as never)).then(({ data: left, error: countError }) => {
+        if (!countError && typeof left === "number" && left <= LOW_STOCK_THRESHOLD) {
+          void askForRefill("low_stock");
+        }
+      }).catch(() => { /* Stock monitoring must never affect login. */ });
+      return { status: "ready", quote };
+    } catch (error) {
+      // Never show a random local fallback: it could repeat a quote after
+      // clearing the browser or when a staff member changes devices.
+      console.warn("Welcome quote unavailable; workspace remains accessible.", error);
+      return { status: "error" };
+    }
+  })();
+  pendingClaims.set(userId, request);
+  void request.finally(() => {
+    if (pendingClaims.get(userId) === request) pendingClaims.delete(userId);
+  });
+  return request;
+}
+
+function nextGreeting(viewerKey: string): string {
+  const key = `${GREETING_KEY}.${viewerKey}`;
+  let previous = "";
+  try { previous = localStorage.getItem(key) ?? ""; } catch { /* Storage unavailable. */ }
+  const available = GREETINGS.filter((greeting) => greeting !== previous);
+  const chosen = (available.length ? available : GREETINGS)[Math.floor(Math.random() * (available.length || GREETINGS.length))];
+  try { localStorage.setItem(key, chosen); } catch { /* Storage unavailable. */ }
   return chosen;
 }
 
-/** Keep simultaneous overlays for the same role on the same line. The cache is
- * separated by audience so switching accounts/roles cannot leak a quote from a
- * different job family. */
-const activeLines = new Map<QuoteAudience, { line: MotivationalQuote; shownAt: number }>();
-const QUOTE_HOLD_MS = 10_000;
-
-function activeQuoteForAudience(audience: QuoteAudience): MotivationalQuote {
-  const current = activeLines.get(audience);
-  if (current && Date.now() - current.shownAt < QUOTE_HOLD_MS) return current.line;
-
-  const picked = nextQuote(quotePoolForAudience(audience), audience);
-  activeLines.set(audience, { line: picked, shownAt: Date.now() });
-  return picked;
-}
-
 export function WelcomeBackOverlay({
-  name,
-  step,
-  progress,
-  error,
-  onRetry,
-  onSignOut,
-  context = "revenue",
+  name, step, progress, error, onRetry, onSignOut, context = "revenue",
 }: {
-  /** First name of the person returning, when we know it. */
   name?: string | null;
-  /** What the refresh is doing right now. */
   step?: string;
-  /** 0-100. */
   progress?: number;
   error?: string | null;
   onRetry?: () => void;
   onSignOut?: () => void;
   context?: "account" | "revenue";
 }) {
-  const { profile } = useAuth();
-  const audience = useMemo(() => quoteAudienceForRole(profile?.role), [profile?.role]);
-
-  // Pick from the authenticated user's role pool. During the very first part of
-  // session restoration the profile can still be unknown, so we use a neutral
-  // hospitality line. As soon as the trusted profile arrives it is replaced by
-  // a quote from the correct role pool.
-  const [line, setLine] = useState<MotivationalQuote>(() => activeQuoteForAudience(audience));
+  const { user, profile } = useAuth();
+  const viewerId = user?.id && profile?.id === user.id ? user.id : null;
+  const [line, setLine] = useState<ClaimedQuote | null>(null);
   useEffect(() => {
-    setLine((current) => {
-      const rolePool = quotePoolForAudience(audience);
-      if (rolePool.some((candidate) => candidate.id === current.id)) return current;
-      return activeQuoteForAudience(audience);
+    let active = true;
+    setLine(null);
+    if (!viewerId) return () => { active = false; };
+    void claimOnce(viewerId).then((result) => {
+      if (!active) return;
+      if (result.status === "ready") rememberDisplayedWelcomeQuote(viewerId, result.quote);
+      setLine(result.status === "ready" ? result.quote : null);
     });
-  }, [audience]);
+    return () => { active = false; };
+  }, [viewerId]);
 
-  const greeting = useMemo(() => GREETINGS[daySeed() % GREETINGS.length], []);
+  const greeting = useMemo(() => nextGreeting(viewerId ?? "pending"), [viewerId]);
   const [dots, setDots] = useState(1);
   useEffect(() => {
-    const id = window.setInterval(() => setDots((d) => (d % 3) + 1), 600);
+    const id = window.setInterval(() => setDots((count) => (count % 3) + 1), 600);
     return () => window.clearInterval(id);
   }, []);
 
-  const first = (name ?? "").trim().split(" ")[0];
-
+  const displayName = profile?.full_name?.trim() || name?.trim() || "";
+  const first = displayName.split(/\s+/)[0] ?? "";
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-background/85 backdrop-blur-sm animate-fade-in"
-      role="status"
-      aria-live="polite"
-    >
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/85 backdrop-blur-sm animate-fade-in"
+      role="status" aria-live="polite">
       <div className="mx-4 w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
         <div className="flex items-center gap-3">
           <Loader2 className={`h-5 w-5 text-primary ${error ? "" : "animate-spin"}`} />
-          <h2 className="text-lg font-semibold">
-            {greeting}{first ? `, ${first}` : ""}
-          </h2>
+          <h2 className="text-lg font-semibold">{greeting}{first ? `, ${first}` : ""}</h2>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          {error
-            ? error
-            : context === "account"
-              ? `Securely preparing your workspace${".".repeat(dots)}`
-              : `Fetching the latest prices, pickup and occupancy for you${".".repeat(dots)}`}
+          {error ? error : context === "account"
+            ? `Securely preparing your workspace${".".repeat(dots)}`
+            : `Fetching the latest prices, pickup and occupancy for you${".".repeat(dots)}`}
         </p>
         <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-primary/15">
-          <div
-            className="h-full rounded-full bg-primary transition-all duration-700"
-            style={{ width: `${Math.max(8, Math.min(100, progress ?? 20))}%` }}
-          />
+          <div className="h-full rounded-full bg-primary transition-all duration-700"
+            style={{ width: `${Math.max(8, Math.min(100, progress ?? 20))}%` }} />
         </div>
         {step && <p className="mt-2 text-xs text-muted-foreground">{step}</p>}
         {(onRetry || onSignOut) && (
@@ -172,10 +166,12 @@ export function WelcomeBackOverlay({
             {onSignOut && <Button className="flex-1" variant="outline" onClick={onSignOut}>Sign out</Button>}
           </div>
         )}
-        <figure className="mt-5 border-t pt-4">
-          <blockquote className="text-sm italic">“{line.quote}”</blockquote>
-          <figcaption className="mt-1 text-xs text-muted-foreground">— {line.by}</figcaption>
-        </figure>
+        {line && (
+          <figure className="mt-5 border-t pt-4">
+            <blockquote className="text-sm italic">“{line.quote_text}”</blockquote>
+            <figcaption className="mt-1 text-xs text-muted-foreground">— {line.author}</figcaption>
+          </figure>
+        )}
       </div>
     </div>
   );

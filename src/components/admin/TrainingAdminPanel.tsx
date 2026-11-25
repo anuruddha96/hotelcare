@@ -11,6 +11,8 @@ import { RefreshCw, Bell, CheckCircle2, RotateCcw, Users } from 'lucide-react';
 import { ALL_CURRICULA } from '@/components/training/v2/TrainingV2Provider';
 import { TrainingAnalytics } from '@/components/training/v2/TrainingAnalytics';
 
+import { TrainingReleaseApproval } from '@/components/training/v2/TrainingReleaseApproval';
+
 interface User {
   id: string;
   full_name: string | null;
@@ -108,6 +110,7 @@ export function TrainingAdminPanel() {
 
   return (
     <div className="space-y-6">
+      <TrainingReleaseApproval />
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">

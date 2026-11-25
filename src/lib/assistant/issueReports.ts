@@ -6,26 +6,33 @@ import type { AssistantPageContext } from "@/hooks/useAssistantContext";
  * a server secret, so it is never present in the browser bundle.
  */
 export async function reportAssistantIssue(params: {
-  title: string;
+  /** Optional when a conversation is attached: Mira writes the title then. */
+  title?: string;
   description: string;
   aiSummary?: string | null;
   category?: string;
   severity?: string;
   threadId?: string | null;
+  /** The answer being reported, when the report starts from one message. */
+  messageId?: string | null;
   page: AssistantPageContext;
-}): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase.functions.invoke("assistant-save-abort", {
+  diagnostics?: { error?: string | null };
+}): Promise<{ ok: boolean; emailed?: boolean; id?: string; title?: string; error?: string }> {
+  const { data, error } = await supabase.functions.invoke("assistant-save-abort", {
     body: {
       type: "issue_report",
-      title: params.title.slice(0, 200),
-
+      title: (params.title ?? "").slice(0, 200),
       description: params.description.slice(0, 4000),
       ai_summary: params.aiSummary ?? null,
+      // The server summarises the conversation and adds the technical log.
+      auto_summary: !params.aiSummary,
       category: params.category ?? "other",
       severity: params.severity ?? "normal",
       thread_id: params.threadId ?? null,
+      message_id: params.messageId ?? null,
       context: {
         route: params.page.route,
+        hotel_id: params.page.hotelId,
         module: params.page.module,
         tab: params.page.tab,
         entity_type: params.page.entityType,
@@ -33,10 +40,16 @@ export async function reportAssistantIssue(params: {
         device: params.page.device,
         language: params.page.language,
       },
+      diagnostics: {
+        error: params.diagnostics?.error?.slice(0, 700) ?? null,
+        user_agent: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 400) : null,
+        client_time: new Date().toISOString(),
+      },
     },
   });
-  if (error) return { ok: false, error: "Could not send the report just now." };
-  return { ok: true };
+  if (error) return { ok: false, error: "Could not submit the report. Please try again." };
+  if (!data?.ok || !data?.id) return { ok: false, error: String(data?.error ?? "Report was not saved.") };
+  return { ok: true, id: String(data.id), emailed: data.emailed === true, title: data.title ? String(data.title) : undefined };
 }
 
 /** Thumbs up / down on an answer. Stored for the admin insights page. */

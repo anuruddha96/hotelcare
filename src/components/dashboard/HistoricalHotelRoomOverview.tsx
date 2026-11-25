@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { resolveHistoricalHousekeepingState } from '@/lib/housekeepingHistoricalFinalState';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -124,31 +125,31 @@ const statusStyle = (
   roomStatus: string | null | undefined,
 ): string => {
   if (noService) {
-    return 'bg-slate-200 text-slate-800 border-slate-400 dark:bg-slate-800 dark:text-slate-200';
+    return 'bg-slate-200 text-slate-800 border-slate-400';
   }
   if (assignmentStatus === 'completed' && approved) {
-    return 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200';
+    return 'bg-emerald-200 text-emerald-900 border-emerald-500';
   }
   if (assignmentStatus === 'completed') {
-    return 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200';
+    return 'bg-violet-200 text-violet-900 border-violet-500';
   }
   if (assignmentStatus === 'in_progress') {
-    return 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200';
+    return 'bg-sky-200 text-sky-900 border-sky-500';
   }
   if (assignmentStatus === 'dnd_pending_retry') {
-    return 'bg-purple-100 text-purple-900 border-purple-500 dark:bg-purple-900/50 dark:text-purple-200';
+    return 'bg-purple-100 text-purple-900 border-purple-500';
   }
   if (assignmentStatus) {
-    return 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200';
+    return 'bg-amber-200 text-amber-900 border-amber-500';
   }
   if (roomStatus === 'clean' || roomStatus === 'inspected') {
-    return 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200';
+    return 'bg-emerald-200 text-emerald-900 border-emerald-500';
   }
   if (roomStatus === 'in_progress') {
-    return 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200';
+    return 'bg-sky-200 text-sky-900 border-sky-500';
   }
   if (roomStatus === 'dirty') {
-    return 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200';
+    return 'bg-amber-200 text-amber-900 border-amber-500';
   }
   return 'bg-muted text-muted-foreground border-border';
 };
@@ -203,7 +204,7 @@ export function HistoricalHotelRoomOverview({
             .eq('assignment_date', selectedDate),
           (supabase as any)
             .from('housekeeping_room_snapshots')
-            .select('business_date, room_id, hotel, room_number, room_status, is_checkout_room, is_dnd, towel_change_required, linen_change_required, had_dnd, had_towel_change, had_linen_change, had_room_cleaning_request, had_extra_towels_request, had_ready_to_clean, had_no_service, assignment_id, assigned_to, assignment_type, assignment_status, supervisor_approved, ready_to_clean, pms_hold, assignment_notes, dnd_attempt_count, pms_metadata, source, captured_at, updated_at')
+            .select('business_date, room_id, hotel, room_number, room_status, is_checkout_room, is_dnd, towel_change_required, linen_change_required, had_dnd, had_towel_change, had_linen_change, had_room_cleaning_request, had_extra_towels_request, had_ready_to_clean, had_no_service, assignment_id, assigned_to, assignment_type, assignment_status, supervisor_approved, ready_to_clean, pms_hold, assignment_notes, dnd_attempt_count, pms_metadata, source, captured_at, updated_at, final_state, finalized_at')
             .in('hotel', hotelKeys)
             .eq('business_date', selectedDate)
             .order('updated_at', { ascending: false }),
@@ -304,8 +305,8 @@ export function HistoricalHotelRoomOverview({
       history,
       isCheckout,
       currentNight,
-      towelChange: Boolean(history?.had_towel_change || history?.towel_change_required),
-      linenChange: Boolean(history?.had_linen_change || history?.linen_change_required),
+      towelChange: history ? resolveHistoricalHousekeepingState(history).towel : false,
+      linenChange: history ? resolveHistoricalHousekeepingState(history).changeRoom : false,
     };
   }), [rooms, assignmentMap, historyLookup]);
 
@@ -322,12 +323,12 @@ export function HistoricalHotelRoomOverview({
     const history = room.history;
 
     const assignedTo = history?.assigned_to ?? assignment?.assigned_to ?? null;
-    const name = assignedTo ? assigneeLabel(staffMap[assignedTo] || assignedTo) : null;
+    const name = assignedTo ? assigneeLabel(staffMap, assignedTo) : null;
     const assignmentStatus = history?.assignment_status ?? assignment?.status ?? null;
     const approved = Boolean(history?.supervisor_approved ?? assignment?.supervisor_approved);
+    const saved = history ? resolveHistoricalHousekeepingState(history) : null;
     const noService = Boolean(
-      history?.had_no_service
-      || history?.assignment_notes?.includes('[NO_SERVICE]')
+      saved?.hadNoService
       || assignment?.notes?.includes('[NO_SERVICE]'),
     );
     const dnd = Boolean(
@@ -502,7 +503,7 @@ export function HistoricalHotelRoomOverview({
                   <div key={task.id} className="rounded border bg-muted/40 px-2 py-1 text-[10px]">
                     <span className="font-semibold">{task.task_name}</span>
                     <span className="ml-1 text-muted-foreground">
-                      · {assigneeLabel(staffMap[task.assigned_to] || task.assigned_to)} · {task.status.replace(/_/g, ' ')}
+                      · {assigneeLabel(staffMap, task.assigned_to)} · {task.status.replace(/_/g, ' ')}
                     </span>
                   </div>
                 ))}

@@ -1,0 +1,54 @@
+name: Access roles & Mira approvals SQL CI
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261117200000_access_roles_and_mira_actions.sql'
+      - 'supabase/rollbacks/20261117200000_access_roles_and_mira_actions_down.sql'
+      - 'supabase/tests/access_roles_*.sql'
+      - '.github/workflows/access-roles-sql-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  access-roles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_access_roles_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_access_roles_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Roles, schedule scope, go-live and approval guards
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/access_roles_fixture.sql \
+            -f supabase/migrations/20261117200000_access_roles_and_mira_actions.sql \
+            -f supabase/tests/access_roles_test.sql
+      - name: Re-apply, roll back and roll forward
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261117200000_access_roles_and_mira_actions.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/rollbacks/20261117200000_access_roles_and_mira_actions_down.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261117200000_access_roles_and_mira_actions.sql

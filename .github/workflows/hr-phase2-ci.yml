@@ -1,0 +1,72 @@
+name: HR phase 2 attendance CI
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261124101500_hr_phase2_attendance.sql'
+      - 'supabase/tests/hr_phase2_*.sql'
+      - '.github/workflows/hr-phase2-ci.yml'
+      - 'src/components/hr/**'
+      - 'src/components/dashboard/AttendanceReports.tsx'
+      - 'src/components/dashboard/Dashboard.tsx'
+      - 'src/lib/hr-*.ts'
+      - 'scripts/check-hr-lint.py'
+permissions:
+  contents: read
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hr_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hr_test
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/access_roles_fixture.sql -f supabase/migrations/20261117200000_access_roles_and_mira_actions.sql -f supabase/tests/hr_phase1_fixture.sql -f supabase/migrations/20261124100500_hr_phase1_access.sql -f supabase/tests/hr_phase2_fixture.sql -f supabase/migrations/20261124101500_hr_phase2_attendance.sql -f supabase/tests/hr_phase2_test.sql -f supabase/rollbacks/20261124101500_hr_phase2_attendance_down.sql
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: npm run test
+      - run: npm run build
+      - name: Run full ESLint and enforce no new errors
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          baseline="$RUNNER_TEMP/hr-lint-base"
+          git worktree add --detach "$baseline" "$BASE_SHA"
+          trap 'git worktree remove --force "$baseline"' EXIT
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$baseline/node_modules"
+          # Preserve the full repository lint run and its diagnostics. ESLint 1 means
+          # violations, while 2 means configuration or execution failure (always fatal).
+          lint_json() {
+            local output="$1" rc=0
+            npm run lint -- --format json --output-file "$output" || rc=$?
+            if [ "$rc" -gt 1 ]; then return "$rc"; fi
+            test -s "$output"
+          }
+          (cd "$baseline" && lint_json "$RUNNER_TEMP/hr-lint-base.json")
+          lint_json "$RUNNER_TEMP/hr-lint-head.json"
+          python3 scripts/check-hr-lint.py "$baseline" "$RUNNER_TEMP/hr-lint-base.json" "$RUNNER_TEMP/hr-lint-head.json" "$BASE_SHA"
+      - name: Preserve full lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hr-phase2-eslint-reports
+          path: ${{ runner.temp }}/hr-lint-*.json
+          if-no-files-found: warn

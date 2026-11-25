@@ -1,11 +1,14 @@
 // Honest, always-visible status for automatic pricing.
 //
-// Shadow mode looks identical to "broken" from the outside: runs happen, no
-// price moves, nothing is sent. This line says so in plain language, shows
-// when the last run happened and which safety checks are still outstanding.
+// Shadow mode is a valid monitoring state and must not be presented as a
+// production failure. Only an explicit evaluation error / failed status should
+// trigger the red attention state. This is especially important when a newer
+// revenue supervisor is publishing prices while this pickup rule remains in
+// shadow mode.
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Zap, PauseCircle, AlertTriangle } from "lucide-react";
+import { Eye, Zap, PauseCircle, AlertTriangle } from "lucide-react";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface RuleRow {
   is_enabled: boolean | null;
@@ -25,8 +28,25 @@ function when(v: string | null | undefined) {
   return Number.isNaN(d.getTime()) ? null : d.toLocaleString();
 }
 
+function whenTime(v: string | null | undefined) {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime())
+    ? null
+    : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function evaluationNeedsAttention(rule: RuleRow) {
+  if (rule.last_evaluation_error?.trim()) return true;
+
+  const status = (rule.last_evaluation_status ?? "").trim().toLowerCase();
+  return status.includes("error") || status.includes("fail") || status.includes("blocked");
+}
+
 export function AutomationStatusLine({ hotelId }: { hotelId: string | null }) {
   const [rule, setRule] = useState<RuleRow | null>(null);
+  const { language } = useTranslation();
+  const hu = language === "hu";
 
   useEffect(() => {
     if (!hotelId) { setRule(null); return; }
@@ -48,38 +68,62 @@ export function AutomationStatusLine({ hotelId }: { hotelId: string | null }) {
 
   const live = rule.mode === "live" && rule.auto_publish === true;
   const disabled = rule.is_enabled === false;
-  const needsAttention = !disabled && !live;
-  const Icon = disabled ? PauseCircle : live ? Zap : AlertTriangle;
+  const needsAttention = !disabled && evaluationNeedsAttention(rule);
+  const shadow = !disabled && !live && !needsAttention;
+  const Icon = disabled ? PauseCircle : needsAttention ? AlertTriangle : live ? Zap : Eye;
   const tone = disabled
     ? "text-muted-foreground"
-    : live
-      ? "text-emerald-600 dark:text-emerald-400"
-      : "text-destructive";
+    : needsAttention
+      ? "text-destructive"
+      : live
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-muted-foreground";
 
   const headline = disabled
-    ? "Automatic pricing is switched off for this property."
-    : live
-      ? "Automatic pricing is live — price changes are sent to Previo."
-       : "Automatic pricing needs attention — open Pricing activity for details.";
+    ? (hu ? "A foglalásváltozáson alapuló automatikus árazás ki van kapcsolva ennél az ingatlannál." : "Pickup automation rule is switched off for this property.")
+    : needsAttention
+      ? (hu ? "Az automatikus árazás figyelmet igényel – részletek az árváltozásoknál." : "Automatic pricing needs attention — open Pricing activity for details.")
+      : live
+        ? (hu ? "Az automatikus árazás aktív – az árváltozások a Previóba kerülnek." : "Automatic pricing is live — price changes are sent to Previo.")
+        : "Pickup automation is monitoring in shadow mode — no pricing error detected.";
+
+  const mobileHeadline = disabled
+    ? (hu ? "Automatikus árazás kikapcsolva" : "Automatic pricing off")
+    : needsAttention
+      ? (hu ? "Automatikus árazás – figyelmet igényel" : "Automatic pricing needs attention")
+      : live
+        ? (hu ? "Automatikus árazás aktív" : "Automatic pricing live")
+        : (hu ? "Csak megfigyelési mód" : "Automation monitoring only");
 
   const lastRun = when(rule.last_run_at ?? rule.last_evaluated_at);
   const nextRun = when(rule.next_run_at);
+  const lastRunTime = whenTime(rule.last_run_at ?? rule.last_evaluated_at);
+  const nextRunTime = whenTime(rule.next_run_at);
 
   return (
-    <div className="flex flex-wrap items-start gap-2 rounded-md border bg-muted/30 px-2.5 py-2 text-xs">
+    <div className="flex items-start gap-2 rounded-md border bg-muted/30 px-2.5 py-2 text-xs">
       <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${tone}`} />
-      <div className="min-w-0 space-y-0.5">
-        <div className={`font-medium ${tone}`}>{headline}</div>
-        <div className="text-muted-foreground">
-          {lastRun ? `Last run ${lastRun}` : "No run recorded yet"}
-          {nextRun ? ` · next run ${nextRun}` : ""}
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <div className={`font-medium ${tone}`}>
+          <span className="sm:hidden">{mobileHeadline}</span>
+          <span className="hidden sm:inline">{headline}</span>
+        </div>
+        <div className="text-muted-foreground sm:hidden">
+          {lastRunTime ? `${hu ? "Utolsó" : "Last"} ${lastRunTime}` : (hu ? "Még nem futott" : "No run yet")}
+          {nextRunTime ? ` · ${hu ? "Következő" : "Next"} ${nextRunTime}` : ""}
+        </div>
+        <div className="hidden text-muted-foreground sm:block">
+          {lastRun ? `${hu ? "Utolsó futás" : "Last run"} ${lastRun}` : (hu ? "Még nincs rögzített futás" : "No run recorded yet")}
+          {nextRun ? ` · ${hu ? "következő futás" : "next run"} ${nextRun}` : ""}
           {rule.last_evaluation_status ? ` · ${rule.last_evaluation_status.replace(/_/g, " ")}` : ""}
         </div>
-        {live && rule.last_evaluation_error && (
-          <div className="text-destructive">Last run reported: {rule.last_evaluation_error}</div>
-        )}
         {needsAttention && rule.last_evaluation_error && (
           <div className="text-destructive">{rule.last_evaluation_error}</div>
+        )}
+        {shadow && (
+          <div className="hidden text-muted-foreground sm:block">
+            {hu ? "Ez a szabály csak megfigyel; nem jelent hibát." : "This pickup rule is observing only; it is not reporting a failure."}
+          </div>
         )}
       </div>
     </div>

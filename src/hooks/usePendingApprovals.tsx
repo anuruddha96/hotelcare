@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { useAuth } from '@/hooks/useAuth';
 
 export function usePendingApprovals() {
+  const { profile } = useAuth();
   const [roomCount, setRoomCount] = useState(0);
   const [maintenanceTicketCount, setMaintenanceTicketCount] = useState(0);
   const [earlySignoutCount, setEarlySignoutCount] = useState(0);
@@ -108,20 +110,19 @@ export function usePendingApprovals() {
         setBreakRequestCount(breakError ? 0 : (breakData || []).length);
 
         // Late minibar additions and unresolved physical refills both need a
-        // manager's attention. A blocked refill can stay open across days after
-        // the Previo charge was already confirmed, so count it in the same
-        // hotel-scoped minibar action queue.
+        // manager's attention. A blocked physical refill can remain open
+        // across days; it is a HotelCare task, NOT proof of Previo billing.
         try {
           const { data: lateMinibar } = await (supabase as any)
             .from('room_minibar_usage')
-            .select('id, rooms:room_id(hotel)')
+            .select('id, is_cleared, pending_supervisor_review, rooms:room_id(hotel)')
             .or('pending_supervisor_review.eq.true,refill_status.eq.blocked_guest_inside')
             .eq('organization_slug', userOrgSlug)
             .limit(500);
           const hotelKeySet = new Set(hotelKeys);
           const lateCount = (lateMinibar || []).filter((r: any) => {
             const h = r.rooms?.hotel;
-            return h && hotelKeySet.has(h);
+            return h && hotelKeySet.has(h) && (!r.is_cleared || r.pending_supervisor_review);
           }).length;
           setLateMinibarCount(lateCount);
         } catch {
@@ -138,53 +139,36 @@ export function usePendingApprovals() {
   }, []);
 
   useEffect(() => {
-    fetchPendingCount();
+    void fetchPendingCount();
+    if (!profile?.organization_slug) return;
 
-    // Set up real-time subscription for pending count. RLS restricts RD Hotels
-    // room assignment events to the active property; the refetch remains
-    // hotel-scoped as a second layer of protection.
+    // Scope all five tables at source, then coalesce bursts of room/ticket
+    // changes into one actual count query. The query itself additionally
+    // scopes by hotel, protecting correctness across legacy hotel aliases.
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        if (!disposed) void fetchPendingCount();
+      }, 500);
+    };
+    const filter = `organization_slug=eq.${profile.organization_slug}`;
     const channel = supabase
-      .channel('pending-approvals-count')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'room_assignments',
-          filter: 'status=eq.completed'
-        },
-        () => fetchPendingCount()
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tickets'
-        },
-        () => fetchPendingCount()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'early_signout_requests' },
-        () => fetchPendingCount()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'break_requests' },
-        () => fetchPendingCount()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'room_minibar_usage' },
-        () => fetchPendingCount()
-      )
+      .channel(`pending-approvals-count-${profile.organization_slug}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "room_assignments", filter }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tickets", filter }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "early_signout_requests", filter }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "break_requests", filter }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "room_minibar_usage", filter }, scheduleRefresh)
       .subscribe();
 
     return () => {
+      disposed = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
       supabase.removeChannel(channel);
     };
-  }, [fetchPendingCount]);
+  }, [fetchPendingCount, profile?.organization_slug]);
 
   const refetch = useCallback(() => {
     fetchPendingCount();

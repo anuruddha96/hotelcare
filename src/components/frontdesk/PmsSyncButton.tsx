@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
+import { buildReceptionSyncHealth, syncEventCount, type ReceptionSyncEvent, type ReceptionSyncSignal } from '@/lib/receptionSyncHealth';
 
 interface PmsSyncButtonProps {
   hotelId: string;
@@ -11,73 +12,58 @@ interface PmsSyncButtonProps {
   compact?: boolean;
 }
 
-interface LastSync {
-  at: string;
-  status: string | null;
-  inserted?: number;
-  updated?: number;
-  errors?: number;
-  unmappedRooms?: number;
-}
+const SYNC_TYPES = ['reservations', 'daily_overview_live', 'status_update', 'rate_push'] as const;
 
-/**
- * Manual "Sync from PMS" control for Previo-connected hotels.
- * Hidden when the hotel has no active Previo configuration.
- */
+/** Read-only, hotel-scoped health: a checkout poll is NOT a reservation import. */
 export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps) {
   const { t } = useTranslation();
   const [connected, setConnected] = useState<boolean | null>(null);
-  const [lastSync, setLastSync] = useState<LastSync | null>(null);
+  const [health, setHealth] = useState<ReceptionSyncSignal[]>([]);
   const [busy, setBusy] = useState(false);
+  const [statusError, setStatusError] = useState(false);
+  const [checking, setChecking] = useState(true);
 
   const loadStatus = useCallback(async () => {
     if (!hotelId) return;
-    const [{ data: accounts }, { data: legacy }, { data: history }] = await Promise.all([
-      supabase.from('pms_accounts').select('id').eq('hotel_id', hotelId).eq('pms_type', 'previo').eq('is_active', true).limit(1),
-      supabase.from('pms_configurations').select('id').eq('hotel_id', hotelId).eq('pms_type', 'previo').eq('is_active', true).limit(1),
-      supabase
-        .from('pms_sync_history')
-        .select('created_at, sync_status, data')
-        .eq('hotel_id', hotelId)
-        .eq('sync_type', 'reservations')
-        .order('created_at', { ascending: false })
-        .limit(1),
-    ]);
-    setConnected(((accounts?.length ?? 0) > 0) || ((legacy?.length ?? 0) > 0));
-    const latest = history?.[0];
-    if (latest) {
-      const d = (latest.data ?? {}) as Record<string, unknown>;
-      setLastSync({
-        at: latest.created_at,
-        status: latest.sync_status,
-        inserted: Number(d.inserted ?? 0),
-        updated: Number(d.updated ?? 0),
-        errors: Array.isArray(d.errors) ? d.errors.length : 0,
-        unmappedRooms: Number(d.unmapped_rooms ?? 0),
-      });
-    } else {
-      setLastSync(null);
+    setChecking(true);
+    try {
+      const [accounts, legacy, ...history] = await Promise.all([
+        supabase.from('pms_accounts').select('id').eq('hotel_id', hotelId).eq('pms_type', 'previo').eq('is_active', true).limit(1),
+        supabase.from('pms_configurations').select('id').eq('hotel_id', hotelId).eq('pms_type', 'previo').eq('is_active', true).limit(1),
+        ...SYNC_TYPES.flatMap((type) => [
+          supabase.from('pms_sync_history').select('hotel_id, sync_type, sync_status, created_at, data, error_message').eq('hotel_id', hotelId).eq('sync_type', type).order('created_at', { ascending: false }).limit(1),
+          supabase.from('pms_sync_history').select('hotel_id, sync_type, sync_status, created_at, data, error_message').eq('hotel_id', hotelId).eq('sync_type', type).eq('sync_status', 'success').order('created_at', { ascending: false }).limit(1),
+        ]),
+      ]);
+      const connectionUnknown = Boolean(accounts.error && legacy.error);
+      const historyFailed = history.some((result) => Boolean(result.error));
+      setConnected(connectionUnknown ? null : Boolean(accounts.data?.length || legacy.data?.length));
+      setStatusError(connectionUnknown || historyFailed);
+      if (historyFailed) {
+        setHealth([]); // Do not turn failed reads into a reassuring 'never synced'.
+      } else {
+        const events = history.flatMap((result) => (result.data ?? []) as ReceptionSyncEvent[]);
+        setHealth(buildReceptionSyncHealth(events, Date.now(), [hotelId]));
+      }
+    } catch {
+      setStatusError(true);
+      setConnected(null);
+      setHealth([]);
+    } finally {
+      setChecking(false);
     }
   }, [hotelId]);
 
-  useEffect(() => { loadStatus(); }, [loadStatus]);
+  useEffect(() => { void loadStatus(); }, [loadStatus]);
 
   const runSync = async () => {
+    if (busy || connected !== true) return;
     setBusy(true);
     try {
-      const { data, error } = await supabase.functions.invoke('previo-sync-reservations', {
-        body: { hotelId },
-      });
+      const { data, error } = await supabase.functions.invoke('previo-sync-reservations', { body: { hotelId } });
       if (error) {
-        let msg = error.message;
-        try {
-          const ctx = (error as any).context;
-          if (ctx && typeof ctx.text === 'function') {
-            const txt = await ctx.text();
-            try { const j = JSON.parse(txt); msg = j.error || msg; } catch { msg = txt || msg; }
-          }
-        } catch { /* ignore */ }
-        toast.error(`${t('pms.sync.syncFailed')}: ${msg}`);
+        toast.error(`${t('pms.sync.syncFailed')}. Please retry or open PMS details.`);
+        await loadStatus();
         return;
       }
       if (data?.supported === false) {
@@ -85,44 +71,58 @@ export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps
         toast.info(data.message ?? t('pms.sync.notConnected'));
         return;
       }
-
       const inserted = Math.max(0, Number(data?.inserted ?? 0));
       const updated = Math.max(0, Number(data?.updated ?? 0));
       const unmappedRooms = Math.max(0, Number(data?.unmapped_rooms ?? 0));
-      const errorCount = Array.isArray(data?.errors) ? data.errors.length : 0;
-      const counts = `${t('pms.sync.imported')}: ${inserted} · ${t('pms.sync.updatedCount')}: ${updated}${unmappedRooms > 0 ? ` · ${t('pms.res.unassigned')}: ${unmappedRooms}` : ''}${errorCount > 0 ? ` · ${t('pms.sync.errorsCount')}: ${errorCount}` : ''}`;
-
-      if (data?.success === false) {
-        // A multi-account import may be partial: some reservations can be safely
-        // imported even when another Previo account fails. Do not present that
-        // as an empty hard-error toast and hide the useful import counts.
-        if (inserted + updated > 0) toast.warning(`${t('pms.sync.syncDone')} · ${counts}`);
-        else toast.error(`${t('pms.sync.syncFailed')} · ${counts}${data?.error ? ` · ${data.error}` : ''}`);
+      const errors = Array.isArray(data?.errors) ? data.errors.length : 0;
+      const details = `${t('pms.sync.imported')}: ${inserted} · ${t('pms.sync.updatedCount')}: ${updated}${unmappedRooms ? ` · ${t('pms.res.unassigned')}: ${unmappedRooms}` : ''}${errors ? ` · ${t('pms.sync.errorsCount')}: ${errors}` : ''}`;
+      const partial = data?.success !== true || errors > 0 || unmappedRooms > 0;
+      if (partial) {
+        if (inserted + updated > 0) toast.warning(`${t('pms.sync.syncDone')} · ${details}`);
+        else toast.error(`${t('pms.sync.syncFailed')} · ${details}`);
       } else {
-        const message = `${t('pms.sync.syncDone')} · ${counts}`;
-        if (unmappedRooms > 0) toast.warning(message);
-        else toast.success(message);
+        toast.success(`${t('pms.sync.syncDone')} · ${details}`);
       }
       await loadStatus();
-      onSynced?.();
+      onSynced?.(); // A partial import may have persisted some bookings.
+    } catch {
+      toast.error(t('pms.sync.syncFailed'));
+      await loadStatus();
     } finally {
       setBusy(false);
     }
   };
 
-  if (connected === false || !hotelId) return null;
+  if (!hotelId || connected === false) return null;
+  const reservations = health.find((signal) => signal.category === 'reservations');
+  const reservationWarning = statusError || (reservations != null && reservations.state !== 'ok');
+  const attention = health.filter((signal) => signal.state === 'warning' || (signal.category === 'reservations' && signal.state === 'missing')).length;
+  const humanTime = (value: string | null | undefined) => value ? new Date(value).toLocaleString() : 'Not recorded';
 
-  return (
-    <div className="flex flex-col items-end gap-0.5" data-training="fd-sync">
-      <Button size="sm" variant="outline" onClick={runSync} disabled={busy || connected === null} className="gap-1.5">
-        <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />
-        {busy ? t('pms.sync.syncing') : t('pms.sync.syncNow')}
-      </Button>
-      {!compact && (
-        <span className={`text-[10px] ${lastSync?.unmappedRooms ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>
-          {t('pms.sync.lastSync')}: {lastSync ? `${new Date(lastSync.at).toLocaleString()} (${lastSync.status ?? '—'})${lastSync.unmappedRooms ? ` · ${t('pms.res.unassigned')}: ${lastSync.unmappedRooms}` : ''}` : t('pms.sync.never')}
-        </span>
-      )}
-    </div>
-  );
+  return <div className="flex items-center gap-2 min-w-0" data-training="fd-sync">
+    <Button type="button" size="sm" variant="outline" onClick={() => void runSync()} disabled={busy || connected !== true || checking} className="gap-1.5">
+      <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />
+      {busy ? t('pms.sync.syncing') : t('pms.sync.syncNow')}
+    </Button>
+    {statusError ? <span role="alert" className="text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1"><AlertTriangle className="h-3 w-3" />PMS status unavailable</span> :
+      <details className="relative text-[11px] max-w-[320px] w-full sm:w-auto" data-training="pms-sync-health">
+        <summary className={`cursor-pointer select-none flex items-center gap-1 ${reservationWarning ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>
+          {reservationWarning ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <CheckCircle2 className="h-3 w-3 shrink-0" />}
+          <span>{checking ? 'Checking PMS…' : reservationWarning ? 'PMS needs attention' : 'PMS synced'}</span>
+          {attention > 0 && <span className="font-semibold">· {attention} alerts</span>}
+          <span className="ml-1 underline underline-offset-2">Details</span>
+        </summary>
+        <div className={`mt-1 rounded-md border border-border bg-card shadow-sm p-2 space-y-2 w-[min(310px,88vw)] ${compact ? 'sm:absolute sm:right-0 sm:top-full sm:z-50' : ''}`}>
+          <p className="font-semibold text-foreground">Independent Previo activity · this hotel only</p>
+          {health.map((signal) => <div key={signal.category} className="border-b border-border/50 last:border-b-0 pb-1">
+            <div className="flex items-center gap-1 font-medium">{signal.state === 'ok' ? <CheckCircle2 className="h-3 w-3 text-emerald-600" /> : <AlertTriangle className="h-3 w-3 text-amber-600" />}{signal.label} · {signal.lastAttempt?.sync_status ?? 'not recorded'}</div>
+            <p className="text-muted-foreground">Attempt: {humanTime(signal.lastAttempt?.created_at)}</p>
+            <p className="text-muted-foreground">Last success: {humanTime(signal.lastSuccess?.created_at)}</p>
+            <p className={signal.state === 'ok' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}>{signal.note}{signal.lastAttempt?.error_message ? ` · ${signal.lastAttempt.error_message.slice(0, 160)}` : ''}</p>
+            {syncEventCount(signal.lastAttempt) && <p className="text-muted-foreground">{syncEventCount(signal.lastAttempt)}</p>}
+          </div>)}
+          <p className="text-muted-foreground">This does not verify Previo-to-OTA delivery, live inventory parity or government reporting.</p>
+        </div>
+      </details>}
+  </div>;
 }

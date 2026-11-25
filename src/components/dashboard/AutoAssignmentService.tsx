@@ -91,11 +91,15 @@ export function AutoAssignmentService() {
       ]);
 
       const notifyAssignee = (ticket: any) => {
-        if (ticket.department !== 'maintenance' || ticket.assigned_to !== profile.id || !isCurrentHotel(ticket.hotel)) return;
+        const visitingOttofiori = profile.organization_slug === 'rdhotels'
+          && (ticket.hotel === 'Hotel Ottofiori' || ticket.hotel === 'ottofiori')
+          && profile.role === 'maintenance';
+        if (ticket.department !== 'maintenance' || ticket.assigned_to !== profile.id
+          || (!isCurrentHotel(ticket.hotel) && !visitingOttofiori)) return;
         void showNotification(
-          `Room ${ticket.room_number || '—'} · ${ticket.title || 'Maintenance issue'}`,
+          `${visitingOttofiori ? 'HOTEL OTTOFIORI · ' : ''}Room ${ticket.room_number || '—'} · ${ticket.title || 'Maintenance issue'}`,
           ticket.priority === 'urgent' || ticket.priority === 'high' ? 'warning' : 'info',
-          'New maintenance task'
+          visitingOttofiori ? 'Assigned at another hotel: HOTEL OTTOFIORI' : 'New maintenance task'
         );
       };
 

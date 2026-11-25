@@ -15,7 +15,7 @@ export const managerCompleteCurriculum: TrainingCurriculum = {
     uk: 'Повний огляд для менеджера',
   },
   description: {
-    en: 'End-to-end tour that flows through HR, PMS upload, team view, staff and every module — one module after another.',
+    en: 'End-to-end tour that flows through HR, PMS upload, team view, staff and every module — one optional module at a time.',
     hu: 'Végigvezet a HR-en, PMS-feltöltésen, csapat nézeten, munkatársakon és minden modulon — egymás után.',
     es: 'Recorrido completo por HR, carga PMS, vista de equipo, personal y cada módulo — uno tras otro.',
     vi: 'Đi qua HR, tải PMS, xem đội, nhân viên và mọi mô-đun — từng cái một.',
@@ -43,9 +43,9 @@ export const managerCompleteCurriculum: TrainingCurriculum = {
     uk: 'Повний огляд',
   },
   chain: [
+    'v2_manager_team_and_assignments',
     'v2_manager_attendance_and_payroll',
     'v2_manager_reception_handover',
-    'v2_manager_team_and_assignments',
     'v2_manager_tickets_and_sla',
     'v2_manager_revenue',
     'v2_manager_purchase_invoices',

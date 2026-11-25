@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock, Pause } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
+import { todayBudapest } from '@/lib/budapestTime';
 
 interface BreakPeriod {
   start: string;
@@ -23,7 +24,7 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
   // Check current attendance status
   useEffect(() => {
     const checkAttendanceStatus = async () => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayBudapest();
       const { data } = await supabase
         .from('staff_attendance')
         .select('status, break_started_at')
@@ -35,13 +36,11 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
         setIsOnBreak(true);
         // Check if we need to add this break period to our tracking
         const currentBreakStart = data.break_started_at;
-        const existingBreak = breakPeriods.find(bp => 
-          bp.start === currentBreakStart && !bp.end
+        setBreakPeriods(prev =>
+          prev.some(bp => bp.start === currentBreakStart)
+            ? prev
+            : [...prev, { start: currentBreakStart }]
         );
-        
-        if (!existingBreak) {
-          setBreakPeriods(prev => [...prev, { start: currentBreakStart }]);
-        }
       } else {
         setIsOnBreak(false);
       }
@@ -65,20 +64,20 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
           if (newData?.status === 'on_break' && newData.break_started_at) {
             setIsOnBreak(true);
             // Add new break period if not already tracked
-            const existingBreak = breakPeriods.find(bp => 
-              bp.start === newData.break_started_at && !bp.end
+            setBreakPeriods(prev =>
+              prev.some(bp => bp.start === newData.break_started_at)
+                ? prev
+                : [...prev, { start: newData.break_started_at }]
             );
-            if (!existingBreak) {
-              setBreakPeriods(prev => [...prev, { start: newData.break_started_at }]);
-            }
           } else if (newData?.status === 'checked_in' && newData.break_ended_at) {
             setIsOnBreak(false);
             // Close the current break period
-            setBreakPeriods(prev => 
-              prev.map(bp => 
-                !bp.end && bp.start ? { ...bp, end: newData.break_ended_at } : bp
-              )
-            );
+            setBreakPeriods(prev => {
+              if (!prev.some(bp => !bp.end)) return prev;
+              return prev.map(bp =>
+                !bp.end ? { ...bp, end: newData.break_ended_at } : bp
+              );
+            });
           }
         }
       )
@@ -87,67 +86,63 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userId, breakPeriods]);
+  }, [userId]);
 
-  // Calculate total break time
+  // Keep the on-screen timer live with one interval. Never persist inside
+  // the tick: this component may be mounted for several room cards at once.
   useEffect(() => {
-    const calculateBreakTime = () => {
-      let total = 0;
-      const now = new Date();
-      
-      breakPeriods.forEach(period => {
-        const start = new Date(period.start);
-        const end = period.end ? new Date(period.end) : now;
-        total += Math.floor((end.getTime() - start.getTime()) / 1000);
-      });
-      
-      setTotalBreakTime(total);
-    };
+    const updateTimer = () => {
+      const nowMs = Date.now();
+      const breakSeconds = breakPeriods.reduce((total, period) => {
+        const startMs = Date.parse(period.start);
+        const endMs = period.end ? Date.parse(period.end) : nowMs;
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return total;
+        return total + Math.max(0, Math.floor((endMs - startMs) / 1000));
+      }, 0);
+      setTotalBreakTime(breakSeconds);
 
-    calculateBreakTime();
-    const interval = setInterval(calculateBreakTime, 1000);
-    return () => clearInterval(interval);
-  }, [breakPeriods]);
-
-  // Update timer
-  useEffect(() => {
-    const updateElapsed = () => {
-      const startTime = new Date(startedAt).getTime();
-      const now = Date.now();
-      let totalElapsed = Math.floor((now - startTime) / 1000);
-
-      // Safety guard against bad client clocks / stale data: if the stored
-      // start time is in the future or absurdly old (> 12h), don't display
-      // a wildly wrong timer — clamp to 0 so the UI doesn't lie.
+      const startMs = Date.parse(startedAt);
+      let totalElapsed = Math.floor((nowMs - startMs) / 1000);
+      // Invalid or stale room timestamps must not display misleading durations.
       if (!Number.isFinite(totalElapsed) || totalElapsed < 0 || totalElapsed > 12 * 60 * 60) {
         totalElapsed = 0;
       }
-
-      // Subtract break time from total elapsed time
-      setElapsed(Math.max(0, totalElapsed - totalBreakTime));
+      setElapsed(Math.max(0, totalElapsed - breakSeconds));
     };
 
-    updateElapsed();
-    const interval = setInterval(updateElapsed, 1000);
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [startedAt, totalBreakTime]);
+  }, [breakPeriods, startedAt]);
 
-  // Update room assignment with break periods when component unmounts or break changes
+  // Persist only when a break starts or ends. The display timer updates every
+  // second, but writing every second created a costly, redundant UPDATE storm
+  // (including the room_assignments audit/performance triggers).
   useEffect(() => {
-    const updateBreakPeriods = async () => {
-      await supabase
+    if (breakPeriods.length === 0) return;
+
+    const nowMs = Date.now();
+    const breakSeconds = breakPeriods.reduce((total, period) => {
+      const startMs = Date.parse(period.start);
+      const endMs = period.end ? Date.parse(period.end) : nowMs;
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return total;
+      return total + Math.max(0, Math.floor((endMs - startMs) / 1000));
+    }, 0);
+
+    const saveBreakPeriods = async () => {
+      const { error } = await supabase
         .from('room_assignments')
         .update({
           break_periods: JSON.stringify(breakPeriods),
-          total_break_time_minutes: Math.floor(totalBreakTime / 60)
+          total_break_time_minutes: Math.floor(breakSeconds / 60)
         })
         .eq('id', assignmentId);
+
+      if (error) console.error('Failed to persist housekeeping break periods', error);
     };
 
-    if (breakPeriods.length > 0) {
-      updateBreakPeriods();
-    }
-  }, [breakPeriods, totalBreakTime, assignmentId]);
+    void saveBreakPeriods();
+  }, [breakPeriods, assignmentId]);
 
   const formatTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -164,17 +159,17 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
   };
 
   const getTimerColor = () => {
-    if (isOnBreak) return 'text-yellow-600'; // Yellow when on break
-    if (elapsed < 1800) return 'text-green-600'; // Under 30 minutes
-    if (elapsed < 3600) return 'text-yellow-600'; // Under 1 hour
-    return 'text-red-600'; // Over 1 hour
+    if (isOnBreak) return 'text-yellow-700 dark:text-yellow-300'; // Yellow when on break
+    if (elapsed < 1800) return 'text-green-700 dark:text-green-400'; // Under 30 minutes
+    if (elapsed < 3600) return 'text-yellow-700 dark:text-yellow-300'; // Under 1 hour
+    return 'text-red-700 dark:text-red-400'; // Over 1 hour
   };
 
   return (
     <div className="flex flex-col gap-1 min-w-0">
       <Badge variant="outline" className={`${getTimerColor()} border-current text-xs px-2 py-1 flex items-center gap-1 w-fit`}>
         {isOnBreak ? <Pause className="h-3 w-3 flex-shrink-0" /> : <Clock className="h-3 w-3 flex-shrink-0" />}
-        <span className="truncate font-semibold">{formatTime(elapsed)}</span>
+        <span className="whitespace-nowrap font-semibold tabular-nums">{formatTime(elapsed)}</span>
         {isOnBreak && <span className="text-xs font-bold">(ON BREAK)</span>}
       </Badge>
       {totalBreakTime > 0 && (

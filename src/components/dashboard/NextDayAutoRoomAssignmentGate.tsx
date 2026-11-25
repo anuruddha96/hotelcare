@@ -1,0 +1,566 @@
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  AlertCircle,
+  CalendarClock,
+  Check,
+  CheckCircle2,
+  Clock3,
+  Database,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Wifi,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
+import { nextDayAutoAssignUiText } from '@/lib/nextDayAutoAssignUiTranslations';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
+import { supabase } from '@/integrations/supabase/client';
+import { todayBudapest } from '@/lib/budapestTime';
+import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { isVerifiedSparseTomorrowSnapshot } from '@/lib/nextDayPmsGateCoverage';
+import {
+  buildOttofioriNightForecast, nextMorningDate,
+  type OttofioriNightForecast,
+} from '@/lib/ottofioriNextDayForecast';
+import {
+  ensureTomorrowPmsSnapshot,
+  type TomorrowPmsProgressEvent,
+  type TomorrowPmsProgressPhase,
+  type TomorrowSnapshotState,
+} from '@/lib/nextDayAutoAssignBridge';
+import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
+
+type Props = React.ComponentProps<typeof AutoRoomAssignmentImpl>;
+
+type Stage = 'checking' | 'syncing' | 'ready' | 'error';
+
+type PmsDaySummary = {
+  date: string;
+  checkoutCount: number;
+  dailyCount: number;
+  otherCount: number;
+  totalRows: number;
+  capturedAt: string | null;
+};
+
+const EXPECTED_SYNC_SECONDS = 15;
+
+const PHASE_PROGRESS: Record<TomorrowPmsProgressPhase, number> = {
+  'checking-cache': 14,
+  'refreshing-session': 28,
+  'refreshing-live-room-state': 45,
+  'contacting-previo': 66,
+  retrying: 72,
+  'validating-snapshot': 88,
+};
+
+const PHASE_STEP: Record<TomorrowPmsProgressPhase, number> = {
+  'checking-cache': 0,
+  'refreshing-session': 0,
+  'refreshing-live-room-state': 1,
+  'contacting-previo': 1,
+  retrying: 1,
+  'validating-snapshot': 2,
+};
+
+function progressCopy(event: TomorrowPmsProgressEvent, selectedDate: string, language?: string | null): {
+  title: string;
+  detail: string;
+} {
+  switch (event.phase) {
+    case 'checking-cache':
+      return {
+        title: nextDayAutoAssignUiText('checkingSnapshot', language),
+        detail: nextDayAutoAssignUiText('checkingSnapshotDetail', language),
+      };
+    case 'refreshing-session':
+      return {
+        title: nextDayAutoAssignUiText('connecting', language),
+        detail: nextDayAutoAssignUiText('safetyLock', language),
+      };
+    case 'refreshing-live-room-state':
+      return {
+        title: nextDayAutoAssignUiText('refreshingRooms', language),
+        detail: nextDayAutoAssignUiText('safetyLock', language),
+      };
+    case 'contacting-previo':
+      return {
+        title: `${nextDayAutoAssignUiText('downloading', language)}${event.attempt > 1 ? ` · ${event.attempt}/${event.maxAttempts}` : ''}`,
+        detail: `${selectedDate} · Previo`,
+      };
+    case 'retrying':
+      return {
+        title: `${nextDayAutoAssignUiText('slowSync', language)} ${event.attempt}/${event.maxAttempts}`,
+        detail: nextDayAutoAssignUiText('safetyLock', language),
+      };
+    case 'validating-snapshot':
+      return {
+        title: nextDayAutoAssignUiText('validating', language),
+        detail: nextDayAutoAssignUiText('safetyLock', language),
+      };
+  }
+}
+
+function friendlyPmsError(raw: string | null): {
+  title: string;
+  detail: string;
+  technical: string | null;
+} {
+  const message = raw || 'Unknown PMS verification error.';
+  if (/failed to send a request to the edge function|failed to fetch|network|load failed|fetcherror|connection (?:reset|closed)|timeout|timed out/i.test(message)) {
+    return {
+      title: 'Previo connection did not complete',
+      detail: 'HotelCare retried the live PMS request automatically, but the connection still did not complete. No tomorrow plan was changed or saved.',
+      technical: message,
+    };
+  }
+  if (/session expired|sign in again|unauthorized|401/i.test(message)) {
+    return {
+      title: 'Your PMS session needs to be refreshed',
+      detail: 'Please sign in again, then retry. No tomorrow plan was changed or saved.',
+      technical: message,
+    };
+  }
+  return {
+    title: 'Could not verify tomorrow’s PMS data',
+    detail: message,
+    technical: null,
+  };
+}
+
+function classifyPmsDayRow(row: any, selectedDate: string): 'checkout' | 'daily' | 'other' {
+  const checkout = row.departure_date === selectedDate
+    || row.status === 'departing'
+    || String(row.housekeeping_dep || '').toUpperCase() === 'DEP';
+  if (checkout) return 'checkout';
+
+  const daily = row.status === 'ongoing'
+    || (!!row.arrival_date && !!row.departure_date
+      && row.arrival_date < selectedDate && row.departure_date > selectedDate);
+  return daily ? 'daily' : 'other';
+}
+
+async function loadExactPmsDaySummary(args: {
+  organizationSlug: string;
+  hotelId: string;
+  selectedDate: string;
+  allowOtherRows: boolean;
+}): Promise<PmsDaySummary | null> {
+  const { data, error } = await (supabase as any)
+    .from('daily_overview_snapshots')
+    .select('business_date,arrival_date,departure_date,status,housekeeping_dep,captured_at')
+    .eq('organization_slug', args.organizationSlug)
+    .eq('hotel_id', args.hotelId)
+    .eq('business_date', args.selectedDate)
+    .eq('source', 'previo');
+  if (error) throw error;
+
+  const rows = data || [];
+  if (rows.length === 0) return null;
+  if (rows.some((row: any) => row.business_date !== args.selectedDate)) {
+    throw new Error(`PMS date isolation failed: received a row outside ${args.selectedDate}.`);
+  }
+
+  let checkoutCount = 0;
+  let dailyCount = 0;
+  let otherCount = 0;
+  let capturedAt: string | null = null;
+  for (const row of rows) {
+    const kind = classifyPmsDayRow(row, args.selectedDate);
+    if (kind === 'checkout') checkoutCount += 1;
+    else if (kind === 'daily') dailyCount += 1;
+    else otherCount += 1;
+    if (row.captured_at && (!capturedAt || row.captured_at > capturedAt)) capturedAt = row.captured_at;
+  }
+
+  // Only Gozsdu allows other rows in the authoritative feed: these are not
+  // automatically housekeeping work. Its existing property-specific service
+  // cycle and non-operating-room exclusions still decide what gets assigned.
+  if (otherCount > 0 && !args.allowOtherRows) {
+    throw new Error(
+      `Previo returned ${otherCount} unclassified room row(s) for ${args.selectedDate}.`,
+    );
+  }
+
+  return {
+    date: args.selectedDate,
+    checkoutCount,
+    dailyCount,
+    otherCount,
+    totalRows: rows.length,
+    capturedAt,
+  };
+}
+
+export function NextDayAutoRoomAssignmentGate(props: Props) {
+  const { profile } = useAuth();
+  const { language } = useTranslation();
+  const nt = (key: Parameters<typeof nextDayAutoAssignUiText>[0]) => nextDayAutoAssignUiText(key, language);
+  const [stage, setStage] = useState<Stage>('checking');
+  const [snapshot, setSnapshot] = useState<TomorrowSnapshotState | null>(null);
+  const [verifiedDate, setVerifiedDate] = useState<string | null>(null);
+  const [summary, setSummary] = useState<PmsDaySummary | null>(null);
+  // Undefined for other properties; null means Ottofiori's night occupancy
+  // could not be independently established from the paired dated snapshots.
+  const [nightForecast, setNightForecast] = useState<OttofioriNightForecast | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [pmsProgress, setPmsProgress] = useState<TomorrowPmsProgressEvent>({
+    phase: 'checking-cache',
+    attempt: 1,
+    maxAttempts: 3,
+  });
+  const generation = useRef(0);
+  const startedAt = useRef<number | null>(null);
+
+  const prepare = async (forceFresh = false) => {
+    if (!profile?.assigned_hotel || !profile.organization_slug) return;
+    const current = ++generation.current;
+    startedAt.current = Date.now();
+    setElapsedSeconds(0);
+    setPmsProgress({ phase: 'checking-cache', attempt: 1, maxAttempts: 3 });
+    setStage(forceFresh ? 'syncing' : 'checking');
+    setError(null);
+    setSummary(null);
+    setVerifiedDate(null);
+    try {
+      const targetDate = props.selectedDate;
+      if (targetDate <= todayBudapest()) {
+        throw new Error(`Future planning requires a Budapest business date after today. Selected ${targetDate}; no live assignments were changed.`);
+      }
+      // Reject malformed dates before invoking the PMS. The ISO date must
+      // correspond to an actual calendar day, not just match a string shape.
+      nextMorningDate(targetDate);
+
+      // Profiles created before canonical hotel IDs were enforced may still
+      // contain display names such as "Hotel Mika Downtown". Integration
+      // requests and PMS snapshot queries must always use hotel_id instead.
+      const canonicalHotelId = await resolveCanonicalHotelId(profile.assigned_hotel);
+      if (!canonicalHotelId) {
+        throw new Error('The assigned hotel could not be resolved to a PMS property. Nothing was assigned.');
+      }
+      const isGozsdu = isGozsduCourtHotel(canonicalHotelId);
+
+      const result = await ensureTomorrowPmsSnapshot({
+        organizationSlug: profile.organization_slug,
+        hotelId: canonicalHotelId,
+        selectedDate: targetDate,
+        forceFresh,
+        // Future previews must NEVER refresh today's rooms/RTC/dirty flags.
+        refreshLiveRoomState: false,
+        onProgress: (event) => {
+          if (current !== generation.current) return;
+          setPmsProgress(event);
+          setStage(event.phase === 'checking-cache' ? 'checking' : 'syncing');
+        },
+      });
+      if (current !== generation.current) return;
+      // A future date cannot rely on the unsupported-PMS metadata fallback:
+      // its room statuses would be derived from today's mutable room flags.
+      // An authoritative empty reservation roster is fine, but the physical
+      // hotel inventory must still have been verified.
+      if (!result.authoritative || result.roomCount < 1) {
+        throw new Error(`Previo did not verify the complete room inventory for ${targetDate}. Future Auto Assign is blocked to protect today's active housekeeping.`);
+      }
+
+      setPmsProgress({ phase: 'validating-snapshot', attempt: 1, maxAttempts: 3 });
+      setStage('syncing');
+      const exactDay = await loadExactPmsDaySummary({
+        organizationSlug: profile.organization_slug,
+        hotelId: canonicalHotelId,
+        selectedDate: targetDate,
+        allowOtherRows: isGozsdu,
+      });
+      if (current !== generation.current) return;
+
+      const verifiedEmpty = result.authoritative === true
+        && result.roomCount > 0
+        && result.rowCount === 0
+        && exactDay === null;
+
+      // Gozsdu trusts the fresh Previo roster itself, not its static inventory
+      // size. A successful zero-row reservation sync is also authoritative:
+      // every operating room is currently unbooked and becomes provisional.
+      if (isGozsdu && !verifiedEmpty
+        && (!exactDay || result.rowCount !== exactDay.totalRows || !result.authoritative)) {
+        throw new Error(`The verified Previo snapshot for ${targetDate} changed. Please refresh before assigning.`);
+      }
+      if (result.roomCount > 0 && !verifiedEmpty) {
+        if (!exactDay) {
+          throw new Error(`The Previo snapshot for ${targetDate} is missing. Nothing was assigned.`);
+        }
+        if (exactDay.totalRows < result.roomCount
+          && !isVerifiedSparseTomorrowSnapshot({
+            hotelId: canonicalHotelId,
+            roomCount: result.roomCount,
+            verifiedRowCount: result.rowCount,
+            exactDayRowCount: exactDay.totalRows,
+            authoritative: result.authoritative,
+          })) {
+          throw new Error(
+            `The Previo snapshot for ${targetDate} is incomplete (${exactDay.totalRows}/${result.roomCount} rooms). Nothing was assigned.`,
+          );
+        }
+      }
+
+      const resolvedSummary: PmsDaySummary | null = exactDay || (verifiedEmpty ? {
+        date: targetDate,
+        checkoutCount: 0,
+        dailyCount: 0,
+        otherCount: 0,
+        totalRows: 0,
+        capturedAt: result.capturedAt,
+      } : null);
+
+      let confirmedNightForecast: OttofioriNightForecast | null = null;
+      if (canonicalHotelId === 'ottofiori' && resolvedSummary) {
+        const nextMorning = nextMorningDate(targetDate);
+        const [morningResult, nextMorningResult] = await Promise.all([
+          (supabase as any).from('daily_overview_snapshots')
+            .select('room_number,arrival_date,departure_date,captured_at')
+            .eq('organization_slug', profile.organization_slug)
+            .eq('hotel_id', canonicalHotelId)
+            .eq('business_date', targetDate).eq('source', 'previo'),
+          (supabase as any).from('daily_overview_snapshots')
+            .select('room_number,arrival_date,departure_date,captured_at')
+            .eq('organization_slug', profile.organization_slug)
+            .eq('hotel_id', canonicalHotelId)
+            .eq('business_date', nextMorning).eq('source', 'previo'),
+        ]);
+        if (morningResult.error || nextMorningResult.error) {
+          console.warn('[Ottofiori night forecast] PMS night evidence unavailable',
+            morningResult.error || nextMorningResult.error);
+        } else {
+          confirmedNightForecast = buildOttofioriNightForecast({
+            selectedDate: targetDate,
+            physicalRoomCount: result.roomCount,
+            housekeepingMorning: morningResult.data || [],
+            followingMorning: nextMorningResult.data || [],
+          });
+        }
+      }
+      if (current !== generation.current) return;
+
+      setNightForecast(confirmedNightForecast);
+      setSummary(resolvedSummary);
+      setSnapshot(result);
+      setVerifiedDate(targetDate);
+      setStage('ready');
+
+      if (resolvedSummary) {
+        const dayDescription = `${resolvedSummary.checkoutCount} check-outs · ${resolvedSummary.dailyCount} stay-overs`;
+        const nightDescription = canonicalHotelId === 'ottofiori'
+          ? confirmedNightForecast
+            ? ` · ${confirmedNightForecast.checkIns} check-ins · ${confirmedNightForecast.nightBooked} booked ${targetDate} night · ${confirmedNightForecast.nightUnbooked} unbooked tonight`
+            : ' · next-night occupancy not verified'
+          : ` · ${resolvedSummary.totalRows} morning housekeeping rooms`;
+        toast.success(
+          `PMS ${resolvedSummary.date}: ${dayDescription}${nightDescription}`,
+          { id: `next-day-pms-${canonicalHotelId}-${resolvedSummary.date}` },
+        );
+      }
+    } catch (cause) {
+      if (current !== generation.current) return;
+      console.error('[NextDayAutoRoomAssignmentGate] PMS preparation failed:', cause);
+      setSnapshot(null);
+      setSummary(null);
+      setVerifiedDate(null);
+      setNightForecast(null);
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setStage('error');
+    }
+  };
+
+  useEffect(() => {
+    if (!props.open) {
+      generation.current += 1;
+      startedAt.current = null;
+      setStage('checking');
+      setSnapshot(null);
+      setSummary(null);
+      setNightForecast(null);
+      setError(null);
+      setElapsedSeconds(0);
+      setPmsProgress({ phase: 'checking-cache', attempt: 1, maxAttempts: 3 });
+      return;
+    }
+    void prepare(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.open, props.selectedDate, profile?.assigned_hotel, profile?.organization_slug]);
+
+  useEffect(() => {
+    if (!props.open || stage === 'ready' || stage === 'error' || !startedAt.current) return;
+    const updateElapsed = () => {
+      if (!startedAt.current) return;
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt.current) / 1000)));
+    };
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [props.open, stage]);
+
+  if (!props.open) return null;
+
+  if (stage === 'ready' && snapshot && verifiedDate === props.selectedDate) {
+    return (
+      <AutoRoomAssignmentImpl
+        key={props.selectedDate}
+        {...props}
+        planningMode="next-day"
+        nightForecast={profile?.assigned_hotel?.toLowerCase().includes('ottofiori') ? nightForecast : undefined}
+        pmsSyncedAt={summary?.capturedAt || snapshot.capturedAt}
+      />
+    );
+  }
+
+  const copy = progressCopy(pmsProgress, props.selectedDate, language);
+  const currentStep = PHASE_STEP[pmsProgress.phase];
+  const progressValue = Math.min(
+    94,
+    PHASE_PROGRESS[pmsProgress.phase] + Math.min(7, Math.floor(elapsedSeconds / 3)),
+  );
+  const isSlow = elapsedSeconds > EXPECTED_SYNC_SECONDS;
+  const errorPresentation = friendlyPmsError(error);
+  const hotelLabel = profile?.assigned_hotel || 'this property';
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="flex h-[94vh] max-h-[94vh] w-[98vw] max-w-[1500px] flex-col overflow-hidden p-4 sm:p-6">
+        <DialogHeader>
+          <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
+            <CalendarClock className="h-5 w-5 text-primary" />
+            {nt('preparing')}
+            <Badge variant="outline">Future plan · {props.selectedDate}</Badge>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          {stage === 'error' ? (
+            <div className="w-full max-w-2xl rounded-3xl border border-destructive/25 bg-gradient-to-b from-destructive/5 to-background p-6 shadow-sm sm:p-8">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
+                <AlertCircle className="h-7 w-7 text-destructive" />
+              </div>
+              <div className="mt-4 text-center">
+                <h3 className="text-lg font-semibold">{errorPresentation.title}</h3>
+                <p className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
+                  {errorPresentation.detail}
+                </p>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3 rounded-2xl border bg-background/80 p-4 text-sm">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{nt('elapsed')}</p>
+                  <p className="mt-1 font-semibold">{elapsedSeconds}s</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Last attempt</p>
+                  <p className="mt-1 font-semibold">{pmsProgress.attempt}/{pmsProgress.maxAttempts}</p>
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-left text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{nt('safetyLock')}</span>
+              </div>
+
+              {errorPresentation.technical ? (
+                <details className="mt-4 rounded-xl border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer font-medium text-foreground">{nt('technicalDetail')}</summary>
+                  <p className="mt-2 break-words">{errorPresentation.technical}</p>
+                </details>
+              ) : null}
+
+              <div className="mt-6 flex flex-wrap justify-center gap-2">
+                <Button variant="outline" onClick={() => props.onOpenChange(false)}>{nt('close')}</Button>
+                <Button onClick={() => void prepare(true)}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  {nt('retry')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full max-w-2xl space-y-5 rounded-3xl border bg-gradient-to-b from-primary/[0.04] to-card p-6 shadow-sm sm:p-8">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="rounded-2xl bg-primary/10 p-3">
+                    {pmsProgress.phase === 'checking-cache'
+                      ? <Database className="h-6 w-6 text-primary" />
+                      : <Loader2 className="h-6 w-6 animate-spin text-primary" />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-lg font-semibold">{nt('preparing')}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {hotelLabel} · Previo · {props.selectedDate}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Badge variant="outline" className={isSlow ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200' : ''}>
+                    <Clock3 className="mr-1 h-3.5 w-3.5" />
+                    {elapsedSeconds}s {nt('elapsed')}
+                  </Badge>
+                  <Badge variant="secondary">&lt; {EXPECTED_SYNC_SECONDS}s</Badge>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium">{copy.title}</span>
+                  <span className="shrink-0 tabular-nums text-xs text-muted-foreground">{Math.round(progressValue)}%</span>
+                </div>
+                <Progress value={progressValue} className="h-2.5" />
+                <p className="mt-2 text-sm text-muted-foreground">{copy.detail}</p>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-3">
+                {[
+                  { label: nt('secureConnection'), Icon: ShieldCheck },
+                  { label: nt('readPms'), Icon: Wifi },
+                  { label: nt('verifyTomorrow'), Icon: CheckCircle2 },
+                ].map(({ label, Icon }, index) => {
+                  const complete = index < currentStep;
+                  const active = index === currentStep;
+                  return (
+                    <div
+                      key={label}
+                      className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm ${
+                        active ? 'border-primary/35 bg-primary/5' : complete ? 'bg-muted/30' : 'opacity-60'
+                      }`}
+                    >
+                      {complete
+                        ? <Check className="h-4 w-4 text-primary" />
+                        : active
+                          ? <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                          : <Icon className="h-4 w-4 text-muted-foreground" />}
+                      <span className={active || complete ? 'font-medium' : ''}>{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {isSlow ? (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
+                  <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    {nt('slowSync')}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 rounded-xl border bg-background/70 p-3 text-xs text-muted-foreground">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span>{nt('safetyLock')}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

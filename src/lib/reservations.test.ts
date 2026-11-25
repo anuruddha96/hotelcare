@@ -144,3 +144,59 @@ describe("misc helpers", () => {
     expect(lifecycleErrorKey(new Error("something else"))).toBe(null);
   });
 });
+
+describe("Previo-reported reservation facts", () => {
+  it("shows the real sales channel of a Previo booking, not just 'previo'", async () => {
+    const { reservationChannel } = await import("./reservations");
+    expect(reservationChannel({ source: "previo", pms_channel: "Booking.com" })).toMatchObject({ label: "Booking.com", letter: "B.", key: "booking" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Expedia" })).toMatchObject({ label: "Expedia", letter: "E" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Szallas.hu" })).toMatchObject({ label: "Szallas.hu", letter: "Sz" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Hotelbeds" })).toMatchObject({ label: "Hotelbeds", letter: "H" });
+    expect(reservationChannel({ source: "previo", pms_channel: null })).toMatchObject({ label: "Previo", letter: "P" });
+  });
+
+  it("keeps the existing badges for HotelCare-made bookings", async () => {
+    const { reservationChannel } = await import("./reservations");
+    expect(reservationChannel({ source: "walk_in" })).toMatchObject({ label: "Walk-in", letter: "W" });
+    expect(reservationChannel({ source: "direct" })).toMatchObject({ label: "Direct", letter: "D" });
+    expect(reservationChannel({ source: "booking_com" })).toMatchObject({ label: "Booking.com", letter: "B.", key: "booking" });
+    expect(reservationChannel({ source: "phone" })).toMatchObject({ label: "Phone", letter: "R" });
+    expect(reservationChannel({ source: null })).toMatchObject({ label: "—", letter: "R" });
+  });
+
+  it("tells an option from a waiting-list booking only while pending", async () => {
+    const { pmsHoldKind } = await import("./reservations");
+    expect(pmsHoldKind({ status: "pending", pms_status_id: 1 })).toBe("option");
+    expect(pmsHoldKind({ status: "pending", pms_status_id: 6 })).toBe("waiting_list");
+    expect(pmsHoldKind({ status: "pending", pms_status_id: null })).toBeNull();
+    expect(pmsHoldKind({ status: "confirmed", pms_status_id: 1 })).toBeNull();
+  });
+
+  it("reports Previo payment state for Previo bookings only", async () => {
+    const { pmsPaymentNote } = await import("./reservations");
+    expect(pmsPaymentNote({ source: "previo", pms_payment_status: "paid" })).toBe("paid");
+    expect(pmsPaymentNote({ source: "previo", pms_payment_status: "partial" })).toBe("partial");
+    expect(pmsPaymentNote({ source: "previo", pms_payment_status: "unpaid" })).toBeNull();
+    expect(pmsPaymentNote({ source: "direct", pms_payment_status: "paid" })).toBeNull();
+  });
+
+  it("finds a booking by OTA voucher, channel or booker", async () => {
+    const { reservationSearchText } = await import("./reservations");
+    const text = reservationSearchText({
+      status: "confirmed", check_in_date: "2026-11-08", check_out_date: "2026-11-15",
+      pms_voucher: "5462609756", pms_channel: "Booking.com", pms_contact_name: "Istvan Holbach",
+    });
+    expect(text).toContain("5462609756");
+    expect(text).toContain("booking.com");
+    expect(text).toContain("istvan holbach");
+  });
+});
+
+describe("channel labels from older imports", () => {
+  it("drops Previo's technical suffixes", async () => {
+    const { reservationChannel } = await import("./reservations");
+    expect(reservationChannel({ source: "previo", pms_channel: "Booking.com XML" })).toMatchObject({ label: "Booking.com", letter: "B.", key: "booking" });
+    expect(reservationChannel({ source: "previo", pms_channel: "AgodaXML" })).toMatchObject({ label: "Agoda", letter: "a", key: "agoda" });
+    expect(reservationChannel({ source: "previo", pms_channel: "HotelTonightV2XML" }).label).toBe("HotelTonight");
+  });
+});

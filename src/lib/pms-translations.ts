@@ -1,5 +1,15 @@
 export const pmsTranslations: Record<string, Record<string, string>> = {
   en: {
+    'pms.err.postDepartureRequiresManager': 'Only a manager can post charges or payments after check-out.',
+    'pms.err.noEligibleGuests': 'Add a guest to this reservation before checking in.',
+    'pms.viza.queueFailed': 'VIZA reporting could not be queued',
+    'pms.viza.queueReservation': 'Reservation',
+    'pms.viza.retryQueue': 'Retry reporting',
+    'pms.viza.queueRetrySuccess': 'VIZA reporting queued for retry.',
+    'pms.account.title': 'Account',
+    'pms.account.externalReadOnly': 'This reservation is managed in an external PMS. Its imported balance is read-only here. Record charges, payments and corrections in that PMS.',
+    'pms.account.importedBalance': 'Balance from external PMS',
+    'pms.account.stayAmount': 'Reservation amount',
     // Auth
     'auth.emailOrUsername': 'Email or Username',
     'auth.password': 'Password',
@@ -323,6 +333,16 @@ export const pmsTranslations: Record<string, Record<string, string>> = {
   },
 
   hu: {
+    'pms.err.postDepartureRequiresManager': 'Kijelentkezés után csak vezető rögzíthet terhelést vagy fizetést.',
+    'pms.err.noEligibleGuests': 'Bejelentkezés előtt adjon hozzá vendéget ehhez a foglaláshoz.',
+    'pms.viza.queueFailed': 'A VIZA adatszolgáltatás nem került sorba',
+    'pms.viza.queueReservation': 'Foglalás',
+    'pms.viza.retryQueue': 'Adatszolgáltatás újrapróbálása',
+    'pms.viza.queueRetrySuccess': 'A VIZA adatszolgáltatás újra sorba került.',
+    'pms.account.title': 'Foglalási egyenleg',
+    'pms.account.externalReadOnly': 'Ezt a foglalást külső szállodai rendszer kezeli. Az onnan átvett egyenleg itt csak megtekinthető. A terheléseket, fizetéseket és helyesbítéseket a külső rendszerben rögzítse.',
+    'pms.account.importedBalance': 'Külső rendszerből átvett egyenleg',
+    'pms.account.stayAmount': 'Foglalás összege',
     // Auth
     'auth.emailOrUsername': 'Email vagy Felhasználónév',
     'auth.password': 'Jelszó',

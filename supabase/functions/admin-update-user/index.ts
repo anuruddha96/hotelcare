@@ -13,6 +13,8 @@ interface AdminUpdateUserPayload {
   new_password?: string;
   full_name?: string;
   nickname?: string;
+  phone_number?: string | null;
+  assigned_hotel?: string | null;
 }
 
 serve(async (req: Request) => {
@@ -22,7 +24,7 @@ serve(async (req: Request) => {
 
   try {
     const payload: AdminUpdateUserPayload = await req.json();
-    const { target_user_id, new_email, new_password, full_name, nickname } = payload;
+    const { target_user_id, new_email, new_password, full_name, nickname, phone_number, assigned_hotel } = payload;
 
     if (!target_user_id) {
       return new Response(JSON.stringify({ error: "target_user_id is required" }), {
@@ -59,8 +61,8 @@ serve(async (req: Request) => {
       .eq("id", caller.id)
       .maybeSingle();
 
-    if (roleErr || !roleData || !['admin', 'manager', 'housekeeping_manager'].includes(roleData.role)) {
-      return new Response(JSON.stringify({ error: "Forbidden: admin, manager, or housekeeping_manager role required" }), {
+    if (roleErr || !roleData || !['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager'].includes(roleData.role)) {
+      return new Response(JSON.stringify({ error: "Forbidden: staff-management role required" }), {
         status: 403,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
@@ -84,7 +86,7 @@ serve(async (req: Request) => {
       });
     }
 
-    if (roleData.role !== 'admin') {
+    if (!['admin', 'top_management', 'top_management_manager'].includes(roleData.role)) {
       const sameOrg = !!roleData.organization_slug &&
         roleData.organization_slug === targetScope.organization_slug;
       if (!sameOrg || targetScope.role === 'admin') {
@@ -228,11 +230,15 @@ serve(async (req: Request) => {
     const updates: Record<string, any> = {};
     if (emailInput) updates.email = emailInput;
     if (fullNameInput) updates.full_name = fullNameInput;
-    if (nicknameInput) updates.nickname = nicknameInput;
+    if (nickname !== undefined) updates.nickname = nickname?.trim() || null;
+    if (phone_number !== undefined) updates.phone_number = phone_number?.trim() || null;
+    if (assigned_hotel !== undefined) updates.assigned_hotel = assigned_hotel?.trim() || null;
 
     console.log('Profile updates to apply:', updates);
     if (Object.keys(updates).length > 0) {
-      const { error: profileErr } = await supabase
+      // Use the already-authorized service-role client for the target write. Managers
+      // are scope-checked above, so this avoids profile RLS silently blocking edits.
+      const { error: profileErr } = await supabaseAdmin
         .from('profiles')
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', target_user_id);

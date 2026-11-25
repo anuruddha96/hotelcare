@@ -21,6 +21,7 @@ export const managerAttendanceCurriculum: TrainingCurriculum = {
   },
   roles: [
     'manager',
+    'hr',
     'housekeeping_manager',
     'maintenance_manager',
     'reception_manager',

@@ -1,0 +1,78 @@
+name: Housekeeping tenant security SQL CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20260924072320_housekeeping_assignment_tenant_isolation_20260924.sql'
+      - 'supabase/migrations/20260924072338_housekeeping_plan_policy_refinements_20260924.sql'
+      - 'supabase/migrations/20260924072405_room_assignment_tenant_write_guard_20260924.sql'
+      - 'supabase/migrations/20260924073025_harden_room_assignment_tenant_integrity_execute_20260924.sql'
+      - 'supabase/migrations/20260924073124_lock_down_room_assignment_tenant_integrity_execute_20260924.sql'
+      - 'supabase/tests/housekeeping_tenant_guard_*.sql'
+      - '.github/workflows/housekeeping-tenant-guard-sql-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  tenant-security-sql:
+    name: Disposable PostgreSQL RLS checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_hk_tenant_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_hk_tenant_ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Apply three PR migrations and exercise tenant-negative assertions
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/housekeeping_tenant_guard_fixture.sql \
+            -f supabase/migrations/20260924072320_housekeeping_assignment_tenant_isolation_20260924.sql \
+            -f supabase/migrations/20260924072338_housekeeping_plan_policy_refinements_20260924.sql \
+            -f supabase/migrations/20260924072405_room_assignment_tenant_write_guard_20260924.sql \
+            -f supabase/migrations/20260924073025_harden_room_assignment_tenant_integrity_execute_20260924.sql \
+            -f supabase/migrations/20260924073124_lock_down_room_assignment_tenant_integrity_execute_20260924.sql \
+            -f supabase/tests/housekeeping_tenant_guard_integration.sql \
+            -f supabase/tests/housekeeping_tenant_guard_write_denials.sql
+      - name: Check release gate refuses unresolved synthetic operational work
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -c "UPDATE public.room_assignments SET assignment_date=current_date WHERE status='in_progress';"
+          if psql -X -v ON_ERROR_STOP=1 -f supabase/tests/housekeeping_tenant_guard_release_preflight.sql > /tmp/housekeeping-tenant-gate.log 2>&1; then
+            echo "::error::Expected the release gate to reject unresolved synthetic active cross-tenant rows"
+            exit 1
+          fi
+          if ! grep -q 'HK_TENANT_PREFLIGHT_BLOCKED' /tmp/housekeeping-tenant-gate.log; then
+            echo "::error::Unexpected SQL error; release gate did not return its expected block"
+            cat /tmp/housekeeping-tenant-gate.log
+            exit 1
+          fi
+      - name: Confirm stale historical mismatches do not block safe rollout
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 \
+            -c "UPDATE public.room_assignments SET assignment_date=current_date - 300 WHERE assignment_date >= current_date - 1;" \
+            -f supabase/tests/housekeeping_tenant_guard_release_preflight.sql

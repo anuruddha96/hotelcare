@@ -1,0 +1,30 @@
+name: Unusual-rate alert safety CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/revenue-rate-alerts/**'
+      - 'supabase/functions/_shared/rateAlertInventory.ts'
+      - 'src/test/revenueRateAlertInventory.test.ts'
+      - '.github/workflows/rate-alerts-ci.yml'
+  pull_request:
+    paths:
+      - 'supabase/functions/revenue-rate-alerts/**'
+      - 'supabase/functions/_shared/rateAlertInventory.ts'
+      - 'src/test/revenueRateAlertInventory.test.ts'
+      - '.github/workflows/rate-alerts-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  edge-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check published unusual-rate alert worker
+        run: deno check --node-modules-dir=none supabase/functions/revenue-rate-alerts/index.ts

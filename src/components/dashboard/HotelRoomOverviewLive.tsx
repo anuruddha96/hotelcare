@@ -18,9 +18,11 @@ import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, A
 import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
+import { housekeepingBedShortCode } from '@/lib/housekeepingBedSetup';
+import { frozenPreviousRoomService, type HistoricalRoomSnapshot } from '@/lib/previousDayRoomService';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
-import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError } from '@/lib/hkAssignmentDnd';
+import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError, isRoomOutOfServiceError } from '@/lib/hkAssignmentDnd';
 import { useUnitSelection, toggleUnitSelection, toggleUnitGroupSelection, type SelectedUnit } from '@/lib/unitSelection';
 
 import { Textarea } from '@/components/ui/textarea';
@@ -28,12 +30,32 @@ import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
-import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { resolveCanonicalHotelId, resolveHotelKeys, buildHotelRoomsRealtimeFilter } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
+import { compareRoomAuthority, createOverviewLoadGuard } from '@/lib/roomOverviewAuthority';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { getMemoriesRoomBoardNote, isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
+import { getMemoriesDailyBoardCarry } from '@/lib/memoriesDailyBoardCarry';
+import {
+  effectiveCarryServiceFlags,
+  getCarryForwardManagerCopy,
+  getActionableHousekeepingCarryForward,
+  isCarryForwardDisplayHotel,
+  isRdCarryForwardHotel,
+} from '@/lib/housekeepingCarryForward';
+import { isCurrentNoServiceOutcome, selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { canOfferCheckoutRtc, shouldConfirmManualRtc, shouldInterceptCheckoutMarkClean } from '@/lib/checkoutRtcGuard';
 import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { useVenues } from '@/hooks/useVenues';
 import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
+import { shortUnitLabel } from '@/lib/venueUnitLabel';
+import { filterSlntRoomsToActiveVenues, matchesSlntBoardFilter } from '@/lib/slntFlatRoomBoard';
+import { isDndForBusinessDate, isNoShowForBusinessDate } from '@/lib/currentRoomTransientFlags';
+import { isPmsArrivalForDate } from '@/lib/ottofioriArrivalBucket';
+import { canAssignSlntRoom, getSlntRoomChipMode } from '@/lib/slntRoomChipBehavior';
+
 
 
 interface RoomData {
@@ -47,6 +69,7 @@ interface RoomData {
   last_cleaned_at: string | null;
   is_checkout_room: boolean | null;
   is_dnd: boolean | null;
+  dnd_marked_at?: string | null;
   notes: string | null;
   room_size_sqm: number | null;
   wing: string | null;
@@ -76,6 +99,12 @@ interface AssignmentData {
   ready_to_clean: boolean | null;
   pms_hold?: boolean | null;
   notes: string | null;
+  created_at?: string | null;
+  service_result?: string | null;
+  is_dnd?: boolean | null;
+  dnd_attempt_count?: number | null;
+  dnd_marked_at?: string | null;
+  previous_day_context?: any;
 }
 
 interface PublicAreaTask {
@@ -142,19 +171,19 @@ function getSizeLabel(sqm: number | null): string | null {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
-  dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
-  out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200 dark:border-red-600',
-  inspected: 'bg-teal-200 text-teal-900 border-teal-500 dark:bg-teal-900/50 dark:text-teal-200 dark:border-teal-600',
-  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200 dark:border-violet-600',
-  overdue: 'bg-rose-300 text-rose-950 border-rose-600 dark:bg-rose-900/60 dark:text-rose-200 dark:border-rose-500',
+  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500',
+  dirty: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  out_of_order: 'bg-red-200 text-red-900 border-red-500',
+  inspected: 'bg-teal-200 text-teal-900 border-teal-500',
+  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500',
+  overdue: 'bg-rose-300 text-rose-950 border-rose-600',
 };
 
 const TASK_STATUS_COLORS: Record<string, string> = {
-  assigned: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
-  completed: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
+  assigned: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  completed: 'bg-emerald-200 text-emerald-900 border-emerald-500',
 };
 
 const DEFAULT_COLOR = 'bg-muted text-muted-foreground border-border';
@@ -172,13 +201,35 @@ function isOverdue(assignment: AssignmentData | undefined, startedAt?: string): 
 
 export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey, signedInHousekeepers = [] }: HotelRoomOverviewProps) {
   const { profile } = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const hu = language === 'hu';
   const terms = usePropertyTerms();
-  const { venuesEnabled } = useTenantFeatures();
+  const { orgSlug, venuesEnabled } = useTenantFeatures();
+  // Use the active tenant, never the profile's default organization, to scope
+  // presentation changes to SLNT's Team View only.
+  const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes(orgSlug?.toLowerCase() ?? '');
   const { venues } = useVenues();
   const isMobile = useIsMobile();
-  const [rooms, setRooms] = useState<RoomData[]>([]);
+  const [loadedRooms, setRooms] = useState<RoomData[]>([]);
+  // SLNT's active venue list is authoritative for the operational room board.
+  // Keep inactive records in storage/history but never show them as "No venue set"
+  // when a venue is disabled. Other tenants continue using their full room list.
+  const rooms = React.useMemo(
+    () => isSlntTenant
+      ? filterSlntRoomsToActiveVenues(loadedRooms, venues.map(venue => venue.id))
+      : loadedRooms,
+    [loadedRooms, venues, isSlntTenant],
+  );
+  const loadGuardRef = useRef(createOverviewLoadGuard());
+  // Window events are installed once; always call the current date/hotel's loader.
+  const fetchDataRef = useRef<(silent?: boolean) => Promise<void>>(async () => {});
+  const currentOverviewScope = `${hotelName}|${selectedDate}`;
+  const currentOverviewScopeRef = useRef(currentOverviewScope);
+  currentOverviewScopeRef.current = currentOverviewScope;
+  const [overviewDataError, setOverviewDataError] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
+  // HMB: dated, proof-checked outstanding service for rooms not yet assigned today.
+  const [memoriesCarryByRoomId, setMemoriesCarryByRoomId] = useState<Map<string, unknown>>(new Map());
   const [publicAreaTasks, setPublicAreaTasks] = useState<PublicAreaTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [averageCleanTime, setAverageCleanTime] = useState<number | null>(null);
@@ -189,7 +240,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [savingSize, setSavingSize] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  // The status key is visible on initial load at every hotel.
   const [showLegend, setShowLegend] = useState(true);
+  // SLNT portfolio managers can narrow TODAY's room board without changing
+  // PMS data, historical snapshots, assignment types or the section totals.
+  const [slntRoomSearch, setSlntRoomSearch] = useState('');
+  const [slntOnlyUnassigned, setSlntOnlyUnassigned] = useState(false);
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -199,9 +255,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | 'noshow' | 'arrival' | null>(null);
   const justDraggedRef = useRef<number>(0);
   const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
+  const [previousRoomSnapshots, setPreviousRoomSnapshots] = useState<Map<string, HistoricalRoomSnapshot>>(new Map());
   const [previousAssignments, setPreviousAssignments] = useState<Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>>(new Map());
   const [syncFlash, setSyncFlash] = useState(false);
   const [pendingUnassign, setPendingUnassign] = useState<{ roomId: string; roomNumber: string; staffName: string | null } | null>(null);
+  const [pendingCheckoutCleanDecision, setPendingCheckoutCleanDecision] = useState<{ roomId: string; roomNumber: string } | null>(null);
   const [unassigning, setUnassigning] = useState(false);
   // Inverse drag: a housekeeper chip from the tray dropped onto a room chip.
   const [hkDrag, setHkDrag] = useState<{ staffId: string; staffName: string } | null>(null);
@@ -221,13 +279,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   // Rental portfolios (SLNT) have many small units: keep the chips tight so a
   // whole venue fits on one phone screen and tapping stays easy.
   const compactChips = terms.isProperty;
-  // Dense multi-column venue layout so ~60 units fit without endless scrolling.
-  const [denseVenues, setDenseVenues] = useState<boolean>(() => {
-    try { return localStorage.getItem('hc-dense-venues') !== '0'; } catch { return true; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem('hc-dense-venues', denseVenues ? '1' : '0'); } catch { /* ignore */ }
-  }, [denseVenues]);
+  // The portfolio board now has a single clear property-row layout, so the old
+  // Compact/Roomy preference no longer changes anything.
+
   const selectedUnitIds = new Set(selectedUnits.map((u) => u.roomId));
   const longPressRef = useRef<NodeJS.Timeout | null>(null);
   const longPressFiredRef = useRef(false);
@@ -249,16 +303,29 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
+  const canManualGozsduRtc = isGozsduCourtHotel(hotelName) && (isManagerOrAdmin || isReception);
   const canViewFullOverview = isManagerOrAdmin || isExecViewer || isReception;
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchData();
-    setRefreshing(false);
+    try {
+      // Keep the board and its Refresh control available during a manual refresh.
+      await fetchData(true);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
+  const displayedScopeRef = useRef(currentOverviewScope);
   useEffect(() => {
+    if (displayedScopeRef.current !== currentOverviewScope) {
+      displayedScopeRef.current = currentOverviewScope;
+      loadGuardRef.current.invalidate();
+      setLoading(true);
+      setRooms([]); setAssignments([]); setPublicAreaTasks([]);
+      setPreviousAssignments(new Map()); setOverviewDataError(null);
+    }
     fetchData();
   }, [selectedDate, hotelName, refreshKey]);
 
@@ -267,10 +334,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   useEffect(() => {
     const onSynced = () => {
       setSyncFlash(true);
-      fetchData(true);
+      void fetchDataRef.current(true);
       setTimeout(() => setSyncFlash(false), 2000);
     };
-    const onAssignmentsChanged = () => fetchData(true);
+    const onAssignmentsChanged = () => { void fetchDataRef.current(true); };
     window.addEventListener('pms-sync-completed', onSynced);
     window.addEventListener('hk-assignments-changed', onAssignmentsChanged);
     return () => {
@@ -279,42 +346,71 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     };
   }, []);
 
-  // Auto-refresh: realtime subscription on rooms/assignments + visibility-aware polling
-  // Ensures stale checkout flags clear from the UI as soon as the PMS poll updates the DB.
+  // Live changes are restricted to this hotel's canonical + legacy room keys.
+  // Keep the 60s visible-tab reconciliation for missed DELETEs, reconnects and PMS changes.
   useEffect(() => {
     let cancelled = false;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let refreshInFlight = false;
+    let refreshQueued = false;
 
     const safeFetch = () => {
       if (cancelled || document.hidden) return;
-      fetchData(true); // silent: no loading skeleton, no blink
+      if (refreshInFlight) {
+        refreshQueued = true;
+        return;
+      }
+      refreshInFlight = true;
+      void Promise.resolve(fetchDataRef.current(true))
+        .catch((error) => { console.error('Room overview refresh failed', error); })
+        .finally(() => {
+          refreshInFlight = false;
+          // Coalesce bursts into one follow-up, instead of overlapping five
+          // expensive room/assignment/summary requests per Realtime event.
+          if (refreshQueued) {
+            refreshQueued = false;
+            safeFetch();
+          }
+        });
     };
 
-    // Realtime: any change to rooms or today's assignments triggers a refetch (debounced)
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleRefetch = () => {
+      if (cancelled || document.hidden) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(safeFetch, 500);
     };
 
-    const channel = supabase
-      .channel(`room-overview-${hotelName}-${selectedDate}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, (payload: any) => {
-        const rowHotel = payload?.new?.hotel ?? payload?.old?.hotel;
-        if (!rowHotel || rowHotel === hotelName) scheduleRefetch();
-        else {
-          void resolveHotelKeys(hotelName).then(keys => {
-            if ((keys.length ? keys : [hotelName]).includes(rowHotel)) scheduleRefetch();
-          });
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${selectedDate}` }, scheduleRefetch)
-      .subscribe();
+    const subscribeToHotel = (keys: string[]) => {
+      if (cancelled) return;
+      channel = supabase
+        .channel('room-overview-' + hotelName + '-' + selectedDate)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'rooms',
+            filter: buildHotelRoomsRealtimeFilter(keys),
+          },
+          scheduleRefetch,
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'room_assignments', filter: 'assignment_date=eq.' + selectedDate },
+          scheduleRefetch,
+        )
+        .subscribe();
+    };
 
-    // Polling fallback every 60s while tab is visible
+    // Resolve aliases once, not on every unrelated room UPDATE. Fallback to
+    // the selected key if the lookup is temporarily unavailable.
+    void resolveHotelKeys(hotelName)
+      .then((keys) => subscribeToHotel(keys.length ? keys : [hotelName]))
+      .catch(() => subscribeToHotel([hotelName]));
+
     pollTimer = setInterval(safeFetch, 60_000);
-
-    // Refresh immediately when the tab becomes visible again
     const onVisible = () => { if (!document.hidden) safeFetch(); };
     document.addEventListener('visibilitychange', onVisible);
 
@@ -322,25 +418,31 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       cancelled = true;
       if (pollTimer) clearInterval(pollTimer);
       if (debounceTimer) clearTimeout(debounceTimer);
-      supabase.removeChannel(channel);
+      if (channel) void supabase.removeChannel(channel);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [selectedDate, hotelName]);
 
   const fetchData = async (silent: boolean = false) => {
-    if (!silent) setLoading(true);
+    // Events from a previous hotel/date must never invalidate the current load.
+    if (currentOverviewScopeRef.current !== currentOverviewScope) return;
+    const token = loadGuardRef.current.start(currentOverviewScope);
+    const latest = () => loadGuardRef.current.isCurrent(token, currentOverviewScopeRef.current);
+    // Only the first load of a scope needs a blocking skeleton. Room actions,
+    // Refresh, polling and live updates keep the existing board visible.
+    if (!silent && loadGuardRef.current.needsInitialLoad(currentOverviewScope)) setLoading(true);
     try {
       const hotelKeys = await resolveHotelKeys(hotelName);
       const keys = hotelKeys.length ? hotelKeys : [hotelName];
-      const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
+      const [roomsRes, assignmentsRes, tasksRes, completedRes, carryBoardRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, hotel, room_number, floor_number, venue_id, status, last_cleaned_at, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, bed_configuration, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
+          .select('id, hotel, room_number, floor_number, venue_id, status, last_cleaned_at, is_checkout_room, is_dnd, dnd_marked_at, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, bed_configuration, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
           .in('hotel', keys)
           .order('room_number'),
         supabase
           .from('room_assignments')
-          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes')
+          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, created_at, service_result, is_dnd, dnd_attempt_count, dnd_marked_at, previous_day_context')
           .eq('assignment_date', selectedDate),
         supabase
           .from('general_tasks')
@@ -353,16 +455,41 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .eq('assignment_date', selectedDate)
           .eq('status', 'completed')
           .not('started_at', 'is', null)
-          .not('completed_at', 'is', null)
+          .not('completed_at', 'is', null),
+        // HMB room-board carries must be visible even before today's assignments
+        // are released. Other hotels, historical dates and the PMS remain unchanged.
+        isHotelMemoriesBudapest(hotelName) && selectedDate === todayBudapest()
+          ? (supabase as any)
+              .from('hc_memories_daily_carry_board')
+              .select('room_id, carry_forward')
+              .eq('business_date', selectedDate)
+          : Promise.resolve({ data: [], error: null }),
       ]);
 
+      if (!latest()) return;
+      if (roomsRes.error || assignmentsRes.error || !roomsRes.data?.length) {
+        throw new Error(roomsRes.error?.message || assignmentsRes.error?.message ||
+          'Room data incomplete; keeping the previous overview');
+      }
       const assignmentRoomIds = new Set((assignmentsRes.data || []).map((a: any) => a.room_id));
       const dedupedRooms = dedupeRoomsByNumber(roomsRes.data || [], assignmentRoomIds);
       setRooms(dedupedRooms);
       
       const roomIds = new Set(dedupedRooms.map(r => r.id));
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
+      setMemoriesCarryByRoomId(new Map(
+        (((carryBoardRes as any)?.data || []) as Array<{ room_id: string; carry_forward: unknown }>)
+          .filter(item => roomIds.has(item.room_id))
+          .map(item => [item.room_id, item.carry_forward] as const),
+      ));
       setPublicAreaTasks(tasksRes.data || []);
+      setOverviewDataError((carryBoardRes as any)?.error
+        ? 'Hotel Memories missed-service verification is unavailable. Please refresh the room board.'
+        : null);
+      loadGuardRef.current.markLoaded(currentOverviewScope);
+      // Core room/assignment data is ready. Do not block managers while the
+      // optional historical comparison queries are still loading.
+      setLoading(false);
 
       // Load a READ-ONLY snapshot of the previous working day so admins can
       // compare where things stopped yesterday vs where things stand today.
@@ -381,11 +508,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             .limit(1)
             .maybeSingle();
           const prevDate = (prevDateRow as any)?.assignment_date || null;
+          if (!latest()) return;
           setPreviousDayDate(prevDate);
           if (prevDate) {
             const { data: prevAssignRows } = await supabase
               .from('room_assignments')
-              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, completed_at, assignment_date')
+              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, completed_at, assignment_date, is_dnd, dnd_attempt_count, dnd_marked_at, previous_day_context')
               .in('room_id', roomIdList)
               .eq('assignment_date', prevDate);
             const map = new Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>();
@@ -396,22 +524,32 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               const rank = (s: string) => s === 'completed' ? 3 : s === 'in_progress' ? 2 : 1;
               if (!existing || rank(a.status) >= rank(existing.status)) map.set(a.room_id, a);
             }
+            if (!latest()) return;
+            const { data: frozenRows, error: snapshotsError } = await (supabase as any)
+              .from('hc_housekeeping_room_service_history')
+              .select('room_id, is_checkout_room, towel_change_required, linen_change_required, room_notes, bed_configuration, pms_metadata, final_state, scheduled_service_due')
+              .in('room_id', roomIdList)
+              .eq('business_date', prevDate);
+            if (!latest()) return;
+            if (snapshotsError) console.warn('Previous-day service snapshots unavailable:', snapshotsError);
+            setPreviousRoomSnapshots(new Map((frozenRows || []).map((row: any) => [row.room_id, row as HistoricalRoomSnapshot])));
             setPreviousAssignments(map);
           } else {
-            setPreviousAssignments(new Map());
+            if (latest()) { setPreviousAssignments(new Map()); setPreviousRoomSnapshots(new Map()); }
           }
         } else {
           setPreviousDayDate(null);
           setPreviousAssignments(new Map());
+          setPreviousRoomSnapshots(new Map());
         }
       } catch (e) {
         console.error('Error fetching previous-day snapshot:', e);
-        setPreviousDayDate(null);
-        setPreviousAssignments(new Map());
+        if (latest()) { setPreviousDayDate(null); setPreviousAssignments(new Map()); setPreviousRoomSnapshots(new Map()); }
       }
 
 
       // Calculate ACT from completed assignments for this hotel's rooms
+      if (!latest()) return;
       const completedForHotel = (completedRes.data || []).filter(a => roomIds.has(a.room_id));
       if (completedForHotel.length > 0) {
         const totalMinutes = completedForHotel.reduce((sum, a) => {
@@ -425,10 +563,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       }
     } catch (error) {
       console.error('Error fetching room overview:', error);
+      if (latest()) setOverviewDataError((error as Error)?.message || 'Could not update the room board');
     } finally {
-      if (!silent) setLoading(false);
+      // A silent realtime load may supersede a visible initial load. It now
+      // owns settling the spinner too, otherwise the board can stay stuck.
+      if (latest()) setLoading(false);
     }
   };
+  fetchDataRef.current = fetchData;
 
   const canInteractWithRooms = isManagerOrAdmin || isReception;
   const [roomNotes, setRoomNotes] = useState('');
@@ -441,6 +583,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     notify: boolean = false,
   ) => {
     try {
+      const previousText = parseRoomFlags(room.notes).cleanNotes.trim();
+      // A blur from an untouched or re-rendered popover is NOT an instruction
+      // to clear the manager's note. Empty text may expire at local midnight.
+      if (noteText.trim() === previousText) {
+        setPopoverNotesSaveState('saved');
+        return true;
+      }
+      if (isHotelMemoriesBudapest(room.hotel) && !noteText.trim() && previousText) {
+        throw new Error('Today’s manager notes remain active until midnight. Refresh the room if this note is outdated.');
+      }
+
       setPopoverNotesSaveState('saving');
       const currentFlags = parseRoomFlags(room.notes);
       const { buildRoomNotes } = await import('@/lib/room-service-flags');
@@ -453,15 +606,21 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       );
 
       if (newFullNotes !== (room.notes || '')) {
-        const { error } = await supabase
-          .from('rooms')
-          .update({ notes: newFullNotes || null } as any)
-          .eq('id', room.id);
+        // Compare-and-swap is essential: PMS, supervisors, or another open
+        // editor may have updated the note after the chip was rendered.
+        const { data, error } = await (supabase as any).rpc('save_room_note_if_unchanged', {
+          p_room_id: room.id,
+          p_notes: newFullNotes,
+          p_expected_notes: room.notes ?? null,
+        });
         if (error) throw error;
+        const savedRoom = Array.isArray(data) ? data[0] : data;
+        if (!savedRoom?.room_id) throw new Error('Room note was not saved. Refresh and retry.');
 
         setRooms(prev => prev.map(r =>
-          r.id === room.id ? { ...r, notes: newFullNotes || null } : r,
+          r.id === room.id ? { ...r, notes: savedRoom.notes ?? null } : r,
         ));
+        window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
       }
 
       setPopoverNotesSaveState('saved');
@@ -473,7 +632,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     } catch (error) {
       console.error('Failed to save room notes:', error);
       setPopoverNotesSaveState('error');
-      if (notify) toast.error('Failed to save notes');
+      if (notify) toast.error((error as Error)?.message || 'Failed to save notes');
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
       return false;
     }
   }, []);
@@ -491,21 +651,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const dedupeRoomsByNumber = (roomList: RoomData[], assignmentRoomIds: Set<string>) => {
     const byNumber = new Map<string, RoomData>();
-    const score = (room: RoomData) => {
-      let value = 0;
-      if (assignmentRoomIds.has(room.id)) value += 1000;
-      if (room.hotel === hotelName) value += 500;
-      if (room.pms_metadata?.roomId) value += 120;
-      if (room.pms_metadata?.scheduledDepartureToday === true || room.pms_metadata?.checkedOutToday === true) value += 80;
-      if (room.is_checkout_room) value += 40;
-      if (room.updated_at) value += Math.min(30, Math.max(0, (Date.now() - new Date(room.updated_at).getTime()) / -3_600_000 + 30));
-      return value;
-    };
-
     for (const room of roomList) {
       const key = String(room.room_number || '').trim();
       const current = byNumber.get(key);
-      if (!current || score(room) > score(current)) byNumber.set(key, room);
+      if (!current || compareRoomAuthority(room, current, hotelName, todayBudapest(), assignmentRoomIds) > 0) byNumber.set(key, room);
     }
 
     return Array.from(byNumber.values()).sort((a, b) =>
@@ -543,6 +692,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     if (Date.now() - justDraggedRef.current < 600) return;
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     hoverTimeoutRef.current = setTimeout(() => {
+      // A pending edit continues using its own captured room and draft; it
+      // must not mutate the next room or auto-clear its note on hover.
       setHoveredRoomId(roomId);
       const flags = parseRoomFlags(room.notes);
       setPopoverNotes(flags.cleanNotes);
@@ -595,8 +746,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     }
   };
 
-  const assignmentMap = new Map<string, AssignmentData>();
-  assignments.forEach(a => assignmentMap.set(a.room_id, a));
+  // A Memories supervisor recheck retains the earlier submission for audit
+  // and inserts a new assignment. PostgREST does not promise row order: an
+  // old completed [NO_SERVICE] row must never replace active cleaning.
+  // Preserve the other hotels' existing assignment behavior unchanged.
+  const memoriesOverview = isHotelMemoriesBudapest(hotelName);
+  const assignmentMap: Map<string, AssignmentData> = memoriesOverview
+    ? selectCurrentHousekeepingAssignments(assignments)
+    : new Map<string, AssignmentData>();
+  if (!memoriesOverview) assignments.forEach(a => assignmentMap.set(a.room_id, a));
 
   // A room counts as a "checkout room" in Team View only when the guest
   // departs today. Departure-tomorrow rooms stay in Daily Rooms and show the
@@ -622,28 +780,33 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const isArrivalOnly = (room: RoomData) =>
     !isCheckoutBucket(room) &&
     hasFreshPms(room) &&
-    (room.pms_metadata as any)?.arrivalToday === true &&
-    (room.pms_metadata as any)?.occupiedToday !== true;
+    isPmsArrivalForDate(room.pms_metadata, selectedDate);
 
   const checkoutRooms = rooms.filter(isCheckoutBucket);
-  const arrivalRooms = rooms.filter(r => isArrivalOnly(r) && (r.pms_metadata as any)?.isNoShow !== true);
+  const isPmsNoShow = (room: RoomData) =>
+    isNoShowForBusinessDate(room, selectedDate, hotelName);
+
+  // No-show is a current-business-day reservation state. Never infer it from
+  // sticky room notes, because notes can legitimately remain after midnight.
+  const isNoShow = (room: RoomData) => isPmsNoShow(room);
+
+  const isVerifiedUnsold = (room: RoomData) => (
+    (room.pms_metadata as any)?.pmsOccupancyStatus === 'unsold'
+    && (room.pms_metadata as any)?.pmsSyncDate === selectedDate
+    && !isCheckoutBucket(room)
+  );
+  const unsoldRooms = rooms.filter(isVerifiedUnsold);
+  const arrivalRooms = rooms.filter(r => isArrivalOnly(r) && !isNoShow(r));
   const dailyRooms = rooms.filter(r => {
     if (isCheckoutBucket(r)) return false;
+    // Verified unsold inventory is not an occupied daily/stayover room.
+    if (isVerifiedUnsold(r)) return false;
     // No-show rooms surface in their own section below.
-    if ((r.pms_metadata as any)?.isNoShow === true) return false;
+    if (isNoShow(r)) return false;
     // Arrivals get their own section (vacant room, guest expected today).
     if (isArrivalOnly(r)) return false;
     return true;
   });
-
-
-  const isPmsNoShow = (room: RoomData) =>
-    (room.pms_metadata as any)?.isNoShow === true;
-
-  const isNoShow = (room: RoomData) => {
-    if (isPmsNoShow(room)) return true;
-    return room.notes?.toLowerCase().includes('no show') || false;
-  };
 
   const isEarlyCheckout = (room: RoomData) => {
     // Only surface the Early Checkout badge on real checkout rooms. A daily
@@ -669,21 +832,123 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return nextMeta;
   };
 
-  // Manual release of a checkout room. Stamped in pms_metadata so the next PMS
-  // refresh does not re-block the room as "guest still in house".
+  // Manual release of a checkout room. Persist the sticky manual marker FIRST.
+  // PMS reconciliation deliberately honours manualReadyToCleanAt for the current
+  // Budapest business date. Writing the assignment first left a race where a
+  // concurrent PMS refresh could immediately set ready_to_clean=false again
+  // before the marker existed (seen on Gozsdu 3002/B44).
   const releaseReadyToClean = async (room: RoomData) => {
-    const { error } = await supabase
+    const assignment = assignmentMap.get(room.id);
+    const now = new Date().toISOString();
+    const source = isReception && isGozsduCourtHotel(hotelName) ? 'reception_ui' : 'manager_ui';
+
+    await mergeRoomMetadata(room, {
+      manualReadyToCleanAt: now,
+      manualReadyToCleanBy: profile?.id || profile?.full_name || null,
+      manualReadyToCleanSource: source,
+    });
+
+    const { data: updated, error } = await supabase
       .from('room_assignments')
       .update({ ready_to_clean: true, pms_hold: false, pms_hold_reason: null } as any)
       .eq('room_id', room.id)
       .eq('assignment_date', selectedDate)
-      .eq('assignment_type', 'checkout_cleaning');
+      .eq('assignment_type', 'checkout_cleaning')
+      .neq('status', 'completed')
+      .select('id, ready_to_clean, pms_hold')
+      .maybeSingle();
     if (error) throw error;
-    await mergeRoomMetadata(room, {
-      manualReadyToCleanAt: new Date().toISOString(),
-      manualReadyToCleanBy: profile?.full_name || profile?.id || null,
+    if (!updated?.id || updated.ready_to_clean !== true) {
+      throw new Error('The checkout assignment changed. Refresh and try again.');
+    }
+
+    // Read back the persisted state instead of trusting the optimistic update.
+    // If a concurrent reconciliation touched the row, the manual marker above
+    // makes the next PMS pass converge back to RTC=true.
+    const { data: verified, error: verifyError } = await supabase
+      .from('room_assignments')
+      .select('id, ready_to_clean, pms_hold')
+      .eq('id', updated.id)
+      .maybeSingle();
+    if (verifyError) throw verifyError;
+    if (!verified?.id || verified.ready_to_clean !== true) {
+      throw new Error('RTC release was not persisted. Refresh and try again.');
+    }
+
+    const { error: auditError } = await supabase.from('pms_change_events').insert({
+      hotel_id: (await resolveCanonicalHotelId(room.hotel || hotelName)) || room.hotel || hotelName,
+      room_id: room.id,
+      room_label: room.room_number,
+      event_type: 'rtc_released_manual',
+      source,
+      before: {
+        ready_to_clean: !!assignment?.ready_to_clean,
+        pms_hold: !!assignment?.pms_hold,
+        previo_checked_out_today: room.pms_metadata?.checkedOutToday === true,
+      },
+      after: {
+        ready_to_clean: true,
+        pms_hold: false,
+        previo_checked_out_today: room.pms_metadata?.checkedOutToday === true,
+        manual_ready_to_clean_at: now,
+      },
+      is_conflict: room.pms_metadata?.checkedOutToday !== true,
+    } as any);
+    if (auditError) console.warn('Manual RTC audit event could not be written', auditError);
+
+    setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true, pms_hold: false } : a));
+  };
+
+  const confirmReadyToCleanRelease = (room: RoomData, assignment?: AssignmentData) => {
+    const needsConfirmation = shouldConfirmManualRtc({
+      pmsRtcToday: isPmsRtcToday(room.pms_metadata),
+      checkedOutToday: room.pms_metadata?.checkedOutToday === true,
+      pmsHold: assignment?.pms_hold,
     });
-    setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
+    if (!needsConfirmation) return true;
+    return window.confirm(
+      `Confirm the guest has physically checked out from room ${room.room_number}.\n\nThis will release the checkout room to housekeeping as Ready to Clean (RTC). It does not change the guest reservation or fake a checkout in the PMS.`,
+    );
+  };
+
+  const markRoomCleanFromOverview = async (room: RoomData) => {
+    const assignment = assignmentMap.get(room.id);
+    setActionLoading('clean');
+    try {
+      const { error } = await (supabase as any).rpc('manager_mark_room_clean', {
+        p_room_id: room.id,
+        p_assignment_id: assignment?.id ?? null,
+        p_expected_assignment_date: selectedDate,
+        p_source: 'hotel_room_overview',
+      });
+      if (error) throw error;
+
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+
+      try {
+        const { data: response, error: pmsError } = await supabase.functions.invoke('previo-update-room-status', {
+          body: { roomId: room.id, status: 'clean', assignmentId: assignment?.id || undefined },
+        });
+        if (pmsError || response?.success === false) {
+          throw pmsError || new Error(response?.error || 'PMS rejected the clean status');
+        }
+        if (response?.skipped) toast.success(`Room ${room.room_number} marked clean in HotelCare`);
+        else toast.success(`Room ${room.room_number} marked clean and synced to PMS`);
+      } catch (syncError) {
+        console.error('Room clean saved, PMS sync failed', syncError);
+        toast.warning(`Room ${room.room_number} is clean in HotelCare, but PMS sync failed`);
+      }
+
+      setRoomSizeDialogOpen(false);
+      await fetchData();
+      return true;
+    } catch (error) {
+      console.error('Failed to mark room clean from Hotel Room Overview', error);
+      toast.error((error as Error)?.message || 'Failed to mark room clean');
+      return false;
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   // Switch a room between the Checkout and Daily buckets. The manual decision
@@ -729,7 +994,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       : r));
 
     await supabase.from('pms_change_events').insert({
-      hotel_id: room.hotel,
+      hotel_id: (await resolveCanonicalHotelId(room.hotel || hotelName)) || room.hotel || hotelName,
       room_id: room.id,
       room_label: room.room_number,
       event_type: 'room_type_switched_manual',
@@ -742,6 +1007,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   // Manually mark / unmark a room as a no-show for today.
   const setManualNoShow = async (room: RoomData, value: boolean) => {
+    const meta = (room.pms_metadata || {}) as Record<string, any>;
+    if (value) {
+      const statusId = Number(meta.reservationStatusId);
+      const arrivalDate = String(meta.arrivalDate || '').slice(0, 10);
+      // Staff may confirm a missed arrival for a Reserved reservation, but
+      // cannot invent a no-show for unsold or future-arrival inventory, or
+      // override a positive Previo check-in / checkout.
+      if (![1, 2, 8].includes(statusId) || !arrivalDate || arrivalDate > selectedDate) {
+        throw new Error('No-show requires an arrived-by-today, unoccupied PMS reservation. Verify this room with reception.');
+      }
+    }
     const nowIso = new Date().toISOString();
     await mergeRoomMetadata(room, value
       ? {
@@ -749,15 +1025,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           manual_no_show_at: nowIso,
           manual_no_show_by: profile?.full_name || profile?.id || null,
           isNoShow: true,
+          noShowSource: 'manager_manual',
         }
       : {
           manual_no_show: false,
           manual_no_show_at: nowIso,
           manual_no_show_by: profile?.full_name || profile?.id || null,
           isNoShow: false,
+          noShowSource: null,
         });
     await supabase.from('pms_change_events').insert({
-      hotel_id: room.hotel,
+      hotel_id: (await resolveCanonicalHotelId(room.hotel || hotelName)) || room.hotel || hotelName,
       room_id: room.id,
       room_label: room.room_number,
       event_type: value ? 'no_show_marked_manual' : 'no_show_cleared_manual',
@@ -803,6 +1081,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
 
 
+  const slntIsUnassigned = (room: RoomData) =>
+    !assignmentMap.get(room.id)?.assigned_to && canAssignSlntRoom(isSlntTenant, room.status);
+  const slntSearchTerm = slntRoomSearch.trim().toLocaleLowerCase();
+  const slntFilterIsActive = isSlntTenant && (slntSearchTerm.length > 0 || slntOnlyUnassigned);
+  const slntMatchesRoomFilter = (room: RoomData) => {
+    const venueName = venues.find(v => v.id === room.venue_id)?.name ?? '';
+    return matchesSlntBoardFilter(room.room_number, venueName, slntSearchTerm, slntOnlyUnassigned, slntIsUnassigned(room));
+  };
+  const slntUnassignedCount = rooms.filter(slntIsUnassigned).length;
+
   const getStaffName = (roomId: string): string | null => {
     const assignment = assignmentMap.get(roomId);
     if (!assignment) return null;
@@ -846,6 +1134,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         assignedBy: profile?.id ?? '',
         organizationSlug: (profile as any)?.organization_slug ?? null,
         isCheckoutRoom: isCheckoutBucket(room),
+        preventOutOfOrder: isSlntTenant,
       });
       setHkSuccessRoomId(room.id);
       setTimeout(() => setHkSuccessRoomId((id) => (id === room.id ? null : id)), 1200);
@@ -862,6 +1151,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         );
         return;
       }
+      if (isRoomOutOfServiceError(err)) {
+        toast.warning(`Room ${room.room_number} is Out of Service. Release it before assigning housekeeping.`);
+        return;
+      }
       console.error('Housekeeper drop assignment failed', err);
       toast.error('Could not assign this room. Please try again.');
     }
@@ -872,15 +1165,31 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return assignmentMap.get(roomId)?.status || null;
   };
 
-  const renderRoomChip = (room: RoomData) => {
+  const renderRoomChip = (room: RoomData, displayLabel?: string, slntSolo = false) => {
     const assignment = assignmentMap.get(room.id);
     const assignmentStatus = assignment?.status || null;
+    const noServiceOutcome = memoriesOverview
+      ? isCurrentNoServiceOutcome(assignment)
+      : !!assignment?.notes?.includes('[NO_SERVICE]');
     const roomFlags = parseRoomFlags(room.notes);
+    // HMB: a note badge must mean there is a real instruction visible in
+    // the room popup. Former-guest automated bed messages remain in some
+    // older room records and are intentionally hidden from the popup.
+    const visibleRoomNote = isHotelMemoriesBudapest(room.hotel)
+      ? getMemoriesRoomBoardNote(room.notes, room.pms_metadata as Record<string, unknown> | null)
+      : roomFlags.cleanNotes;
+    const slntPrevioNote = isSlntTenant
+      ? String(room.pms_metadata?.slntPrevioHousekeepingNote || '').trim()
+      : '';
+    const hasSeparatePrevioNote = !!slntPrevioNote && slntPrevioNote !== roomFlags.cleanNotes;
     const isPendingApproval = assignmentStatus === 'completed' && assignment?.supervisor_approved === false;
     const roomOverdue = isOverdue(assignment, assignment?.started_at || undefined);
     
     let statusKey: string;
-    if (roomOverdue) statusKey = 'overdue';
+    // SLNT Out of Service is a hard operational state and must remain visible
+    // even if an older assignment row still exists while realtime catches up.
+    if (isSlntTenant && room.status === 'out_of_order') statusKey = 'out_of_order';
+    else if (roomOverdue) statusKey = 'overdue';
     else if (isPendingApproval) statusKey = 'pending_approval';
     else if (assignmentStatus === 'in_progress') statusKey = 'in_progress';
     else if (assignmentStatus === 'completed' && assignment?.supervisor_approved) statusKey = 'clean';
@@ -891,19 +1200,61 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     else {
       const cleanedToday = !!room.last_cleaned_at &&
         new Date(room.last_cleaned_at).toISOString().slice(0, 10) === selectedDate;
-      if (room.status === 'clean' && cleanedToday) statusKey = 'clean';
+      const pmsConfirmedCleanForSelectedDate = room.status === 'clean' && (
+        room.pms_metadata?.pmsSyncDate === selectedDate
+        || room.pms_metadata?.lastPmsRefreshDate === selectedDate
+      );
+      if (room.status === 'clean' && (cleanedToday || pmsConfirmedCleanForSelectedDate)) statusKey = 'clean';
       else if (room.status && room.status !== 'clean') statusKey = room.status;
       else statusKey = 'dirty';
     }
     
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
-    const isDND = room.is_dnd;
+    const isDND = isDndForBusinessDate(room, selectedDate, assignment?.status, isCheckoutBucket(room));
     const noShow = isNoShow(room) && !isEarlyCheckout(room);
+    const suspectedNoShow = noShow && (room.pms_metadata as any)?.noShowSource === "inferred_never_checked_in";
     const earlyCheckout = isEarlyCheckout(room);
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const isCheckout = isCheckoutBucket(room);
-    const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
+    const portfolioCarry = !isCheckout && isCarryForwardDisplayHotel(room.hotel)
+      ? isHotelMemoriesBudapest(room.hotel) && selectedDate === todayBudapest()
+        ? getMemoriesDailyBoardCarry({
+            hotel: room.hotel,
+            selectedDate,
+            today: todayBudapest(),
+            isCheckout,
+            cachedCarry: memoriesCarryByRoomId.get(room.id),
+            assignment,
+          })
+        : getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
+      : null;
+    const portfolioCarryCopy = portfolioCarry
+      ? getCarryForwardManagerCopy(portfolioCarry)
+      : null;
+    const effectiveService = effectiveCarryServiceFlags({
+      towelChangeRequired: room.towel_change_required,
+      linenChangeRequired: room.linen_change_required,
+      carryForward: portfolioCarry,
+      isCheckout,
+      forceTowelOnly: isHotelMemoriesBudapest(room.hotel) && !!portfolioCarry
+        && isMemoriesFinalOccupiedNight(room.pms_metadata as Record<string, unknown> | null, selectedDate),
+    });
+    const canMarkReadyToClean = selectedDate === todayBudapest() && canOfferCheckoutRtc({
+      isCheckout,
+      assignmentType: assignment?.assignment_type,
+      assignmentStatus: assignment?.status,
+      readyToClean: assignment?.ready_to_clean,
+    });
+    const slntChipMode = getSlntRoomChipMode({
+      isSlntTenant,
+      assignedTo: assignment?.assigned_to ?? null,
+      roomStatus: room.status,
+    });
+    const slntManageOnClick = isSlntTenant && slntChipMode === 'manage';
+    const roomAssignable = canAssignSlntRoom(isSlntTenant, room.status);
+    const roomSelectionEnabled = selectionEnabled && !slntManageOnClick && roomAssignable;
+    const roomCanDragAssign = canDragAssign && roomAssignable;
     const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms && !selectionEnabled;
     const isSelected = selectedUnitIds.has(room.id);
     const asSelectedUnit = (): SelectedUnit => ({
@@ -914,18 +1265,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       assignedToName: assignment ? staffMap[assignment.assigned_to] ?? null : null,
     });
 
-    const hkDropTarget = !!hkDrag && canDragAssign;
+    const hkDropTarget = !!hkDrag && roomCanDragAssign;
     const hkHovered = hkDropTarget && hkHoverRoomId === room.id;
 
     const chipContent = (
       <div 
         className={`flex flex-col items-center gap-0.5 select-none transition-transform ${hkHovered ? 'scale-110' : ''}`}
+        data-room-id={room.id}
+        data-room-assigned={assignment?.assigned_to ? 'true' : 'false'}
+        data-room-manageable={slntManageOnClick ? 'true' : 'false'}
+        data-room-out-of-service={room.status === 'out_of_order' ? 'true' : 'false'}
         onDragOver={hkDropTarget ? (e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; setHkHoverRoomId(room.id); } : undefined}
         onDragEnter={hkDropTarget ? (e) => { e.preventDefault(); e.stopPropagation(); setHkHoverRoomId(room.id); } : undefined}
         onDragLeave={hkDropTarget ? () => setHkHoverRoomId((id) => (id === room.id ? null : id)) : undefined}
         onDrop={hkDropTarget ? (e) => { void handleHousekeeperDropOnRoom(e, room); } : undefined}
-        draggable={canDragAssign ? true : undefined}
-        onDragStart={canDragAssign ? (e) => {
+        draggable={roomCanDragAssign ? true : undefined}
+        onDragStart={roomCanDragAssign ? (e) => {
           setRoomDragPayload(e, {
             roomId: room.id,
             roomNumber: room.room_number,
@@ -939,7 +1294,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           setHoveredRoomId(null);
           if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
         } : undefined}
-        onDragEnd={canDragAssign ? (e) => {
+        onDragEnd={roomCanDragAssign ? (e) => {
           (e.currentTarget as HTMLElement).style.opacity = '1';
           setDragOverSection(null);
           justDraggedRef.current = Date.now();
@@ -947,7 +1302,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         } : undefined}
         // Selection mode: a plain tap/click picks the unit, a long press (or
         // right click) still opens the unit detail dialog.
-        onTouchStart={selectionEnabled ? () => {
+        onTouchStart={roomSelectionEnabled ? () => {
           longPressFiredRef.current = false;
           if (longPressRef.current) clearTimeout(longPressRef.current);
           longPressRef.current = setTimeout(() => {
@@ -955,43 +1310,52 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             openSettingsDialog(room);
           }, 550);
         } : undefined}
-        onTouchEnd={selectionEnabled ? () => {
+        onTouchEnd={roomSelectionEnabled ? () => {
           if (longPressRef.current) clearTimeout(longPressRef.current);
         } : undefined}
-        onTouchMove={selectionEnabled ? () => {
+        onTouchMove={roomSelectionEnabled ? () => {
           if (longPressRef.current) clearTimeout(longPressRef.current);
         } : undefined}
-        onContextMenu={selectionEnabled ? (e) => { e.preventDefault(); openSettingsDialog(room); } : undefined}
+        onContextMenu={roomSelectionEnabled ? (e) => { e.preventDefault(); openSettingsDialog(room); } : undefined}
         onClick={() => {
-          if (selectionEnabled) {
+          if (roomSelectionEnabled) {
             if (longPressFiredRef.current) { longPressFiredRef.current = false; return; }
             if (Date.now() - justDraggedRef.current < 600) return;
             toggleUnitSelection(asSelectedUnit());
             return;
           }
+          // Assigned/OOS SLNT chips are captured by RoomOperationsQuickHub.
+          // Keeping this fallback preserves the existing mobile settings path
+          // if the hub is not mounted for a role.
           handleRoomClick(room);
         }}
+        data-training={canInteractWithRooms ? "room-actions-menu" : undefined}
+        data-room-type={isCheckout ? "checkout" : "daily"}
+        data-room-status={room.status}
         onMouseEnter={() => handleHoverEnter(room.id, room)}
         onMouseLeave={handleHoverLeave}
-        style={{ cursor: canDragAssign ? 'pointer' : canInteractWithRooms ? 'pointer' : 'default' }}
+        style={{ cursor: roomCanDragAssign || slntManageOnClick ? 'pointer' : canInteractWithRooms ? 'pointer' : 'default' }}
       >
         <div
           className={`
             relative rounded border transition-all text-center
+            ${slntSolo ? 'slnt-solo-chip text-left whitespace-normal break-words' : ''}
             ${compactChips ? 'px-1.5 py-0.5 text-[11px] font-semibold leading-tight min-w-[34px]' : 'px-2 py-1 text-xs font-bold border-2 min-w-[40px]'}
             ${colorClass}
-            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
-            ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
-            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
+            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1 ring-offset-background' : ''}
+            ${noShow ? 'ring-2 ring-red-600 ring-offset-1 ring-offset-background' : ''}
+            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1 ring-offset-background' : ''}
             ${roomOverdue ? 'animate-pulse' : ''}
-            ${isSelected ? 'ring-2 ring-primary ring-offset-2 shadow-md scale-105' : ''}
+            ${isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background shadow-md scale-105' : ''}
             ${canInteractWithRooms && !compactChips ? 'hover:scale-110 hover:shadow-md' : ''}
             ${compactChips && canInteractWithRooms ? 'hover:shadow-sm' : ''}
             ${hkDropTarget ? 'ring-1 ring-dashed ring-primary/50' : ''}
             ${hkHovered ? 'ring-2 ring-primary ring-offset-1 shadow-md' : ''}
-            ${hkSuccessRoomId === room.id ? 'ring-2 ring-emerald-500 ring-offset-1' : ''}
+            ${hkSuccessRoomId === room.id ? 'ring-2 ring-emerald-500 ring-offset-1 ring-offset-background' : ''}
           `}
           style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
+          title={displayLabel && displayLabel !== room.room_number ? room.room_number : undefined}
+          data-slnt-unassigned={isSlntTenant && slntIsUnassigned(room) ? 'true' : undefined}
         >
           {isSelected && (
             <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[9px] font-bold shadow">
@@ -1000,20 +1364,30 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           )}
 
 
-          {room.room_number}
-          {(room.pms_metadata as any)?.isNoShow === true && (
+          {displayLabel ?? room.room_number}
+          {isVerifiedUnsold(room) && (
             <span
-              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white"
-              title="PMS reports no reservation — guest did not arrive"
-            >NS</span>
+              className="ml-1 rounded bg-slate-600 px-1 py-0.5 text-[8px] font-extrabold text-white"
+              title="Verified unsold in Previo today; cleaning condition remains separate"
+            >{hu ? 'Nem értékesített' : 'Unsold'}</span>
           )}
-          {(room.pms_metadata as any)?.notArrived === true && (room.pms_metadata as any)?.isNoShow !== true && (
+          {isSlntTenant && room.status === 'out_of_order' && (
             <span
-              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-slate-500 text-white"
-              title="Arrival expected today — guest has not checked in yet"
-            >NA</span>
+              className="ml-1 rounded bg-red-700 px-1 py-0.5 text-[8px] font-extrabold text-white"
+              title="Out of Service — release before assigning housekeeping"
+            >
+              OOS
+            </span>
           )}
 
+          {noShow && (
+            <span
+              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white"
+              title={suspectedNoShow
+                ? "Suspected no-show: Previo still says Reserved after arrival. Please verify with reception."
+                : "No-show confirmed in Previo or marked manually by management"}
+            >{suspectedNoShow ? "NS?" : "NS"}</span>
+          )}
           {room.pms_metadata?.manual_checkout === true && (
             <span
               className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white"
@@ -1046,9 +1420,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-indigo-600 text-white" title="Guest departs tomorrow — plan checkout cleaning">C/O+1</span>
             );
           })()}
-          {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
-          {room.towel_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
-          {room.linen_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
+          {!memoriesOverview && !isHotelMemoriesBudapest(room.hotel) && room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700">SH</span>}
+          {effectiveService.towelChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
+          {effectiveService.linenChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
+          {portfolioCarry && portfolioCarryCopy && <span className="ml-0.5 inline-flex items-center justify-center rounded bg-amber-600 px-0.5 text-[9px] font-extrabold text-white" title={`${portfolioCarryCopy.summary} · ${portfolioCarryCopy.detail || ''}`} aria-label={isRdCarryForwardHotel(room.hotel) ? 'Missed housekeeping service from yesterday' : 'Carried housekeeping service'}>
+            ↪
+          </span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
           {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
           {(() => {
@@ -1061,8 +1438,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RTC</span>
             ) : null;
           })()}
-          {assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-gray-500 text-white">NS</span>}
-          {assignment?.status === 'completed' && assignment?.supervisor_approved && !assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 text-[9px]">✅</span>}
+          {noServiceOutcome && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-gray-500 text-white">NS</span>}
+          {assignment?.status === 'completed' && assignment?.supervisor_approved && !noServiceOutcome && <span className="ml-0.5 text-[9px]">✅</span>}
           {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
           {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
           {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
@@ -1077,9 +1454,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {(() => {
                 const bc = (room as any).bed_configuration;
                 if (bc.includes('Double')) return 'DB';
-                if (bc.includes('Twin') && bc.includes('Sep')) return 'TW-S';
-                if (bc.includes('Twin')) return 'TW';
-                if (bc.includes('Single')) return 'SGL';
+                const shortCode = housekeepingBedShortCode(bc);
+                if (shortCode) return shortCode;
+                if (bc === 'Remove Baby Bed') return '-BB';
                 if (bc.includes('Baby')) return '👶BB';
                 if (bc.includes('Sofa')) return 'SOFA';
                 if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
@@ -1087,8 +1464,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               })()}
             </span>
           )}
-          {roomFlags.cleanNotes && (
-            <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
+          {visibleRoomNote && (
+            <span className="text-[8px]" title={summarizePmsNote(visibleRoomNote) || visibleRoomNote} aria-label="Room has a housekeeping note">📝</span>
+          )}
+          {hasSeparatePrevioNote && (
+            <span className="text-[8px]" title={`Previo housekeeping: ${slntPrevioNote}`}>📋</span>
           )}
           {staffName && (
             <span className="text-[9px] text-muted-foreground font-medium leading-tight text-center max-w-[76px] break-words" title={staffMap[assignment?.assigned_to ?? ''] || staffName || undefined}>
@@ -1130,17 +1510,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               </div>
 
               {/* Ready to Clean - PROMINENT for checkout rooms */}
-              {canMarkReadyToClean && assignment && !assignment.ready_to_clean && isManagerOrAdmin && (
+              {canMarkReadyToClean && assignment && !assignment.ready_to_clean && (isManagerOrAdmin || canManualGozsduRtc) && (
                 <button
                   className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm"
+                  data-training="room-ready-to-clean"
                   disabled={actionLoading === `ready-${room.id}`}
                   onClick={async (e) => {
                     e.stopPropagation();
+                    if (!confirmReadyToCleanRelease(room, assignment)) return;
                     setActionLoading(`ready-${room.id}`);
                     try {
                       await releaseReadyToClean(room);
-                      toast.success(`Room ${room.room_number} ready to clean`);
-                    } catch { toast.error('Failed'); }
+                      toast.success(`Room ${room.room_number} manually released as Ready to Clean (RTC)`);
+                    } catch (error) {
+                      console.error('Failed to release RTC', error);
+                      toast.error((error as Error)?.message || 'Failed to release RTC');
+                    }
                     finally { setActionLoading(null); }
                   }}
 
@@ -1174,7 +1559,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                           // Audit trail so cron/reconcile understands this was intentional.
 
                           await supabase.from('pms_change_events').insert({
-                            hotel_id: room.hotel,
+                            hotel_id: (await resolveCanonicalHotelId(room.hotel || hotelName)) || room.hotel || hotelName,
                             room_id: room.id,
                             room_label: room.room_number,
                             event_type: 'rtc_reverted_manual',
@@ -1211,7 +1596,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       const next = !isPmsNoShow(room);
                       await setManualNoShow(room, next);
                       toast.success(`Room ${room.room_number} ${next ? t('roomOverview.markedNoShow') : t('roomOverview.noShowCleared')}`);
-                    } catch { toast.error('Failed to update no-show'); }
+                    } catch (error) { toast.error(error instanceof Error ? error.message : 'Failed to update no-show'); }
                     finally { setActionLoading(null); }
                   }}
                 >
@@ -1221,6 +1606,25 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
 
 
+
+              {portfolioCarry && portfolioCarryCopy && (
+                <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/30">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                    {isRdCarryForwardHotel(room.hotel) ? '↪ Missed service · yesterday' : '↪ Carried housekeeping task'}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-amber-950 dark:text-amber-100">
+                    {portfolioCarryCopy.action}
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                    {portfolioCarryCopy.summary}
+                  </p>
+                  {portfolioCarryCopy.detail && (
+                    <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                      {portfolioCarryCopy.detail}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Services Section */}
               <div className="space-y-1">
@@ -1294,9 +1698,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
                       }
                       const updatedNotes = toggleFlag(room.notes, 'ROOM_CLEANING', newVal);
-                      const { error } = await supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      let noteUpdate = supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      noteUpdate = room.notes == null
+                        ? noteUpdate.is('notes', null)
+                        : noteUpdate.eq('notes', room.notes);
+                      const { data: savedRoom, error } = await noteUpdate.select('id, notes').maybeSingle();
                       if (error) throw error;
-                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: updatedNotes || null } : r));
+                      if (!savedRoom) throw new Error('Room instructions changed. Refresh before retrying.');
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: savedRoom.notes ?? null } : r));
                       toast.success(`Room Cleaning ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
                     } catch { toast.error('Failed'); }
                     finally { setActionLoading(null); }
@@ -1321,9 +1730,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
                       }
                       const updatedNotes = toggleFlag(room.notes, 'COLLECT_EXTRA_TOWELS', newVal);
-                      const { error } = await supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      let noteUpdate = supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      noteUpdate = room.notes == null
+                        ? noteUpdate.is('notes', null)
+                        : noteUpdate.eq('notes', room.notes);
+                      const { data: savedRoom, error } = await noteUpdate.select('id, notes').maybeSingle();
                       if (error) throw error;
-                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: updatedNotes || null } : r));
+                      if (!savedRoom) throw new Error('Room instructions changed. Refresh before retrying.');
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: savedRoom.notes ?? null } : r));
                       toast.success(`Collect Extra Towels ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
                     } catch { toast.error('Failed'); }
                     finally { setActionLoading(null); }
@@ -1340,7 +1754,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t('roomOverview.bedConfig')}</p>
                   <select
                     className="w-full text-xs p-1.5 rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                    value={(room as any).bed_configuration || ''}
+                    value={((room as any).bed_configuration === 'Twin Beds Separated' ? 'Single Bed' : (room as any).bed_configuration === 'Twin Beds' ? 'Twin Beds Together' : (room as any).bed_configuration) || ''}
                     onClick={(e) => e.stopPropagation()}
                     onChange={async (e) => {
                       const val = e.target.value || null;
@@ -1354,10 +1768,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   >
                     <option value="">{t('roomOverview.bedNone')}</option>
                     <option value="Double Bed">{t('roomOverview.bedDouble')}</option>
-                    <option value="Twin Beds">{t('roomOverview.bedTwin')}</option>
-                    <option value="Twin Beds Separated">{t('roomOverview.bedTwinSeparated')}</option>
-                    <option value="Single Bed">{t('roomOverview.bedSingle')}</option>
-                    <option value="Baby Bed">{t('roomOverview.bedBaby')}</option>
+                    <option value="Twin Beds Together">{t('gozsdu.bedsTogether')} (BT)</option>
+                    <option value="Single Bed">{t('gozsdu.singleBeds')} (SB)</option>
+                    <option value="Sofa Bed">{t('gozsdu.sofaBed')}</option>
+                    <option value="Extra Bed">{t('gozsdu.extraBed')}</option>
+                    <option value="Baby Bed">{room.hotel?.trim().toLowerCase() === 'hotel memories budapest' ? 'Put baby bed' : t('gozsdu.babyBed')}</option>
+                    <option value="Remove Baby Bed">{room.hotel?.trim().toLowerCase() === 'hotel memories budapest' ? 'Out baby bed' : t('gozsdu.removeBabyBed')}</option>
                     <option value="Extra Cot Added">{t('roomOverview.bedExtraCot')}</option>
                   </select>
                 </div>
@@ -1368,6 +1784,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 {/* Switch Type */}
                 <button
                   className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+                  data-training={!isCheckout ? "room-switch-checkout" : undefined}
                   disabled={actionLoading === `switch-${room.id}`}
                   onClick={async (e) => {
                     e.stopPropagation();
@@ -1389,6 +1806,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 {room.status === 'clean' && (
                   <button
                     className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                    data-training="room-mark-dirty"
                     disabled={actionLoading === `dirty-${room.id}`}
                     onClick={async (e) => {
                       e.stopPropagation();
@@ -1431,6 +1849,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   {room.notes && profile?.role === 'admin' && (
                     <StructuredRoomNote notes={room.notes} />
                   )}
+                  {hasSeparatePrevioNote && (
+                    <div className="rounded-md border border-sky-300 bg-sky-50 p-2 text-xs text-sky-900 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-100">
+                      <p className="font-semibold mb-1">Previo housekeeping note</p>
+                      <p className="whitespace-pre-wrap">{slntPrevioNote}</p>
+                    </div>
+                  )}
                   <textarea
                     className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     placeholder={t('roomOverview.managerNotes')}
@@ -1451,6 +1875,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         clearTimeout(popoverNotesSaveTimerRef.current);
                         popoverNotesSaveTimerRef.current = null;
                       }
+                      // No stale/blank blur saves. A save already in flight
+                      // must finish before another write may begin.
+                      if (popoverNotesSaveState === 'saving'
+                        || popoverNotes === parseRoomFlags(room.notes).cleanNotes
+                        || !popoverNotes.trim()) return;
                       void savePopoverRoomNotes(room, popoverNotes, assignmentStatus);
                     }}
                   />
@@ -1497,6 +1926,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     assignmentId={assignment.id}
                     roomId={room.id}
                     roomNumber={room.room_number}
+                    hotelName={room.hotel}
                     dateLabel={selectedDate}
                     readOnly={selectedDate !== todayBudapest()}
                   />
@@ -1639,19 +2069,28 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     room: RoomData,
     prev: AssignmentData & { completed_at: string | null },
   ) => {
-    const isCheckout = prev.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
+    const frozen = frozenPreviousRoomService(previousRoomSnapshots.get(room.id), prev.assignment_type);
+    const isCheckout = frozen.isCheckout;
     const status = prev.status;
     const approved = !!prev.supervisor_approved;
     let statusKey: string;
-    if (status === 'completed' && approved) statusKey = 'clean';
+    const wasMissed = prev.is_dnd || (prev.dnd_attempt_count ?? 0) > 0 || prev.notes?.includes('[NO_SERVICE]');
+    // Approved DND/No Service is administratively closed; it does not prove cleaning.
+    if (wasMissed) statusKey = 'dirty';
+    else if (status === 'completed' && approved) statusKey = 'clean';
     else if (status === 'completed') statusKey = 'pending_approval';
     else if (status === 'in_progress') statusKey = 'in_progress';
     else statusKey = 'dirty';
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
-    const roomFlags = parseRoomFlags(room.notes);
-    const isDND = room.is_dnd;
-    const noShow = isNoShow(room) && !isEarlyCheckout(room);
-    const earlyCheckout = isEarlyCheckout(room);
+    const roomFlags = parseRoomFlags(frozen.notes);
+    // Yesterday is read-only and must be rendered from yesterday's dated
+    // assignment, never from today's mutable room flags.
+    const isDND =
+      prev.status === 'dnd_pending_retry' ||
+      prev.is_dnd === true ||
+      (prev.dnd_attempt_count ?? 0) > 0;
+    const noShow = false;
+    const earlyCheckout = false;
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const staffName = assigneeLabel(staffMap, prev.assigned_to);
     return (
@@ -1659,27 +2098,27 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         <div
           className={`
             px-2 py-1 rounded text-xs font-bold border-2 min-w-[40px] text-center ${colorClass}
-            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
-            ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
-            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
+            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1 ring-offset-background' : ''}
+            ${noShow ? 'ring-2 ring-red-600 ring-offset-1 ring-offset-background' : ''}
+            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1 ring-offset-background' : ''}
           `}
           title={`Yesterday · ${isCheckout ? 'Checkout' : 'Daily'} · ${status}${approved ? ' (approved)' : ''}`}
         >
           {room.room_number}
-          {room.pms_metadata?.manual_checkout === true && (
+          {frozen.pmsMetadata?.manual_checkout === true && (
             <span
               className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white"
               title="Manually moved by a manager (not from PMS)"
             >M</span>
           )}
           {isCheckout && <span className="ml-0.5 text-[9px] opacity-80">C/O</span>}
-          {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
-          {room.towel_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
-          {room.linen_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
+          {!memoriesOverview && !isHotelMemoriesBudapest(room.hotel) && room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700">SH</span>}
+          {frozen.towelChangeRequired && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
+          {frozen.linenChangeRequired && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
           {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
           {prev.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-gray-500 text-white">NS</span>}
-          {status === 'completed' && approved && <span className="ml-0.5 text-[9px]">✅</span>}
+          {status === 'completed' && approved && !wasMissed && <span className="ml-0.5 text-[9px]">✅</span>}
           {status === 'completed' && !approved && <span className="ml-0.5 text-[9px]">⏳</span>}
           {status === 'in_progress' && <span className="ml-0.5 text-[9px]">⏱</span>}
           {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
@@ -1688,14 +2127,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
         </div>
         <div className="flex flex-col items-center gap-0">
-          {(room as any).bed_configuration && (
+          {frozen.bedConfiguration && (
             <span className="text-[8px] text-purple-600 dark:text-purple-400 font-semibold truncate max-w-[48px]">
               {(() => {
-                const bc = (room as any).bed_configuration;
+                const bc = frozen.bedConfiguration!;
                 if (bc.includes('Double')) return 'DB';
-                if (bc.includes('Twin') && bc.includes('Sep')) return 'TW-S';
-                if (bc.includes('Twin')) return 'TW';
-                if (bc.includes('Single')) return 'SGL';
+                const shortCode = housekeepingBedShortCode(bc);
+                if (shortCode) return shortCode;
+                if (bc === 'Remove Baby Bed') return '-BB';
                 if (bc.includes('Baby')) return '👶BB';
                 if (bc.includes('Sofa')) return 'SOFA';
                 if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
@@ -1719,18 +2158,19 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     );
   };
 
-  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow' | 'arrival') => {
-    // Right column: live today rooms for this section (unchanged).
-    const todayRooms = roomList;
+  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow' | 'arrival', hidePrevious = false) => {
+    // The SLNT search/unassigned filter applies only to the current Today
+    // board. Retain original section totals and yesterday's saved snapshot.
+    const todayRooms = slntFilterIsActive ? roomList.filter(slntMatchesRoomFilter) : roomList;
 
     // Left column: read-only snapshot of yesterday's rooms that belonged to
     // this same section (checkout vs daily) — sourced from previousAssignments,
     // NOT from today's live room list.
     const previousEntries: Array<{ room: RoomData; prev: AssignmentData & { completed_at: string | null } }> = [];
-    previousAssignments.forEach((prev, roomId) => {
+    if (!hidePrevious) previousAssignments.forEach((prev, roomId) => {
       const room = roomsById.get(roomId);
       if (!room) return;
-      const wasCheckout = prev.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
+      const wasCheckout = frozenPreviousRoomService(previousRoomSnapshots.get(room.id), prev.assignment_type).isCheckout;
       if (sectionType === 'checkout' && !wasCheckout) return;
       if (sectionType === 'daily' && wasCheckout) return;
       if (sectionType === 'noshow') return; // no yesterday snapshot for no-show
@@ -1738,93 +2178,90 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     });
 
     const floors = groupByFloor(roomList);
-    const dndCount = roomList.filter(r => r.is_dnd).length;
+    const dndCount = roomList.filter(r => isDndForBusinessDate(r, selectedDate, assignmentMap.get(r.id)?.status, isCheckoutBucket(r))).length;
     const isDragOver = dragOverSection === sectionType;
 
+    /**
+     * Portfolio board: preserve property grouping and existing assignment
+     * handlers. SLNT's responsive row layout gives full names room to wrap;
+     * smaller properties share space only when the actual board is wide enough.
+     * Unit labels drop the repeated property name for display only.
+     */
     const renderTodayVenueRows = (roomsForColumn: RoomData[]) => {
       const groups = groupByVenue(roomsForColumn);
       if (groups.length === 0) {
         return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
       }
       return (
-        <div>
-          <div className="mb-1 flex justify-end">
-            <button
-              type="button"
-              className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
-              onClick={() => setDenseVenues(v => !v)}
-            >
-              {denseVenues ? 'Roomy view' : 'Compact view'}
-            </button>
-          </div>
-          <div className={denseVenues ? 'columns-1 sm:columns-2 xl:columns-3 gap-2' : 'space-y-2'}>
-            {groups.map(group => {
-              const color = venueColor(group.key === '__none__' ? null : group.key);
-              const dragProps = canDragAssign ? {
-                draggable: true,
-                onDragStart: (e: React.DragEvent) => {
-                  const first = group.rooms[0];
-                  if (!first) return;
-                  const nameFor = (roomId: string) => {
-                    const a = assignmentMap.get(roomId);
-                    return a ? staffMap[a.assigned_to] ?? null : null;
-                  };
-                  setRoomDragPayload(e, {
-                    roomId: first.id,
-                    roomNumber: first.room_number,
+        <div className={isSlntTenant
+          ? 'slnt-location-board space-y-1.5 min-w-0'
+          : 'divide-y divide-border/60 rounded-md border border-border/50'}>
+          {groups.map(group => {
+            const color = venueColor(group.key === '__none__' ? null : group.key);
+            const allSelected = selectionEnabled && group.rooms.every(r => selectedUnitIds.has(r.id));
+            const dragProps = canDragAssign ? {
+              draggable: true,
+              onDragStart: (e: React.DragEvent) => {
+                const first = group.rooms[0];
+                if (!first) return;
+                const nameFor = (roomId: string) => {
+                  const a = assignmentMap.get(roomId);
+                  return a ? staffMap[a.assigned_to] ?? null : null;
+                };
+                setRoomDragPayload(e, {
+                  roomId: first.id,
+                  roomNumber: first.room_number,
+                  sourceType: sectionType,
+                  origin: 'overview' as const,
+                  assignedTo: assignmentMap.get(first.id)?.assigned_to ?? null,
+                  assignedToName: nameFor(first.id),
+                  bulk: group.rooms.map(r => ({
+                    roomId: r.id,
+                    roomNumber: r.room_number,
                     sourceType: sectionType,
-                    origin: 'overview' as const,
-                    assignedTo: assignmentMap.get(first.id)?.assigned_to ?? null,
-                    assignedToName: nameFor(first.id),
-                    bulk: group.rooms.map(r => ({
-                      roomId: r.id,
-                      roomNumber: r.room_number,
-                      sourceType: sectionType,
-                      assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
-                      assignedToName: nameFor(r.id),
-                    })),
-                  });
+                    assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
+                    assignedToName: nameFor(r.id),
+                  })),
+                });
+              },
+            } : {};
+            const onPillClick = selectionEnabled ? () => {
+              toggleUnitGroupSelection(group.rooms.map(r => ({
+                roomId: r.id,
+                roomNumber: r.room_number,
+                sourceType: sectionType === 'checkout' ? 'checkout' : 'daily',
+                assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
+                assignedToName: (() => {
+                  const a = assignmentMap.get(r.id);
+                  return a ? staffMap[a.assigned_to] ?? null : null;
+                })(),
+              })));
+            } : undefined;
 
-                },
-              } : {};
-              const onPillClick = selectionEnabled ? () => {
-                toggleUnitGroupSelection(group.rooms.map(r => ({
-                  roomId: r.id,
-                  roomNumber: r.room_number,
-                  sourceType: sectionType === 'checkout' ? 'checkout' : 'daily',
-                  assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
-                  assignedToName: (() => {
-                    const a = assignmentMap.get(r.id);
-                    return a ? staffMap[a.assigned_to] ?? null : null;
-                  })(),
-                })));
-              } : undefined;
-
+            if (isSlntTenant) {
+              // Match Gozsdu's proven visual structure: one physical venue /
+              // department label on the left, then one independent actionable
+              // chip per room. Never collapse several SLNT rooms into a single
+              // draggable/selectable group.
               return (
                 <div
                   key={group.key}
-                  className={`rounded-md border border-border/50 bg-muted/20 p-1.5 ${denseVenues ? 'mb-2 break-inside-avoid' : ''}`}
+                  className="slnt-location-row"
+                  data-slnt-venue={group.name}
                 >
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge
+                    variant="outline"
+                    className="slnt-location-label"
+                    title={group.name}
+                  >
                     <span
-                      {...dragProps}
-                      onClick={onPillClick}
-                      title={canDragAssign
-                        ? `Tap to select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} of ${group.name} (or drag)`
-                        : group.name}
-                      style={{ cursor: canDragAssign || selectionEnabled ? 'pointer' : 'default' }}
-                      className="inline-flex items-center gap-1 rounded-full bg-background/70 border border-border/60 px-1.5 py-0.5 shrink-0"
-                    >
-                      <span className="h-2.5 w-1.5 rounded-full shrink-0" style={color ? { backgroundColor: color } : undefined} />
-                      <span className="text-[10px] font-semibold text-foreground max-w-[130px] truncate">{group.name}</span>
-                      <span className="text-[9px] text-muted-foreground">{group.rooms.length}</span>
-                      {selectionEnabled && (
-                        <span className="text-[9px] text-primary font-medium">
-                          {group.rooms.every(r => selectedUnitIds.has(r.id)) ? '−' : '+'}
-                        </span>
-                      )}
-                    </span>
-
+                      className="slnt-location-accent"
+                      aria-hidden="true"
+                      style={color ? { backgroundColor: color } : undefined}
+                    />
+                    <span className="slnt-location-name">{group.name}</span>
+                  </Badge>
+                  <div className="slnt-location-chips">
                     {group.rooms.map(room => (
                       <div key={room.id} className="animate-fade-in">
                         {renderRoomChip(room)}
@@ -1833,11 +2270,64 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   </div>
                 </div>
               );
-            })}
-          </div>
+            }
+
+            return (
+              <div
+                key={group.key}
+                data-multiunit={isSlntTenant ? group.rooms.length > 2 || group.key === '__none__' : undefined}
+                data-slnt-venue-name={isSlntTenant ? group.name : undefined}
+                className={isSlntTenant
+                  ? 'slnt-venue-row flex flex-col gap-2 min-w-0 p-2 rounded-lg border border-border/70 bg-card'
+                  : 'grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)] items-start gap-2 px-1.5 py-1 odd:bg-muted/20'}
+              >
+                <button
+                  type="button"
+                  {...dragProps}
+                  onClick={onPillClick}
+                  title={canDragAssign
+                    ? `${group.name} — tap to select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} (or drag)`
+                    : group.name}
+                  style={{ cursor: canDragAssign || selectionEnabled ? 'pointer' : 'default' }}
+                  className={isSlntTenant
+                    ? 'slnt-venue-label flex w-full min-w-0 items-start gap-1.5 rounded px-1 py-1 text-left hover:bg-muted/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary'
+                    : 'flex w-full min-w-0 items-center gap-1.5 self-stretch rounded px-1 py-1 text-left hover:bg-background/70'}
+                >
+                  <span
+                    className="h-6 w-1 shrink-0 rounded-full"
+                    style={color ? { backgroundColor: color } : undefined}
+                  />
+                  <span className={isSlntTenant
+                    ? 'slnt-venue-name min-w-0 flex-1 whitespace-normal break-words text-[13px] font-semibold leading-snug text-foreground'
+                    : 'min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-foreground'}>
+                    {group.name}
+                  </span>
+                  <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-bold text-muted-foreground">
+                    {group.rooms.length}
+                  </span>
+                  {selectionEnabled && (
+                    <span className="shrink-0 text-[10px] font-bold text-primary">
+                      {allSelected ? '−' : '+'}
+                    </span>
+                  )}
+                </button>
+
+                <div className={isSlntTenant
+                  ? 'slnt-venue-unit-list flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1.5'
+                  : 'flex min-w-0 flex-wrap items-center gap-1'}>
+                  {group.rooms.map(room => (
+                    <div key={room.id} className="animate-fade-in">
+                      {renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       );
     };
+
 
     const renderTodayFloorRows = (roomsForColumn: RoomData[]) => {
       if (venuesEnabled) return renderTodayVenueRows(roomsForColumn);
@@ -1917,6 +2407,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             {icon}
             <span className="text-sm font-semibold">{title}</span>
             <Badge variant="secondary" className="text-xs">{roomList.length}</Badge>
+            {slntFilterIsActive && <span className="text-[10px] text-muted-foreground">{todayRooms.length} {hu ? 'látható' : 'shown'}</span>}
             {sectionType === 'checkout' && roomList.length > 0 && (() => {
               const manualCount = roomList.filter(r => r.pms_metadata?.manual_checkout === true).length;
               const pmsCount = roomList.filter(r => r.is_checkout_room && !r.pms_metadata?.manual_checkout).length;
@@ -1926,7 +2417,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   <span>{pmsCount} PMS</span>
                   <span className="opacity-40">·</span>
                   <span className={manualCount > 0 ? 'font-semibold text-amber-700 dark:text-amber-500' : ''}>
-                    {manualCount} manual
+                    {manualCount} {hu ? 'kézi' : 'manual'}
                   </span>
                 </span>
               );
@@ -1937,12 +2428,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               </span>
             )}
             {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">{t('roomOverview.dropHere')}</Badge>}
-            {selectionEnabled && roomList.length > 0 && (
+            {selectionEnabled && todayRooms.length > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-[10px]"
-                onClick={() => toggleUnitGroupSelection(roomList.map(r => {
+                onClick={() => toggleUnitGroupSelection(todayRooms.map(r => {
                   const a = assignmentMap.get(r.id);
                   return {
                     roomId: r.id,
@@ -1953,7 +2444,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   };
                 }))}
               >
-                {roomList.every(r => selectedUnitIds.has(r.id)) ? 'Deselect all' : 'Select all'}
+                {todayRooms.every(r => selectedUnitIds.has(r.id)) ? (hu ? 'Kijelölés törlése' : 'Deselect all') : (hu ? 'Összes kijelölése' : 'Select all')}
               </Button>
             )}
           </div>
@@ -2070,13 +2561,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   return (
     <>
-      <Card id="hotel-room-overview" className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
+      <Card id="hotel-room-overview" data-slnt-board-version={isSlntTenant ? '2026-10-10-v6' : undefined} className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-background shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
         <CardHeader className="pb-2 pt-3 px-3 sm:px-4 space-y-3">
           {/* Row 1: Title + actions */}
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="text-sm sm:text-base font-semibold flex items-center gap-1.5 min-w-0">
               <Hotel className="h-4 w-4 text-primary shrink-0" />
-              <span className="truncate">{t('team.hotelRoomOverview')}</span>
+              <span className="truncate">{isSlntTenant ? (hu ? 'Ingatlanok áttekintése' : 'Property Overview') : t('team.hotelRoomOverview')}</span>
+              {isSlntTenant && (
+                <span className="shrink-0 rounded border border-border/60 bg-muted/50 px-1 py-0.5 text-[9px] font-medium text-muted-foreground" title="SLNT flat room-chip board — September 2026">v4</span>
+              )}
             </CardTitle>
             <div className="flex items-center gap-1 shrink-0">
               {canViewFullOverview && (
@@ -2088,7 +2582,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   aria-label={viewMode === 'list' ? 'Switch to map view' : 'Switch to list view'}
                 >
                   <MapIcon className="h-3.5 w-3.5 sm:mr-1" />
-                  <span className="hidden sm:inline">{viewMode === 'list' ? 'Map' : 'List'}</span>
+                  <span className="hidden sm:inline">{viewMode === 'list' ? (hu ? 'Térkép' : 'Map') : (hu ? 'Lista' : 'List')}</span>
                 </Button>
               )}
               <HelpTooltip hint={UI_HINTS["room.refresh"]}>
@@ -2136,9 +2630,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             </TooltipProvider>
           </div>
 
-          {/* Row 3: Toggle Legend (collapsed by default) */}
+          {/* Row 3: Toggle Legend (expanded by default) */}
           <div>
             <button
+              type="button" aria-expanded={showLegend}
               onClick={() => setShowLegend(prev => !prev)}
               className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -2162,14 +2657,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   { label: t('legend.roomCleaning'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: t('legend.roomCleaningHint') },
                   { label: t('legend.extraTowels'), cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: UI_HINTS["room.extraTowels"] },
                   { label: t('legend.readyToClean'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
-                  { label: t('legend.approved'), cls: 'text-[10px]', isText: true, text: '✅', hint: t('legend.approvedHint') },
-                  // Additional badges that render on the chip but were missing from the legend:
-                  { label: t('legend.manualCheckout'), cls: 'bg-amber-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'M', hint: t('legend.manualCheckoutHint') },
-                  { label: t('legend.newlySynced'), cls: 'bg-blue-500 ring-1 ring-blue-300', hint: t('legend.newlySyncedHint') },
+                  // Less common badges (manual C/O, new sync, notes) remain visible on chips.
                   { label: t('legend.departsTomorrow'), cls: 'bg-indigo-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'C/O+1', hint: t('legend.departsTomorrowHint') },
-                  { label: t('legend.shabbat'), cls: 'text-blue-700 dark:text-blue-300 text-[9px] font-extrabold', isText: true, text: 'SH', hint: t('legend.shabbatHint') },
+                  ...(!memoriesOverview ? [{ label: t('legend.shabbat'), cls: 'text-blue-700 dark:text-blue-300 text-[9px] font-extrabold', isText: true, text: 'SH', hint: t('legend.shabbatHint') }] : []),
                   { label: t('legend.noService'), cls: 'bg-gray-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'NS', hint: t('legend.noServiceHint') },
-                  { label: t('legend.hasNote'), cls: 'text-[10px]', isText: true, text: '📝', hint: t('legend.hasNoteHint') },
+                  { label: t('legend.carriedFromYesterday'), cls: 'bg-amber-600 text-white text-[8px] font-bold px-0.5', isText: true, text: '↪', hint: t('legend.carriedFromYesterdayHint') },
                 ].map(item => (
                   <HelpTooltip key={item.label} hint={(item as any).hint}>
                     <div className="flex items-center gap-1 cursor-help">
@@ -2178,23 +2670,65 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       ) : (
                         <div className={`w-3 h-3 rounded border-2 ${item.cls}`} />
                       )}
-                      <span className="text-[10px] text-muted-foreground">{item.label}</span>
+                      <span className="text-[11px] text-foreground">{item.label}</span>
                     </div>
                   </HelpTooltip>
                 ))}
               </div>
             )}
           </div>
+          {isSlntTenant && viewMode === 'list' && (
+            <div className="slnt-board-toolbar flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-muted/15 px-2 py-1.5">
+              <span className="text-[11px] font-semibold text-foreground">{hu ? "Kijelentkezők" : "Checkout"} {checkoutRooms.length}</span>
+              <span className="text-muted-foreground/60">·</span>
+              <span className="text-[11px] font-semibold text-foreground">{hu ? "Napi szobák" : "Daily"} {dailyRooms.length}</span>
+              <span className="text-muted-foreground/60">·</span>
+              <Button
+                type="button"
+                variant={slntOnlyUnassigned ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                aria-pressed={slntOnlyUnassigned}
+                onClick={() => setSlntOnlyUnassigned(value => !value)}
+              >
+                {hu ? "Kiosztatlan" : "Unassigned"} {slntUnassignedCount}
+              </Button>
+              <input
+                type="search"
+                aria-label={hu ? "Ingatlan vagy szoba keresése" : "Find property or room"}
+                placeholder={hu ? "Ingatlan vagy szoba keresése…" : "Find property or room…"}
+                value={slntRoomSearch}
+                onChange={e => setSlntRoomSearch(e.target.value)}
+                className="h-7 min-w-0 flex-1 basis-[11rem] rounded-md border border-input bg-background px-2 text-xs text-foreground outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+              />
+              {slntFilterIsActive && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={() => { setSlntRoomSearch(''); setSlntOnlyUnassigned(false); }}
+                >
+                  {hu ? 'Törlés' : 'Clear'}
+                </Button>
+              )}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-3">
+          {overviewDataError && (
+            <div role="alert" className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+              Unable to verify the latest PMS room overview. Displayed room information may be outdated. Please retry the refresh.
+            </div>
+          )}
           {/* Signed-in housekeeper tray — drag a person onto a room to assign. */}
           {canDragAssign && signedInHousekeepers.length > 0 && (
             <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
               <div className="flex items-center gap-1.5 mb-1.5">
                 <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-[11px] font-semibold text-foreground">Signed in today</span>
+                <span className="text-[11px] font-semibold text-foreground">{hu ? "Ma bejelentkezett munkatársak" : "Signed in today"}</span>
                 <span className="text-[10px] text-muted-foreground hidden sm:inline">
-                  — drag a housekeeper onto a {terms.unit.toLowerCase()} to assign
+                  {hu ? "— takarító húzása egy szobára a kiosztáshoz" : "— drag a housekeeper onto a " + terms.unit.toLowerCase() + " to assign"}
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -2233,9 +2767,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             />
           ) : (
             <>
-               {renderSection(terms.isProperty ? terms.checkoutSection : t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
+               {renderSection(isSlntTenant && hu ? 'Kijelentkező szobák' : terms.isProperty ? terms.checkoutSection : t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
                <div className="border-t border-border/50" />
-               {renderSection(terms.isProperty ? terms.dailySection : t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
+               {renderSection(isSlntTenant && hu ? 'Napi szobák / szolgáltatási emlékeztetők' : terms.isProperty ? terms.dailySection : t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
+               {unsoldRooms.length > 0 && (
+                 <>
+                   <div className="border-t border-border/50" />
+                   {renderSection(hu ? 'Nem értékesített / üres' : 'Unsold / Vacant', unsoldRooms, <BedDouble className="h-3.5 w-3.5 text-slate-600" />, 'daily', true)}
+                 </>
+               )}
                {arrivalRooms.length > 0 && (
                  <>
                    <div className="border-t border-border/50" />
@@ -2282,7 +2822,27 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             {selectedRoom && (() => {
               const assignment = assignmentMap.get(selectedRoom.id);
               const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room || isScheduledCheckoutRoom(selectedRoom);
-              const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
+              const selectedCarry = !isCheckout && isCarryForwardDisplayHotel(selectedRoom.hotel)
+                ? isHotelMemoriesBudapest(selectedRoom.hotel) && selectedDate === todayBudapest()
+                  ? getMemoriesDailyBoardCarry({
+                      hotel: selectedRoom.hotel,
+                      selectedDate,
+                      today: todayBudapest(),
+                      isCheckout,
+                      cachedCarry: memoriesCarryByRoomId.get(selectedRoom.id),
+                      assignment,
+                    })
+                  : getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
+                : null;
+              const selectedCarryCopy = selectedCarry
+                ? getCarryForwardManagerCopy(selectedCarry)
+                : null;
+              const canMarkReadyToClean = selectedDate === todayBudapest() && canOfferCheckoutRtc({
+      isCheckout,
+      assignmentType: assignment?.assignment_type,
+      assignmentStatus: assignment?.status,
+      readyToClean: assignment?.ready_to_clean,
+    });
               const roomStatus = selectedRoom.status;
               return (
                 <>
@@ -2296,6 +2856,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                           variant="outline"
                           size="sm"
                           className="flex-1 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                          data-training="room-mark-dirty"
                           disabled={actionLoading === 'dirty'}
                           onClick={async () => {
                             setActionLoading('dirty');
@@ -2325,24 +2886,21 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                           variant="outline"
                           size="sm"
                           className="flex-1 gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
-                          disabled={actionLoading === 'clean'}
+                          disabled={actionLoading === 'clean' || selectedDate !== todayBudapest()}
                           onClick={async () => {
-                            setActionLoading('clean');
-                            try {
-                              const { error } = await supabase
-                                .from('rooms')
-                                .update({ status: 'clean' } as any)
-                                .eq('id', selectedRoom.id);
-                              if (error) throw error;
-                              setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, status: 'clean' } : r));
-                              toast.success(`Room ${selectedRoom.room_number} marked as clean`);
-                              setRoomSizeDialogOpen(false);
-                              await fetchData();
-                            } catch (err) {
-                              toast.error('Failed to update room status');
-                            } finally {
-                              setActionLoading(null);
+                            if (shouldInterceptCheckoutMarkClean({
+                              isCheckout,
+                              assignmentType: assignment?.assignment_type,
+                              assignmentStatus: assignment?.status,
+                              readyToClean: assignment?.ready_to_clean,
+                            })) {
+                              setPendingCheckoutCleanDecision({
+                                roomId: selectedRoom.id,
+                                roomNumber: selectedRoom.room_number,
+                              });
+                              return;
                             }
+                            await markRoomCleanFromOverview(selectedRoom);
                           }}
                         >
                           {actionLoading === 'clean' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
@@ -2389,6 +2947,25 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       )}
                     </div>
                   </div>
+
+                  {selectedCarry && selectedCarryCopy && (
+                    <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                        {isRdCarryForwardHotel(selectedRoom.hotel) ? '↪ Missed service · yesterday' : '↪ Carried housekeeping task'}
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-amber-950 dark:text-amber-100">
+                        {selectedCarryCopy.action}
+                      </p>
+                      <p className="mt-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                        {selectedCarryCopy.summary}
+                      </p>
+                      {selectedCarryCopy.detail && (
+                        <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                          {selectedCarryCopy.detail}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Special Instructions Section */}
                   <div className="space-y-2 pb-3 border-b">
@@ -2502,6 +3079,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       assignmentId={assignment.id}
                       roomId={selectedRoom.id}
                       roomNumber={selectedRoom.room_number}
+                      hotelName={selectedRoom.hotel}
                       dateLabel={selectedDate}
                       readOnly={selectedDate !== todayBudapest()}
                     />
@@ -2516,24 +3094,18 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         variant="outline"
                         size="sm"
                         className="w-full justify-start gap-2"
+                        data-training={assignment?.ready_to_clean ? undefined : "room-ready-to-clean"}
                         disabled={actionLoading === 'ready' || (assignment?.ready_to_clean === true)}
                         onClick={async () => {
+                          if (!assignment || !confirmReadyToCleanRelease(selectedRoom, assignment)) return;
                           setActionLoading('ready');
                           try {
-                            if (assignment) {
-                              await releaseReadyToClean(selectedRoom);
-                            } else {
-                              const { error } = await supabase
-                                .from('rooms')
-                                .update({ status: 'ready_to_clean' } as any)
-                                .eq('id', selectedRoom.id);
-                              if (error) throw error;
-                            }
-                            toast.success(`Room ${selectedRoom.room_number} marked as ready to clean`);
+                            await releaseReadyToClean(selectedRoom);
+                            toast.success(`Room ${selectedRoom.room_number} marked as Ready to Clean`);
                             setRoomSizeDialogOpen(false);
                             await fetchData();
                           } catch (err) {
-                            toast.error('Failed to mark room as ready');
+                            toast.error((err as Error)?.message || 'Failed to mark room as ready');
                           } finally {
                             setActionLoading(null);
                           }
@@ -2544,7 +3116,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       </Button>
                     )}
                     {/* Switch Room Type */}
-                    <Button
+                    <Button data-training={!isCheckout ? "room-switch-checkout" : undefined}
                       variant="outline"
                       size="sm"
                       className="w-full justify-start gap-2"
@@ -2637,7 +3209,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 </div>
                 {/* Bed Configuration */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">🛏️ Bed Configuration</label>
+                  <label className="text-sm font-medium">🛏️ {t('roomOverview.bedConfig')}</label>
                   <p className="text-xs text-muted-foreground">{t('roomOverview.bedRequirementHint')}</p>
                   <Select
                     value={(selectedRoom as any)?.bed_configuration || 'none'}
@@ -2666,7 +3238,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       <SelectItem value="Twin Beds">{t('bed.twinBeds')}</SelectItem>
                       <SelectItem value="Twin Beds Separated">{t('bed.twinBedsSeparated')}</SelectItem>
                       <SelectItem value="Single Bed">{t('bed.singleBed')}</SelectItem>
-                      <SelectItem value="Sofa Bed">Sofa Bed</SelectItem>
+                      <SelectItem value="Sofa Bed">{t('gozsdu.sofaBed')}</SelectItem>
                       <SelectItem value="Extra Cot Added">{t('bed.extraCotAdded')}</SelectItem>
                     </SelectContent>
                   </Select>
@@ -2691,6 +3263,69 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!pendingCheckoutCleanDecision}
+        onOpenChange={(open) => { if (!open && actionLoading !== 'clean' && actionLoading !== 'rtc-decision') setPendingCheckoutCleanDecision(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Checkout room: Ready to Clean first?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Room {pendingCheckoutCleanDecision?.roomNumber ?? ''} is a checkout room and has not been released to housekeeping yet. If the guest has left but cleaning is still pending, choose Ready to Clean. Only choose Mark Clean if the room has already been physically cleaned.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sm:flex-row sm:justify-end">
+            <AlertDialogCancel disabled={actionLoading === 'clean' || actionLoading === 'rtc-decision'}>Cancel</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={actionLoading === 'clean' || actionLoading === 'rtc-decision'}
+              onClick={async () => {
+                if (!pendingCheckoutCleanDecision) return;
+                const target = rooms.find(room => room.id === pendingCheckoutCleanDecision.roomId);
+                if (!target) {
+                  toast.error('Room changed. Refresh and try again.');
+                  setPendingCheckoutCleanDecision(null);
+                  return;
+                }
+                const ok = await markRoomCleanFromOverview(target);
+                if (ok) setPendingCheckoutCleanDecision(null);
+              }}
+            >
+              Already Clean — Mark Clean
+            </Button>
+            <AlertDialogAction
+              className="bg-emerald-600 hover:bg-emerald-700"
+              disabled={actionLoading === 'clean' || actionLoading === 'rtc-decision'}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!pendingCheckoutCleanDecision) return;
+                const target = rooms.find(room => room.id === pendingCheckoutCleanDecision.roomId);
+                const targetAssignment = target ? assignmentMap.get(target.id) : undefined;
+                if (!target || !targetAssignment) {
+                  toast.error('Checkout assignment changed. Refresh and try again.');
+                  setPendingCheckoutCleanDecision(null);
+                  return;
+                }
+                setActionLoading('rtc-decision');
+                try {
+                  await releaseReadyToClean(target);
+                  toast.success(`Room ${target.room_number} is Ready to Clean`);
+                  setPendingCheckoutCleanDecision(null);
+                  await fetchData(true);
+                } catch (error) {
+                  toast.error((error as Error)?.message || 'Failed to release room as Ready to Clean');
+                } finally {
+                  setActionLoading(null);
+                }
+              }}
+            >
+              Ready to Clean
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!pendingUnassign} onOpenChange={(o) => { if (!o) setPendingUnassign(null); }}>
         <AlertDialogContent>

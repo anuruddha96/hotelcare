@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 export type BillingModule = 'revenue_bi' | 'revenue_automation' | 'operations' | 'maintenance';
+export type BillingPricingMode = 'per_room' | 'fixed_monthly' | 'percent' | 'custom';
 
 /** Old rows/clients used a single 'revenue' key — it means the automation tier. */
 export function normaliseModule(module: string): BillingModule {
@@ -26,6 +27,8 @@ export interface BillingSettings {
   stripe_publishable_key: string | null;
   payments_enabled: boolean;
   stripe_secret_configured?: boolean;
+  manual_invoicing_enabled?: boolean;
+  one_time_collection_enabled?: boolean;
   /** Analytics-only Revenue tier. */
   revenue_bi_price_cents: number;
   /** Revenue tier including the automated pricing engine. */
@@ -51,6 +54,19 @@ export interface BillingSettings {
   standard_revenue_bi_price_cents: number;
   standard_revenue_automation_price_cents: number;
   standard_operations_price_cents: number;
+  /** Housekeeping promotion. Dates are inclusive; null means no boundary. */
+  operations_promotion_enabled: boolean;
+  operations_promotion_label: string;
+  operations_promotion_note: string;
+  operations_promotion_starts_on: string | null;
+  operations_promotion_ends_on: string | null;
+  /** Revenue promotion shared by BI and BI + Automation, with separate prices per tier. */
+  revenue_promotion_enabled: boolean;
+  revenue_promotion_label: string;
+  revenue_promotion_note: string;
+  revenue_promotion_starts_on: string | null;
+  revenue_promotion_ends_on: string | null;
+  /** Legacy single-promotion fields kept while older clients age out. */
   early_bird_enabled: boolean;
   early_bird_label: string;
   early_bird_note: string;
@@ -58,7 +74,6 @@ export interface BillingSettings {
   /** Days of continued access after the free trial ends. */
   grace_days: number;
 }
-
 
 /** Last full month's realised revenue and the resulting percentage fee. */
 export interface RevenueUsage {
@@ -80,6 +95,19 @@ export interface BillingHotel {
   hotel_id: string;
   hotel_name: string;
   rooms: number;
+  /** Billing-only override; never represents hotel_configurations.is_active. */
+  billing_bypass?: boolean;
+  billing_bypass_scope?: 'organization' | 'hotel' | null;
+}
+
+export interface ResolvedModulePricing {
+  hotel_id: string;
+  module: BillingModule;
+  pricing_mode: BillingPricingMode;
+  price_cents: number;
+  source: 'standard' | 'organization' | 'hotel' | 'agreement';
+  agreement_key?: string;
+  agreement_label?: string;
 }
 
 export interface ModuleSubscription {
@@ -108,12 +136,22 @@ export interface BillingInvoice {
   invoice_pdf: string | null;
 }
 
+export interface BillingModuleTrial {
+  hotel_id: string;
+  module: BillingModule;
+  enabled: boolean;
+  starts_on: string;
+  ends_on: string;
+}
+
 export interface BillingSummary {
   settings: BillingSettings;
   hotels: BillingHotel[];
   subscriptions: ModuleSubscription[];
   trial_ends_at: string | null;
   revenue_usage?: RevenueUsage[];
+  module_pricing?: ResolvedModulePricing[];
+  module_trials?: BillingModuleTrial[];
 }
 
 const ACTIVE = ['active', 'trialing', 'past_due'];
@@ -147,10 +185,24 @@ function courtesyOpen(summary: BillingSummary | null) {
   return trialIsRunning(summary) || inGracePeriod(summary);
 }
 
-/** A module is usable while the trial runs or a subscription is active. */
+/** True when an admin has explicitly bypassed payment gating for the hotel. */
+export function billingBypassed(summary: BillingSummary | null, hotelId: string) {
+  return Boolean(summary?.hotels.find((hotel) => hotel.hotel_id === hotelId)?.billing_bypass);
+}
+
+/** Property/module trial dates are inclusive Budapest calendar days. */
+export function activeModuleTrial(summary: BillingSummary | null, hotelId: string, module: BillingModule) {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  return summary?.module_trials?.find((row) =>
+    row.hotel_id === hotelId && normaliseModule(row.module) === normaliseModule(module)
+      && row.enabled && row.starts_on <= today && row.ends_on >= today
+  ) ?? null;
+}
+
+/** A module is usable while billing is bypassed, the trial runs or a subscription is active. */
 export function moduleUnlocked(summary: BillingSummary | null, hotelId: string, module: BillingModule) {
   if (!summary) return true;
-  if (courtesyOpen(summary)) return true;
+  if (billingBypassed(summary, hotelId) || courtesyOpen(summary) || activeModuleTrial(summary,hotelId,module)) return true;
   return isSubscriptionActive(
     summary.subscriptions.find(
       (s) => s.hotel_id === hotelId && normaliseModule(s.module) === normaliseModule(module),
@@ -161,7 +213,8 @@ export function moduleUnlocked(summary: BillingSummary | null, hotelId: string, 
 /** Any Revenue tier unlocks the revenue screens. */
 export function revenueUnlocked(summary: BillingSummary | null, hotelId: string) {
   if (!summary) return true;
-  if (courtesyOpen(summary)) return true;
+  if (billingBypassed(summary, hotelId) || courtesyOpen(summary)) return true;
+  if (activeModuleTrial(summary,hotelId,'revenue_bi') || activeModuleTrial(summary,hotelId,'revenue_automation')) return true;
   return summary.subscriptions.some(
     (s) => s.hotel_id === hotelId && isRevenueModule(s.module) && isSubscriptionActive(s),
   );
@@ -170,7 +223,7 @@ export function revenueUnlocked(summary: BillingSummary | null, hotelId: string)
 /** Only the BI + Automation tier unlocks the automated pricing engine. */
 export function automationUnlocked(summary: BillingSummary | null, hotelId: string) {
   if (!summary) return true;
-  if (courtesyOpen(summary)) return true;
+  if (billingBypassed(summary, hotelId) || courtesyOpen(summary)) return true;
   return moduleUnlocked(summary, hotelId, 'revenue_automation');
 }
 
@@ -184,16 +237,149 @@ export function listPriceFor(settings: BillingSettings | undefined | null, modul
       return settings.standard_revenue_automation_price_cents ?? 0;
     case 'operations':
       return settings.standard_operations_price_cents ?? 0;
+    case 'maintenance':
+      return settings.maintenance_pricing_mode === 'per_room' ? settings.maintenance_price_cents ?? 0 : 0;
     default:
       return 0;
   }
 }
 
-/** Whether the launch promotion is still running for this organization. */
-export function earlyBirdActive(settings: BillingSettings | undefined | null) {
-  if (!settings?.early_bird_enabled) return false;
-  if (!settings.early_bird_ends_at) return true;
-  return new Date(settings.early_bird_ends_at).getTime() > Date.now();
+/** Price configured for the promotional window. */
+export function promotionalPriceFor(settings: BillingSettings | undefined | null, module: BillingModule) {
+  if (!settings) return 0;
+  switch (normaliseModule(module)) {
+    case 'revenue_bi':
+      return settings.revenue_bi_price_cents ?? 0;
+    case 'revenue_automation':
+      return settings.revenue_automation_price_cents || settings.revenue_price_cents || 0;
+    case 'operations':
+      return settings.operations_price_cents ?? 0;
+    case 'maintenance':
+      return settings.maintenance_pricing_mode === 'per_room' ? settings.maintenance_price_cents ?? 0 : 0;
+    default:
+      return 0;
+  }
+}
+
+export type PromotionStatus = 'disabled' | 'scheduled' | 'active' | 'ended' | 'invalid';
+
+export type ModulePromotion = {
+  scope: 'operations' | 'revenue';
+  enabled: boolean;
+  active: boolean;
+  status: PromotionStatus;
+  label: string;
+  note: string;
+  startsOn: string | null;
+  endsOn: string | null;
+  regularPriceCents: number;
+  promotionalPriceCents: number;
+  savingsPercent: number;
+};
+
+const dateKey = (value: Date | string) =>
+  typeof value === 'string'
+    ? value.slice(0, 10)
+    : new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest' }).format(value);
+
+/** Module-specific promotion state. Start and end dates both include the selected day. */
+export function promotionForModule(
+  settings: BillingSettings | undefined | null,
+  module: BillingModule,
+  asOf: Date | string = new Date(),
+): ModulePromotion | null {
+  if (!settings || normaliseModule(module) === 'maintenance') return null;
+
+  const scope = normaliseModule(module) === 'operations' ? 'operations' : 'revenue';
+  const enabled = scope === 'operations'
+    ? settings.operations_promotion_enabled
+    : settings.revenue_promotion_enabled;
+  const label = scope === 'operations'
+    ? settings.operations_promotion_label
+    : settings.revenue_promotion_label;
+  const note = scope === 'operations'
+    ? settings.operations_promotion_note
+    : settings.revenue_promotion_note;
+  const startsOn = scope === 'operations'
+    ? settings.operations_promotion_starts_on
+    : settings.revenue_promotion_starts_on;
+  const endsOn = scope === 'operations'
+    ? settings.operations_promotion_ends_on
+    : settings.revenue_promotion_ends_on;
+  const regularPriceCents = listPriceFor(settings, module);
+  const promotionalPriceCents = promotionalPriceFor(settings, module);
+  const validPrice = regularPriceCents > 0 && promotionalPriceCents > 0 && promotionalPriceCents < regularPriceCents;
+  const validDates = !startsOn || !endsOn || startsOn <= endsOn;
+  const today = dateKey(asOf);
+
+  let status: PromotionStatus = 'disabled';
+  if (enabled && (!validPrice || !validDates)) status = 'invalid';
+  else if (enabled && startsOn && today < startsOn) status = 'scheduled';
+  else if (enabled && endsOn && today > endsOn) status = 'ended';
+  else if (enabled) status = 'active';
+
+  return {
+    scope,
+    enabled,
+    active: status === 'active',
+    status,
+    label: label || (scope === 'operations' ? 'Housekeeping offer' : 'Revenue Management offer'),
+    note: note || '',
+    startsOn,
+    endsOn,
+    regularPriceCents,
+    promotionalPriceCents,
+    savingsPercent: validPrice
+      ? Math.round((1 - promotionalPriceCents / regularPriceCents) * 10000) / 100
+      : 0,
+  };
+}
+
+/** Amount a new checkout must use today. */
+export function effectivePriceFor(
+  settings: BillingSettings | undefined | null,
+  module: BillingModule,
+  asOf: Date | string = new Date(),
+) {
+  if (!settings) return 0;
+  if (normaliseModule(module) === 'maintenance') return promotionalPriceFor(settings, module);
+  const promotion = promotionForModule(settings, module, asOf);
+  return promotion?.active ? promotion.promotionalPriceCents : listPriceFor(settings, module);
+}
+
+/** Resolved commercial model after hotel > organization > standard precedence. */
+export function resolvedPricingFor(
+  summary: BillingSummary | null | undefined,
+  hotelId: string,
+  module: BillingModule,
+): ResolvedModulePricing {
+  const resolved = summary?.module_pricing?.find(
+    (row) => row.hotel_id === hotelId && normaliseModule(row.module) === normaliseModule(module),
+  );
+  if (resolved) return resolved;
+
+  const settings = summary?.settings;
+  if (isRevenueModule(module) && settings?.revenue_pricing_mode !== 'per_room') {
+    return { hotel_id: hotelId, module, pricing_mode: 'percent', price_cents: 0, source: 'standard' };
+  }
+  if (normaliseModule(module) === 'maintenance' && settings?.maintenance_pricing_mode !== 'per_room') {
+    return { hotel_id: hotelId, module, pricing_mode: 'custom', price_cents: 0, source: 'standard' };
+  }
+  return {
+    hotel_id: hotelId,
+    module: normaliseModule(module),
+    pricing_mode: 'per_room',
+    price_cents: effectivePriceFor(settings, module),
+    source: 'standard',
+  };
+}
+
+/** Backward-compatible aggregate used by any client still expecting a single promotion flag. */
+export function earlyBirdActive(settings: BillingSettings | undefined | null, asOf: Date | string = new Date()) {
+  return Boolean(
+    promotionForModule(settings, 'operations', asOf)?.active ||
+      promotionForModule(settings, 'revenue_automation', asOf)?.active,
+  );
 }
 
 /** One-off read of the billing summary (used by the activation gate). */
@@ -207,7 +393,6 @@ export async function fetchBillingSummary(organizationSlug?: string | null) {
   if (!payload || payload.error) return null;
   return payload;
 }
-
 
 /** VAT for a net amount, using the organization's rate. */
 export function vatCents(summary: BillingSummary | null, netCents: number) {

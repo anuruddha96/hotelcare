@@ -71,3 +71,15 @@ export async function resolveHotelKeys(
   canonicalCache.set(canonical, canonical);
   return arr;
 }
+
+
+/**
+ * Scope Realtime room events to a hotel's canonical slug and legacy name.
+ * Quoted IN values preserve spaces, commas, and escaped characters.
+ */
+export function buildHotelRoomsRealtimeFilter(keys: string[]): string {
+  const unique = [...new Set(keys.filter((key) => key.trim().length > 0))];
+  if (unique.length === 0) throw new Error('A hotel key is required for room subscriptions');
+  const quoted = unique.map((key) => '"' + key.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"');
+  return 'hotel=in.(' + quoted.join(',') + ')';
+}

@@ -1,0 +1,212 @@
+name: NTAK PMS v9 CI
+
+on:
+  push:
+    branches:
+      - 'ntak/**'
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/functions/_shared/ntak/**'
+      - 'supabase/functions/ntak-pms/**'
+      - 'src/components/reservations/ReservationAccountPanel.tsx'
+      - '.github/workflows/ntak-ci.yml'
+      - 'scripts/check_changed_migrations.py'
+      - 'scripts/render_finance_core_fixture.py'
+      - 'scripts/tests/**'
+      - 'supabase/tests/ntak_finance_business_day.sql'
+      - 'supabase/tests/ntak_finance_guard_integration.sql'
+      - 'supabase/tests/ntak_phase3_activation_*.sql'
+      - 'supabase/tests/ntak_phase4_room_state_*.sql'
+      - 'supabase/tests/ntak_phase5_walk_in_*.sql'
+      - 'supabase/tests/ntak_phase8_catalogue_integration.sql'
+      - 'supabase/tests/ntak_phase7_ifa_integration.sql'
+      - 'src/components/frontdesk/WalkInSaleDialog.tsx'
+      - 'scripts/render_ntak_phase3_function_fixture.py'
+      - 'src/lib/reservations.ts'
+      - 'src/lib/pms-translations.ts'
+      - 'src/components/frontdesk/VizaStatusCard.tsx'
+      - 'src/components/frontdesk/VizaStatusCard.test.tsx'
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/ntak/**'
+      - 'supabase/functions/ntak-pms/**'
+      - 'supabase/migrations/**'
+      - 'scripts/check_changed_migrations.py'
+      - 'scripts/tests/**'
+      - 'supabase/tests/ntak_finance_business_day.sql'
+      - 'src/components/reservations/ReservationAccountPanel.tsx'
+      - 'supabase/functions/viza-thf/**'
+      - 'supabase/functions/_shared/viza/**'
+      - 'supabase/tests/ntak_*.sql'
+      - 'scripts/render_ntak_phase3_function_fixture.py'
+      - 'src/lib/reservations.ts'
+      - 'src/lib/pms-translations.ts'
+      - 'src/components/frontdesk/VizaStatusCard.tsx'
+      - 'src/components/frontdesk/VizaStatusCard.test.tsx'
+      - 'src/components/ntak/**'
+      - 'src/lib/ntak-translations.ts'
+      - '.github/workflows/ntak-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sql:
+    name: Migration, triggers, Vault helpers, RLS
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Parse all changed SQL migrations and PL/pgSQL functions
+        run: |
+          python -m pip install --disable-pip-version-check pglast==8.9
+          python -m unittest discover -s scripts/tests -p 'test_changed_migrations.py' -v
+          git fetch --no-tags origin main
+          python scripts/check_changed_migrations.py --base origin/main
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Validate 00:30 Budapest in real PostgreSQL
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_business_day.sql
+      - name: Native/external finance guard integration (disposable PostgreSQL)
+        run: |
+          # Runs after the NTAK fixture/SQL checks below; this step uses an
+          # independent ephemeral database so the finance fixture has its own schema.
+          createdb hotelcare_finance_ci
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          python3 scripts/render_finance_core_fixture.py > /tmp/ntak_finance_core_ddl.sql
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_guard_integration.sql
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase8_catalogue_integration.sql
+          # Reproduce the exact NULL-organization failure with unpatched Phase 8.
+          if PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase8_null_organization_regression.sql > /tmp/ntak_null_org_before.log 2>&1; then
+            cat /tmp/ntak_null_org_before.log
+            echo "Expected the original Phase 8 guard to reject NULL-organization Previo postings"
+            exit 1
+          fi
+          cat /tmp/ntak_null_org_before.log
+          grep -F 'ERROR:  POST_DEPARTURE_REQUIRES_MANAGER' /tmp/ntak_null_org_before.log
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261124010500_ntak_native_finance_consistency.sql
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase8_null_organization_regression.sql
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_native_finance_consistency.sql
+      - name: Phase-3 activation, undo and VIZA resilience acceptance (PostgreSQL)
+        run: |
+          set -euo pipefail
+          createdb hotelcare_phase3_ci
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase3_activation_fixture.sql
+          python3 scripts/render_ntak_phase3_function_fixture.py > /tmp/ntak_phase3_legacy_queuer.sql
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f /tmp/ntak_phase3_legacy_queuer.sql
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123213000_ntak_phase3_activation_safety.sql
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261124010400_ntak_viza_activation_followups.sql
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase3_activation_acceptance.sql
+      - name: Phase 4 dated room state, overlap and RLS integration (PostgreSQL)
+        run: |
+          set -euo pipefail
+          createdb hotelcare_phase4_ci
+          PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_fixture.sql
+          PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123220000_ntak_phase4_room_state_periods.sql
+          PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_integration.sql
+          # Fresh database keeps the review test independent of fixed historical fixture dates.
+          createdb hotelcare_room_review_ci
+          PGDATABASE=hotelcare_room_review_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          PGDATABASE=hotelcare_room_review_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_fixture.sql
+          PGDATABASE=hotelcare_room_review_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261119100000_ntak_pms_v9.sql
+          PGDATABASE=hotelcare_room_review_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123220000_ntak_phase4_room_state_periods.sql
+          PGDATABASE=hotelcare_room_review_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_review.sql
+      - name: Phase 5 walk-in sales atomicity, VAT and RLS integration (PostgreSQL)
+        run: |
+          set -euo pipefail
+          createdb hotelcare_phase5_ci
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_fixture.sql
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261119100000_ntak_pms_v9.sql
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase5_walk_in_fixture.sql
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123230000_ntak_phase5_walk_in_sales.sql
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase5_walk_in_integration.sql
+      - name: Phase 6 booking field constraints, atomic writes and tenant guards
+        run: |
+          set -euo pipefail
+          createdb hotelcare_phase6_ci
+          PGDATABASE=hotelcare_phase6_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          PGDATABASE=hotelcare_phase6_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase3_activation_fixture.sql
+          PGDATABASE=hotelcare_phase6_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase6_booking_fixture.sql
+          PGDATABASE=hotelcare_phase6_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123223000_ntak_phase6_booking_fields.sql
+          PGDATABASE=hotelcare_phase6_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase6_booking_integration.sql
+      - name: Phase 7 IFA correction triggers (disposable PostgreSQL)
+        run: |
+          createdb hotelcare_phase7_ci
+          PGDATABASE=hotelcare_phase7_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase7_ifa_integration.sql
+      - name: Run NTAK SQL checks
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261119100000_ntak_pms_v9.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261120144500_ntak_certificate_enrollment.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_integration.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261124001000_ntak_phase10_evidence.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase10_evidence.sql
+      - name: Phase 9 message recovery migration and push trigger (PostgreSQL)
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase9_message_recovery.sql
+
+  edge:
+    name: Edge function type check and Deno tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Install xmllint, openssl and the independent signature checker
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libxml2-utils openssl
+          python3 -m pip install --quiet lxml cryptography
+      - name: Type-check ntak-pms
+        run: deno check --node-modules-dir=auto supabase/functions/ntak-pms/index.ts
+      - name: Type-check viza-thf
+        run: deno check --node-modules-dir=auto supabase/functions/viza-thf/index.ts
+      - name: NTAK library tests (schema, signature, CSR, closure rules)
+        run: deno test --node-modules-dir=auto --allow-read --allow-write --allow-run --allow-env supabase/functions/_shared/ntak
+      - name: Engine end-to-end test (fake NTAK endpoint)
+        run: deno test --node-modules-dir=auto --allow-read --allow-write --allow-run --allow-env --allow-net supabase/functions/ntak-pms/engine_test.ts
+
+  unit:
+    name: UI tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: NTAK UI tests
+        run: bunx vitest run src/components/ntak
+      - name: Production UI build
+        run: npm run build

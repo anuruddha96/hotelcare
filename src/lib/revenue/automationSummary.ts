@@ -9,12 +9,23 @@ export interface AutomationRunLike {
   hotel_name?: string;
   notification_type?: string;
   run_source?: string;
+  source?: 'ai' | 'automation' | 'manual';
   actions_count?: number;
   pushed_count?: number;
   failed_count?: number;
   pickups_count?: number;
   summary?: string | null;
   changes?: Array<{
+    date?: string | null;
+    delta?: number | null;
+    reference_before?: number | null;
+    reference_target?: number | null;
+    status?: string | null;
+    push_requested_count?: number | null;
+    push_accepted_count?: number | null;
+    push_failed_count?: number | null;
+    push_confirmed_count?: number | null;
+    push_superseded_count?: number | null;
     old_price?: number | null;
     new_price?: number | null;
     old_min_stay?: number | null;
@@ -43,6 +54,36 @@ export interface RunReason {
 export type RunTone = "attention" | "done" | "working" | "quiet";
 
 const isMinStay = (run: AutomationRunLike) => run.notification_type === "min_stay_automation";
+/** Possible Peak-demand dates the pricing rules found and want a manager to check. */
+export const isPeakReview = (run: AutomationRunLike) => run.notification_type === "peak_review";
+const peakReviewCount = (run: AutomationRunLike) => Math.max(run.actions_count ?? 0, (run.changes ?? []).length);
+const isAiReferenceRun = (run: AutomationRunLike) =>
+  (run.changes ?? []).some((row) => row.date != null && row.reference_before != null && row.reference_target != null);
+
+/** Provider/review outages are NOT failed prices: no rate was ever queued. */
+export const isAiReviewFailure = (run: AutomationRunLike): boolean =>
+  run.source === 'ai'
+  && (run.failed_count ?? 0) > 0
+  && (run.actions_count ?? 0) === 0
+  && (run.changes ?? []).length === 0;
+
+export const isAiCreditsFailure = (run: AutomationRunLike): boolean =>
+  isAiReviewFailure(run)
+  && /insufficient_quota|no credits remaining|add credits to continue/i.test(run.summary ?? '');
+
+function aiPushOutcome(run: AutomationRunLike) {
+  const rows = run.changes ?? [];
+  return {
+    total: rows.length,
+    acceptedDates: rows.filter((row) => row.status === 'accepted' || row.status === 'confirmed').length,
+    acceptedCells: rows.reduce((sum, row) => sum + (row.push_accepted_count ?? 0), 0),
+    failedDates: rows.filter((row) => row.status === 'failed').length,
+    failedCells: rows.reduce((sum, row) => sum + (row.push_failed_count ?? 0), 0),
+    confirmedCells: rows.reduce((sum, row) => sum + (row.push_confirmed_count ?? 0), 0),
+    supersededCells: rows.reduce((sum, row) => sum + (row.push_superseded_count ?? 0), 0),
+    readbackKnown: rows.some((row) => row.push_confirmed_count != null),
+  };
+}
 
 const REASON_RULES: Array<{ match: RegExp; reason: RunReason }> = [
   {
@@ -120,8 +161,8 @@ function direction(run: AutomationRunLike): "lowered" | "raised" | "repaired" | 
     let up = 0;
     let down = 0;
     for (const row of rows) {
-      const from = Number(row.old_price ?? 0);
-      const to = Number(row.new_price ?? 0);
+      const from = Number(row.old_price ?? row.reference_before ?? 0);
+      const to = Number(row.new_price ?? row.reference_target ?? 0);
       if (to > from) up += 1;
       else if (to < from) down += 1;
     }
@@ -137,6 +178,10 @@ function direction(run: AutomationRunLike): "lowered" | "raised" | "repaired" | 
 const plural = (count: number, word: string) => `${count.toLocaleString()} ${word}${count === 1 ? "" : "s"}`;
 
 export function runHeadline(run: AutomationRunLike): string {
+  if (isPeakReview(run)) return `${plural(peakReviewCount(run), "possible Peak-demand date")} to review`;
+  if (isAiReviewFailure(run)) {
+    return isAiCreditsFailure(run) ? 'AI review paused — API credits exhausted' : 'AI pricing review could not run';
+  }
   if (isMinStay(run)) {
     const count = run.actions_count ?? 0;
     if ((run.failed_count ?? 0) > 0 && count === 0) return "Minimum-stay automation needs attention";
@@ -144,6 +189,9 @@ export function runHeadline(run: AutomationRunLike): string {
     return `Minimum-stay automation updated ${plural(count, "stay date")}`;
   }
 
+  if (isAiReferenceRun(run)) {
+    return `AI supervisor ${direction(run)} ${plural((run.changes ?? []).length, 'stay date')}`;
+  }
   const who = run.run_source === "automatic" ? "Automatic pricing" : "A manual run";
   if (run.run) {
     if (run.run.status === "failed") return `${who} stopped with an error`;
@@ -162,6 +210,39 @@ export function runHeadline(run: AutomationRunLike): string {
 }
 
 export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone } {
+  if (isPeakReview(run)) {
+    return {
+      text: "Check the price for each date, then confirm or dismiss it by typing in the Automation chat — for example “Confirm 31 December as Peak”. No price was changed by this notice.",
+      tone: "attention",
+    };
+  }
+  if (isAiReviewFailure(run)) {
+    return isAiCreditsFailure(run)
+      ? { text: 'OpenAI API credits are exhausted. The AI supervisor did not adjust prices. Add credits in OpenAI API billing to resume AI reviews; automatic pricing remains active.', tone: 'attention' }
+      : { text: 'The AI supervisor could not complete its review. No prices were changed by this attempt; the independent automatic pricing engine continues.', tone: 'attention' };
+  }
+  if (isAiReferenceRun(run)) {
+    const { total, acceptedDates, acceptedCells, failedDates, failedCells, confirmedCells, supersededCells, readbackKnown } = aiPushOutcome(run);
+    if (failedDates > 0) {
+      return { text: `${failedDates} date(s) have publishing failures (${failedCells} price cells). Check the rate push history.`, tone: 'attention' };
+    }
+    if (acceptedDates === total && total > 0) {
+      if (readbackKnown && acceptedCells > 0 && confirmedCells >= acceptedCells) {
+        return { text: `All ${acceptedDates} stay dates confirmed in Previo (${confirmedCells} room/guest prices read back).`, tone: 'done' };
+      }
+      if (readbackKnown && supersededCells > 0) {
+        return { text: `${acceptedDates} stay dates accepted by Previo · ${confirmedCells} prices confirmed · ${supersededCells} later changed in Previo.`, tone: 'attention' };
+      }
+      if (readbackKnown && confirmedCells > 0) {
+        return { text: `${acceptedDates} stay dates accepted by Previo · ${confirmedCells} of ${acceptedCells} prices confirmed, the rest are being read back.`, tone: 'working' };
+      }
+      return { text: `All ${acceptedDates} stay dates accepted by Previo (${acceptedCells} room/guest prices). Readback confirmation follows the next Previo sync.`, tone: 'working' };
+    }
+    if (acceptedDates > 0) {
+      return { text: `${acceptedDates} of ${total} dates accepted by Previo; remaining updates are still processing.`, tone: 'working' };
+    }
+    return { text: 'Publishing not confirmed yet — this notification captured the updates as queued.', tone: 'working' };
+  }
   if (isMinStay(run)) {
     const failed = run.failed_count ?? 0;
     const applied = run.pushed_count ?? run.actions_count ?? 0;
@@ -203,6 +284,18 @@ export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone
 
 /** One-line preview used in the bell list. */
 export function runPreview(run: AutomationRunLike): string {
+  if (isPeakReview(run)) return `Manager review · ${plural(peakReviewCount(run), "possible Peak-demand date")}`;
+  if (isAiReviewFailure(run)) {
+    return isAiCreditsFailure(run) ? 'AI review unavailable · OpenAI API credits exhausted' : 'AI review unavailable · no prices were changed';
+  }
+  if (isAiReferenceRun(run)) {
+    const { total, acceptedDates, acceptedCells, failedDates } = aiPushOutcome(run);
+    if (failedDates > 0) return `${total} dates reviewed · ${failedDates} publishing failures`;
+    const { confirmedCells, readbackKnown } = aiPushOutcome(run);
+    if (acceptedDates === total && readbackKnown && acceptedCells > 0 && confirmedCells >= acceptedCells) return `${total} dates updated · ${confirmedCells} prices confirmed in Previo`;
+    if (acceptedDates === total) return `${total} dates updated · ${acceptedCells} prices accepted by Previo`;
+    return `${total} dates updated · ${acceptedDates} accepted so far`;
+  }
   if (isMinStay(run)) {
     const failed = run.failed_count ?? 0;
     const applied = run.pushed_count ?? run.actions_count ?? 0;
@@ -219,10 +312,12 @@ export function runPreview(run: AutomationRunLike): string {
     const verified = run.run.cells_verified ?? 0;
     const accepted = run.run.cells_published ?? 0;
     const failed = run.run.cells_failed ?? 0;
-    if (failed > 0) return `${changed.toLocaleString()} dates changed · ${accepted.toLocaleString()} accepted · ${failed.toLocaleString()} failed`;
-    if (verified >= run.run.cells_queued && verified > 0) return `${changed.toLocaleString()} dates changed · ${verified.toLocaleString()} confirmed in Previo`;
-    if (accepted > 0) return `${changed.toLocaleString()} dates changed · ${accepted.toLocaleString()} accepted by Previo`;
-    return `${changed.toLocaleString()} dates changed · ${run.run.cells_queued.toLocaleString()} price cells queued`;
+    if (failed > 0) return `Failed: ${failed.toLocaleString()} prices not accepted · ${changed.toLocaleString()} dates`;
+    if (verified >= run.run.cells_queued && verified > 0) return `${changed.toLocaleString()} dates · ${verified.toLocaleString()} prices confirmed in Previo`;
+    if (accepted > 0) return `${changed.toLocaleString()} dates · ${accepted.toLocaleString()} prices sent to Previo`;
+    // A run that changed nothing has nothing in flight: never show "0 prices sending".
+    if (changed === 0 || run.run.cells_queued === 0) return `Reviewed — no price changes needed · ${run.run.dates_evaluated.toLocaleString()} dates checked`;
+    return `${changed.toLocaleString()} dates · ${run.run.cells_queued.toLocaleString()} prices sending to Previo…`;
   }
   const failed = run.failed_count ?? 0;
   if (failed > 0) return `${plural(failed, "price")} need attention`;
@@ -237,6 +332,16 @@ export function runPreview(run: AutomationRunLike): string {
 /** Only the numbers that mean something to a manager, zeros dropped. */
 export function runStats(run: AutomationRunLike): Array<{ label: string; value: number; danger?: boolean }> {
   const stats: Array<{ label: string; value: number; danger?: boolean }> = [];
+  if (isPeakReview(run)) return [{ label: "Dates to review", value: peakReviewCount(run) }];
+  if (isAiReviewFailure(run)) return [{ label: 'Failed AI reviews', value: run.failed_count ?? 0, danger: true }];
+  if (isAiReferenceRun(run)) {
+    const { total, acceptedDates, acceptedCells, failedDates } = aiPushOutcome(run);
+    stats.push({ label: 'Stay dates repriced', value: total });
+    if (acceptedDates > 0) stats.push({ label: 'Dates accepted', value: acceptedDates });
+    if (acceptedCells > 0) stats.push({ label: 'Prices accepted by Previo', value: acceptedCells });
+    if (failedDates > 0) stats.push({ label: 'Dates with failures', value: failedDates, danger: true });
+    return stats;
+  }
   if (isMinStay(run)) {
     stats.push({ label: "Stay dates updated", value: run.actions_count ?? 0 });
     if ((run.pushed_count ?? 0) > 0) stats.push({ label: "Live in Previo", value: run.pushed_count ?? 0 });
