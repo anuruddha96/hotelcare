@@ -4,9 +4,9 @@ import { useWinterSeason } from "@/lib/winterSeason";
 import "./winterWorkspace.css";
 
 // Stable positions and negative delays avoid random re-renders and start-up bursts.
-const flakes = Array.from({ length: 16 }, (_, i) => ({
+const flakes = Array.from({ length: 24 }, (_, i) => ({
   left: (i * 37 + 7) % 98,
-  size: 2 + (i % 3),
+  size: 2 + (i % 4),
   duration: 19 + (i * 3) % 13,
   delay: -((i * 7 + 3) % 26),
   drift: i % 2 ? 24 : -24,
