@@ -445,14 +445,6 @@ export default function RateStrategyGrid({
     return combined;
   }, [eventsByDate, historical.eventsByDate, historyMonth, historyRevealed]);
   const [viewportW, setViewportW] = useState(0);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
-    ro.observe(el);
-    setViewportW(el.clientWidth);
-    return () => ro.disconnect();
-  }, []);
 
   const ZOOM_CELL_W = Math.round(BASE_CELL_W * zoom);
 
@@ -515,15 +507,12 @@ export default function RateStrategyGrid({
    * calendar month. Keep mobile and deliberate zoom at a readable scroll width. */
   const dateColumnsToFit = historyMonth
     ? historicalMonthDates(today, historyMonth).length
-    : monthFilter ? calendarWindow(today, monthFilter).length : 30;
+    : monthFilter ? calendarWindow(today, monthFilter).length : 30 + RATE_HISTORY_DAYS;
   const canFitDates = fitAllDates && !isMobile && viewportW >= 1024;
   const CELL_W = useMemo(
     () => rateCalendarColumnWidth(viewportW, LEFT_W, ZOOM_CELL_W, dateColumnsToFit, canFitDates),
     [viewportW, LEFT_W, ZOOM_CELL_W, dateColumnsToFit, canFitDates],
   );
-  // Date-navigation rAF reads the new width after React applies the view.
-  const cellWidthRef = useRef(CELL_W);
-  cellWidthRef.current = CELL_W;
 
   /**
    * Font scale follows the actual column width (zoom and month-fit both
@@ -1934,27 +1923,8 @@ export default function RateStrategyGrid({
 
 
 
-  /** Whether there is more calendar to the left / right (drives the edge hints). */
+  /** Whether there is more calendar to the left / right (toolbar buttons). */
   const [edges, setEdges] = useState({ left: false, right: true });
-
-  /** True while the pointer rests on an arrow: automatic gliding pauses there. */
-  const manualNav = useRef(false);
-  const [hoverArrow, setHoverArrow] = useState<null | "left" | "right">(null);
-  // The "move manually" hint is a nudge, not a permanent label: it fades out
-  // three seconds after the cursor lands on an arrow.
-  const arrowHintTimer = useRef<number | null>(null);
-  const showArrowHint = (side: "left" | "right") => {
-    if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current);
-    setHoverArrow(side);
-    arrowHintTimer.current = window.setTimeout(() => setHoverArrow(null), 3000);
-  };
-  const hideArrowHint = () => {
-    if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current);
-    arrowHintTimer.current = null;
-    setHoverArrow(null);
-  };
-  useEffect(() => () => { if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current); }, []);
-
 
   // The summary and prices have separate horizontal panes so the summary can
   // remain CSS-sticky to the PAGE. Only scrollLeft is synchronized on user
@@ -1979,8 +1949,8 @@ export default function RateStrategyGrid({
       scrollRaf.current = null;
       const el = scrollRef.current;
       if (!el) return;
-      const idx = Math.min(allDates.length - 1, Math.max(0, Math.round(el.scrollLeft / CELL_W)));
-      const label = formatMonth(allDates[idx]);
+      const idx = Math.min(dates.length - 1, Math.max(0, Math.floor(el.scrollLeft / CELL_W)));
+      const label = formatMonth(dates[idx] ?? today);
       setVisibleMonth((prev) => (prev === label ? prev : label));
       const canLeft = el.scrollLeft > 4;
       const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
@@ -1990,29 +1960,14 @@ export default function RateStrategyGrid({
   }
   useEffect(() => () => { if (scrollRaf.current !== null) cancelAnimationFrame(scrollRaf.current); }, []);
 
-  /** Glide a whole screen of dates left or right, animated. */
+  /** Page left or right without animating the two separate panes. */
   const nudge = (dir: -1 | 1) => {
     const el = scrollRef.current;
     if (!el) return;
     const page = Math.max(CELL_W * 3, Math.floor((el.clientWidth - LEFT_W) * 0.8 / CELL_W) * CELL_W);
-    el.scrollBy({ left: dir * page, behavior: "smooth" });
+    el.scrollLeft += dir * page;
+    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = el.scrollLeft;
   };
-
-  /** Press and hold an arrow to keep moving; a single click moves one screen. */
-  const arrowHoldTimer = useRef<number | null>(null);
-  const holdRepeat = useRef<number | null>(null);
-  const startHold = (dir: -1 | 1) => {
-    manualNav.current = true;
-    arrowHoldTimer.current = window.setTimeout(() => {
-      holdRepeat.current = window.setInterval(() => nudge(dir), 350);
-    }, 450);
-  };
-  const endHold = () => {
-    if (arrowHoldTimer.current !== null) { clearTimeout(arrowHoldTimer.current); arrowHoldTimer.current = null; }
-    if (holdRepeat.current !== null) { clearInterval(holdRepeat.current); holdRepeat.current = null; }
-  };
-  useEffect(() => endHold, []);
-
 
   /**
    * Edge panning is available only during an intentional date/cell selection
@@ -2077,7 +2032,7 @@ export default function RateStrategyGrid({
       const r = el.getBoundingClientRect();
       const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
       // The drag or navigation control owns movement, never an idle cursor.
-      if (!inside || manualNav.current) { hardStop(); return; }
+      if (!inside) { hardStop(); return; }
 
       // Smooth ramp (ease-in-out) so entering the zone does not jolt.
       const ramp = (d: number) => {
@@ -2526,7 +2481,8 @@ export default function RateStrategyGrid({
     setPickedDates(new Set());
     setSelDates(new Set());
     requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollLeft = value ? 0 : RATE_HISTORY_DAYS * cellWidthRef.current;
+      if (scrollRef.current) scrollRef.current.scrollLeft = 0;
+      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = 0;
     });
   }, []);
 
@@ -2675,28 +2631,60 @@ export default function RateStrategyGrid({
   // Only deliberate hotel/date-view navigation resets the horizontal viewport.
   // Briefly empty rows during a background refresh must NOT snap the reader back.
   const hasGridRows = rows.length > 0;
+  // Attach once the actual grid is rendered, including after initial loading.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setViewportW(el.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasGridRows]);
   const lastViewportKeyRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     const grid = scrollRef.current;
     const viewportKey = [hotelId ?? "", today, monthFilter ?? "", historyMonth ?? ""].join("|");
     if (!grid || !shouldResetRateCalendarViewport(lastViewportKeyRef.current, viewportKey, hasGridRows)) return;
     lastViewportKeyRef.current = viewportKey;
-    // The previous three days remain available by scrolling left, but the
-    // visible rolling window begins at today and ends on the 30th future date.
-    grid.scrollLeft = !monthFilter && !historyMonth ? RATE_HISTORY_DAYS * CELL_W : 0;
-    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = grid.scrollLeft;
-    setVisibleMonth(formatMonth(!monthFilter && !historyMonth ? today : dates[0] ?? today));
+    // Start at the first column: the rolling view includes three past dates
+    // followed by today and the remaining future dates.
+    grid.scrollLeft = 0;
+    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = 0;
+    setVisibleMonth(formatMonth(dates[0] ?? today));
   }, [hotelId, today, monthFilter, historyMonth, hasGridRows]);
 
+  // Recompute button availability when fitting, resizing or filtering changes
+  // the scrollable width, including when no scroll event fires.
+  useLayoutEffect(() => {
+    const body = scrollRef.current;
+    if (!body) return;
+    const left = body.scrollLeft > 4;
+    const right = body.scrollLeft + body.clientWidth < body.scrollWidth - 4;
+    setEdges(prev => prev.left === left && prev.right === right ? prev : { left, right });
+    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = body.scrollLeft;
+  }, [hasGridRows, dates.length, CELL_W, LEFT_W, viewportW, hotelId, monthFilter, historyMonth]);
+
   const scrollToToday = () => {
-    if (historyMonth || monthFilter) {
-      setHistoryMonth(null);
-      setMonthFilter(null);
-      setPickedDates(new Set());
-      setSelDates(new Set());
+    if (historyMonth || monthFilter) selectMonth(null);
+    else {
+      setReviewOnly(false);
+      setPickupOnly(false);
     }
+    // Reset both panes, preserving the three historical columns whenever
+    // today fits. At narrow zooms, reveal just enough to show today fully.
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({ left: 3 * CELL_W, behavior: "smooth" });
+      const body = scrollRef.current;
+      const header = headerScrollRef.current;
+      if (!body || !header) return;
+      body.scrollLeft = 0;
+      header.scrollLeft = 0;
+      const todayCell = headerRowRef.current?.querySelector<HTMLElement>(`[data-date="${today}"]`);
+      if (todayCell) {
+        const overflow = todayCell.getBoundingClientRect().right - (header.getBoundingClientRect().left + header.clientWidth);
+        body.scrollLeft = Math.max(0, Math.ceil(overflow));
+        header.scrollLeft = body.scrollLeft;
+      }
     }));
   };
 
@@ -3345,9 +3333,18 @@ export default function RateStrategyGrid({
           {/* Current date stays visible in the toolbar even when offscreen in the grid. */}
           <div className="flex items-center justify-between gap-2 border-b px-2 py-1">
             <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-              {historyMonth ? "Saved month · read-only" : monthFilter ? "Full calendar month · past dates read-only" : "Next 30 days · previous 3 available to the left"}
+              {historyMonth ? "Saved month · read-only" : monthFilter ? "Full calendar month · past dates read-only" : "Next 30 days · previous 3 days shown (read-only)"}
             </span>
-            <Button type="button" size="sm" variant="outline"
+            <div data-rate-calendar-navigation-controls="true" className="flex shrink-0 items-center gap-1">
+              <Button type="button" size="sm" variant="outline" className="h-7 w-7 p-0" disabled={!edges.left}
+                aria-label="Show earlier dates" title="Show earlier dates" onClick={() => nudge(-1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button type="button" size="sm" variant="outline" className="h-7 w-7 p-0" disabled={!edges.right}
+                aria-label="Show later dates" title="Show later dates" onClick={() => nudge(1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button type="button" size="sm" variant="outline"
               className="h-7 shrink-0 gap-1 border-sky-500/60 bg-sky-50 px-2 text-[11px] font-semibold text-sky-800 hover:bg-sky-100 dark:bg-sky-950/50 dark:text-sky-100"
               title={`Go to today, ${today} (Budapest date)`}
               aria-label={`Go to today, ${today}`}
@@ -3355,6 +3352,7 @@ export default function RateStrategyGrid({
               <CalendarRange className="h-3.5 w-3.5" />
               Today · {formatWeekday(today)} {formatDay(today)}
             </Button>
+            </div>
           </div>
           {/* Explicit navigation: no infinite load, no hidden extra columns. */}
           <div className="flex items-center gap-1 overflow-x-auto border-b px-2 py-1.5" aria-label="Rate calendar date navigation">
@@ -4551,54 +4549,6 @@ export default function RateStrategyGrid({
             </div>
             </div>
 
-            {/* Edge hints: a soft fade plus an animated chevron showing there
-                is more calendar that way. They fade out at the ends. */}
-            <div
-              aria-hidden
-              className={`pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-background to-transparent transition-opacity duration-200 ${edges.right ? "opacity-100" : "opacity-0"}`}
-            />
-            <div
-              aria-hidden
-              className={`pointer-events-none absolute inset-y-0 w-10 bg-gradient-to-r from-background to-transparent transition-opacity duration-200 ${edges.left ? "opacity-100" : "opacity-0"}`}
-              style={{ left: LEFT_W }}
-            />
-            <button
-              type="button"
-              aria-label="Show earlier dates"
-              onClick={() => nudge(-1)}
-              onPointerEnter={() => { manualNav.current = true; showArrowHint("left"); }}
-              onPointerLeave={() => { manualNav.current = false; hideArrowHint(); endHold(); }}
-              onPointerDown={() => startHold(-1)}
-              onPointerUp={endHold}
-              onPointerCancel={endHold}
-              className={`absolute top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.left ? "opacity-90 hover:opacity-100" : "pointer-events-none opacity-0"}`}
-              style={{ left: LEFT_W + 6 }}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              {hoverArrow === "left" && (
-                <span className="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[11px] font-normal text-popover-foreground shadow-md">
-                  Click here to move manually
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              aria-label="Show later dates"
-              onClick={() => nudge(1)}
-              onPointerEnter={() => { manualNav.current = true; showArrowHint("right"); }}
-              onPointerLeave={() => { manualNav.current = false; hideArrowHint(); endHold(); }}
-              onPointerDown={() => startHold(1)}
-              onPointerUp={endHold}
-              onPointerCancel={endHold}
-              className={`absolute right-1.5 top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.right ? "opacity-90 hover:opacity-100" : "pointer-events-none opacity-0"}`}
-            >
-              <ChevronRight className="h-4 w-4" />
-              {hoverArrow === "right" && (
-                <span className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[11px] font-normal text-popover-foreground shadow-md">
-                  Click here to move manually
-                </span>
-              )}
-            </button>
 
           </div>
           </div>
