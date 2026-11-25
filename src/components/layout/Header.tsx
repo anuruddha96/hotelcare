@@ -156,50 +156,50 @@ export function Header() {
         <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-1">
           <div className="flex min-w-0 flex-1 items-center overflow-x-auto overscroll-x-contain scrollbar-hide px-1 py-1">
             <div className="flex w-max shrink-0 items-center gap-1.5 sm:ml-auto sm:gap-2">
-            <DirtyLinenCartBadge />
-            <OrganizationSwitcher />
-            <div className={fieldStaff ? 'hidden sm:contents' : 'contents'}><HotelSwitcher /></div>
-            <div className="hidden shrink-0 sm:block"><LanguageSwitcher /></div>
-            <AppearanceMenu />
-            <InstallAppPrompt />
-            {profile?.role !== 'manager' && profile?.role !== 'housekeeping_manager' && (
-              <LiveSyncIndicator />
-            )}
-            <RevenueAutomationNotifications />
-            <ReputationAlertsBell />
-            <AnnouncementsBell />
-            <TrainingHelpButton />
-            
-            {/* Revenue moved to PMSNavigation main tab bar */}
+              <DirtyLinenCartBadge />
+              <OrganizationSwitcher />
+              <div className={fieldStaff ? 'hidden sm:contents' : 'contents'}><HotelSwitcher /></div>
+              <div className="hidden shrink-0 sm:block"><LanguageSwitcher /></div>
+              <AppearanceMenu />
+              <InstallAppPrompt />
+              {profile?.role !== 'manager' && profile?.role !== 'housekeeping_manager' && (
+                <LiveSyncIndicator />
+              )}
+              <RevenueAutomationNotifications />
+              <ReputationAlertsBell />
+              <AnnouncementsBell />
+              <TrainingHelpButton />
+
+              {/* Revenue moved to PMSNavigation main tab bar */}
 
 
-            {(profile?.role === 'admin' || profile?.role === 'manager') && (
-              <>
-                <ReportsDialog />
-                <UserManagementDialog 
-                  open={false}
-                  onOpenChange={() => {}}
-                />
-              </>
-            )}
-            
-            {/* Profile Badge - Hidden on small screens */}
-            {profile && (
-              <div className="flex flex-col items-end gap-1 hidden sm:block">
-                <Badge 
-                  variant="secondary" 
-                  className="text-xs sm:text-sm"
-                >
-                  {getRoleLabel(profile.role)}
-                </Badge>
-                {hotelDisplayName && (
-                  <span className="text-xs text-muted-foreground hidden lg:inline">
-                    {hotelDisplayName}
-                  </span>
-                )}
-              </div>
-            )}
-            
+              {(profile?.role === 'admin' || profile?.role === 'manager') && (
+                <>
+                  <ReportsDialog />
+                  <UserManagementDialog
+                    open={false}
+                    onOpenChange={() => {}}
+                  />
+                </>
+              )}
+
+              {/* Profile Badge - Hidden on small screens */}
+              {profile && (
+                <div className="flex flex-col items-end gap-1 hidden sm:block">
+                  <Badge
+                    variant="secondary"
+                    className="text-xs sm:text-sm"
+                  >
+                    {getRoleLabel(profile.role)}
+                  </Badge>
+                  {hotelDisplayName && (
+                    <span className="text-xs text-muted-foreground hidden lg:inline">
+                      {hotelDisplayName}
+                    </span>
+                  )}
+                </div>
+              )}
+
             </div>
           </div>
           <div className="shrink-0">
