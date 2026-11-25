@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { CalendarClock, CreditCard, Info, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,9 +21,10 @@ const STATE_STYLE: Record<VccState, string> = {
  */
 export function VccDetailsPanel({ reservation }: { reservation: VccReservation }) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const info = deriveVccInfo(reservation, todayBudapest());
   if (!info) return null;
-  const money = (value: number) => `${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${info.currency ? ` ${info.currency}` : ''}`;
+  const money = (value: number) => `${value.toLocaleString(locale.intlLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${info.currency ? ` ${info.currency}` : ''}`;
 
   return (
     <Card data-training="vcc-panel">
@@ -40,7 +42,7 @@ export function VccDetailsPanel({ reservation }: { reservation: VccReservation }
           <dd className="flex items-center gap-1.5 flex-wrap">
             <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
             {info.chargeableFrom
-              ? <><span className="font-medium">{info.chargeableFrom}</span>{info.state === 'not_yet' && info.daysUntilChargeable != null && <span className="text-xs text-muted-foreground">({info.daysUntilChargeable} {t('pms.vcc.daysLeft')})</span>}</>
+              ? <><span className="font-medium">{locale.formatDate(info.chargeableFrom)}</span>{info.state === 'not_yet' && info.daysUntilChargeable != null && <span className="text-xs text-muted-foreground">({info.daysUntilChargeable} {t('pms.vcc.daysLeft')})</span>}</>
               : <span className="text-muted-foreground">{t('pms.vcc.dateUnknown')}</span>}
           </dd>
           {info.amountToCharge != null && (
