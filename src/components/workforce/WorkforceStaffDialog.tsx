@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { effectiveAccessRole } from '@/lib/accessPolicy';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +16,6 @@ import { staffContactAvailable, type WorkforceData, type WorkforceProfileOption 
 
 const NONE = '__none';
 const CONTRACTS: Array<WorkforceStaff['employment_type']> = ['full_time', 'part_time', 'hourly', 'trainee', 'external'];
-let profileCache: WorkforceProfileOption[] | null = null;
 
 interface Props {
   /** The employee to edit, a partial record to add one, or null when closed. */
@@ -31,16 +32,25 @@ interface Props {
  */
 export function WorkforceStaffDialog({ staff, data, access, onClose }: Props) {
   const { t } = useTranslation();
+  const { profile } = useAuth();
+  const hr = effectiveAccessRole(profile) === 'hr';
   const [editing, setEditing] = useState<Partial<WorkforceStaff> | null>(null);
-  const [profiles, setProfiles] = useState<WorkforceProfileOption[]>(profileCache ?? []);
+  const [profiles, setProfiles] = useState<WorkforceProfileOption[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { setEditing(staff ? { ...staff } : null); }, [staff]);
   useEffect(() => {
-    if (!staff || profileCache) return;
-    void supabase.from('profiles').select('id,full_name,nickname,role,assigned_hotel').order('full_name')
-      .then(({ data: rows }) => { profileCache = (rows ?? []) as WorkforceProfileOption[]; setProfiles(profileCache); });
-  }, [staff]);
+    setProfiles([]);
+    if (!staff || !profile?.organization_slug) return;
+    let active = true;
+    void supabase.from('profiles').select('id,full_name,nickname,role,assigned_hotel,access_role,is_super_admin')
+      .eq('organization_slug', profile.organization_slug).is('deleted_at', null).order('full_name')
+      .then(({ data: rows, error }) => {
+        if (!active || error) return;
+        setProfiles((rows ?? []).filter(p => !hr || (p.id !== profile.id && !p.is_super_admin && !['admin','top_management','controlling','hr'].includes(effectiveAccessRole(p)))) as WorkforceProfileOption[]);
+      });
+    return () => { active = false; };
+  }, [staff, profile?.id, profile?.organization_slug, hr]);
 
   const linked = useMemo(() => new Map(data.staff.filter((s) => s.profile_id).map((s) => [s.profile_id!, s.id])), [data.staff]);
   const rolesFor = (deptId?: string | null) => data.jobRoles.filter((r) => r.is_active && (!deptId || r.department_id === deptId));

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   CalendarDays, CarFront, ChevronLeft, ChevronRight, Clock, DoorOpen, Home, Radio, Receipt,
-  Settings, TabletSmartphone, Tags, Ticket, TrendingUp, Users, MessageSquareText, FileText, GraduationCap,
+  Settings, TabletSmartphone, Tags, Ticket, TrendingUp, Users, MessageSquareText, GraduationCap,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 type DashboardTab = 'people' | 'tickets' | 'rooms' | 'housekeeping' | 'attendance' | 'admin';
 type ModuleKey = DashboardTab | 'reception' | 'parking' | 'revenue' | 'rates-availability' | 'channel-manager'
-  | 'invoices' | 'staff-schedule' | 'insuite' | 'reputation' | 'price-list' | 'documents' | 'training';
+  | 'invoices' | 'staff-schedule' | 'insuite' | 'reputation' | 'price-list' | 'training';
 
 interface OperationsNavigationProps {
   /** Highlighted tab. When omitted, it is worked out from the current URL. */
@@ -132,10 +132,7 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     { key: 'people', label: 'hr.nav.people', icon: Users, click: () => openTab('people') },
     { key: 'staff-schedule', label: 'nav.schedule', icon: CalendarDays, click: () => navigate(`${basePath}?view=staff-schedule`) },
     { key: 'attendance', label: 'hr.nav.attendance', icon: Clock, click: () => openTab('attendance') },
-    { key: 'documents', label: 'hr.nav.documents', icon: FileText, click: () => undefined, disabled: true },
     { key: 'training', label: 'hr.nav.training', icon: GraduationCap, click: () => navigate(`${basePath}/training`) },
-    { key: 'tickets', label: 'nav.maintenance', icon: Ticket, click: () => openTab('tickets') },
-    { key: 'rooms', label: 'nav.rooms', icon: Home, click: () => openTab('rooms') },
   ];
   const hrOrder = hrNavigationFor(profile);
   const items = hrOrder.length ? hrOrder.flatMap(key => hrItems.filter(item => item.key === key)) : generalItems;

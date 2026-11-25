@@ -1,0 +1,39 @@
+name: HR personnel security CI
+on:
+  pull_request:
+    paths:
+      - 'docs/hr-personnel-storage.review.sql'
+      - 'supabase/functions/hr-personnel-documents/**'
+      - 'supabase/tests/hr_personnel_*.sql'
+      - '.github/workflows/hr-personnel-security-ci.yml'
+permissions:
+  contents: read
+jobs:
+  personnel-sql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hr_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hr_test
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/access_roles_fixture.sql -f supabase/migrations/20261117200000_access_roles_and_mira_actions.sql -f supabase/tests/hr_phase1_fixture.sql -f supabase/tests/hr_personnel_fixture.sql -f docs/hr-personnel-storage.review.sql -f supabase/tests/hr_personnel_test.sql
+  personnel-handler:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test --no-check supabase/functions/hr-personnel-documents/handler_test.ts

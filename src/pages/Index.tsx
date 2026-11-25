@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
+import { HrPeopleOverview } from '@/components/hr/HrPeopleOverview';
+import { HrAttendance } from '@/components/hr/HrAttendance';
+import { BreakRequestApprovalView } from '@/components/dashboard/BreakRequestApprovalView';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { MasterStaffSchedulePlanner } from '@/components/dashboard/MasterStaffSchedulePlanner';
 import { WorkforceSchedule } from '@/components/workforce/WorkforceSchedule';
@@ -157,6 +160,15 @@ const Index = () => {
   const canOpenMasterSchedule = !!profile?.is_super_admin || MASTER_SCHEDULE_ROLES.includes(profile?.role || '')
     || (isRdHotels && WORKFORCE_PROPERTY_ROLES.includes(profile?.role || ''));
   const showingMasterSchedule = canOpenMasterSchedule && searchParams.get('view') === 'staff-schedule';
+
+  // HR must never mount the operational Dashboard (which loads tickets and rooms).
+  if (accessRole === 'hr' && !showingMasterSchedule) {
+    const tab = searchParams.get('tab');
+    if (tab !== 'people' && tab !== 'attendance') {
+      return <Navigate to={`/${profile?.organization_slug || organizationSlug || 'rdhotels'}?view=staff-schedule`} replace />;
+    }
+    return <div className="min-h-screen bg-background"><Header /><main className="w-full px-4 py-6 lg:px-6"><OperationalPageHeading section={tab === 'people' ? 'People' : 'Attendance'} /><div className="my-4"><OperationsNavigation current={tab} /></div>{tab === 'people' ? <HrPeopleOverview /> : <><HrAttendance /><BreakRequestApprovalView /></>}</main></div>;
+  }
 
   return (
     <StaffWorkVenueGate>

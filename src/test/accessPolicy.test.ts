@@ -116,10 +116,10 @@ describe('first screen', () => {
     expect(landingPathFor({ role: 'top_management_manager', access_role: 'controlling' }, ctx)).toBeNull();
   });
 
-  it('sends HR to the People tab', () => {
-    expect(landingPathFor({ role: 'hr' }, ctx)).toBe('/rdhotels?tab=people');
+  it('sends HR to the staff schedule and limits navigation', () => {
+    expect(landingPathFor({ role: 'hr' }, ctx)).toBe('/rdhotels?view=staff-schedule');
     expect(defaultDashboardTabFor({ role: 'hr' })).toBe('people');
-    expect(hrNavigationFor({ role: 'hr' })).toEqual(['people','staff-schedule','attendance','documents','training','tickets','rooms']);
+    expect(hrNavigationFor({ role: 'hr' })).toEqual(['staff-schedule','people','attendance','training']);
     expect(hrNavigationFor({ role: 'housekeeping' })).toEqual([]);
     expect(capabilitiesFor({ role: 'housekeeping' }).peopleManage).toBe(false);
     expect(capabilitiesFor({ role: 'hr' }).peopleManage).toBe(true);

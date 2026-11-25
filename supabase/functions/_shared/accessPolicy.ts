@@ -289,6 +289,9 @@ export function miraScopesFor(subject: AccessSubject): MiraScope[] {
   const caps = capabilitiesFor(subject);
   if (!caps.mira) return [];
   switch (caps.accessRole) {
+    case "hr":
+      // Preserve existing non-operational entitlements pending owner review.
+      return ["revenue", "finance"];
     case "housekeeping_manager":
     case "housekeeping_supervisor":
       return ["housekeeping", "maintenance"];
@@ -324,7 +327,7 @@ export function landingPathFor(subject: AccessSubject, context: LandingContext):
     case "controlling":
       return context.invoicesAvailable ? `${base}/purchase-invoices` : null;
     case "hr":
-      return `${base}?tab=people`;
+      return `${base}?view=staff-schedule`;
     case "reception":
       // While the hotel runs on Previo, reception keeps today's start screen.
       return context.nativePms ? `${base}/reception` : null;
@@ -342,7 +345,7 @@ export function defaultDashboardTabFor(subject: AccessSubject): string | null {
 }
 
 
-/** Dedicated HR navigation. Documents remain unavailable until their secure module ships. */
+/** Dedicated HR navigation. Personnel documents belong to employee files. */
 export function hrNavigationFor(subject: AccessSubject): readonly string[] {
-  return capabilitiesFor(subject).hrWorkspace ? ["people", "staff-schedule", "attendance", "documents", "training", "tickets", "rooms"] : [];
+  return capabilitiesFor(subject).hrWorkspace ? ["staff-schedule", "people", "attendance", "training"] : [];
 }
