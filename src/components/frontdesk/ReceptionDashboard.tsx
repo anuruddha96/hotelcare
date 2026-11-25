@@ -26,7 +26,7 @@ import { PmsSyncButton } from '@/components/frontdesk/PmsSyncButton';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
 import { setReservationStatus, LifecycleError } from '@/lib/pmsLifecycle';
 import {
-  balanceOf, formatMoney, isLateArrivalCandidate, reservationGuestLabel,
+  balanceOf, isLateArrivalCandidate, reservationGuestLabel,
   reservationSearchText, RESERVATION_STATUS_COLORS, roomReadiness,
 } from '@/lib/reservations';
 
@@ -38,7 +38,7 @@ interface ReceptionDashboardProps {
 }
 
 export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardProps) {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const locale = useLocaleFormat();
   const navigate = useNavigate();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
@@ -161,7 +161,7 @@ export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardPr
 
   const StatusBadge = ({ status }: { status: string }) => (
     <Badge className={RESERVATION_STATUS_COLORS[status] || 'bg-muted text-muted-foreground'}>
-      {language === 'hu' ? reservationStatusLabel(status, t) : t(`pms.reservations.${status === 'no_show' ? 'noShow' : status === 'checked_in' ? 'checkedIn' : status === 'checked_out' ? 'checkedOut' : status}`)}
+      {reservationStatusLabel(status, t, 'reservation')}
     </Badge>
   );
 
@@ -196,7 +196,7 @@ export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardPr
             <ReadinessChip r={r} />
             {balance > 0 && (
               <Badge variant="outline" className="text-[10px] text-amber-700 dark:text-amber-400">
-                {(language === 'hu' ? locale.formatMoney : formatMoney)(balance, r.currency)}
+                {locale.formatReceptionMoney(balance, r.currency)}
               </Badge>
             )}
           </div>
