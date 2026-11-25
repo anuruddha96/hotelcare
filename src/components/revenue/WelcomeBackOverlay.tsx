@@ -1,3 +1,4 @@
+import { useTranslation } from '@/hooks/useTranslation';
 // Calm, original welcome layout: show at most one previously unseen thought.
 // The database, not a device's local storage, owns lifetime seen-history.
 // Quote retrieval/refill NEVER blocks entering the workspace.
@@ -119,6 +120,7 @@ export function WelcomeBackOverlay({
   context?: "account" | "revenue";
 }) {
   const { user, profile } = useAuth();
+  const { t } = useTranslation();
   const viewerId = user?.id && profile?.id === user.id ? user.id : null;
   const [line, setLine] = useState<ClaimedQuote | null>(null);
   useEffect(() => {
@@ -148,12 +150,12 @@ export function WelcomeBackOverlay({
       <div className="mx-4 w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
         <div className="flex items-center gap-3">
           <Loader2 className={`h-5 w-5 text-primary ${error ? "" : "animate-spin"}`} />
-          <h2 className="text-lg font-semibold">{greeting}{first ? `, ${first}` : ""}</h2>
+          <h2 className="text-lg font-semibold">{t('reception.shell.greeting' + Math.max(0, GREETINGS.indexOf(greeting)))}{first ? `, ${first}` : ""}</h2>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
           {error ? error : context === "account"
-            ? `Securely preparing your workspace${".".repeat(dots)}`
-            : `Fetching the latest prices, pickup and occupancy for you${".".repeat(dots)}`}
+            ? `${t('reception.shell.preparing')}${".".repeat(dots)}`
+            : `${t('reception.shell.fetching')}${".".repeat(dots)}`}
         </p>
         <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-primary/15">
           <div className="h-full rounded-full bg-primary transition-all duration-700"
@@ -162,8 +164,8 @@ export function WelcomeBackOverlay({
         {step && <p className="mt-2 text-xs text-muted-foreground">{step}</p>}
         {(onRetry || onSignOut) && (
           <div className="mt-4 flex gap-2">
-            {onRetry && <Button className="flex-1" onClick={onRetry}>Try again</Button>}
-            {onSignOut && <Button className="flex-1" variant="outline" onClick={onSignOut}>Sign out</Button>}
+            {onRetry && <Button className="flex-1" onClick={onRetry}>{t('reception.shell.retry')}</Button>}
+            {onSignOut && <Button className="flex-1" variant="outline" onClick={onSignOut}>{t('reception.shell.signOut')}</Button>}
           </div>
         )}
         {line && (
