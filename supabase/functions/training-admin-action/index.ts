@@ -155,7 +155,7 @@ Deno.serve(async (req) => {
         );
       if (stateError) throw stateError;
     } else if (action === 'mark_complete') {
-      const rows: any[] = [];
+      const rows: Array<{ user_id: string; tour_key: string; status: 'completed'; completed_at: string; current_step: number; updated_at: string }> = [];
       for (const uid of userIds) {
         for (const slug of curriculumSlugs) {
           rows.push({

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CreditCard, Eye, Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,7 @@ async function callPci(body: Record<string, unknown>) {
 }
 
 export function PciCardPanel({ hotelId, reservationId }: { hotelId: string; reservationId: string }) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [viewer, setViewer] = useState<{ url: string; tokenId: string } | null>(null);
@@ -55,7 +57,7 @@ export function PciCardPanel({ hotelId, reservationId }: { hotelId: string; rese
     setBusy(true);
     try {
       await callPci({ action: 'capture', hotel_id: hotelId, reservation_id: reservationId });
-      toast.success('Card secured in the PCI vault.');
+      toast.success(t('pms.pci.secured'));
       await refresh();
     } catch (e) { toast.error((e as Error).message); }
     finally { setBusy(false); }
@@ -74,45 +76,45 @@ export function PciCardPanel({ hotelId, reservationId }: { hotelId: string; rese
     <Card data-training="pci-card-panel">
       <CardHeader className="pb-2">
         <CardTitle className="text-base flex items-center gap-2">
-          <CreditCard className="h-4 w-4 text-primary" /> Payment card
-          <Badge variant="outline" className="gap-1 text-[10px] font-normal"><ShieldCheck className="h-3 w-3" /> PCI proxy</Badge>
+          <CreditCard className="h-4 w-4 text-primary" /> {t('pms.pci.paymentCard')}
+          <Badge variant="outline" className="gap-1 text-[10px] font-normal"><ShieldCheck className="h-3 w-3" /> {t('pms.pci.proxy')}</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
-        {!status.configured && <p className="text-muted-foreground">PCI Booking is not configured yet — card access is off until the API key secret is set.</p>}
+        {!status.configured && <p className="text-muted-foreground">{t('pms.pci.notConfigured')}</p>}
         {status.configured && status.tokens.length === 0 && (
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <p className="text-muted-foreground">The OTA card for this booking has not been secured yet.</p>
+            <p className="text-muted-foreground">{t('pms.pci.notSecured')}</p>
             {status.can_capture && (
               <Button type="button" size="sm" className="gap-1.5" disabled={busy} onClick={capture}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Secure card from Channex
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} {t('pms.pci.capture')}
               </Button>
             )}
           </div>
         )}
         {status.tokens.map((tkn) => (
           <div key={tkn.id} className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-xs">{tkn.masked_label ?? 'Card on file'}</span>
+            <span className="font-mono text-xs">{tkn.masked_label ?? t('pms.pci.onFile')}</span>
             {tkn.card_type && <Badge variant="secondary" className="text-[10px]">{tkn.card_type}</Badge>}
             <div className="flex-1" />
             {status.can_view && (
               <Button type="button" size="sm" variant="outline" className="gap-1.5" disabled={busy} onClick={() => view(tkn.id)}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />} View card
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />} {t('pms.pci.view')}
               </Button>
             )}
           </div>
         ))}
-        <p className="text-[11px] text-muted-foreground">Card details render in PCI Booking's secure window only; every view is logged.</p>
+        <p className="text-[11px] text-muted-foreground">{t('pms.pci.secureWindow')}</p>
       </CardContent>
 
       <Dialog open={!!viewer} onOpenChange={(open) => { if (!open) setViewer(null); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Card details</DialogTitle>
-            <DialogDescription>Shown directly from the PCI vault. This view is logged and the link expires in 5 minutes.</DialogDescription>
+            <DialogTitle>{t('pms.pci.details')}</DialogTitle>
+            <DialogDescription>{t('pms.pci.expiry')}</DialogDescription>
           </DialogHeader>
           {viewer && (
-            <iframe title="Card details (PCI Booking)" src={viewer.url} className="w-full h-64 rounded-md border bg-background" sandbox="allow-scripts allow-same-origin" />
+            <iframe title={t('pms.pci.frameTitle')} src={viewer.url} className="w-full h-64 rounded-md border bg-background" sandbox="allow-scripts allow-same-origin" />
           )}
         </DialogContent>
       </Dialog>

@@ -51,7 +51,7 @@ function money(amount: number | null | undefined, currency: string | null | unde
       style: 'currency', currency: currency || 'EUR', maximumFractionDigits: currency === 'HUF' ? 0 : 2,
     }).format(Number(amount));
   } catch {
-    return `${Math.round(Number(amount)).toLocaleString()} ${currency ?? ''}`;
+    return `${Math.round(Number(amount)).toLocaleString(guestLocale(language))} ${currency ?? ''}`;
   }
 }
 

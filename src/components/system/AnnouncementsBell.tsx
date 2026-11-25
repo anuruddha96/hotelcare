@@ -1,21 +1,22 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
+import { useTranslation } from '@/hooks/useTranslation';
 import { Megaphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useAnnouncements } from '@/hooks/useAnnouncements';
 
-const fmt = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-
 /** Announcement history — a dismissed message can always be re-read here. */
 export function AnnouncementsBell() {
+  const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const { announcements, unreadCount, markSeen } = useAnnouncements();
   if (!announcements.length) return null;
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative shrink-0" aria-label="Announcements">
+        <Button variant="ghost" size="icon" className="relative shrink-0" aria-label={t('reception.shell.announcements')}>
           <Megaphone className="h-4 w-4" />
           {unreadCount > 0 && (
             <Badge className="absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[10px] leading-none">
@@ -26,8 +27,8 @@ export function AnnouncementsBell() {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">
         <div className="px-3 py-2 border-b">
-          <p className="text-sm font-semibold">Announcements</p>
-          <p className="text-[11px] text-muted-foreground">From Hotel Care System</p>
+          <p className="text-sm font-semibold">{t('reception.shell.announcements')}</p>
+          <p className="text-[11px] text-muted-foreground">{t('reception.shell.announcementFrom')}</p>
         </div>
         <div className="max-h-80 overflow-y-auto divide-y">
           {announcements.map((a) => (
@@ -42,7 +43,7 @@ export function AnnouncementsBell() {
                 <span className="text-sm font-medium truncate">{a.title}</span>
               </div>
               <p className="text-xs text-muted-foreground whitespace-pre-line mt-0.5">{a.body}</p>
-              <p className="text-[10px] text-muted-foreground mt-1">{fmt(a.created_at)}</p>
+              <p className="text-[10px] text-muted-foreground mt-1">{locale.formatShortDateTime(a.created_at)}</p>
             </button>
           ))}
         </div>

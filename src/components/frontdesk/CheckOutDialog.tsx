@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -30,6 +31,7 @@ interface CheckOutDialogProps {
 
 export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: CheckOutDialogProps) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const [ackBalance, setAckBalance] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [balance, setBalance] = useState<number>(Number(reservation.balance_due ?? 0));
@@ -147,7 +149,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
               {roomNumber ? ` · ${t('pms.res.room')} ${roomNumber}` : ''}
             </p>
             <p className="text-sm text-muted-foreground">
-              {t('pms.checkOut.checkedInDate')}: {reservation.actual_check_in ? new Date(reservation.actual_check_in).toLocaleDateString() : reservation.check_in_date}
+              {t('pms.checkOut.checkedInDate')}: {reservation.actual_check_in ? locale.formatDate(reservation.actual_check_in) : locale.formatDate(reservation.check_in_date)}
             </p>
           </div>
 

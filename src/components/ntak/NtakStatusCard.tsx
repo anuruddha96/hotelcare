@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ import { callNtak, ntakResultLabel, ntakNeedsAction, type NtakMessage, type Ntak
  */
 export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; report?: boolean }) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat('Europe/Budapest');
   const [kind, setKind] = useState<NtakMessage['kind'] | 'all'>('all');
   const [failed, setFailed] = useState(false);
   const [status, setStatus] = useState<NtakStatus | null>(null);
@@ -98,7 +100,7 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
           <ul className="divide-y text-xs">{messages.slice(0, 20).map(m => <li key={m.id} className="flex flex-wrap items-baseline gap-x-3 py-2">
                 <span className="font-medium">{t(`ntak.kind.${m.kind}`)}</span>
                 <span>{t(m.ntak_status ? ntakResultLabel(m) : m.state === 'accepted' ? 'ntak.state.sent' : `ntak.state.${m.state}`)}</span>
-                <time className="ml-auto text-muted-foreground">{new Date(m.verified_at ?? m.sent_at ?? m.created_at).toLocaleString(undefined, {timeZone: 'Europe/Budapest'})}</time>
+                <time className="ml-auto text-muted-foreground">{locale.formatDateTime(m.verified_at ?? m.sent_at ?? m.created_at)}</time>
                 {(m.ntak_status || m.errors.length > 0 || m.warnings.length > 0) && <span className="basis-full break-words">
                   {[m.ntak_status, ...m.errors.map(issue => issue.message || issue.key), ...m.warnings.map(issue => issue.message || issue.key)].filter(Boolean).join(' · ')}
                 </span>}

@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { useMemo, useState, type ReactNode } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,13 +35,9 @@ function Section({ icon, title, children }: { icon: ReactNode; title: string; ch
   );
 }
 
-const fmtDate = (iso: string) => {
-  const d = new Date(`${iso}T00:00:00`);
-  return isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-};
-
 export function ReservationNotesPanel({ specialRequests, internalNotes }: Props) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const [showRaw, setShowRaw] = useState(false);
   const raw = (specialRequests ?? "").trim();
   const internal = (internalNotes ?? "").trim();
@@ -90,7 +87,7 @@ export function ReservationNotesPanel({ specialRequests, internalNotes }: Props)
                     ? "border-green-600/40 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
                     : "border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"}
                 >
-                  {chargeReady ? k("readyToCharge") : `${k("chargeableFrom")} ${fmtDate(chargeFrom)}`}
+                  {chargeReady ? k("readyToCharge") : `${k("chargeableFrom")} ${locale.formatDate(chargeFrom)}`}
                 </Badge>
               )}
             </div>
@@ -136,7 +133,7 @@ export function ReservationNotesPanel({ specialRequests, internalNotes }: Props)
                       ? `${structured.booking.channel ?? "OTA"}`
                       : structured.payment.collectedBy === "Property" ? k("property") : null}
                   </Row>
-                  <Row label={k("chargeableFrom")}>{chargeFrom ? fmtDate(chargeFrom) : null}</Row>
+                  <Row label={k("chargeableFrom")}>{chargeFrom ? locale.formatDate(chargeFrom) : null}</Row>
                 </dl>
               </Section>
             </div>

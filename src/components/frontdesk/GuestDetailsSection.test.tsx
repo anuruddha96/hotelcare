@@ -21,6 +21,14 @@ const guest: GuestVizaRow = {
   visa_number: null, entry_date: null, entry_place: null,
 };
 
+const queryNationality = () => document.querySelector<HTMLInputElement>('[data-viza-field="nationality"]');
+const getNationality = () => {
+  const input = queryNationality();
+  if (!input) throw new Error('Nationality field not found');
+  return input;
+};
+const findNationality = () => waitFor(getNationality);
+
 beforeEach(() => vi.clearAllMocks());
 
 describe('in-dialog guest registration repair', () => {
@@ -35,21 +43,21 @@ describe('in-dialog guest registration repair', () => {
     const onSaved = vi.fn();
     render(<GuestDetailsSection guestId={guest.id} onCompletenessChange={onCompletenessChange} onSaved={onSaved} />);
 
-    await screen.findByPlaceholderText('HU / DE / USA…');
+    await findNationality();
     const toggle = screen.getByRole('button', { name: /pms.guest.detailsTitle/ });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(onCompletenessChange).toHaveBeenLastCalledWith(['nationality']);
 
     fireEvent.click(toggle);
-    expect(screen.queryByPlaceholderText('HU / DE / USA…')).not.toBeInTheDocument();
+    expect(queryNationality()).not.toBeInTheDocument();
     fireEvent.click(toggle);
-    fireEvent.change(screen.getByPlaceholderText('HU / DE / USA…'), { target: { value: 'HU' } });
+    fireEvent.change(getNationality(), { target: { value: 'HU' } });
     expect(onSaved).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...guest, nationality: 'HU' }));
     expect(onCompletenessChange).toHaveBeenLastCalledWith([]);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByPlaceholderText('HU / DE / USA…')).toHaveValue('HU');
+    expect(getNationality()).toHaveValue('HU');
   });
 
   it('revalidates only the saved roster guest without resetting selected arrivals', async () => {
@@ -104,7 +112,7 @@ async function openEditor(reservationId: string) {
   const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
   await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing|pms.guest.requirement.counter/));
   if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
-  await screen.findByPlaceholderText('HU / DE / USA…');
+  await findNationality();
 }
 async function saveEditor() {
   fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
@@ -113,7 +121,7 @@ describe('document reader evidence and corrections', () => {
   it('preserves scan and all review flags when nationality is corrected', async () => {
     const query = mockGuest();
     await openEditor('res-1');
-    fireEvent.change(screen.getByPlaceholderText('HU / DE / USA…'), { target: { value: 'FR' } });
+    fireEvent.change(getNationality(), { target: { value: 'FR' } });
     await saveEditor();
     await waitFor(() => expect(query.update).toHaveBeenCalled());
     const payload = query.update.mock.calls[0][0];
@@ -124,7 +132,7 @@ describe('document reader evidence and corrections', () => {
   it('does not wipe the scan when saving a historical recovery form', async () => {
     const query = mockGuest();
     await openEditor('older-reservation');
-    fireEvent.change(screen.getByPlaceholderText('HU / DE / USA…'), { target: { value: 'FR' } });
+    fireEvent.change(getNationality(), { target: { value: 'FR' } });
     await saveEditor();
     await waitFor(() => expect(query.update).toHaveBeenCalled());
     expect(query.update.mock.calls[0][0]).not.toHaveProperty('document_scan');
@@ -184,7 +192,7 @@ describe('check-in autosave', () => {
     expect(input).toBeDisabled();
     expect(input).toHaveValue('');
     if (field === 'entry_place') expect(container.querySelector('[data-viza-field="entry_date"]')).toHaveValue('');
-    fireEvent.change(await screen.findByPlaceholderText('HU / DE / USA…'), { target: { value: 'CA' } });
+    fireEvent.change(await findNationality(), { target: { value: 'CA' } });
     await waitFor(() => expect(saved).toHaveBeenCalledWith(expect.objectContaining({ ...cleared, ...kept, nationality: 'CA' })), { timeout: 3000 });
     expect(query.update).toHaveBeenCalledWith(expect.objectContaining({ ...cleared, ...kept, nationality: 'CA' }));
     expect(pending).toHaveBeenLastCalledWith(false);
@@ -194,7 +202,7 @@ describe('check-in autosave', () => {
   it('still blocks a placeholder for a required permit number', async () => {
     const { query } = autoQuery({ ...scannedGuest, nationality: 'US', visa_number: 'Na', viza_review: { ...currentReview, visa_exempt: false } });
     render(<GuestDetailsSection guestId={guest.id} vizaReservationId="res-1" autoSave />);
-    fireEvent.change(await screen.findByPlaceholderText('HU / DE / USA…'), { target: { value: 'CA' } });
+    fireEvent.change(await findNationality(), { target: { value: 'CA' } });
     await screen.findByText('pms.guest.autosaveFailed', {}, { timeout: 3000 });
     expect(query.update).not.toHaveBeenCalled();
   });
@@ -207,7 +215,7 @@ describe('check-in autosave', () => {
     const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
     await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing|pms.guest.requirement.counter/));
     if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
-    fireEvent.change(await screen.findByPlaceholderText('HU / DE / USA…'), { target: { value: 'FR' } });
+    fireEvent.change(await findNationality(), { target: { value: 'FR' } });
     expect(pending).toHaveBeenLastCalledWith(true);
     await waitFor(() => expect(screen.getByText(/pms.guest.autosaved/)).toBeInTheDocument(), { timeout: 3000 });
     expect(query.update).toHaveBeenCalledWith(expect.objectContaining({ nationality: 'FR' }));
@@ -224,7 +232,7 @@ describe('check-in autosave', () => {
     const { query } = autoQuery(placeholder);
     const saved = vi.fn();
     render(<GuestDetailsSection guestId={guest.id} vizaReservationId="res-1" protectIdentity autoSave onSaved={saved} />);
-    await screen.findByPlaceholderText('HU / DE / USA…');
+    await findNationality();
     act(() => { expect(mocks.apply(readResult('TEST123'), {})).toBe('confirm-name-change'); });
     expect(query.update).not.toHaveBeenCalled();
     act(() => { expect(mocks.apply(readResult('TEST123'), {}, true)).toBe('applied'); });
@@ -256,7 +264,7 @@ describe('check-in autosave', () => {
     const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
     await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing|pms.guest.requirement.counter/));
     if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
-    fireEvent.change(await screen.findByPlaceholderText('HU / DE / USA…'), { target: { value: 'FR' } });
+    fireEvent.change(await findNationality(), { target: { value: 'FR' } });
     await screen.findByText('pms.guest.autosaveFailed', {}, { timeout: 3000 });
     expect(pending).toHaveBeenLastCalledWith(true);
     expect(screen.queryByText(/pms.guest.autosaved/)).not.toBeInTheDocument();
@@ -273,7 +281,7 @@ describe('check-in autosave', () => {
     const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
     await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing|pms.guest.requirement.counter/));
     if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
-    const input = await screen.findByPlaceholderText('HU / DE / USA…');
+    const input = await findNationality();
     fireEvent.change(input, { target: { value: 'FR' } });
     await waitFor(() => expect(acknowledge).toHaveBeenCalledTimes(1), { timeout: 3000 });
     fireEvent.change(input, { target: { value: 'DE' } });
@@ -321,7 +329,7 @@ describe('manual recovery save acknowledgement', () => {
     query.update.mockReturnValue({ eq: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ maybeSingle: acknowledge }) }) });
     const onDirtyChange = vi.fn();
     render(<GuestDetailsSection guestId={guest.id} onDirtyChange={onDirtyChange} />);
-    const input = await screen.findByPlaceholderText('HU / DE / USA…');
+    const input = await findNationality();
     fireEvent.change(input, { target: { value: 'HU' } });
     expect(onDirtyChange).toHaveBeenLastCalledWith(true);
     fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));

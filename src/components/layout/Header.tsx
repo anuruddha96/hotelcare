@@ -128,7 +128,7 @@ export function Header() {
             <div className="relative shrink-0">
               <img
                 src={hotelcareLogo}
-                alt="Hotel Care Logo"
+                alt={t('reception.shell.logo')}
                 className="h-8 sm:h-10 w-auto object-contain block"
               />
               {user && profile && <WinterLogoHat />}
@@ -245,18 +245,18 @@ export function Header() {
                 {canManageAccessRoles(profile) && (
                   <DropdownMenuItem onClick={() => setRolesDialogOpen(true)}>
                     <ShieldCheck className="mr-2 h-4 w-4" />
-                    Roles & access
+                    {t('reception.shell.roles')}
                   </DropdownMenuItem>
                 )}
                 {(profile?.role === 'admin' || profile?.is_super_admin || isExecutiveRole(profile?.role)) && (
                   <>
                     <DropdownMenuItem onClick={() => navigate('/' + (profile?.organization_slug ?? '') + '/admin/invoicing')}>
                       <FileText className="mr-2 h-4 w-4" />
-                      Legal companies & invoicing
+                      {t('reception.shell.legal')}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => navigate('/' + (profile?.organization_slug ?? '') + '/billing')}>
                       <CreditCard className="mr-2 h-4 w-4" />
-                      Payments
+                      {t('reception.shell.payments')}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <SubscriptionStatusMenu

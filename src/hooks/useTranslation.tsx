@@ -5,6 +5,8 @@ import { additionalTranslations } from '@/lib/comprehensive-translations';
 import { notificationTranslations, dashboardTranslations } from '@/lib/notification-translations';
 import { notificationSetupTranslations } from '@/lib/notification-setup-translations';
 import { pmsTranslations } from '@/lib/pms-translations';
+// Register reception and shared shell translations before the provider first renders.
+import '@/lib/pms-reception-translations';
 import { highlightedTranslations } from '@/lib/highlighted-translations';
 import { screenTranslations } from '@/lib/screen-translations';
 import { roomOverviewTranslations } from '@/lib/room-overview-translations';
@@ -4164,7 +4166,7 @@ const flattenBundle = (
   return out;
 };
 
-const getStaticTranslationBundle = (lang: Language): Record<string, string> => ({
+export const getStaticTranslationBundle = (lang: Language): Record<string, string> => ({
   ...flattenBundle(generatedTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(translations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(additionalTranslations[lang] as Record<string, unknown> | undefined),

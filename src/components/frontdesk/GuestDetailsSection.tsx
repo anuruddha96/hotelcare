@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { useEffect, useId, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -110,6 +111,7 @@ interface GuestDetailsSectionProps {
 
 export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved, draft, onRegister, protectIdentity = false, autoScan = false, onCancelDraft, autoSave = false, onSavePendingChange, onDirtyChange, focusProblem }: GuestDetailsSectionProps) {
   const { t, language } = useTranslation();
+  const locale = useLocaleFormat();
   const entryPlacesId = useId();
   const otherReasonId = useId();
   const [guest, setGuest] = useState<GuestVizaRow | null>(null);
@@ -466,7 +468,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       {autosaving && !loading && guest && <div role="status" aria-live="polite" className="px-3 pb-2 flex flex-wrap items-center gap-1.5 text-xs">
         {saveFailed || (dirty && !!vizaReservationId && !hasReviewColumns) ? <><TriangleAlert className="h-3.5 w-3.5 text-destructive" /><span className="text-destructive">{t('pms.guest.autosaveFailed')}</span><Button type="button" size="sm" variant="outline" disabled={saving || (!!vizaReservationId && !hasReviewColumns)} onClick={() => void save()}>{t('pms.guest.autosaveRetry')}</Button></>
           : dirty || saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /><span className="text-muted-foreground">{t('pms.guest.autosaving')}</span></>
-          : savedAt ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /><span className="text-emerald-700 dark:text-emerald-400">{t('pms.guest.autosaved')} · {savedAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span></>
+          : savedAt ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /><span className="text-emerald-700 dark:text-emerald-400">{t('pms.guest.autosaved')} · {locale.formatTime(savedAt)}</span></>
           : <span className="text-muted-foreground">{t('pms.guest.autosaveEnabled')}</span>}
       </div>}
       {!loading && !guest && expanded && (
@@ -486,7 +488,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
                 {scan?.valid === false ? <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" /> : <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />}
                 <div className="min-w-0 flex-1 space-y-1">
                   <p className="break-words text-sm font-semibold leading-snug">{t('pms.guest.scanPanelTitle')}</p>
-                  {scan?.read_at && <time className="block text-xs text-muted-foreground">{new Date(scan.read_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</time>}
+                  {scan?.read_at && <time className="block text-xs text-muted-foreground">{locale.formatDateTime(scan.read_at)}</time>}
                 </div>
                 <Button type="button" size="sm" variant="ghost" className="min-h-9 h-auto max-w-[45%] shrink-0 gap-1 whitespace-normal px-2 text-xs text-muted-foreground" onClick={removeScan}><X className="mt-0.5 h-3 w-3 shrink-0" /> {t('pms.guest.scanRemove')}</Button>
               </div>
@@ -529,7 +531,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             </div>
             <div hidden={hideExtracted('nationality')}>
               <Label className="text-xs">{t('pms.guest.nationality')}</Label>{fieldTag('nationality')}
-              <Input data-viza-field="nationality" aria-invalid={!!requirements && !requirements['nationality']?.ok} className="h-11 bg-background/70 uppercase text-foreground" maxLength={3} value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="HU / DE / USA…" />
+              <Input data-viza-field="nationality" aria-invalid={!!requirements && !requirements['nationality']?.ok} className="h-11 bg-background/70 uppercase text-foreground" maxLength={3} value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder={t('pms.guest.nationalityPlaceholder')} />
               {mark('nationality')}
               {knownNationality && <p className="text-xs text-muted-foreground">{new Intl.DisplayNames([language || 'en', 'en'], {type:'region'}).of(knownNationality)} ({knownNationality})</p>}
             </div>

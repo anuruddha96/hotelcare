@@ -1,11 +1,12 @@
-import { differenceInCalendarDays, format, parseISO } from 'date-fns';
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
+import { differenceInCalendarDays, parseISO } from 'date-fns';
 import { AlertTriangle, BedDouble, CalendarDays, CreditCard, Info, StickyNote, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useTranslation } from '@/hooks/useTranslation';
 import { summarizeReservationNote } from '@/lib/previoReservationNote';
 import type { AttentionFlag } from '@/lib/receptionAttention';
 import {
-  formatMoney, pmsHoldKind, pmsPaymentNote, reservationChannel, reservationGuestLabel, RESERVATION_STATUS_COLORS,
+  pmsHoldKind, pmsPaymentNote, reservationChannel, reservationGuestLabel, RESERVATION_STATUS_COLORS,
 } from '@/lib/reservations';
 
 const SEVERITY_TEXT: Record<AttentionFlag['severity'], string> = {
@@ -14,11 +15,6 @@ const SEVERITY_TEXT: Record<AttentionFlag['severity'], string> = {
   info: 'text-sky-700 dark:text-sky-400',
 };
 
-function shortDate(iso: string): string {
-  const d = parseISO(iso);
-  return Number.isNaN(d.getTime()) ? iso : format(d, 'EEE d MMM');
-}
-
 /** The facts reception checks most often, shown when hovering a booking on the planner. */
 export function ReservationHoverDetails({ reservation, roomLabel, flags }: {
   reservation: any;
@@ -26,6 +22,7 @@ export function ReservationHoverDetails({ reservation, roomLabel, flags }: {
   flags: AttentionFlag[];
 }) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const label = reservationGuestLabel(reservation);
   const nights = Math.max(1, differenceInCalendarDays(parseISO(reservation.check_out_date), parseISO(reservation.check_in_date)));
   const channel = reservationChannel(reservation);
@@ -67,7 +64,7 @@ export function ReservationHoverDetails({ reservation, roomLabel, flags }: {
       <dl className="space-y-1">
         <div className="flex items-start gap-2">
           <CalendarDays className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
-          <dd>{shortDate(reservation.check_in_date)} → {shortDate(reservation.check_out_date)} · {nights} {t('pms.planner.nights')}</dd>
+          <dd>{`${locale.formatWeekdayShort(reservation.check_in_date)} ${locale.formatShortDate(reservation.check_in_date)}`} → {`${locale.formatWeekdayShort(reservation.check_out_date)} ${locale.formatShortDate(reservation.check_out_date)}`} · {nights} {t('pms.planner.nights')}</dd>
         </div>
         <div className="flex items-start gap-2">
           <BedDouble className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
@@ -83,12 +80,12 @@ export function ReservationHoverDetails({ reservation, roomLabel, flags }: {
           <div className="flex items-start gap-2">
             <CreditCard className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
             <dd>
-              {formatMoney(reservation.total_amount, reservation.currency)}
+              {locale.formatReceptionMoney(reservation.total_amount, reservation.currency)}
               {' · '}
               {payment === 'paid'
                 ? <span className="text-green-700 dark:text-green-400">{t('pms.res.paidInPrevio')}</span>
                 : balance > 0
-                  ? <span className="text-amber-700 dark:text-amber-400">{t('pms.planner.balanceDue')} {formatMoney(balance, reservation.currency)}</span>
+                  ? <span className="text-amber-700 dark:text-amber-400">{t('pms.planner.balanceDue')} {locale.formatReceptionMoney(balance, reservation.currency)}</span>
                   : <span className="text-green-700 dark:text-green-400">{t('pms.planner.nothingDue')}</span>}
               {reservation.pms_voucher && <span className="block text-muted-foreground">{t('pms.res.voucher')} <span className="font-mono">{reservation.pms_voucher}</span></span>}
             </dd>

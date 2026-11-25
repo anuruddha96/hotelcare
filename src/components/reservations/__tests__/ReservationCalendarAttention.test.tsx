@@ -31,7 +31,7 @@ describe('ReservationCalendar attention view', () => {
     const toggle = screen.getByRole('button', { name: /pms.planner.needsAction/ });
     expect(toggle.textContent).toContain('1');
     expect(screen.getByRole('button', { name: /Anna Urgent.*pms.attention.room_not_ready/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Bob Fine, pms\.cal\.status_\w+, \d+ pms\.cal\.nights?, [^,]+ to [^,]+$/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Bob Fine, pms\.cal\.status_\w+, \d+ pms\.cal\.nights?, [^,]+ – [^,]+$/ })).toBeTruthy();
   });
 
   it('fades bookings that need nothing when the focus toggle is on', () => {
@@ -63,7 +63,7 @@ describe('ReservationCalendar floating lane and channel badges', () => {
   it('draws bookings without a room in their own lane, and warns only about the one arriving tomorrow', () => {
     render(<MemoryRouter><ReservationCalendar rooms={twoRooms} reservations={lane} basePath="/x" pmsName="Previo" /></MemoryRouter>);
     expect(screen.getByRole('group', { name: 'pms.cal.floating: 2' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Flora Floating, pms\.cal\.statusFloating, 2 pms\.cal\.nights, 2026-11-18 to 2026-11-20$/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Flora Floating, pms\.cal\.statusFloating, 2 pms\.cal\.nights, 18\/11\/2026 – 20\/11\/2026$/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Uma Urgent.*pms.attention.unassigned/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /pms.planner.needsAction/ }).textContent).toContain('1');
     expect(screen.getByText(/1 pms.cal.floatingUrgent/)).toBeTruthy();

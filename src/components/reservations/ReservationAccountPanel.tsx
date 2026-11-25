@@ -9,6 +9,7 @@ import { Banknote, BookOpen, CreditCard, Plus, Receipt, Settings2, Trash2 } from
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,7 +22,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { formatMoney } from '@/lib/reservations';
 import {
   canManagePmsServiceCatalogue,
   PMS_PAYMENT_METHODS,
@@ -98,6 +98,8 @@ const paymentLabel = (method: string) => method === 'on_account' ? 'On account /
 export function ReservationAccountPanel({ reservation, onFinancialChanged }: Props) {
   const { profile } = useAuth();
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
+  const displayMoney = locale.formatReceptionMoney;
   const [nativeAccess, setNativeAccess] = useState<{id:string; allowed:boolean} | null>(null);
   const isNativePms = nativeAccess?.id === reservation.id && nativeAccess.allowed;
   useEffect(() => {
@@ -265,12 +267,12 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     const quantity = Number(charge.quantity);
     const grossUnitPrice = Number(charge.grossUnitPrice);
     if (!charge.description.trim() || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(grossUnitPrice) || grossUnitPrice < 0) {
-      toast.error('Enter a valid service, quantity and price.');
+      toast.error(t('pms.account.invalidCharge'));
       return;
     }
     const vatRate = charge.vatRate.trim() === '' ? null : Number(charge.vatRate);
     if (vatRate !== null && (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100)) {
-      toast.error('VAT rate must be between 0 and 100.');
+      toast.error(t('pms.account.invalidVat'));
       return;
     }
 
@@ -292,7 +294,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       toast.error(lifecycleErrorKey(error) ? t(lifecycleErrorKey(error)!) : error.message);
       return;
     }
-    toast.success('Charge added.');
+    toast.success(t('pms.account.chargeAdded'));
     setChargeOpen(false);
     pickCatalogueItem(MANUAL_ITEM);
     await notifyChanged();
@@ -302,7 +304,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     if (!postingAllowed) return;
     const amount = Number(payment.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error('Enter a valid payment amount.');
+      toast.error(t('pms.account.invalidPayment'));
       return;
     }
     setBusy(true);
@@ -319,7 +321,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       toast.error(lifecycleErrorKey(error) ? t(lifecycleErrorKey(error)!) : error.message);
       return;
     }
-    toast.success('Payment recorded.');
+    toast.success(t('pms.account.paymentRecorded'));
     setPaymentOpen(false);
     setPayment({ amount: '', method: 'card_terminal', reference: '' });
     await notifyChanged();
@@ -331,16 +333,16 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     const gross = Number(catalogueForm.grossPrice);
     const vatRate = catalogueForm.vatRate.trim() === '' ? null : Number(catalogueForm.vatRate);
     if (!catalogueForm.name.trim() || !Number.isFinite(gross) || gross < 0) {
-      toast.error('Enter a valid catalogue item and gross price.');
+      toast.error(t('pms.account.invalidCatalogue'));
       return;
     }
     if (vatRate !== null && (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100)) {
-      toast.error('VAT rate must be between 0 and 100.');
+      toast.error(t('pms.account.invalidVat'));
       return;
     }
     const subs = CATEGORIES[catalogueForm.ntakMain as keyof typeof CATEGORIES] as readonly string[] | undefined;
     if (catalogueForm.ntakMain && (!subs || (subs.length > 0 && !subs.includes(catalogueForm.ntakSub)))) {
-      toast.error('Select a valid NTAK subcategory.');
+      toast.error(t('pms.account.invalidSubcategory'));
       return;
     }
     setBusy(true);
@@ -363,7 +365,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       toast.error(lifecycleErrorKey(error) ? t(lifecycleErrorKey(error)!) : error.message);
       return;
     }
-    toast.success('Service item created for this property.');
+    toast.success(t('pms.account.serviceCreated'));
     setCatalogueForm({ name: '', category: 'other', unit: 'item', grossPrice: '', vatCode: 'REVIEW_REQUIRED', vatRate: '', ntakMain: '', ntakSub: '', inPackage: false });
     await loadAccount();
   };
@@ -376,14 +378,14 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       toast.error(lifecycleErrorKey(error) ? t(lifecycleErrorKey(error)!) : error.message);
       return;
     }
-    toast.success('Service item deactivated.');
+    toast.success(t('pms.account.serviceDeactivated'));
     await loadAccount();
   };
 
   const confirmCorrection = async () => {
     if (!isNativePms) { toast.error(t('pms.account.externalReadOnly')); return; }
     if (!correction || !correctionReason.trim()) {
-      toast.error('A reason is required.');
+      toast.error(t('pms.account.reasonRequired'));
       return;
     }
     setBusy(true);
@@ -397,7 +399,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       toast.error(lifecycleErrorKey(error) ? t(lifecycleErrorKey(error)!) : error.message);
       return;
     }
-    toast.success(correction.type === 'charge' ? 'Charge voided.' : 'Payment reversed.');
+    toast.success(correction.type === 'charge' ? t('pms.account.chargeVoided') : t('pms.account.paymentReversed'));
     setCorrection(null);
     setCorrectionReason('');
     await notifyChanged();
@@ -421,11 +423,11 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
           <div className="rounded-lg border p-3">
             <p className="text-xs text-muted-foreground">{t('pms.account.importedBalance')}</p>
             <p className="text-lg font-semibold">
-              {reservation.balance_due == null ? '—' : formatMoney(reservation.balance_due, reservation.currency || 'HUF')}
+              {reservation.balance_due == null ? '—' : displayMoney(reservation.balance_due, reservation.currency || 'HUF')}
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
-            {t('pms.account.stayAmount')}: {reservation.total_amount == null ? '—' : formatMoney(reservation.total_amount, reservation.currency || 'HUF')}
+            {t('pms.account.stayAmount')}: {reservation.total_amount == null ? '—' : displayMoney(reservation.total_amount, reservation.currency || 'HUF')}
           </p>
         </CardContent>
       </Card>
@@ -435,7 +437,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   if (loading) {
     return (
       <Card data-training="reservation-account">
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">Loading account…</CardContent>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">{t('pms.account.loading')}</CardContent>
       </Card>
     );
   }
@@ -453,20 +455,20 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
         <CardHeader className="pb-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <CardTitle className="text-base flex items-center gap-2"><Receipt className="h-4 w-4" /> Account</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">Charges, payments and guest balance for this reservation.</p>
-              {departed && <p className="text-xs font-medium text-amber-700">After departure · manager only</p>}
+              <CardTitle className="text-base flex items-center gap-2"><Receipt className="h-4 w-4" /> {t('pms.account.title')}</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">{t('pms.account.summaryHint')}</p>
+              {departed && <p className="text-xs font-medium text-amber-700">{t('pms.account.managerOnly')}</p>}
             </div>
             <div className="flex flex-wrap gap-2">
               {canManageCatalogue && (
                 <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => setCatalogueOpen(true)}>
-                  <Settings2 className="h-3.5 w-3.5" /> Services
+                  <Settings2 className="h-3.5 w-3.5" /> {t('pms.account.services')}
                 </Button>
               )}
               <Button size="sm" variant="outline" className="gap-1.5" disabled={!postingAllowed} onClick={() => setChargeOpen(true)}>
-                <Plus className="h-3.5 w-3.5" /> Add charge
+                <Plus className="h-3.5 w-3.5" /> {t('pms.charge.add')}
               </Button>
-              <Button size="sm" variant="outline" disabled={!postingAllowed} onClick={() => setManyOpen(true)}>Post many charges</Button>
+              <Button size="sm" variant="outline" disabled={!postingAllowed} onClick={() => setManyOpen(true)}>{t('pms.account.postMany')}</Button>
               <Button
                 size="sm"
                 disabled={!postingAllowed}
@@ -476,7 +478,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
                   setPaymentOpen(true);
                 }}
               >
-                <Banknote className="h-3.5 w-3.5" /> Record payment
+                <Banknote className="h-3.5 w-3.5" /> {t('pms.pay.recordPayment')}
               </Button>
             </div>
           </div>
@@ -484,34 +486,34 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
         <CardContent className="space-y-5">
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-lg border p-3">
-              <p className="text-[11px] text-muted-foreground">Charges</p>
-              <p className="text-lg font-bold">{formatMoney(summary.charges, currency)}</p>
+              <p className="text-[11px] text-muted-foreground">{t('pms.account.charges')}</p>
+              <p className="text-lg font-bold">{displayMoney(summary.charges, currency)}</p>
             </div>
             <div className="rounded-lg border p-3">
-              <p className="text-[11px] text-muted-foreground">Paid</p>
-              <p className="text-lg font-bold text-emerald-600">{formatMoney(summary.paid, currency)}</p>
+              <p className="text-[11px] text-muted-foreground">{t('pms.account.paid')}</p>
+              <p className="text-lg font-bold text-emerald-600">{displayMoney(summary.paid, currency)}</p>
             </div>
             <div className="rounded-lg border p-3">
-              <p className="text-[11px] text-muted-foreground">Balance</p>
+              <p className="text-[11px] text-muted-foreground">{t('pms.account.balance')}</p>
               <p className={`text-lg font-bold ${summary.balance > 0 ? 'text-destructive' : 'text-emerald-600'}`}>
-                {formatMoney(summary.balance, currency)}
+                {displayMoney(summary.balance, currency)}
               </p>
             </div>
           </div>
 
           <section>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold flex items-center gap-1.5"><BookOpen className="h-4 w-4" /> Charges</h3>
+              <h3 className="text-sm font-semibold flex items-center gap-1.5"><BookOpen className="h-4 w-4" /> {t('pms.account.charges')}</h3>
               <span className="text-xs text-muted-foreground">{currency}</span>
             </div>
             <div className="rounded-md border divide-y">
               {Number(folio.base_reservation_amount || 0) > 0 && (
                 <div className="grid grid-cols-[1fr_auto] gap-3 p-3 items-center bg-muted/20">
                   <div>
-                    <p className="text-sm font-medium">Reservation stay</p>
-                    <p className="text-xs text-muted-foreground">Base reservation amount · tax breakdown pending fiscal mapping</p>
+                    <p className="text-sm font-medium">{t('pms.account.reservationStay')}</p>
+                    <p className="text-xs text-muted-foreground">{t('pms.account.taxPending')}</p>
                   </div>
-                  <p className="text-sm font-semibold">{formatMoney(folio.base_reservation_amount, currency)}</p>
+                  <p className="text-sm font-semibold">{displayMoney(folio.base_reservation_amount, currency)}</p>
                 </div>
               )}
               {lines.filter((line) => line.status !== 'voided').map((line) => (
@@ -519,11 +521,11 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{line.description}</p>
                     <p className="text-xs text-muted-foreground">
-                      {line.service_date} · {line.quantity} {line.unit}
+                      {locale.formatDate(line.service_date)} · {locale.formatNumber(Number(line.quantity))} {line.unit}
                       {' · '}{line.vat_rate === null ? line.vat_code : `VAT ${line.vat_rate}%`}
                     </p>
                   </div>
-                  <p className="text-sm font-semibold">{formatMoney(line.gross_total, currency)}</p>
+                  <p className="text-sm font-semibold">{displayMoney(line.gross_total, currency)}</p>
                   {line.status === 'open' ? (
                     <Button
                       type="button"
@@ -531,7 +533,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
                       variant="ghost"
                       className="h-7 w-7 text-muted-foreground hover:text-destructive"
                       onClick={() => setCorrection({ type: 'charge', id: line.id, label: line.description })}
-                      aria-label="Void charge"
+                      aria-label={t('pms.account.voidCharge')}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -539,27 +541,27 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
                 </div>
               ))}
               {Number(folio.base_reservation_amount || 0) <= 0 && lines.filter((line) => line.status !== 'voided').length === 0 && (
-                <p className="p-4 text-sm text-muted-foreground text-center">No charges yet.</p>
+                <p className="p-4 text-sm text-muted-foreground text-center">{t('pms.account.noCharges')}</p>
               )}
             </div>
           </section>
 
           <section>
-            <h3 className="text-sm font-semibold flex items-center gap-1.5 mb-2"><CreditCard className="h-4 w-4" /> Payments</h3>
+            <h3 className="text-sm font-semibold flex items-center gap-1.5 mb-2"><CreditCard className="h-4 w-4" /> {t('pms.account.payments')}</h3>
             <div className="rounded-md border divide-y">
               {payments.filter((entry) => !['reversed', 'failed'].includes(entry.status)).length === 0 ? (
-                <p className="p-4 text-sm text-muted-foreground text-center">No payments recorded.</p>
+                <p className="p-4 text-sm text-muted-foreground text-center">{t('pms.account.noPayments')}</p>
               ) : (
                 payments.filter((entry) => !['reversed', 'failed'].includes(entry.status)).map((entry) => (
                   <div key={entry.id} className="grid grid-cols-[1fr_auto_auto] gap-3 p-3 items-center">
                     <div>
                       <p className="text-sm font-medium">{paymentLabel(entry.method)}</p>
                       <p className="text-xs text-muted-foreground">
-                        {new Date(entry.received_at).toLocaleString()}
+                        {locale.formatDateTime(entry.received_at)}
                         {entry.reference ? ` · ${entry.reference}` : ''}
                       </p>
                     </div>
-                    <p className="text-sm font-semibold text-emerald-600">−{formatMoney(entry.amount, entry.currency)}</p>
+                    <p className="text-sm font-semibold text-emerald-600">−{displayMoney(entry.amount, entry.currency)}</p>
                     {['recorded', 'captured'].includes(entry.status) ? (
                       <Button
                         type="button"
@@ -567,7 +569,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
                         variant="ghost"
                         className="h-7 w-7 text-muted-foreground hover:text-destructive"
                         onClick={() => setCorrection({ type: 'payment', id: entry.id, label: paymentLabel(entry.method) })}
-                        aria-label="Reverse payment"
+                        aria-label={t('pms.account.reversePayment')}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -579,7 +581,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
           </section>
 
           <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-            Fiscal documents are intentionally not activated in Phase 1. Invoice, pro forma, advance/final invoice, receipt and Számlázz.hu/NAV actions will attach to this ledger in the next phase.
+            {t('pms.account.fiscalPhase')}
           </div>
         </CardContent>
       </Card>
@@ -588,39 +590,39 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       <Dialog open={chargeOpen && postingAllowed} onOpenChange={setChargeOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Add charge</DialogTitle>
-            <DialogDescription>Select a configured service or add a one-off item. VAT data is stored now for later fiscal issuing.</DialogDescription>
+            <DialogTitle>{t('pms.charge.add')}</DialogTitle>
+            <DialogDescription>{t('pms.account.chargeHint')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Service</Label>
+              <Label>{t('pms.account.service')}</Label>
               <Select value={charge.itemId} onValueChange={pickCatalogueItem}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={MANUAL_ITEM}>One-off / manual charge</SelectItem>
+                  <SelectItem value={MANUAL_ITEM}>{t('pms.account.manualCharge')}</SelectItem>
                   {availableCatalogue.filter(item => item.ntak_main !== 'SZALLASDIJ' && (!item.requires_manager_approval || canManageCatalogue)).map((item) => (
                     <SelectItem key={item.id} value={item.id}>
-                      {item.name} · {formatMoney(item.default_gross_price, item.currency)}
+                      {item.name} · {displayMoney(item.default_gross_price, item.currency)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Description</Label>
+              <Label>{t('pms.account.description')}</Label>
               <Input value={charge.description} onChange={(e) => setCharge((v) => ({ ...v, description: e.target.value }))} />
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
-                <Label>Quantity</Label>
+                <Label>{t('pms.charge.qty')}</Label>
                 <Input type="number" min="0.001" step="0.001" value={charge.quantity} onChange={(e) => setCharge((v) => ({ ...v, quantity: e.target.value }))} />
               </div>
               <div>
-                <Label>Unit</Label>
+                <Label>{t('pms.account.unit')}</Label>
                 <Input value={charge.unit} onChange={(e) => setCharge((v) => ({ ...v, unit: e.target.value }))} />
               </div>
               <div>
-                <Label>Gross/unit</Label>
+                <Label>{t('pms.account.grossUnit')}</Label>
                 <Input
                   type="number"
                   min="0"
@@ -631,20 +633,20 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
                 />
               </div>
               <div>
-                <Label>VAT %</Label>
-                <Input type="number" min="0" max="100" step="0.01" placeholder="special" value={charge.vatRate} onChange={(e) => setCharge((v) => ({ ...v, vatRate: e.target.value }))} />
+                <Label>{t('pms.account.vatPercent')}</Label>
+                <Input type="number" min="0" max="100" step="0.01" placeholder={t('pms.account.specialVat')} value={charge.vatRate} onChange={(e) => setCharge((v) => ({ ...v, vatRate: e.target.value }))} />
               </div>
             </div>
             <BusinessDayField hotelId={reservation.hotel_id} value={chargeDay} onChange={setChargeDay} />
             <div>
-              <Label>VAT code</Label>
+              <Label>{t('pms.account.vatCode')}</Label>
               <Input value={charge.vatCode} onChange={(e) => setCharge((v) => ({ ...v, vatCode: e.target.value }))} />
-              {charge.vatCode === 'REVIEW_REQUIRED' && <p className="text-[11px] text-amber-700 mt-1">Tax mapping must be reviewed before this line can be used on a fiscal document.</p>}
+              {charge.vatCode === 'REVIEW_REQUIRED' && <p className="text-[11px] text-amber-700 mt-1">{t('pms.account.taxReview')}</p>}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setChargeOpen(false)}>Cancel</Button>
-            <Button onClick={() => void submitCharge()} disabled={busy}>Add charge</Button>
+            <Button variant="outline" onClick={() => setChargeOpen(false)}>{t('common.cancel')}</Button>
+            <Button onClick={() => void submitCharge()} disabled={busy}>{t('pms.charge.add')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -652,16 +654,16 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       <Dialog open={paymentOpen && postingAllowed} onOpenChange={setPaymentOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Record payment</DialogTitle>
-            <DialogDescription>Phase 1 records the payment in HotelCare. It does not yet charge a card or issue a fiscal document.</DialogDescription>
+            <DialogTitle>{t('pms.pay.recordPayment')}</DialogTitle>
+            <DialogDescription>{t('pms.account.paymentHint')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Amount ({currency})</Label>
+              <Label>{t('pms.account.amount').replace('{currency}', currency)}</Label>
               <Input type="number" min="0.01" step="0.01" value={payment.amount} onChange={(e) => setPayment((v) => ({ ...v, amount: e.target.value }))} />
             </div>
             <div>
-              <Label>Method</Label>
+              <Label>{t('pms.account.method')}</Label>
               <Select value={payment.method} onValueChange={(method) => setPayment((v) => ({ ...v, method }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -670,14 +672,14 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
               </Select>
             </div>
             <div>
-              <Label>Reference / note</Label>
-              <Input value={payment.reference} onChange={(e) => setPayment((v) => ({ ...v, reference: e.target.value }))} placeholder="Optional terminal, transfer or voucher reference" />
+              <Label>{t('pms.account.reference')}</Label>
+              <Input value={payment.reference} onChange={(e) => setPayment((v) => ({ ...v, reference: e.target.value }))} placeholder={t('pms.account.referenceHint')} />
             </div>
             <BusinessDayField hotelId={reservation.hotel_id} value={paymentDay} onChange={setPaymentDay} />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPaymentOpen(false)}>Cancel</Button>
-            <Button onClick={() => void submitPayment()} disabled={busy}>Record payment</Button>
+            <Button variant="outline" onClick={() => setPaymentOpen(false)}>{t('common.cancel')}</Button>
+            <Button onClick={() => void submitPayment()} disabled={busy}>{t('pms.pay.recordPayment')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -685,38 +687,38 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       <Dialog open={catalogueOpen} onOpenChange={setCatalogueOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Property service catalogue</DialogTitle>
-            <DialogDescription>Preconfigure frequently charged services for this property. Fiscal VAT mapping should be reviewed by the hotel's accountant before invoice activation.</DialogDescription>
+            <DialogTitle>{t('pms.account.catalogue')}</DialogTitle>
+            <DialogDescription>{t('pms.account.catalogueHint')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid sm:grid-cols-6 gap-2">
-              <Input className="sm:col-span-2" placeholder="Service name" value={catalogueForm.name} onChange={(e) => setCatalogueForm((v) => ({ ...v, name: e.target.value }))} />
-              <Input placeholder="Category" value={catalogueForm.category} onChange={(e) => setCatalogueForm((v) => ({ ...v, category: e.target.value }))} />
-              <Input placeholder="Unit" value={catalogueForm.unit} onChange={(e) => setCatalogueForm((v) => ({ ...v, unit: e.target.value }))} />
-              <Input type="number" min="0" step="0.01" placeholder={`Gross ${currency}`} value={catalogueForm.grossPrice} onChange={(e) => setCatalogueForm((v) => ({ ...v, grossPrice: e.target.value }))} />
-              <Input type="number" min="0" max="100" step="0.01" placeholder="VAT %" value={catalogueForm.vatRate} onChange={(e) => setCatalogueForm((v) => ({ ...v, vatRate: e.target.value }))} />
+              <Input className="sm:col-span-2" placeholder={t('pms.account.serviceName')} value={catalogueForm.name} onChange={(e) => setCatalogueForm((v) => ({ ...v, name: e.target.value }))} />
+              <Input placeholder={t('pms.account.category')} value={catalogueForm.category} onChange={(e) => setCatalogueForm((v) => ({ ...v, category: e.target.value }))} />
+              <Input placeholder={t('pms.account.unit')} value={catalogueForm.unit} onChange={(e) => setCatalogueForm((v) => ({ ...v, unit: e.target.value }))} />
+              <Input type="number" min="0" step="0.01" placeholder={t('pms.account.grossCurrency').replace('{currency}', currency)} value={catalogueForm.grossPrice} onChange={(e) => setCatalogueForm((v) => ({ ...v, grossPrice: e.target.value }))} />
+              <Input type="number" min="0" max="100" step="0.01" placeholder={t('pms.account.vatPercent')} value={catalogueForm.vatRate} onChange={(e) => setCatalogueForm((v) => ({ ...v, vatRate: e.target.value }))} />
             </div>
             <div className="grid sm:grid-cols-2 gap-2">
               <Select value={catalogueForm.ntakMain || '__none__'} onValueChange={(value) => setCatalogueForm(v => ({ ...v, ntakMain: value === '__none__' ? '' : value, ntakSub: '', inPackage: value === 'SZALLASDIJ' }))}>
-                <SelectTrigger><SelectValue placeholder="NTAK category" /></SelectTrigger>
-                <SelectContent><SelectItem value="__none__">NTAK: automatic mapping</SelectItem>{Object.keys(CATEGORIES).map(code => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent>
+                <SelectTrigger><SelectValue placeholder={t('ntak.phase5.category')} /></SelectTrigger>
+                <SelectContent><SelectItem value="__none__">{t('pms.account.ntakAutomatic')}</SelectItem>{Object.keys(CATEGORIES).map(code => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent>
               </Select>
               <Select value={catalogueForm.ntakSub} disabled={!(CATEGORIES[catalogueForm.ntakMain as keyof typeof CATEGORIES]?.length)} onValueChange={value => setCatalogueForm(v => ({ ...v, ntakSub: value }))}>
-                <SelectTrigger><SelectValue placeholder="NTAK subcategory" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={t('pms.account.ntakSubcategory')} /></SelectTrigger>
                 <SelectContent>{(CATEGORIES[catalogueForm.ntakMain as keyof typeof CATEGORIES] || []).map(code => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent>
               </Select>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={catalogueForm.inPackage} disabled={!catalogueForm.ntakMain || ['SZALLASDIJ','IFA'].includes(catalogueForm.ntakMain)} onChange={e => setCatalogueForm(v => ({ ...v, inPackage: e.target.checked }))} />
-                Included in package
+                {t('pms.account.inPackage')}
               </label>
             </div>
             <div className="flex gap-2">
-              <Input placeholder="VAT code" value={catalogueForm.vatCode} onChange={(e) => setCatalogueForm((v) => ({ ...v, vatCode: e.target.value }))} />
-              <Button onClick={() => void createCatalogueItem()} disabled={busy}>Add service</Button>
+              <Input placeholder={t('pms.account.vatCode')} value={catalogueForm.vatCode} onChange={(e) => setCatalogueForm((v) => ({ ...v, vatCode: e.target.value }))} />
+              <Button onClick={() => void createCatalogueItem()} disabled={busy}>{t('pms.account.addService')}</Button>
             </div>
             <div className="rounded-md border divide-y">
               {availableCatalogue.length === 0 ? (
-                <p className="p-4 text-sm text-muted-foreground text-center">No configured services for this property and currency yet.</p>
+                <p className="p-4 text-sm text-muted-foreground text-center">{t('pms.account.noServices')}</p>
               ) : availableCatalogue.map((item) => (
                 <div key={item.id} className="flex items-center justify-between gap-3 p-3">
                   <div>
@@ -726,8 +728,8 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">{formatMoney(item.default_gross_price, item.currency)}</span>
-                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => void deactivateCatalogueItem(item.id)}>Deactivate</Button>
+                    <span className="text-sm font-semibold">{displayMoney(item.default_gross_price, item.currency)}</span>
+                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => void deactivateCatalogueItem(item.id)}>{t('pms.account.deactivate')}</Button>
                   </div>
                 </div>
               ))}
@@ -739,19 +741,19 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       <Dialog open={!!correction} onOpenChange={(open) => { if (!open) { setCorrection(null); setCorrectionReason(''); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{correction?.type === 'charge' ? 'Void charge' : 'Reverse payment'}</DialogTitle>
+            <DialogTitle>{correction?.type === 'charge' ? t('pms.account.voidCharge') : t('pms.account.reversePayment')}</DialogTitle>
             <DialogDescription>
-              This does not delete history. HotelCare records an auditable correction for {correction?.label || 'this item'}.
+              {t('pms.account.correctionHint').replace('{item}', correction?.label || t('pms.account.thisItem'))}
             </DialogDescription>
           </DialogHeader>
           <div>
-            <Label>Reason</Label>
+            <Label>{t('pms.account.reason')}</Label>
             <Input value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} autoFocus />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setCorrection(null); setCorrectionReason(''); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setCorrection(null); setCorrectionReason(''); }}>{t('common.cancel')}</Button>
             <Button variant="destructive" onClick={() => void confirmCorrection()} disabled={busy || !correctionReason.trim()}>
-              Confirm
+              {t('pms.account.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

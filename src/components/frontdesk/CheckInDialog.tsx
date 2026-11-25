@@ -11,11 +11,12 @@ import {
 import { toast } from 'sonner';
 import { LogIn, AlertCircle, Loader2 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { getLocalDateString } from '@/lib/utils';
 import {
   fetchAvailableRooms, checkInReservation, LifecycleError, type AvailableRoom,
 } from '@/lib/pmsLifecycle';
-import { balanceOf, formatMoney, reservationGuestLabel } from '@/lib/reservations';
+import { balanceOf, reservationGuestLabel } from '@/lib/reservations';
 import { summarizeReservationNote } from '@/lib/previoReservationNote';
 import { GuestDetailsSection } from '@/components/frontdesk/GuestDetailsSection';
 import { BusinessMomentField, useBusinessMoment } from '@/components/frontdesk/BusinessMomentField';
@@ -35,6 +36,7 @@ interface CheckInDialogProps {
 
 export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: CheckInDialogProps) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const [rooms, setRooms] = useState<AvailableRoom[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<string>(reservation.room_id || '');
@@ -172,7 +174,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             <p className="font-semibold">{reservationGuestLabel(reservation)}</p>
             <p className="text-sm text-muted-foreground">{reservation.reservation_number}</p>
             <p className="text-sm text-muted-foreground">
-              {reservation.check_in_date} → {reservation.check_out_date} · {reservation.total_nights}N · {reservation.adults}A {reservation.children > 0 ? `${reservation.children}C` : ''}
+              {locale.formatDate(reservation.check_in_date)} → {locale.formatDate(reservation.check_out_date)} · {t('reception.home.stayPax').replace('{nights}', String(reservation.total_nights)).replace('{adults}', String(reservation.adults)).replace('{children}', reservation.children > 0 ? t('reception.home.stayChildren').replace('{count}', String(reservation.children)) : '')}
             </p>
           </div>
 
@@ -199,7 +201,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
               )}
               {balance > 0 && (
                 <p className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
-                  <AlertCircle className="h-4 w-4 shrink-0" /> {t('pms.ci.balanceOutstanding')}: {formatMoney(balance, reservation.currency)}
+                  <AlertCircle className="h-4 w-4 shrink-0" /> {t('pms.ci.balanceOutstanding')}: {locale.formatReceptionMoney(balance, reservation.currency)}
                 </p>
               )}
               {missingContact && (
