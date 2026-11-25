@@ -463,6 +463,18 @@ const rows: Record<string, Row> = {
 // Newer keys translated for the reception languages in daily use (en, hu, es).
 // The other languages show the English text until they are translated.
 const partialRows: Record<string, readonly [string, ...string[]]> = {
+  'reception.shell.preparing': ["Securely preparing your workspace","A munkaterület biztonságos előkészítése"],
+  'reception.shell.fetching': ["Fetching the latest prices, pickup and occupancy for you","A legfrissebb árak, foglalásváltozások és foglaltsági adatok betöltése"],
+  'reception.shell.retry': ["Try again","Próbáld újra"],
+  'reception.shell.signOut': ["Sign out","Kijelentkezés"],
+  'reception.shell.announcements': ["Announcements","Közlemények"],
+  'reception.shell.announcementFrom': ["From Hotel Care System","A Hotel Care rendszerétől"],
+  'reception.shell.greeting0': ["Welcome back","Üdv újra!"],
+  'reception.shell.greeting1': ["Good to see you","Örülünk, hogy itt vagy"],
+  'reception.shell.greeting2': ["Good to have you back","Örülünk, hogy visszatértél"],
+  'reception.shell.greeting3': ["Back in the chair","Újra munkában"],
+  'reception.shell.greeting4': ["Ready when you are","Készen állunk, amikor te is"],
+  'reception.shell.greeting5': ["Picking up where you left off","Folytasd ott, ahol abbahagytad"],
   'reception.shell.logo': ["Hotel Care Logo","Hotel Care logó"],
   'reception.shell.roles': ["Roles & access","Szerepkörök és hozzáférés"],
   'reception.shell.legal': ["Legal companies & invoicing","Jogi személyek és számlázás"],
