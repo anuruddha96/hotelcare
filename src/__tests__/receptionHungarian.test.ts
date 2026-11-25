@@ -85,7 +85,7 @@ const identical = new Map<string, string>([
   ['ADR', 'Hotel metric abbreviation'], ['RevPAR', 'Hotel metric abbreviation'],
   ['VIP', 'Industry abbreviation'], ['MRZ', 'Machine-readable zone abbreviation'],
   ['No-show', 'Existing approved hotel terminology'],
-  ['HotelCare', 'Product name'], ['Previo', 'Product name'], ['Channex', 'Product name'],
+  ['HotelCare', 'Product name'], ['Hotel Care', 'Existing product wordmark'], ['Previo', 'Product name'], ['Channex', 'Product name'],
   ['Booking.com', 'Brand name'], ['Airbnb', 'Brand name'], ['Expedia', 'Brand name'],
   ['Agoda', 'Brand name'], ['Számlázz.hu', 'Brand name'], ['Mira', 'Product name'],
   ['OpenAI', 'Brand name'], ['PCI Booking', 'Provider name'], ['API', 'Technical abbreviation'],
