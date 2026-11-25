@@ -22,7 +22,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { formatMoney } from '@/lib/reservations';
 import {
   canManagePmsServiceCatalogue,
   PMS_PAYMENT_METHODS,
@@ -98,9 +97,9 @@ const paymentLabel = (method: string) => method === 'on_account' ? 'On account /
 
 export function ReservationAccountPanel({ reservation, onFinancialChanged }: Props) {
   const { profile } = useAuth();
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const locale = useLocaleFormat();
-  const displayMoney = language === 'hu' ? locale.formatMoney : formatMoney;
+  const displayMoney = locale.formatReceptionMoney;
   const [nativeAccess, setNativeAccess] = useState<{id:string; allowed:boolean} | null>(null);
   const isNativePms = nativeAccess?.id === reservation.id && nativeAccess.allowed;
   useEffect(() => {
@@ -424,11 +423,11 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
           <div className="rounded-lg border p-3">
             <p className="text-xs text-muted-foreground">{t('pms.account.importedBalance')}</p>
             <p className="text-lg font-semibold">
-              {reservation.balance_due == null ? '—' : formatMoney(reservation.balance_due, reservation.currency || 'HUF')}
+              {reservation.balance_due == null ? '—' : displayMoney(reservation.balance_due, reservation.currency || 'HUF')}
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
-            {t('pms.account.stayAmount')}: {reservation.total_amount == null ? '—' : formatMoney(reservation.total_amount, reservation.currency || 'HUF')}
+            {t('pms.account.stayAmount')}: {reservation.total_amount == null ? '—' : displayMoney(reservation.total_amount, reservation.currency || 'HUF')}
           </p>
         </CardContent>
       </Card>
