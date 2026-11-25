@@ -84,7 +84,7 @@ export function vizaMissingFields(guest: GuestVizaValues | null | undefined, day
   const document = ['id_document_type', 'id_document_number'] as const;
   if (!guest) return [...always, ...document];
   const required: readonly (keyof GuestVizaValues)[] = documentRequired(guest.date_of_birth, day) ? [...always, ...document] : always;
-  return required.filter((field) => !filled(guest[field]));
+  return required.filter((field) => !filled(guest[field]) || (field === 'birth_place' && (isVizaPlaceholder(guest.birth_place) || !fits(guest.birth_place, 200, 254))));
 }
 
 export type VizaProblem = 'birthNamePair' | 'motherName' | 'entryDate' | 'nationality' | 'birthDate';
@@ -118,33 +118,35 @@ export function vizaFieldRequirements(guest: GuestVizaValues | null | undefined,
   const g: GuestVizaValues = guest ?? {};
   const result: VizaFieldRequirements = {};
   const review: VizaReview = g.viza_review?.reservation_id === reservationId ? g.viza_review : {};
-  const put = (field: string, state: VizaFieldState, ok: boolean, placeholder = false) => {
-    result[field] = { state, ok, messageKey: placeholder ? 'pms.guest.requirement.placeholder' : messageForState[state] };
+  const put = (field: string, state: VizaFieldState, ok: boolean, placeholder = false, tooLong: 100 | 200 | null = null) => {
+    result[field] = { state, ok, messageKey: placeholder ? 'pms.guest.requirement.placeholder'
+      : !ok && tooLong === 200 ? 'pms.guest.requirement.tooLong'
+      : !ok && tooLong === 100 ? 'pms.guest.requirement.tooLong100' : messageForState[state] };
   };
   const requiredDoc = documentRequired(g.date_of_birth, day);
   const hasDoc = filled(g.id_document_type) && filled(g.id_document_number);
   const childWithoutDoc = !requiredDoc && !hasDoc;
   const noExceptions = isHungarianId(g) || childWithoutDoc;
   const printedState = noExceptions ? 'required' : 'printed_only';
-  for (const field of ['last_name','first_name'] as const) put(field,'required',filled(g[field]) && fits(g[field],200,254));
+  for (const field of ['last_name','first_name'] as const) put(field,'required',filled(g[field]) && fits(g[field],200,254),false,filled(g[field]) && !fits(g[field],200,254) ? 200 : null);
   const checkPair = (a: keyof GuestVizaValues, b: keyof GuestVizaValues, absent?: boolean) => {
     const bothAbsent = !filled(g[a]) && !filled(g[b]) && !noExceptions && absent === true;
     for (const field of [a,b]) {
       const placeholder = isVizaPlaceholder(g[field]);
-      put(field,printedState,bothAbsent || (filled(g[field]) && !placeholder && fits(g[field],200,254)),placeholder);
+      put(field,printedState,bothAbsent || (filled(g[field]) && !placeholder && fits(g[field],200,254)),placeholder,filled(g[field]) && !placeholder && !fits(g[field],200,254) ? 200 : null);
     }
   };
   checkPair('birth_last_name','birth_first_name',review.birth_name_absent);
   checkPair('mother_family_name','mother_given_name',review.mother_name_absent);
   const birthPlaceholder = isVizaPlaceholder(g.birth_place);
-  put('birth_place',printedState,filled(g.birth_place) ? !birthPlaceholder : !noExceptions && review.birth_place_absent === true,birthPlaceholder);
+  put('birth_place',printedState,filled(g.birth_place) ? !birthPlaceholder && fits(g.birth_place,200,254) : !noExceptions && review.birth_place_absent === true,birthPlaceholder,filled(g.birth_place) && !birthPlaceholder && !fits(g.birth_place,200,254) ? 200 : null);
   put('nationality','required',ISO2.has(iso3ToIso2(g.nationality) ?? ''));
   const oldest = new Date(day); oldest.setUTCFullYear(oldest.getUTCFullYear() - 110);
   put('date_of_birth','required',validDate(g.date_of_birth) && String(g.date_of_birth) >= isoDay(oldest) && String(g.date_of_birth) <= isoDay(day));
   put('gender','required',['male','female','other'].includes(g.gender ?? ''));
   const docType = ['passport','id_card','driving_licence','other'].includes(g.id_document_type ?? '');
   put('id_document_type',childWithoutDoc ? 'optional' : 'required',(!requiredDoc && !filled(g.id_document_type)) || docType);
-  put('id_document_number',childWithoutDoc ? 'optional' : 'required',fits(g.id_document_number,100) && (childWithoutDoc || hasDoc));
+  put('id_document_number',childWithoutDoc ? 'optional' : 'required',fits(g.id_document_number,100) && (childWithoutDoc || hasDoc),false,(childWithoutDoc || hasDoc) && !fits(g.id_document_number,100) ? 100 : null);
   const third = thirdCountry(g);
   const entryAbsent = third && validEntryAbsence(review);
   const permit = third && review.entry_details_absent === true && review.entry_details_reason === 'lives_in_hungary_with_permit';
@@ -153,8 +155,8 @@ export function vizaFieldRequirements(guest: GuestVizaValues | null | undefined,
   const visaState = !third || visaExempt ? 'not_needed' : 'required';
   const visaPlaceholder = isVizaPlaceholder(g.visa_number), placePlaceholder = isVizaPlaceholder(g.entry_place);
   put('entry_date',entryState,entryState === 'not_needed' || (validDate(g.entry_date) && String(g.entry_date) <= isoDay(day) && (!validDate(g.date_of_birth) || String(g.entry_date) >= String(g.date_of_birth))));
-  put('entry_place',entryState,entryState === 'not_needed' || (filled(g.entry_place) && !placePlaceholder && fits(g.entry_place,200,254)),entryState !== 'not_needed' && placePlaceholder);
-  put('visa_number',visaState,visaState === 'not_needed' || (filled(g.visa_number) && !visaPlaceholder && fits(g.visa_number,100) && (!permit || review.visa_exempt !== true)),visaState !== 'not_needed' && visaPlaceholder);
+  put('entry_place',entryState,entryState === 'not_needed' || (filled(g.entry_place) && !placePlaceholder && fits(g.entry_place,200,254)),entryState !== 'not_needed' && placePlaceholder,entryState !== 'not_needed' && filled(g.entry_place) && !placePlaceholder && !fits(g.entry_place,200,254) ? 200 : null);
+  put('visa_number',visaState,visaState === 'not_needed' || (filled(g.visa_number) && !visaPlaceholder && fits(g.visa_number,100) && (!permit || review.visa_exempt !== true)),visaState !== 'not_needed' && visaPlaceholder,visaState !== 'not_needed' && filled(g.visa_number) && !visaPlaceholder && (!permit || review.visa_exempt !== true) && !fits(g.visa_number,100) ? 100 : null);
   put('entry_details_reason',third && review.entry_details_absent ? 'required' : 'not_needed',!third || !review.entry_details_absent || entryAbsent);
   put('parent_statement',childWithoutDoc ? 'required' : 'not_needed',!childWithoutDoc || review.parent_statement === true);
   const reviewed = review.scan_reviewed === true && g.document_scan != null;

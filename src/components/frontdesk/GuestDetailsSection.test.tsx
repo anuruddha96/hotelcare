@@ -333,3 +333,23 @@ describe('manual recovery save acknowledgement', () => {
     expect(acknowledge).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('VIZA length warnings in guest registration', () => {
+  it('shows the length warning beside the invalid birth place and clears it after correction', async () => {
+    mockGuest({...scannedGuest,birth_place:'ő'.repeat(128)});
+    await openEditor('res-1');
+    const warning = screen.getByText('pms.guest.requirement.tooLong');
+    const input = warning.parentElement?.querySelector<HTMLInputElement>('[data-viza-field="birth_place"]');
+    expect(input).toHaveAttribute('aria-invalid','true');
+    expect(warning.parentElement).not.toHaveTextContent('pms.guest.requirement.printedOnly');
+    fireEvent.change(input!,{target:{value:'A'.repeat(200)}});
+    expect(screen.queryByText('pms.guest.requirement.tooLong')).not.toBeInTheDocument();
+    expect(input).toHaveAttribute('aria-invalid','false');
+  });
+  it('shows the 100-character warning beside an existing overlong document number', async () => {
+    mockGuest({...scannedGuest,id_document_number:'A'.repeat(101)});
+    await openEditor('res-1');
+    const warning = screen.getByText('pms.guest.requirement.tooLong100');
+    expect(warning.parentElement?.querySelector('[data-viza-field="id_document_number"]')).toHaveAttribute('aria-invalid','true');
+  });
+});

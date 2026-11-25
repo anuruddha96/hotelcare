@@ -1,4 +1,6 @@
 -- Disposable CI only: load base + activation fixtures before this script.
+-- Match the Budapest business day used by the arrival guard, including UTC midnight rollover.
+SET TIME ZONE 'Europe/Budapest';
 -- Exact production gender/stay state/arrival state checks read from pg_constraint.
 ALTER TABLE public.guests ADD COLUMN nationality text,ADD COLUMN date_of_birth date,ADD COLUMN birth_place text,ADD COLUMN gender text,ADD COLUMN id_document_type text,ADD COLUMN id_document_number text;
 ALTER TABLE public.guests ADD CONSTRAINT guests_gender_check CHECK (gender IS NULL OR gender=ANY(ARRAY['male','female','other']));
@@ -243,6 +245,7 @@ END $hint_test$;
 
 -- V2 parity cases are shared with the frontend fixture and run only in disposable CI.
 \ir ../migrations/20261125090000_viza_field_requirements_v2.sql
+\ir ../migrations/20261125230000_viza_birth_place_length.sql
 \set fixture `cat src/lib/idScan/vizaRequirementsCases.json`
 SELECT set_config('viza.test_fixtures', :'fixture', false);
 DO $v2$

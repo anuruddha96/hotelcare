@@ -579,6 +579,8 @@ const partialRows: Record<string, readonly [string, ...string[]]> = {
   'pms.guest.requirement.readGroup': ["Read from the document","Az okmányból kiolvasott adatok","Datos leídos del documento"],
   'pms.guest.requirement.printedGroup': ["Only if printed on the document","Csak ha szerepel az okmányon","Solo si figura en el documento"],
   'pms.guest.requirement.required': ["Required","Kötelező","Obligatorio"],
+  'pms.guest.requirement.tooLong': ["Too long – VIZA accepts at most 200 characters","Túl hosszú – a VIZA legfeljebb 200 karaktert fogad el","Demasiado largo: VIZA acepta como máximo 200 caracteres"],
+  'pms.guest.requirement.tooLong100': ["Too long – VIZA accepts at most 100 characters","Túl hosszú – a VIZA legfeljebb 100 karaktert fogad el","Demasiado largo: VIZA acepta como máximo 100 caracteres"],
   'pms.guest.requirement.printedOnly': ["Only if printed on the document","Csak ha szerepel az okmányon","Solo si figura en el documento"],
   'pms.guest.requirement.optional': ["Optional","Nem kötelező","Opcional"],
   'pms.guest.requirement.notNeeded': ["Not needed for this guest","Ennél a vendégnél nem szükséges","No es necesario para este huésped"],
