@@ -463,6 +463,9 @@ const rows: Record<string, Row> = {
 // Newer keys translated for the reception languages in daily use (en, hu, es).
 // The other languages show the English text until they are translated.
 const partialRows: Record<string, readonly [string, ...string[]]> = {
+  'pms.workspace.dateSpan': ["{from} to {to}","{from} – {to}","{from} a {to}"],
+  'pms.workspace.readOnlySnapshot': ["read-only snapshot","csak olvasható pillanatkép","instantánea de solo lectura"],
+  'pms.workspace.roomConflict': ["room conflict","szobaütközés","conflicto de habitación"],
   'pms.account.invalidCharge': ["Enter a valid service, quantity and price.","Adj meg érvényes szolgáltatást, mennyiséget és árat.","Introduce un servicio, una cantidad y un precio válidos."],
   'pms.account.invalidVat': ["VAT rate must be between 0 and 100.","Az ÁFA mértéke 0 és 100 közötti lehet.","El IVA debe estar entre 0 y 100."],
   'pms.account.chargeAdded': ["Charge added.","Terhelés hozzáadva.","Cargo añadido."],
