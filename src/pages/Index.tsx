@@ -4,7 +4,7 @@ import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { HrPeopleOverview } from '@/components/hr/HrPeopleOverview';
 import { HrAttendance } from '@/components/hr/HrAttendance';
-import { BreakRequestApprovalView } from './BreakRequestApprovalView';
+import { BreakRequestApprovalView } from '@/components/dashboard/BreakRequestApprovalView';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { MasterStaffSchedulePlanner } from '@/components/dashboard/MasterStaffSchedulePlanner';
 import { WorkforceSchedule } from '@/components/workforce/WorkforceSchedule';
