@@ -16,7 +16,7 @@ import { getLocalDateString } from '@/lib/utils';
 import {
   fetchAvailableRooms, checkInReservation, LifecycleError, type AvailableRoom,
 } from '@/lib/pmsLifecycle';
-import { balanceOf, formatMoney, reservationGuestLabel } from '@/lib/reservations';
+import { balanceOf, reservationGuestLabel } from '@/lib/reservations';
 import { summarizeReservationNote } from '@/lib/previoReservationNote';
 import { GuestDetailsSection } from '@/components/frontdesk/GuestDetailsSection';
 import { BusinessMomentField, useBusinessMoment } from '@/components/frontdesk/BusinessMomentField';
@@ -35,7 +35,7 @@ interface CheckInDialogProps {
 }
 
 export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: CheckInDialogProps) {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const locale = useLocaleFormat();
   const [rooms, setRooms] = useState<AvailableRoom[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
@@ -201,7 +201,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
               )}
               {balance > 0 && (
                 <p className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
-                  <AlertCircle className="h-4 w-4 shrink-0" /> {t('pms.ci.balanceOutstanding')}: {(language === 'hu' ? locale.formatMoney : formatMoney)(balance, reservation.currency)}
+                  <AlertCircle className="h-4 w-4 shrink-0" /> {t('pms.ci.balanceOutstanding')}: {locale.formatReceptionMoney(balance, reservation.currency)}
                 </p>
               )}
               {missingContact && (
