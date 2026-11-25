@@ -1,3 +1,4 @@
+import { useTranslation } from '@/hooks/useTranslation';
 import { useCallback, useEffect } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ const FLOATING_LAUNCHER_QUERY = "(pointer: coarse), (max-width: 767px)";
  * Keep contextual Ask AI events while navigating to the actual chat route.
  */
 export default function AssistantLauncher() {
+  const { t } = useTranslation();
   const { user, profile } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -74,15 +76,15 @@ export default function AssistantLauncher() {
     <Button
       onClick={() => openMira()}
       className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-40 h-14 min-h-14 min-w-14 gap-2 rounded-full px-4 shadow-lg"
-      aria-label={unread ? "Open Mira AI Operator, unread reply" : "Open Mira AI Operator"}
-      title="Mira AI Operator"
+      aria-label={unread ? t('reception.shell.miraUnread') : t('reception.shell.miraOpen')}
+      title={t('reception.shell.miraTitle')}
     >
       <span className="relative pointer-events-none flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
         <img src={hotelCareMark} alt="" className="h-7 w-7" />
         {unread && <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-background bg-sky-500" />}
       </span>
       <span className="pointer-events-none text-left text-xs font-semibold leading-tight">
-        {manager ? <>Mira Operator<br /><span className="font-normal">Try me</span></> : "Ask Mira"}
+        {manager ? <>{t('reception.shell.miraOperator')}<br /><span className="font-normal">{t('reception.shell.tryMira')}</span></> : t('reception.shell.askMira')}
       </span>
     </Button>
   );
