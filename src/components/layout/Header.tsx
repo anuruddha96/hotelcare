@@ -134,7 +134,7 @@ export function Header() {
               {user && profile && <WinterLogoHat />}
             </div>
             <div className="flex flex-col leading-tight min-w-0">
-              <span className="text-sm sm:text-base font-semibold tracking-tight truncate">{'Hotel Care'}</span>
+              <span className="text-sm sm:text-base font-semibold tracking-tight truncate">Hotel Care</span>
               {hotelDisplayName && (
                 <span title={hotelDisplayName} className="text-[11px] sm:text-xs text-muted-foreground truncate sm:max-w-[200px]">
                   {hotelDisplayName}
