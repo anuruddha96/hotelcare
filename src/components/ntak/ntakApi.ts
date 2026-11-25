@@ -64,6 +64,18 @@ export interface NtakSettings {
   last_error_at: string | null;
 }
 
+/**
+ * The settings-level sending error to show. An error older than the last
+ * accepted report is history (the connection has worked since), so it is not
+ * shown as a current problem.
+ */
+export function currentNtakError(s: Pick<NtakSettings, 'last_error' | 'last_error_at' | 'last_ok_at'> | null | undefined): string | null {
+  if (!s?.last_error) return null;
+  const errorAt = s.last_error_at ? Date.parse(s.last_error_at) : NaN;
+  const okAt = s.last_ok_at ? Date.parse(s.last_ok_at) : NaN;
+  return Number.isFinite(errorAt) && Number.isFinite(okAt) && okAt > errorAt ? null : s.last_error;
+}
+
 export interface NtakMessage {
   resend_of?: string | null; override_reason?: string | null;
   id: string; kind: 'closure' | 'booking' | 'event' | 'start_date'; ref: string; state: string; ntak_status: string | null;

@@ -6,7 +6,7 @@ import { Loader2, Building2, ClipboardCheck, Settings2 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { NtakClosureDialog } from './NtakClosureDialog';
 import { NtakPanel } from './NtakPanel';
-import { callNtak, ntakResultLabel, ntakNeedsAction, type NtakMessage, type NtakStatus } from './ntakApi';
+import { callNtak, currentNtakError, ntakResultLabel, ntakNeedsAction, type NtakMessage, type NtakStatus } from './ntakApi';
 
 /**
  * NTAK reporting health in Reception: yesterday's closure, missing days,
@@ -43,6 +43,7 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
     </section>;
   }
   const s = status.settings;
+  const connectionError = currentNtakError(s);
   const canManage = status.can_manage;
   const yesterday = addDay(status.today, -1);
   const yc = status.closures.find((c) => c.closed_day === yesterday);
@@ -82,7 +83,7 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
         </div>
       </div>
       {s?.sending_blocked_reason && <p className="mt-1 text-[11px] text-destructive">{t('ntak.blocked')}: {s.sending_blocked_reason}</p>}
-      {!s?.sending_blocked_reason && s?.last_error && <p className="mt-1 text-[11px] text-destructive truncate" title={s.last_error}>{s.last_error}</p>}
+      {!s?.sending_blocked_reason && connectionError && <p className="mt-1 text-[11px] text-destructive truncate" title={connectionError}>{connectionError}</p>}
       {canManage && actionMessages.length > 0 && <div role="status" className="mt-2 flex items-center gap-2 text-xs text-destructive">
         <span>{t('ntak.actionRequired')}: {actionMessages.length}</span>
         <Button size="sm" variant="outline" onClick={() => {setInitialTab('messages');setPanelOpen(true);}}>{t('ntak.tab.messages')}</Button>

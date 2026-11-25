@@ -6,7 +6,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: v
 
 import '@/lib/ntak-translations';
 import { TranslationProvider } from '@/hooks/useTranslation';
-import { callNtak } from './ntakApi';
+import { callNtak, currentNtakError } from './ntakApi';
 import { NtakClosureDialog } from './NtakClosureDialog';
 import { CLOSURE_CORRECTION_REASONS, isClosureCorrectionReason } from '../../../supabase/functions/_shared/ntak/codes';
 import { NtakStatusCard } from './NtakStatusCard';
@@ -102,6 +102,18 @@ describe('NTAK status card', () => {
     expect(screen.getByText(/✕ 1/)).toBeInTheDocument();
   });
 
+  it('does not show a connection error that a later accepted report has replaced', async () => {
+    call.mockResolvedValue({
+      can_manage: true, today: '2026-11-25', missing_closures: [], closures: [], messages: [],
+      settings: { enabled: false, environment: 'test', sending_blocked_reason: null,
+        last_error: 'error sending request: unsuccessful tunnel', last_error_at: '2026-11-23T09:37:02Z', last_ok_at: '2026-11-23T10:27:01Z' },
+      configuration_problems: [], units: [], room_types: [], rooms: [], booking_problems: [], pending_events: [],
+    } as never);
+    render(<NtakStatusCard hotelId="h1" />);
+    expect(await screen.findByText(/Yesterday/)).toBeInTheDocument();
+    expect(screen.queryByText(/unsuccessful tunnel/)).not.toBeInTheDocument();
+  });
+
   it('renders nothing for staff when NTAK is not set up', async () => {
     call.mockResolvedValue({ can_manage: false, settings: null } as never);
     const { container } = render(<NtakStatusCard hotelId="h1" />);
@@ -132,4 +144,20 @@ it('allows a test manager to explicitly override an extreme amount', async () =>
   const button = await screen.findByRole('button', { name: 'Send anyway' });
   fireEvent.click(button);
   await waitFor(() => expect(call).toHaveBeenCalledWith(expect.objectContaining({action:'close_day',override:true})));
+});
+
+describe('currentNtakError', () => {
+  it('shows an error that is newer than the last accepted report', () => {
+    expect(currentNtakError({ last_error: 'timeout', last_error_at: '2026-11-25T10:00:00Z', last_ok_at: '2026-11-25T09:00:00Z' })).toBe('timeout');
+  });
+  it('shows an error when nothing was accepted yet', () => {
+    expect(currentNtakError({ last_error: 'unsuccessful tunnel', last_error_at: '2026-11-23T09:37:02Z', last_ok_at: null })).toBe('unsuccessful tunnel');
+  });
+  it('hides an error older than the last accepted report', () => {
+    expect(currentNtakError({ last_error: 'unsuccessful tunnel', last_error_at: '2026-11-23T09:37:02Z', last_ok_at: '2026-11-23T10:27:01Z' })).toBeNull();
+  });
+  it('returns nothing without an error', () => {
+    expect(currentNtakError({ last_error: null, last_error_at: null, last_ok_at: null })).toBeNull();
+    expect(currentNtakError(null)).toBeNull();
+  });
 });
