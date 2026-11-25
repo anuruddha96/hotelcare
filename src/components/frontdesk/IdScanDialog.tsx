@@ -21,6 +21,7 @@ import { assessReadiness, type Readiness } from '@/lib/idScan/autoCapture';
 import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
 import { firstSideAction, nextMrzScanAction } from '@/lib/idScan/documentScanFlow';
 import { Checkbox } from '@/components/ui/checkbox';
+import { DocumentReviewPreview } from './DocumentReviewPreview';
 import {
   fetchBridgeScan, isLoopbackUrl, loadScannerSettings, saveScannerSettings, wedgeInputLooksComplete, wedgeInputToMrzText,
   type ScannerSettings, type ScannerSource,
@@ -1038,7 +1039,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
             </div>
             {expired && <p role="status" className="text-sm text-amber-700 dark:text-amber-300">{t('pms.guest.requirement.expiredWarning').replace('{date}',result.fields.expiryDate ?? '')}</p>}
             <div className="rounded-lg border p-3 space-y-1.5"><div className="flex justify-between text-sm font-semibold"><span>{t('pms.scan.ocrConfidence')} (MRZ)</span><span>{confidence === null ? t('pms.scan.confidenceUnavailable') : `${confidence}%`}</span></div>{confidence !== null && <div role="progressbar" aria-label={t('pms.scan.ocrConfidence')} aria-valuenow={confidence} aria-valuemin={0} aria-valuemax={100} className="h-2 rounded-full bg-muted overflow-hidden"><div className={`h-full rounded-full ${confidenceTone(confidence) === 'high' && result.valid && !numberReview.needsReview ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${confidence}%` }}/></div>}{result.fields.documentType === 'id_card' && frontConfidence !== null && <div className="flex justify-between gap-2 text-xs text-muted-foreground"><span>{t('pms.scan.frontConfidence')}</span><span>{scanConfidence(frontConfidence)}%</span></div>}<p className="text-[11px] text-muted-foreground">{t('pms.scan.confidenceHint')}</p></div>
-            <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 rounded-md border border-border p-3 text-sm">
+            <DocumentReviewPreview documentType={result.fields.documentType}>
+            <dl className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-x-3 gap-y-2 text-sm [&_dd]:min-w-0 [&_dd]:break-words">
               <dt className="text-muted-foreground">{t('pms.guest.familyName')}</dt><dd className="font-semibold">{proposed?.last_name || '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.givenName')}</dt><dd className="font-semibold">{proposed?.first_name || '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.nationality')}</dt><dd>{proposed?.nationality || '—'}</dd>
@@ -1049,10 +1051,10 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               {(['birth_last_name', 'birth_first_name', 'mother_name', 'birth_place'] as const).map(key => opticalFields[key] && <div key={key} className="contents"><dt className="text-muted-foreground">{t(({ birth_last_name: 'pms.guest.birthFamilyName', birth_first_name: 'pms.guest.birthGivenName', mother_name: 'pms.guest.motherName', birth_place: 'pms.guest.birthPlace' })[key])}</dt><dd>{opticalFields[key]}</dd></div>)}
               <dt className="text-muted-foreground">{t('pms.scan.expiry')}</dt><dd>{result.fields.expiryDate ?? '—'}</dd>
             </dl>
+            </DocumentReviewPreview>
             {opticalIssue && !opticalReading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{t('pms.scan.printedIncomplete')}</p>}
             {opticalReading && <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin"/>{t('pms.scan.readingPrintedFields')}</p>}
             {Object.keys(opticalFields).length > 0 && <p className="text-xs text-amber-700 dark:text-amber-300">{t('pms.scan.printedFieldsReview')}</p>}
-            <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">{t('pms.scan.codeLines')}</summary><pre className="mt-1 overflow-x-auto rounded-md bg-muted px-2 py-1.5 font-mono text-[10px] leading-tight">{result.lines.join('\n')}</pre></details>
             <p className="text-[11px] text-muted-foreground">{t('pms.scan.reviewHint')}</p>
 
           </div>
