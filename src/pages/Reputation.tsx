@@ -287,6 +287,8 @@ export default function Reputation() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [originFilter, setOriginFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("overview");
+  const [showAdvancedReviewFilters, setShowAdvancedReviewFilters] = useState(false);
+  const [focusedReviewId, setFocusedReviewId] = useState<string | null>(null);
   const [publishedReviews, setPublishedReviews] = useState<Review[]>([]);
   const [publishedPage, setPublishedPage] = useState(0);
   const [publishedTotal, setPublishedTotal] = useState(0);
@@ -619,13 +621,18 @@ export default function Reputation() {
     setAlertBusy(id);
     try {
       await invoke("acknowledge_low_rating_alert", { alert_id: id });
-      toast.success("Low-rating alert acknowledged");
+      toast.success("Alert marked as seen. The review still needs a reply.");
       await load();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not acknowledge alert");
+      toast.error(error instanceof Error ? error.message : "Could not mark the alert as seen");
     } finally {
       setAlertBusy(null);
     }
+  };
+
+  // Use Mira's existing review tools and explicit publish-confirmation cards.
+  const askMira = (prompt: string) => {
+    window.dispatchEvent(new CustomEvent("hotelcare:ask-ai", { detail: { prompt } }));
   };
 
   const authorizeBackfill = async () => {
@@ -890,6 +897,7 @@ export default function Reputation() {
   const filteredReviews = useMemo(() => {
     const q = search.trim().toLowerCase();
     return reviews.filter((review) => {
+      if (focusedReviewId && review.id !== focusedReviewId) return false;
       if (ratingFilter === "positive" && review.star_rating < 4) return false;
       if (ratingFilter === "attention" && review.star_rating > 3) return false;
       if (!["all", "positive", "attention"].includes(ratingFilter) && Number(ratingFilter) !== review.star_rating) return false;
@@ -902,7 +910,7 @@ export default function Reputation() {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(q));
     });
-  }, [reviews, search, ratingFilter, statusFilter, originFilter, locationFilter, riskFilter, locationNameById]);
+  }, [reviews, search, ratingFilter, statusFilter, originFilter, locationFilter, riskFilter, focusedReviewId, locationNameById]);
 
   const e2eTone =
     e2e.status === "passed"
@@ -924,20 +932,25 @@ export default function Reputation() {
               {data?.connections?.length ? <Badge variant="outline" className="border-emerald-300 text-emerald-700">Google connected</Badge> : null}
               {googleSetup.quotaPending ? <Badge variant="outline" className="border-amber-300 text-amber-700">Google approval pending</Badge> : null}
             </div>
-            <p className="text-sm text-muted-foreground mt-1">Google reviews, AI-assisted responses, automation rules and reputation intelligence. New reviews refresh automatically while this page is open.</p>
+            <p className="text-sm text-muted-foreground mt-1">Manage Google reviews, reply to guests and let Mira help. Reviews update automatically while this page is open.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={load} disabled={busy}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${busy ? "animate-spin" : ""}`} />Refresh
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => { setFocusedReviewId(null); setStatusFilter("unreplied"); setRatingFilter("all"); setActiveTab("inbox"); }}>
+              <MessageSquareText className="mr-2 h-4 w-4" />Reply to reviews
             </Button>
-            {mapped.length > 0 && (
-              <Button variant="outline" onClick={syncReviews} disabled={busy || googleSetup.blocked}>
-                <Download className="h-4 w-4 mr-2" />Sync reviews
-              </Button>
-            )}
-            <Button variant={data?.connections?.length ? "outline" : "default"} onClick={connect} disabled={busy || !data?.google_configured}>
-              <Link2 className="h-4 w-4 mr-2" />{data?.connections?.length ? "Reconnect account" : "Connect Google Business"}
+            <Button variant="outline" onClick={() => askMira("Check our recent Google reviews. Identify which need attention and prepare up to five editable reply cards. Do not publish anything without my explicit approval.")}>
+              <Bot className="mr-2 h-4 w-4" />Ask Mira
             </Button>
+            <details className="relative">
+              <summary className="cursor-pointer list-none rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <Settings2 className="mr-2 inline h-4 w-4" />Google connection
+              </summary>
+              <div className="absolute right-0 top-full z-30 mt-2 flex min-w-[220px] flex-col gap-2 rounded-lg border bg-background p-3 shadow-lg">
+                <Button variant="outline" onClick={load} disabled={busy}><RefreshCw className={`mr-2 h-4 w-4 ${busy ? "animate-spin" : ""}`} />Refresh data</Button>
+                {mapped.length > 0 && <Button variant="outline" onClick={syncReviews} disabled={busy || googleSetup.blocked}><Download className="mr-2 h-4 w-4" />Get latest reviews</Button>}
+                <Button variant="outline" onClick={connect} disabled={busy || !data?.google_configured}><Link2 className="mr-2 h-4 w-4" />{data?.connections?.length ? "Reconnect Google" : "Connect Google"}</Button>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -1053,21 +1066,25 @@ export default function Reputation() {
               <div className="flex flex-wrap justify-between items-center gap-3">
                 <div className="flex gap-2 items-start">
                   <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
-                  <div><div className="font-semibold">{data?.open_alert_count} new 1–3-star Google review alert(s)</div>
-                    <p className="text-sm text-muted-foreground">These require a manager response. Low-rated or sensitive reviews are never auto-published.</p>
+                  <div><div className="font-semibold">{data?.open_alert_count} new low-rating alert(s)</div>
+                    <p className="text-sm text-muted-foreground">A manager should check these reviews. Mira can draft replies, but will not publish them without your approval.</p>
                   </div>
                 </div>
-                <Button variant="outline" onClick={() => { setActiveTab("inbox"); setRatingFilter("attention"); setStatusFilter("all"); }}>Review low ratings</Button>
+                <Button variant="outline" onClick={() => { setFocusedReviewId(null); setSearch(""); setRiskFilter("all"); setOriginFilter("all"); setActiveTab("inbox"); setRatingFilter("attention"); setStatusFilter("unreplied"); }}>See low ratings</Button>
               </div>
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {(data?.alerts || []).slice(0, 6).map((alert) => <div key={alert.id} className="rounded-md border p-3 space-y-2">
                   <div className="text-sm font-medium">{alert.star_rating}★ · {locations.find((venue) => venue.id === alert.google_location_id)?.reply_brand_name || "Google business"}</div>
                   <p className="text-xs text-muted-foreground line-clamp-2">{alert.review_excerpt || "Rating only — no written comment."}</p>
                   <div className="flex gap-2 flex-wrap">
-                    <Button size="sm" variant="outline" onClick={() => {
-                      setLocationFilter(alert.google_location_id); setRatingFilter("attention"); setActiveTab("inbox");
-                    }}>Open</Button>
-                    <Button size="sm" variant="ghost" disabled={alertBusy === alert.id} onClick={() => void acknowledgeAlert(alert.id)}>Acknowledge</Button>
+                    <Button size="sm" onClick={() => {
+                      setSearch(""); setOriginFilter("all"); setRiskFilter("all");
+                      setLocationFilter(alert.google_location_id); setRatingFilter("attention"); setStatusFilter("all");
+                      setFocusedReviewId(alert.review_id && reviews.some((review) => review.id === alert.review_id) ? alert.review_id : null);
+                      setActiveTab("inbox");
+                    }}>Reply</Button>
+                    <Button size="sm" variant="outline" onClick={() => askMira(`Find the ${alert.star_rating}-star Google review for ${locations.find((location) => location.id === alert.google_location_id)?.google_location_title || "this business"} (review ID ${alert.review_id || "unknown"}), and prepare an editable reply card. Do not publish without my approval.`)}><Bot className="h-3.5 w-3.5 mr-1" />Ask Mira</Button>
+                    <Button size="sm" variant="ghost" title="Clear this alert only — the guest still needs a reply" disabled={alertBusy === alert.id} onClick={() => void acknowledgeAlert(alert.id)}>Mark as seen</Button>
                   </div>
                 </div>)}
               </div>
@@ -1080,17 +1097,45 @@ export default function Reputation() {
           if (value === "automation") void loadRecent(0, recentVenue);
           if (value === "published") { void loadPublished(0, publishedSource, historyVenue); }
          }} className="space-y-4">
-          <TabsList className="h-auto flex-wrap justify-start">
-            <TabsTrigger value="overview" className="gap-2"><BarChart3 className="h-4 w-4" />Overview</TabsTrigger>
-            <TabsTrigger value="inbox" className="gap-2"><MessageSquareText className="h-4 w-4" />Review inbox{awaiting > 0 ? <Badge variant="secondary" className="ml-1">{awaiting}</Badge> : null}</TabsTrigger>
-            <TabsTrigger value="automation" className="gap-2"><Zap className="h-4 w-4" />Automation center <Badge variant="secondary">{data?.stats?.recentUnreplied ?? 0}</Badge></TabsTrigger>
-            <TabsTrigger value="locations" className="gap-2"><Settings2 className="h-4 w-4" />Venues & rules</TabsTrigger>
-            <TabsTrigger value="published" className="gap-2"><Send className="h-4 w-4" />Published replies <Badge variant="secondary">{published}</Badge></TabsTrigger>
-            <TabsTrigger value="audit" className="gap-2"><History className="h-4 w-4" />Audit trail</TabsTrigger>
-          </TabsList>
+          <div className="grid gap-3 xl:grid-cols-2">
+            <div className="space-y-1">
+              <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Daily review work</p>
+              <TabsList className="flex h-auto flex-wrap justify-start gap-1 p-1">
+                <TabsTrigger value="overview" className="gap-2"><BarChart3 className="h-4 w-4" />Home</TabsTrigger>
+                <TabsTrigger value="inbox" className="gap-2"><MessageSquareText className="h-4 w-4" />Reply to reviews{awaiting > 0 && <Badge variant="secondary">{awaiting}</Badge>}</TabsTrigger>
+                <TabsTrigger value="published" className="gap-2"><Send className="h-4 w-4" />Sent replies</TabsTrigger>
+              </TabsList>
+            </div>
+            <div className="space-y-1">
+              <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI & management</p>
+              <TabsList className="flex h-auto flex-wrap justify-start gap-1 p-1">
+                <TabsTrigger value="automation" className="gap-2"><Zap className="h-4 w-4" />AI replies & batches</TabsTrigger>
+                <TabsTrigger value="locations" className="gap-2"><Settings2 className="h-4 w-4" />Business settings</TabsTrigger>
+                <TabsTrigger value="audit" className="gap-2"><History className="h-4 w-4" />Activity history</TabsTrigger>
+              </TabsList>
+            </div>
+          </div>
 
           <TabsContent value="overview" className="space-y-4">
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <Card><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Average Google rating</p><div className="mt-2 flex items-center gap-2 text-3xl font-bold">{googleTotal ? allAvg.toFixed(1) : "—"} <Star className="h-5 w-5 text-amber-500" /></div><p className="mt-1 text-xs text-muted-foreground">Across connected businesses</p></CardContent></Card>
+              <Card className={awaiting ? "border-amber-300" : ""}><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Waiting for a reply</p><div className="mt-2 text-3xl font-bold">{awaiting.toLocaleString()}</div><p className="mt-1 text-xs text-muted-foreground">From {totalTracked.toLocaleString()} imported reviews</p><Button variant="link" size="sm" className="mt-1 h-auto p-0" onClick={() => { setFocusedReviewId(null); setRatingFilter("all"); setStatusFilter("unreplied"); setActiveTab("inbox"); }}>Reply now</Button></CardContent></Card>
+              <Card><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Replies sent</p><div className="mt-2 text-3xl font-bold">{published.toLocaleString()}</div><Button variant="link" size="sm" className="mt-1 h-auto p-0" onClick={() => { setActiveTab("published"); void loadPublished(0, publishedSource, historyVenue); }}>See replies</Button></CardContent></Card>
+              <Card><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Total Google reviews</p><div className="mt-2 text-3xl font-bold">{googleTotal.toLocaleString()}</div><p className="mt-1 text-xs text-muted-foreground">Across Google business listings</p></CardContent></Card>
+            </div>
+            <Card className="border-primary/20">
+              <CardContent className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                <div><h2 className="font-semibold">Mira can help with your reviews</h2><p className="text-sm text-muted-foreground">Ask for a summary or editable reply drafts. You approve each reply before it goes live.</p></div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => askMira("Summarize themes in our latest Google reviews, show which properties need attention and recommend the next actions. Do not publish any replies.")}>Summarize reviews</Button>
+                  <Button onClick={() => askMira("Find up to five unanswered Google reviews needing attention and prepare editable reply cards. Do not publish without my approval.")}><Bot className="mr-2 h-4 w-4" />Draft replies with Mira</Button>
+                </div>
+              </CardContent>
+            </Card>
+            <details className="rounded-xl border bg-card p-4">
+              <summary className="cursor-pointer text-sm font-medium">More statistics, safety details & Google account</summary>
+              <div className="mt-4 space-y-4">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Reviews on Google</div><div className="text-3xl font-bold mt-2">{googleTotal.toLocaleString()}</div><div className="text-xs text-muted-foreground mt-1">{totalTracked.toLocaleString()} imported for management</div></CardContent></Card>
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Overall average rating</div><div className="flex items-center gap-2 mt-2"><span className="text-3xl font-bold">{googleTotal ? allAvg.toFixed(1) : "—"}</span><Star className="h-5 w-5" /></div></CardContent></Card>
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Reply rate · imported reviews</div><div className="text-3xl font-bold mt-2">{totalTracked ? `${responseRate}%` : "—"}</div></CardContent></Card>
@@ -1106,7 +1151,7 @@ export default function Reputation() {
                   <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Google listings managed</span><span className="font-medium">{locations.length}</span></div>
                   <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Standalone listings (no hotel required)</span><span className="font-medium">{locations.length - mapped.length}</span></div>
                   <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Automatic publishing enabled</span><span className="font-medium">{locations.filter((location) => location.auto_reply_enabled).length} location(s)</span></div>
-                  <div className="rounded-lg border bg-muted/30 p-3 flex gap-2"><ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" /><span>High-risk and 1–3-star reviews are always manager-controlled. Automatic replies need specific venue authorization.</span></div>
+                  <div className="rounded-lg border bg-muted/30 p-3 flex gap-2"><ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" /><span>One Google listing is checked at a time, staggered across each 3-hour cycle. Eligible 4–5-star low-risk reviews are replied to automatically; high-risk and 1–3-star reviews need manager approval. Each venue needs authorization.</span></div>
                   <div className="rounded-lg border p-3 flex items-center justify-between gap-3">
                     <div><div className="font-medium">Curated HotelCare reply library</div>
                       <p className="text-xs text-muted-foreground">{data?.reply_library?.curated_base_variants ?? 132}+ rating- and topic-aware variations, with personalized reviewer names and natural closings. Standard positive drafts use no AI tokens.</p>
@@ -1194,43 +1239,39 @@ export default function Reputation() {
                 </div>
               </CardContent>
             </Card>
+            </div>
+            </details>
           </TabsContent>
 
           <TabsContent value="inbox" className="space-y-4">
             <Card>
-              <CardContent className="pt-5">
-                <div className="grid md:grid-cols-2 xl:grid-cols-5 gap-3">
-                  <div className="relative xl:col-span-2"><Search className="h-4 w-4 absolute left-3 top-3 text-muted-foreground" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search guest, review or topic…" className="pl-9" /></div>
-                  <Select value={ratingFilter} onValueChange={setRatingFilter}><SelectTrigger><SelectValue placeholder="Rating" /></SelectTrigger><SelectContent><SelectItem value="all">All ratings</SelectItem><SelectItem value="positive">4–5 stars · positive</SelectItem><SelectItem value="attention">1–3 stars · attention</SelectItem>{[5,4,3,2,1].map((value) => <SelectItem key={value} value={String(value)}>{value} stars</SelectItem>)}</SelectContent></Select>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="unreplied">Awaiting reply</SelectItem><SelectItem value="draft">Draft ready</SelectItem><SelectItem value="published">Published</SelectItem></SelectContent></Select>
-                  <Select value={riskFilter} onValueChange={setRiskFilter}><SelectTrigger><SelectValue placeholder="Risk" /></SelectTrigger><SelectContent><SelectItem value="all">All risk levels</SelectItem><SelectItem value="low">Low risk</SelectItem><SelectItem value="medium">Review carefully</SelectItem><SelectItem value="high">High risk</SelectItem></SelectContent></Select>
-                  <Select value={originFilter} onValueChange={setOriginFilter}><SelectTrigger><SelectValue placeholder="Reply source" /></SelectTrigger><SelectContent><SelectItem value="all">All reply sources</SelectItem><SelectItem value="automatic">Auto-published</SelectItem><SelectItem value="manager">Manager published</SelectItem><SelectItem value="bulk">Manager-approved batch</SelectItem><SelectItem value="google">Existing Google replies</SelectItem></SelectContent></Select>
+              <CardContent className="space-y-3 pt-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div><h2 className="font-semibold">Find a review and reply</h2><p className="text-sm text-muted-foreground">Read the guest's review, check your reply and send it to Google. Low ratings need a manager's approval.</p></div>
+                  <Button size="sm" variant="outline" onClick={() => askMira("Find up to five unanswered Google reviews that need a reply and prepare editable reply cards for me to approve. Do not publish without my approval.")}><Bot className="mr-2 h-4 w-4" />Ask Mira to draft</Button>
                 </div>
-                <div className="mt-3 space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    {([
-                      { id: "all", label: "All ratings" },
-                      { id: "positive", label: "4–5★ positive" },
-                      { id: "attention", label: "1–3★ attention" },
-                      { id: "5", label: "5★" }, { id: "4", label: "4★" },
-                      { id: "3", label: "3★" }, { id: "2", label: "2★" }, { id: "1", label: "1★" },
-                    ]).map((item) => <Button key={item.id} size="sm" variant={ratingFilter === item.id ? "default" : "outline"}
-                      onClick={() => setRatingFilter(item.id)}>{item.label}</Button>)}
-                  </div>
-                  <Select value={locationFilter} onValueChange={setLocationFilter}>
-                    <SelectTrigger className="max-w-md"><SelectValue placeholder="Google business" /></SelectTrigger>
-                    <SelectContent><SelectItem value="all">All connected businesses</SelectItem>
-                      {locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <div className="flex flex-wrap gap-2">
-                    {locations.map((location) => <Button key={location.id} size="sm"
-                      variant={locationFilter === location.id ? "default" : "outline"} onClick={() => setLocationFilter(location.id)}>
-                      {location.reply_brand_name || location.google_location_title}</Button>)}
-                    {locationFilter !== "all" && <Button size="sm" variant="ghost" onClick={() => setLocationFilter("all")}>Clear venue filter</Button>}
-                  </div>
-                  <p className="text-xs text-muted-foreground">{filteredReviews.length} matching recent inbox entries (last 250 imported) · venue and rating filters</p>
+                {focusedReviewId && <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 p-2 text-sm"><span>Showing the review from your alert</span><Button size="sm" variant="ghost" onClick={() => setFocusedReviewId(null)}>Show all</Button></div>}
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant={ratingFilter === "all" && statusFilter === "all" ? "default" : "outline"} onClick={() => { setFocusedReviewId(null); setRiskFilter("all"); setOriginFilter("all"); setRatingFilter("all"); setStatusFilter("all"); }}>All reviews</Button>
+                  <Button size="sm" variant={ratingFilter === "all" && statusFilter === "unreplied" ? "default" : "outline"} onClick={() => { setFocusedReviewId(null); setRiskFilter("all"); setOriginFilter("all"); setRatingFilter("all"); setStatusFilter("unreplied"); }}>Needs a reply</Button>
+                  <Button size="sm" variant={ratingFilter === "attention" ? "default" : "outline"} onClick={() => { setFocusedReviewId(null); setRiskFilter("all"); setOriginFilter("all"); setRatingFilter("attention"); setStatusFilter("all"); }}>Low ratings (1–3★)</Button>
+                  <Button size="sm" variant={ratingFilter === "positive" ? "default" : "outline"} onClick={() => { setFocusedReviewId(null); setRiskFilter("all"); setOriginFilter("all"); setRatingFilter("positive"); setStatusFilter("all"); }}>Positive (4–5★)</Button>
                 </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="relative xl:col-span-2"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input value={search} onChange={(e) => { setFocusedReviewId(null); setSearch(e.target.value); }} placeholder="Search reviews or guest names..." className="pl-9" aria-label="Search reviews" /></div>
+                  <Select value={locationFilter} onValueChange={(value) => { setFocusedReviewId(null); setLocationFilter(value); }}><SelectTrigger aria-label="Business"><SelectValue placeholder="Choose a business" /></SelectTrigger><SelectContent><SelectItem value="all">All businesses</SelectItem>{locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}</SelectContent></Select>
+                  <Select value={statusFilter} onValueChange={(value) => { setFocusedReviewId(null); setStatusFilter(value); }}><SelectTrigger aria-label="Reply status"><SelectValue placeholder="Reply status" /></SelectTrigger><SelectContent><SelectItem value="all">Any reply status</SelectItem><SelectItem value="unreplied">Needs a reply</SelectItem><SelectItem value="draft">Draft ready</SelectItem><SelectItem value="published">Already replied</SelectItem></SelectContent></Select>
+                </div>
+                <div>
+                  <Button size="sm" variant="ghost" onClick={() => setShowAdvancedReviewFilters((current) => !current)} aria-expanded={showAdvancedReviewFilters}><ListFilter className="mr-2 h-4 w-4" />{showAdvancedReviewFilters ? "Hide extra filters" : "More filters"}</Button>
+                  {showAdvancedReviewFilters && <div className="mt-2 grid gap-3 rounded-lg border p-3 sm:grid-cols-3">
+                    <Select value={ratingFilter} onValueChange={(value) => { setFocusedReviewId(null); setRatingFilter(value); }}><SelectTrigger aria-label="Star rating"><SelectValue placeholder="Star rating" /></SelectTrigger><SelectContent><SelectItem value="all">All stars</SelectItem><SelectItem value="positive">4–5 stars</SelectItem><SelectItem value="attention">1–3 stars</SelectItem>{[5,4,3,2,1].map((rating) => <SelectItem key={rating} value={String(rating)}>{rating} stars</SelectItem>)}</SelectContent></Select>
+                    <Select value={riskFilter} onValueChange={setRiskFilter}><SelectTrigger aria-label="Risk"><SelectValue placeholder="Risk" /></SelectTrigger><SelectContent><SelectItem value="all">Any risk</SelectItem><SelectItem value="low">Low risk</SelectItem><SelectItem value="medium">Check carefully</SelectItem><SelectItem value="high">Needs extra care</SelectItem></SelectContent></Select>
+                    <Select value={originFilter} onValueChange={setOriginFilter}><SelectTrigger aria-label="Who replied"><SelectValue placeholder="Who replied" /></SelectTrigger><SelectContent><SelectItem value="all">Anyone</SelectItem><SelectItem value="automatic">AI replied</SelectItem><SelectItem value="manager">Manager replied</SelectItem><SelectItem value="bulk">Manager-approved batch</SelectItem><SelectItem value="google">Previously replied on Google</SelectItem></SelectContent></Select>
+                    <Button variant="outline" size="sm" onClick={() => { setRatingFilter("all"); setStatusFilter("all"); setRiskFilter("all"); setOriginFilter("all"); setLocationFilter("all"); setSearch(""); setFocusedReviewId(null); }}>Clear all filters</Button>
+                  </div>}
+                </div>
+                <p className="text-xs text-muted-foreground">{filteredReviews.length} matching reviews in the latest {reviews.length} loaded into your inbox.</p>
               </CardContent>
             </Card>
 
@@ -1261,7 +1302,7 @@ export default function Reputation() {
 
                         {(review.ai_categories?.length || review.ai_summary) ? (
                           <div className="space-y-2">
-                            {review.ai_summary && <div className="text-sm"><span className="font-medium">AI signal:</span> <span className="text-muted-foreground">{review.ai_summary}</span></div>}
+                            {review.ai_summary && <div className="text-sm"><span className="font-medium">AI review summary:</span> <span className="text-muted-foreground">{review.ai_summary}</span></div>}
                             <div className="flex flex-wrap gap-1.5">{(review.ai_categories || []).map((category) => <Badge key={category} variant="outline" className="capitalize">{category}</Badge>)}</div>
                           </div>
                         ) : null}
@@ -1277,16 +1318,16 @@ export default function Reputation() {
                             <div className="flex items-center gap-2 text-sm font-medium"><Bot className="h-4 w-4" />AI-assisted reply draft</div>
                             <Textarea value={currentDraft} onChange={(e) => setDraftText((current) => ({ ...current, [review.id]: e.target.value }))} rows={5} />
                             <div className="flex flex-wrap gap-2">
-                              <Button variant="outline" onClick={() => saveDraft(review.id)} disabled={itemBusy === review.id}><Save className="h-4 w-4 mr-2" />Save draft</Button>
-                              <Button variant="outline" onClick={() => setCustomizingReviewId(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Customize reply</Button>
-                              <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}>Quick regenerate</Button>
+                              <Button variant="outline" onClick={() => saveDraft(review.id)} disabled={itemBusy === review.id}><Save className="h-4 w-4 mr-2" />Save for later</Button>
+                              <Button variant="outline" onClick={() => setCustomizingReviewId(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Improve this reply</Button>
+                              <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}>Try another draft</Button>
                               <Button onClick={() => publish(review.id)} disabled={itemBusy === review.id || googleSetup.blocked}><Send className="h-4 w-4 mr-2" />{approvalRequired ? "Approve & publish" : "Publish to Google"}</Button>
                             </div>
                           </div>
                         ) : (
                           <div className="flex flex-wrap gap-2">
-                            <Button onClick={() => setCustomizingReviewId(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Customize & draft reply</Button>
-                            <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}>Quick draft</Button>
+                            <Button onClick={() => setCustomizingReviewId(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Write a reply with AI</Button>
+                            <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}>Suggest a reply</Button>
                           </div>
                         )}
                       </CardContent>
@@ -1299,7 +1340,7 @@ export default function Reputation() {
 
           <TabsContent value="published" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="h-5 w-5" />Published Google review replies</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="h-5 w-5" />Replies sent to Google</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">See when each reply appeared and whether it was published automatically by HotelCare, by a manager in HotelCare, or was already present on Google. This history includes older replies outside the recent review inbox.</p>
                 <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1394,7 +1435,7 @@ export default function Reputation() {
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2 text-lg"><Bot className="h-5 w-5" />AI auto-reply monitoring</CardTitle>
+                    <CardTitle className="flex items-center gap-2 text-lg"><Bot className="h-5 w-5" />Automatic reply activity</CardTitle>
                     <p className="text-sm text-muted-foreground">Live publishing activity — not just AI-generated drafts. Counts are confirmed Google replies attributed to HotelCare automation.</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1652,7 +1693,7 @@ export default function Reputation() {
                         <Button size="sm" variant="outline" disabled={itemBusy === location.id} onClick={() => void cancelBackfill(location.id)}>Stop catch-up</Button>
                       </div>
                     )}
-                    <Button onClick={() => saveLocation(location.id)} disabled={itemBusy === location.id}><Save className="h-4 w-4 mr-2" />Save location rules</Button>
+                    <Button onClick={() => saveLocation(location.id)} disabled={itemBusy === location.id}><Save className="h-4 w-4 mr-2" />Save business settings</Button>
                   </CardContent>
                 </Card>
               );
@@ -1661,7 +1702,7 @@ export default function Reputation() {
 
           <TabsContent value="audit" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><History className="h-5 w-5" />Reply audit trail</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><History className="h-5 w-5" />Review activity history</CardTitle></CardHeader>
               <CardContent>
                 {events.length === 0 ? <div className="py-10 text-center text-sm text-muted-foreground">Draft, edit, approval and publish events will appear here.</div> : (
                   <div className="divide-y">

@@ -5,7 +5,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -19,8 +18,13 @@ import {
 import { balanceOf, formatMoney, reservationGuestLabel } from '@/lib/reservations';
 import { summarizeReservationNote } from '@/lib/previoReservationNote';
 import { GuestDetailsSection } from '@/components/frontdesk/GuestDetailsSection';
+import { BusinessMomentField, useBusinessMoment } from '@/components/frontdesk/BusinessMomentField';
+import { StayGuestRoster, useStayGuestRoster } from '@/components/frontdesk/StayGuestRoster';
 import { GuestWelcomeCard } from '@/components/guests/GuestWelcomeCard';
 import { useParams } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { vizaArrivalDay } from '@/lib/idScan/guestVizaChecks';
+import { formatVizaArrivalError, firstVizaArrivalFailure } from '@/lib/idScan/vizaArrivalError';
 
 interface CheckInDialogProps {
   reservation: any;
@@ -37,8 +41,56 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const [showAll, setShowAll] = useState(false);
   const [override, setOverride] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [vizaMissing, setVizaMissing] = useState<string[]>([]);
+  const [savePending, setSavePending] = useState(false);
+  const requestClose = (next: boolean) => {
+    if (!next && savePending) { toast.error(t('pms.guest.autosaveWait')); return; }
+    onOpenChange(next);
+  };
+  useEffect(() => {
+    if (!savePending) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [savePending]);
+  const [vizaMissing, setVizaMissing] = useState<string[] | null>(null);
+  const [arrivalError, setArrivalError] = useState<string | null>(null);
+  const [focusProblem,setFocusProblem]=useState<{guestId:string;field:string;attempt:number}|null>(null);
+  const [vizaRequired, setVizaRequired] = useState(false);
+  const [vizaLoading, setVizaLoading] = useState(true);
+  const [vizaLoadFailed, setVizaLoadFailed] = useState(false);
+  useEffect(() => {
+    let active=true; setVizaRequired(false); setVizaMissing(null); setArrivalError(null); setFocusProblem(null);
+    setVizaLoading(open); setVizaLoadFailed(false);
+    if(open) void (supabase.rpc as CallableFunction)('pms_viza_registration_required',{_reservation_id:reservation.id})
+      .then(({data,error}: {data:unknown;error:unknown}) => {if(active) { setVizaRequired(data===true); setVizaLoadFailed(!!error); setVizaLoading(false); }})
+      .catch(()=>{if(active) {setVizaLoadFailed(true); setVizaLoading(false);}});
+    return ()=>{active=false;};
+  },[open,reservation.id]);
+  const businessMoment = useBusinessMoment(reservation.hotel_id, open);
+  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open && !vizaLoading && !vizaLoadFailed, 'arrive', selectedRoom || reservation.room_id, vizaRequired, businessMoment.occurredAt);
 
+  const [serverRequirements,setServerRequirements] = useState<{key:string;version:number;ok:boolean;failed:boolean}|null>(null);
+  const day = vizaArrivalDay(businessMoment.occurredAt).toISOString().slice(0,10);
+  const idsKey = JSON.stringify(roster.perGuestLifecycle ? roster.selectedIds : null);
+  const requestKey = JSON.stringify([reservation.id,day,idsKey,roster.guests]);
+  useEffect(()=>{
+    if(!open || !vizaRequired || roster.loading || savePending) return;
+    let active=true;
+    const timeout=window.setTimeout(()=>{
+      void (supabase.rpc as CallableFunction)('pms_viza_arrival_requirements',{_reservation_id:reservation.id,_guest_ids:JSON.parse(idsKey),_day:day})
+        .then(({data,error}:{data:unknown;error:unknown})=>{
+          if(!active)return;
+          const value=data as {version?:number;occupant_count_ok?:boolean;guests?:{missing?:unknown[]}[]}|null;
+          const valid=!error && typeof value?.version==='number' && value.version>=2 && Array.isArray(value.guests) && typeof value.occupant_count_ok==='boolean';
+          setServerRequirements({key:requestKey,version:valid?value!.version!:0,failed:!valid,ok:!!valid && value!.occupant_count_ok===true && value!.guests!.length>0 && value!.guests!.every(g=>Array.isArray(g.missing)&&g.missing.length===0)});
+        })
+        .catch(()=>{if(active)setServerRequirements({key:requestKey,version:0,ok:false,failed:true});});
+    },250);
+    return ()=>{active=false;window.clearTimeout(timeout);};
+  },[open,vizaRequired,roster.loading,savePending,reservation.id,day,idsKey,requestKey]);
+  useEffect(()=>{if(!open)setServerRequirements(null);},[open,reservation.id]);
+  const serverReady = serverRequirements?.key===requestKey && serverRequirements.ok && !serverRequirements.failed;
+  const serverFailed = vizaRequired && serverRequirements?.failed === true;
   const today = getLocalDateString();
   const pax = (reservation.adults ?? 1) + (reservation.children ?? 0);
   const balance = balanceOf(reservation);
@@ -63,44 +115,60 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   }, [open, reservation.id]);
 
   const visibleRooms = useMemo(() => {
-    const base = rooms.filter((r) => r.room_status !== 'occupied');
+    const base = rooms.filter((r) => r.room_status !== 'occupied' || r.room_id === reservation.room_id);
     return showAll ? base : base.filter((r) => r.room_status === 'clean');
   }, [rooms, showAll]);
 
   const selected = rooms.find((r) => r.room_id === selectedRoom);
   const capacityWarn = !!selected && selected.capacity > 0 && pax > selected.capacity;
-  const notCleanWarn = !!selected && selected.room_status !== 'clean';
-  const vizaWarn = !!reservation.guest_id && vizaMissing.length > 0;
-  const needsOverride = capacityWarn || notCleanWarn || vizaWarn;
+  const notCleanWarn = !!selected && selected.room_status !== 'clean'
+    && !(reservation.status === 'checked_in' && selected.room_id === reservation.room_id);
+  const guestDetailsLoading = !roster.enabled && !!reservation.guest_id && vizaMissing === null;
+  const vizaWarn = !!reservation.guest_id && (vizaMissing?.length ?? 0) > 0;
+  const needsOverride = capacityWarn || notCleanWarn || (vizaWarn && !vizaRequired);
+  const rosterCountMismatch = vizaRequired && roster.enabled && roster.guests.filter(g => g.stay_state !== 'void').length !== pax;
+  const vizaBlocked = vizaRequired && (!serverReady || (roster.enabled ? roster.incompleteSelected > 0 || rosterCountMismatch : vizaWarn || !reservation.guest_id || pax > 1));
 
   const handleCheckIn = async () => {
+    if (savePending || vizaBlocked || vizaLoading || vizaLoadFailed) return;
     if (!selectedRoom) {
       toast.error(t('pms.checkIn.pleaseSelectRoom'));
       return;
     }
     setSubmitting(true);
+    setArrivalError(null);
     try {
-      const result = await checkInReservation(reservation.id, selectedRoom, override);
+      const result = await checkInReservation(reservation.id, selectedRoom, override, businessMoment.occurredAt,
+        roster.perGuestLifecycle ? roster.selectedIds : null);
       toast.success(`${reservationGuestLabel(reservation)} ${t('pms.checkIn.checkedIn')} · ${t('pms.res.room')} ${result.room_number ?? ''}`);
       onSuccess();
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
-      toast.error(key ? t(key) : t('pms.checkIn.failedCheckIn'));
+      const registrationError = formatVizaArrivalError((err as Error).message ?? '', t);
+      if (registrationError) {
+        setArrivalError(registrationError);
+        const problem=firstVizaArrivalFailure((err as Error).message??'');
+        if(problem)setFocusProblem({...problem,attempt:Date.now()});
+        void roster.refresh();
+      }
+      toast.error(registrationError ?? (key ? t(key) : (err as Error).message || t('pms.checkIn.failedCheckIn')));
+
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto" data-training="fd-checkin-dialog">
-        <DialogHeader>
+    <Dialog open={open} onOpenChange={requestClose}>
+      <DialogContent className="w-[calc(100%-0.75rem)] max-w-xl max-h-[94dvh] overflow-hidden gap-0 rounded-2xl bg-background px-0 py-0 sm:!h-auto sm:max-h-[90dvh]" data-training="fd-checkin-dialog">
+        <DialogHeader className="shrink-0 border-b border-border/70 px-4 py-4 pr-12 text-left sm:px-5 sm:pr-12">
           <DialogTitle className="flex items-center gap-2">
             <LogIn className="h-5 w-5 text-primary" /> {t('pms.checkIn.checkInGuest')}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5" data-training="fd-checkin-scroll">
           <div className="p-3 rounded-lg bg-accent/30 border border-border">
+            <p className="text-xs text-muted-foreground">{t('pms.express.bookingContact')}</p>
             <p className="font-semibold">{reservationGuestLabel(reservation)}</p>
             <p className="text-sm text-muted-foreground">{reservation.reservation_number}</p>
             <p className="text-sm text-muted-foreground">
@@ -112,19 +180,25 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           <GuestWelcomeCard reservationId={reservation.id} hotelId={reservation.hotel_id}
             basePath={organizationSlug ? `/${organizationSlug}` : undefined} />
 
-          {reservation.guest_id && (
-            <GuestDetailsSection guestId={reservation.guest_id} onCompletenessChange={setVizaMissing} />
+          {!vizaLoading && !vizaRequired && !roster.enabled && reservation.guest_id && (
+            <GuestDetailsSection occurredAt={businessMoment.occurredAt} vizaReservationId={vizaRequired ? reservation.id : undefined} guestId={reservation.guest_id} onCompletenessChange={setVizaMissing} autoSave onSavePendingChange={setSavePending}
+              onSaved={() => setArrivalError(null)} />
           )}
+
+          {(!vizaRequired || (serverRequirements?.version ?? 0)>=2) && <StayGuestRoster focusProblem={focusProblem} expectedGuests={pax} bookingGuestId={reservation.guest_id} vizaRequired={vizaRequired} control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
+            orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} savePending={savePending} onSavePendingChange={setSavePending} />}
+          {(vizaLoadFailed || serverFailed) && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaStatusFailed')}</p>}
+          {arrivalError && <p role="alert" className="text-sm text-destructive break-words">{arrivalError}</p>}
 
           {(noteSummary || balance > 0 || missingContact) && (
             <div className="space-y-1.5">
               {noteSummary && (
-                <p className="text-sm text-amber-600 flex items-start gap-1.5 break-words">
+                <p className="text-sm text-amber-700 dark:text-amber-300 flex items-start gap-1.5 break-words">
                   <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /> {noteSummary}
                 </p>
               )}
               {balance > 0 && (
-                <p className="text-sm text-amber-600 flex items-center gap-1.5">
+                <p className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
                   <AlertCircle className="h-4 w-4 shrink-0" /> {t('pms.ci.balanceOutstanding')}: {formatMoney(balance, reservation.currency)}
                 </p>
               )}
@@ -143,7 +217,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
                 <Loader2 className="h-4 w-4 animate-spin" /> {t('pms.loading')}
               </div>
             ) : (
-              <Select value={selectedRoom} onValueChange={setSelectedRoom}>
+              <Select value={selectedRoom} onValueChange={setSelectedRoom} disabled={savePending}>
                 <SelectTrigger data-training="fd-checkin-room-select">
                   <SelectValue placeholder={t('pms.checkIn.selectCleanRoom')} />
                 </SelectTrigger>
@@ -170,6 +244,10 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             </button>
           </div>
 
+          <BusinessMomentField control={businessMoment} />
+
+          {(rosterCountMismatch || (vizaRequired && !roster.enabled && pax > 1)) && <p role="alert" className="text-sm text-destructive">{t('pms.guest.occupantCount')}</p>}
+          {vizaBlocked && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaArrivalBlocked')}</p>}
           {(needsOverride || reservation.check_in_date !== today) && (
             <div className="flex items-start gap-2">
               <Checkbox id="override" checked={override} onCheckedChange={(c) => setOverride(!!c)} className="mt-0.5" />
@@ -177,20 +255,22 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
                 {t('pms.ci.overrideLabel')}
                 {capacityWarn && ` · ${t('pms.err.capacityExceeded')}`}
                 {notCleanWarn && ` · ${t('pms.err.roomNotClean')}`}
-                {vizaWarn && ` · ${t('pms.guest.incompleteWarn')}`}
+                {vizaWarn && !vizaRequired && ` · ${t('pms.guest.incompleteWarn')}`}
               </label>
             </div>
           )}
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
+        <DialogFooter className="shrink-0 gap-2 border-t border-border/70 bg-card px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:gap-2 sm:px-5">
+          <Button variant="outline" className="min-h-11 text-muted-foreground sm:min-h-10" onClick={() => requestClose(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckIn}
-            disabled={submitting || !selectedRoom || (vizaWarn && !override)}
-            className="gap-1"
+            disabled={savePending || vizaLoading || vizaLoadFailed || submitting || businessMoment.invalid || !selectedRoom || roster.loading || guestDetailsLoading
+              || (roster.perGuestLifecycle && roster.selectedIds.length === 0)
+              || vizaBlocked || (vizaWarn && !vizaRequired && !override)}
+            className="min-h-11 h-auto gap-2 whitespace-normal py-2 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 sm:min-h-10"
             data-training="fd-checkin-confirm"
           >
-            <LogIn className="h-4 w-4" /> {submitting ? t('pms.checkIn.processing') : t('pms.checkIn')}
+            <LogIn className="h-4 w-4" /> {submitting ? t('pms.checkIn.processing') : `${t('pms.checkIn')} · ${businessMoment.display}`}
           </Button>
         </DialogFooter>
       </DialogContent>

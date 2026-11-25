@@ -15,18 +15,21 @@ import {
 } from '@/components/ui/dialog';
 import {
   ArrowLeft, User, CalendarDays, BedDouble, CreditCard, Edit,
-  History, Lock, AlertTriangle, Hash,
+  History, Lock, AlertTriangle, Hash, ArrowLeftRight, LogOut,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
+import { NtakBookingNumberField } from '@/components/ntak/NtakBookingNumberField';
+import { RoomChangeDialog } from '@/components/frontdesk/RoomChangeDialog';
 import { EditReservationDialog } from '@/components/reservations/EditReservationDialog';
 import { ReservationNotesPanel } from '@/components/reservations/ReservationNotesPanel';
 import { PrevioWritebackStatus } from '@/components/reservations/PrevioWritebackStatus';
 import { ReservationAccountPanel } from '@/components/reservations/ReservationAccountPanel';
 import { PciCardPanel } from '@/components/reservations/PciCardPanel';
 import { VccDetailsPanel } from '@/components/reservations/VccDetailsPanel';
+import { ReservationGuestIfa } from '@/components/ntak/ReservationGuestIfa';
 import { GuestWelcomeCard } from '@/components/guests/GuestWelcomeCard';
 import { useGuestSignals } from '@/hooks/useGuestSignals';
 import { guestProfilePath } from '@/lib/guestJourney';
@@ -37,7 +40,7 @@ import {
 
 const RES_SELECT = `
   *,
-  guests(id, first_name, last_name, email, phone, nationality, vip_status, company_name, id_document_type, id_document_number),
+  guests!reservations_guest_id_fkey(id, first_name, last_name, email, phone, nationality, vip_status, company_name, id_document_type, id_document_number),
   rooms:room_id(id, room_number, room_type, status, room_capacity)
 `;
 
@@ -49,10 +52,12 @@ const ReservationDetail = () => {
   const { t } = useTranslation();
   const [reservation, setReservation] = useState<any>(null);
   const [events, setEvents] = useState<any[]>([]);
+  const [ntakActive, setNtakActive] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [checkOutOpen, setCheckOutOpen] = useState(false);
+  const [roomChangeOpen, setRoomChangeOpen] = useState(false);
   const [statusAction, setStatusAction] = useState<StatusAction>(null);
   const [statusReason, setStatusReason] = useState('');
   const [statusBusy, setStatusBusy] = useState(false);
@@ -73,6 +78,14 @@ const ReservationDetail = () => {
       setReservation(resResult.data);
     }
     setEvents(eventResult.data ?? []);
+    if (resResult.data?.hotel_id) {
+      const { data: enabled, error: availabilityError } = await (supabase.rpc as CallableFunction)(
+        'pms_guest_lifecycle_available',
+        { _reservation_id: resResult.data.id, _room_id: resResult.data.room_id ?? null },
+      );
+      // Availability is not guessed if the new schema has not been applied.
+      setNtakActive(!availabilityError && enabled === true);
+    } else setNtakActive(false);
     setLoadingData(false);
   }, [id]);
 
@@ -157,7 +170,10 @@ const ReservationDetail = () => {
   const pmsManaged = isPmsManaged(reservation);
   const guestLabel = reservationGuestLabel(reservation);
   const active = !['cancelled', 'checked_out', 'no_show'].includes(reservation.status);
-  const canCheckIn = ['confirmed', 'pending'].includes(reservation.status);
+  // Once the first guest arrives, another expected guest may arrive later.
+  // NTAK-enabled hotels keep the check-in action available to add/select them.
+  const canCheckIn = ['confirmed', 'pending'].includes(reservation.status)
+    || (ntakActive && reservation.status === 'checked_in');
   const canCancelOrNoShow = ['confirmed', 'pending'].includes(reservation.status);
 
   return (
@@ -188,7 +204,7 @@ const ReservationDetail = () => {
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex w-full min-w-0 flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-bold truncate">{guestLabel}</h1>
@@ -222,30 +238,40 @@ const ReservationDetail = () => {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button size="sm" variant="outline" className="gap-1" onClick={() => setEditOpen(true)}>
+          <div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+            <Button size="sm" variant="outline" className="min-w-0 w-full gap-1 sm:w-auto" onClick={() => setEditOpen(true)}>
               <Edit className="h-3.5 w-3.5" /> {t('common.edit')}
             </Button>
             {reservation.status === 'pending' && (
-              <Button size="sm" onClick={confirmReservation} disabled={statusBusy}>{t('pms.reservationDetail.confirm')}</Button>
+              <Button size="sm" className="min-w-0 w-full sm:w-auto" onClick={confirmReservation} disabled={statusBusy}>{t('pms.reservationDetail.confirm')}</Button>
             )}
             {canCheckIn && (
-              <Button size="sm" onClick={() => setCheckInOpen(true)} data-training="fd-checkin-button">
+              <Button size="sm" className="min-w-0 w-full sm:w-auto" onClick={() => setCheckInOpen(true)} data-training="fd-checkin-button">
                 {t('pms.checkIn')}
               </Button>
             )}
+            {reservation.status === 'checked_in' && reservation.room_id && (
+              <Button size="sm" variant="outline" className="h-auto min-h-9 w-full min-w-0 gap-1.5 whitespace-normal border-blue-300 bg-blue-50 text-blue-800 hover:border-blue-400 hover:bg-blue-100 hover:text-blue-900 dark:border-blue-500/70 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900 dark:hover:text-blue-100 sm:w-auto" onClick={() => setRoomChangeOpen(true)} data-training="fd-room-change-button">
+                <ArrowLeftRight className="h-4 w-4 shrink-0" /> {t('pms.businessMoment.changeRoom')}
+              </Button>
+            )}
+            {ntakActive && reservation.status === 'checked_out' && (
+              <Button size="sm" variant="outline" className="min-w-0 w-full sm:w-auto" onClick={() => setCheckOutOpen(true)} data-training="fd-undo-checkout-button">
+                {t('pms.stayGuest.undoDeparture')}
+              </Button>
+            )}
             {reservation.status === 'checked_in' && (
-              <Button size="sm" variant="outline" onClick={() => setCheckOutOpen(true)} data-training="fd-checkout-button">
-                {t('pms.checkOut')}
+              <Button size="sm" variant="outline" className="h-auto min-h-9 w-full min-w-0 gap-1.5 whitespace-normal border-amber-500 bg-amber-500 text-amber-950 hover:border-amber-400 hover:bg-amber-400 hover:text-amber-950 dark:border-amber-400 dark:bg-amber-400 dark:text-amber-950 dark:hover:bg-amber-300 dark:hover:text-amber-950 sm:w-auto" onClick={() => setCheckOutOpen(true)} data-training="fd-checkout-button">
+                <LogOut className="h-4 w-4 shrink-0" /> {t('pms.checkOut')}
               </Button>
             )}
             {canCancelOrNoShow && (
-              <Button size="sm" variant="outline" onClick={() => setStatusAction('no_show')}>
+              <Button size="sm" variant="outline" className="min-w-0 w-full sm:w-auto" onClick={() => setStatusAction('no_show')}>
                 {t('pms.res.markNoShow')}
               </Button>
             )}
             {active && reservation.status !== 'checked_in' && (
-              <Button size="sm" variant="destructive" onClick={() => setStatusAction('cancelled')}>
+              <Button size="sm" variant="destructive" className="min-w-0 w-full sm:w-auto" onClick={() => setStatusAction('cancelled')}>
                 {t('pms.reservationDetail.cancel')}
               </Button>
             )}
@@ -253,6 +279,8 @@ const ReservationDetail = () => {
         </div>
 
         <GuestWelcomeCard reservationId={reservation.id} signal={guestSignal ?? null} hotelId={reservation.hotel_id} basePath={basePath} />
+
+        {ntakActive && <ReservationGuestIfa key={reservation.id} reservationId={reservation.id} night={reservation.check_in_date} />}
 
         <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
           <Card>
@@ -279,6 +307,7 @@ const ReservationDetail = () => {
               <div><span className="text-muted-foreground">{t('pms.res.room')}:</span> <strong>{room?.room_number || t('pms.res.unassigned')}</strong></div>
               <div><span className="text-muted-foreground">{t('pms.reservationDetail.roomType')}:</span> {displayRoomType(room?.room_type || reservation.room_type_requested) || t('pms.reservationDetail.notSpecified')}</div>
               {room?.status && <div><span className="text-muted-foreground">{t('common.status')}:</span> <span className="capitalize">{room.status.replaceAll('_', ' ')}</span></div>}
+              <NtakBookingNumberField reservation={reservation} onSaved={() => void fetchData()} />
               {room?.room_capacity ? <div><span className="text-muted-foreground">{t('pms.res.capacity')}:</span> {room.room_capacity}</div> : null}
             </CardContent>
           </Card>
@@ -360,6 +389,12 @@ const ReservationDetail = () => {
         onOpenChange={setCheckInOpen}
         onSuccess={() => { setCheckInOpen(false); fetchData(); }}
       />
+      {reservation.room_id && <RoomChangeDialog
+        reservation={reservation}
+        open={roomChangeOpen}
+        onOpenChange={setRoomChangeOpen}
+        onSuccess={() => { setRoomChangeOpen(false); void fetchData(); }}
+      />}
       <CheckOutDialog
         reservation={reservation}
         open={checkOutOpen}

@@ -1,0 +1,37 @@
+name: HR phase 1 SQL CI
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261124100500_hr_phase1_access.sql'
+      - 'supabase/rollbacks/20261124100500_hr_phase1_access_down.sql'
+      - 'supabase/tests/hr_phase1_*.sql'
+      - '.github/workflows/hr-phase1-sql-ci.yml'
+permissions:
+  contents: read
+jobs:
+  hr-sql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_hr_ci
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_hr_ci
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Apply against scratch PostgreSQL and verify roles
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/access_roles_fixture.sql -f supabase/migrations/20261117200000_access_roles_and_mira_actions.sql -f supabase/tests/hr_phase1_fixture.sql -f supabase/migrations/20261124100500_hr_phase1_access.sql -f supabase/tests/hr_phase1_test.sql
+      - name: Roll back and re-apply
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f supabase/rollbacks/20261124100500_hr_phase1_access_down.sql -f supabase/migrations/20261124100500_hr_phase1_access.sql -f supabase/tests/hr_phase1_test.sql

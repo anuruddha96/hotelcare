@@ -282,6 +282,7 @@ export function roomReadiness(room?: { status?: string | null } | null): RoomRea
 
 /** Lifecycle error codes raised by the pms_* RPCs -> translation keys. */
 export const LIFECYCLE_ERROR_KEYS: Record<string, string> = {
+  NO_ELIGIBLE_GUESTS: "pms.err.noEligibleGuests",
   RESERVATION_NOT_FOUND: "pms.err.reservationNotFound",
   ACCESS_DENIED: "pms.err.accessDenied",
   INVALID_STATUS: "pms.err.invalidStatus",
@@ -300,6 +301,7 @@ export const LIFECYCLE_ERROR_KEYS: Record<string, string> = {
   INVALID_AMOUNT: "pms.err.invalidAmount",
   INVALID_DESCRIPTION: "pms.err.invalidDescription",
   INVALID_CHARGE_TYPE: "pms.err.invalidChargeType",
+  POST_DEPARTURE_REQUIRES_MANAGER: "pms.err.postDepartureRequiresManager",
   UNSUPPORTED_STATUS: "pms.err.invalidStatus",
   HOTEL_REQUIRED: "pms.err.hotelRequired",
   ROOM_LOCKED_WHILE_CHECKED_IN: "pms.err.roomLockedWhileCheckedIn",

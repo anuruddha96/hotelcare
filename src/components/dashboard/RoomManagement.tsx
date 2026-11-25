@@ -1189,6 +1189,7 @@ export function RoomManagement() {
 
         <RoomDetailDialog
           room={selectedRoom}
+          hotelId={hotels.find((h) => h.name === selectedRoom?.hotel || h.id === selectedRoom?.hotel)?.id ?? profile?.assigned_hotel ?? null}
           open={roomDetailOpen}
           onOpenChange={setRoomDetailOpen}
           onRoomUpdated={fetchRooms}

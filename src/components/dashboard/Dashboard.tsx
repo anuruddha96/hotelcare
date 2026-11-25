@@ -22,10 +22,14 @@ import { MinibarTrackingView } from './MinibarTrackingView';
 import { LostAndFoundManagement } from './LostAndFoundManagement';
 import { MaintenanceStaffView } from './MaintenanceStaffView';
 import { AttendanceTracker } from './AttendanceTracker';
+import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 import { AttendanceReports } from './AttendanceReports';
+import { HrAttendance } from '@/components/hr/HrAttendance';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { isNoMinibarOrganization } from '@/lib/gozsduNoMinibar';
+import { HrPeopleOverview } from '@/components/hr/HrPeopleOverview';
+import { useAccessPolicy } from '@/hooks/useAccessPolicy';
 import { defaultDashboardTabFor } from '@/lib/accessPolicy';
 
 import { AdminTabs } from '@/components/admin/AdminTabs';
@@ -68,6 +72,7 @@ interface Ticket {
 
 export function Dashboard() {
   const { profile } = useAuth();
+  const { hrWorkspace } = useAccessPolicy();
   const noMinibar = isNoMinibarOrganization(profile?.organization_slug) || isGozsduCourtHotel(profile?.assigned_hotel);
   const { t, language } = useTranslation();
   const { organization, hotels } = useTenant();
@@ -152,14 +157,14 @@ export function Dashboard() {
         assigned_to_profile:profiles!tickets_assigned_to_fkey(id, full_name, role),
         closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)
       `;
-      let activeQuery = (supabase as any).from('tickets').select(selectColumns)
+      let activeQuery = supabase.from('tickets').select(selectColumns)
         .eq('organization_slug', profile.organization_slug)
         .eq('department', 'maintenance')
         .in('hotel', hotelKeys)
         .neq('status', 'completed')
         .order('created_at', { ascending: false })
         .limit(1000);
-      let completedQuery = (supabase as any).from('tickets').select(selectColumns)
+      let completedQuery = supabase.from('tickets').select(selectColumns)
         .eq('organization_slug', profile.organization_slug)
         .eq('department', 'maintenance')
         .in('hotel', hotelKeys)
@@ -170,13 +175,13 @@ export function Dashboard() {
         activeQuery = activeQuery.eq('assigned_to', profile.id);
         completedQuery = completedQuery.eq('assigned_to', profile.id);
       }
-      const crossPropertyQuery = (completed: boolean) => (supabase as any).from('tickets')
+      const crossPropertyQuery = (completed: boolean) => supabase.from('tickets')
         .select(selectColumns)
         .eq('organization_slug', profile.organization_slug).eq('department', 'maintenance')
         .eq('assigned_to', profile.id).in('hotel', ['ottofiori', 'Hotel Ottofiori'])
         .eq('status', completed ? 'completed' : 'open');
       // Cross-property work is an explicit assignment, never an extra hotel-wide feed.
-      const foreignActiveQuery = (supabase as any).from('tickets').select(selectColumns)
+      const foreignActiveQuery = supabase.from('tickets').select(selectColumns)
         .eq('organization_slug', profile.organization_slug).eq('department', 'maintenance')
         .eq('assigned_to', profile.id).in('hotel', ['ottofiori', 'Hotel Ottofiori'])
         .neq('status', 'completed').limit(100);
@@ -193,8 +198,8 @@ export function Dashboard() {
       const merged = [...new Map([
         ...(activeData || []), ...(completedData || []),
         ...(foreignActive.data || []), ...(foreignDone.data || []),
-      ].map((item: any) => [item.id, item])).values()];
-      const parsed: Ticket[] = merged.map((d: any) => ({
+      ].map(item => [item.id, item] as const)).values()];
+      const parsed: Ticket[] = merged.map(d => ({
         id: d.id, ticket_number: d.ticket_number, title: d.title,
         description: d.description, room_number: d.room_number,
         priority: d.priority, status: d.status, on_hold: d.on_hold, hold_reason: d.hold_reason,
@@ -208,9 +213,10 @@ export function Dashboard() {
         closed_by: d.closed_by_profile ? { full_name: d.closed_by_profile.full_name } : undefined,
       }));
       setTickets(sortMaintenanceTickets(parsed));
-    } catch (error: any) {
+    } catch (error: unknown) {
       setTickets([]);
-      setTicketLoadError(error?.message || 'Maintenance issues could not be loaded.');
+      const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message : null;
+      setTicketLoadError(message || 'Maintenance issues could not be loaded.');
       toast({ title: 'Maintenance issues unavailable', description: 'Retry the selected hotel.', variant: 'destructive' });
     } finally {
       setLoading(false);
@@ -219,7 +225,7 @@ export function Dashboard() {
 
   const openCreatedMaintenanceIssue = async (ticketId: string) => {
     if (!profile?.organization_slug) return;
-    const { data, error } = await (supabase as any).from('tickets')
+    const { data, error } = await supabase.from('tickets')
       .select(`*, created_by_profile:profiles!tickets_created_by_fkey(full_name, role), assigned_to_profile:profiles!tickets_assigned_to_fkey(id, full_name, role), closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)`)
       .eq('id', ticketId).eq('organization_slug', profile.organization_slug)
       .eq('department', 'maintenance').maybeSingle();
@@ -258,7 +264,7 @@ export function Dashboard() {
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'tickets',
         filter: `organization_slug=eq.${profile.organization_slug}`,
-      }, (event: any) => {
+      }, (event) => {
         const record = event.new || event.old;
         if (record?.department && record.department !== 'maintenance') return;
         if (record?.hotel && !maintenanceHotelScopeRef.current.has(record.hotel)
@@ -304,14 +310,13 @@ export function Dashboard() {
     switch (role) {
       case 'housekeeping': return attendanceStatus === 'checked_in' ? 'housekeeping' : 'attendance';
       case 'housekeeping_manager':
-      case 'reception_manager':
       case 'manager':
       case 'admin':
       case 'top_management':
       case 'top_management_manager': return 'housekeeping';
       case 'maintenance': return 'maintenance-tasks';
       case 'reception':
-      case 'front_office': return 'tickets';
+      case 'front_office': return noMinibar ? 'rooms' : 'minibar';
       default: return 'rooms';
     }
   };
@@ -335,16 +340,16 @@ export function Dashboard() {
   useEffect(() => {
     const urlTab = searchParams.get('tab');
     const valid = ['tickets', 'rooms', 'housekeeping', 'attendance', 'minibar', 'lost-found', 'maintenance-tasks', 'admin'];
-    if (urlTab && valid.includes(urlTab)) {
+    if (urlTab && (valid.includes(urlTab) || (hrWorkspace && urlTab === 'people'))) {
       setActiveTab(urlTab === 'minibar' && noMinibar ? 'rooms' : urlTab);
       searchParams.delete('tab');
       setSearchParams(searchParams, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, hrWorkspace]);
 
   const mainTabLabels: Record<string, string> = useMemo(() => ({
-    tickets: 'Maintenance issues', rooms: t('dashboard.rooms'), housekeeping: t('dashboard.housekeeping'),
+    people: t('hr.nav.people'), tickets: 'Maintenance issues', rooms: t('dashboard.rooms'), housekeeping: t('dashboard.housekeeping'),
     attendance: t('dashboard.workStatus'), admin: 'Admin', 'maintenance-tasks': t('dashboard.myTasks'),
     minibar: 'Minibar', 'lost-found': 'Lost & Found',
   }), [t]);
@@ -422,11 +427,9 @@ export function Dashboard() {
 
         <Tabs value={noMinibar && activeTab === 'minibar' ? 'rooms' : activeTab} onValueChange={(val) => { setActiveTab(val); setActiveHousekeepingSubTab(''); setActiveInnerTab('team'); }} className="space-y-6">
           <div className="flex flex-col gap-4 justify-between items-start">
-            <div><h1 className="text-2xl sm:text-3xl font-bold text-foreground">{hotelDisplayName || t('dashboard.title')}</h1>
-              <p className="text-sm sm:text-base text-muted-foreground">{hotelDisplayName ? t('dashboard.managementSystem').replace('{hotel}', hotelDisplayName) : t('dashboard.subtitle')}</p></div>
-          </div>
-          <div className="sticky z-40 min-w-0 w-full bg-background/95 py-1.5 backdrop-blur-md" style={{ top: 'var(--hc-header-height, 0px)' }}>
-            <div className="w-full min-w-0">
+            <div><h1 className="text-2xl sm:text-3xl font-bold text-foreground">{hrWorkspace ? t('hr.heading') : hotelDisplayName || t('dashboard.title')}</h1>
+              <p className="text-sm sm:text-base text-muted-foreground">{hrWorkspace ? organization?.name || profile?.organization_slug : hotelDisplayName ? t('dashboard.managementSystem').replace('{hotel}', hotelDisplayName) : t('dashboard.subtitle')}</p></div>
+            <div className="w-full overflow-x-auto">
               {profile?.role === 'housekeeping' ? (
                 <TabsList className={((profile?.role as string) === 'hr' || profile?.is_super_admin) ? 'inline-flex h-10 sm:h-12 w-auto min-w-max gap-1' : 'grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12'} data-training="main-tabs">
                   <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.tickets')}</span></TabsTrigger>
@@ -436,10 +439,10 @@ export function Dashboard() {
               ) : profile?.role === 'maintenance' ? (
                 <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12">
                   <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.tickets')}</span></TabsTrigger>
-                  <TabsTrigger value="maintenance-tasks" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.myTasks')}</span></TabsTrigger>
+                  <TabsTrigger value="maintenance-tasks" data-training="maintenance-tasks-tab" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.myTasks')}</span></TabsTrigger>
                   <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Clock className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.workStatus')}</span></TabsTrigger>
                 </TabsList>
-              ) : ['manager','reception_manager','housekeeping_manager','admin','top_management','top_management_manager','hr'].includes(profile?.role || '') ? (
+              ) : hrWorkspace || ['manager','housekeeping_manager','admin','top_management','top_management_manager'].includes(profile?.role || '') ? (
                 <OperationsNavigation
                   current={activeTab}
                   onDashboardTabChange={(tab) => {
@@ -461,7 +464,7 @@ export function Dashboard() {
                   <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.tickets')}</span></TabsTrigger>
                   <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="rooms-tab"><Home className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.rooms')}</span></TabsTrigger>
                   <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="attendance-tab"><Clock className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.workStatus')}</span></TabsTrigger>
-                  {(profile?.role === 'hr' || profile?.is_super_admin) && (
+                  {profile?.is_super_admin && (
                     <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}?view=staff-schedule`)} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 sm:px-3 text-xs sm:text-sm text-muted-foreground hover:bg-background/60 hover:text-foreground">
                       <CalendarDays className="h-4 w-4" />Master staff schedule
                     </button>
@@ -470,6 +473,8 @@ export function Dashboard() {
               )}
             </div>
           </div>
+
+          {hrWorkspace && <TabsContent value="people"><HrPeopleOverview /></TabsContent>}
 
           <TabsContent value="maintenance-tasks" className="space-y-6"><MaintenanceStaffView /></TabsContent>
 
@@ -489,7 +494,7 @@ export function Dashboard() {
                   <Button variant="outline" size="sm" onClick={() => setTicketPermissionDialogOpen(true)} className="text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">Ticket Permissions</span><span className="sm:hidden">Tickets</span></Button>
                   <Button variant="outline" size="sm" onClick={() => setCompanySettingsOpen(true)} className="text-xs sm:text-sm"><Settings className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">Company Settings</span><span className="sm:hidden">Settings</span></Button>
                 </>}
-                {canCreateTickets && <Button onClick={() => setCreateDialogOpen(true)} size="sm" className="text-xs sm:text-sm"><Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">Report maintenance issue</span><span className="sm:hidden">New</span></Button>}
+                {canCreateTickets && <Button data-training="maintenance-report" onClick={() => setCreateDialogOpen(true)} size="sm" className="text-xs sm:text-sm"><Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">Report maintenance issue</span><span className="sm:hidden">New</span></Button>}
               </div>
             </div>
 
@@ -575,7 +580,7 @@ export function Dashboard() {
           <TabsContent value="attendance" className="space-y-6">
             {(() => {
               const isExecutive = ['admin', 'top_management', 'top_management_manager', 'hr'].includes(profile?.role || '');
-              if (isExecutive) return <div className="space-y-6"><div><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>{hotelDisplayName && <p className="text-sm text-muted-foreground">{hotelDisplayName}</p>}</div><AttendanceReports /></div>;
+              if (isExecutive) return <div className="space-y-6"><div><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>{hotelDisplayName && <p className="text-sm text-muted-foreground">{hotelDisplayName}</p>}</div>{hrWorkspace ? <><HrAttendance /><BreakRequestApprovalView /></> : <AttendanceReports />}</div>;
               if (profile?.role === 'housekeeping' || profile?.role === 'maintenance' || isManager) return <div className="space-y-6"><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2><AttendanceTracker /><AttendanceReports /></div>;
               return null;
             })()}

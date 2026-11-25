@@ -338,7 +338,7 @@ export function PendingRoomsDialog({
             {assignments.map((assignment) => (
               <div
                 key={assignment.id}
-                className="border rounded-lg p-4 space-y-3 hover:bg-gray-50 transition-colors"
+                className="border rounded-lg p-4 space-y-3 hover:bg-gray-50 dark:hover:bg-muted/40 transition-colors"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2">
@@ -402,7 +402,7 @@ export function PendingRoomsDialog({
                         size="sm"
                         variant="default"
                         onClick={() => markAsReadyToClean(assignment.id)}
-                        className="bg-green-600 hover:bg-green-700"
+                        className="bg-green-700 text-white hover:bg-green-800"
                       >
                         <CheckCircle className="h-3 w-3 mr-1" />
                         {t('manager.markReady')}
@@ -412,7 +412,7 @@ export function PendingRoomsDialog({
                 )}
 
                 {assignment.notes && (
-                  <div className="text-sm text-muted-foreground bg-gray-100 p-2 rounded">
+                  <div className="text-sm text-muted-foreground bg-gray-100 dark:bg-muted p-2 rounded">
                     <strong>{t('assignment.notes')}:</strong> {assignment.notes}
                   </div>
                 )}
@@ -425,7 +425,7 @@ export function PendingRoomsDialog({
                       size="sm"
                       variant={assignment.priority === 1 ? "default" : "outline"}
                       onClick={() => updatePriority(assignment.id, 1)}
-                      className={`h-7 text-xs ${assignment.priority === 1 ? 'bg-gray-500' : ''}`}
+                      className={`h-7 text-xs ${assignment.priority === 1 ? 'bg-gray-600 text-white' : ''}`}
                     >
                       Low
                     </Button>
@@ -433,7 +433,7 @@ export function PendingRoomsDialog({
                       size="sm"
                       variant={assignment.priority === 2 ? "default" : "outline"}
                       onClick={() => updatePriority(assignment.id, 2)}
-                      className={`h-7 text-xs ${assignment.priority === 2 ? 'bg-blue-500' : ''}`}
+                      className={`h-7 text-xs ${assignment.priority === 2 ? 'bg-blue-700 text-white' : ''}`}
                     >
                       Medium
                     </Button>
@@ -441,7 +441,7 @@ export function PendingRoomsDialog({
                       size="sm"
                       variant={assignment.priority === 3 ? "default" : "outline"}
                       onClick={() => updatePriority(assignment.id, 3)}
-                      className={`h-7 text-xs ${assignment.priority === 3 ? 'bg-red-500' : ''}`}
+                      className={`h-7 text-xs ${assignment.priority === 3 ? 'bg-red-700 text-white' : ''}`}
                     >
                       High
                     </Button>

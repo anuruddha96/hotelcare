@@ -8,6 +8,10 @@ import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { RoomAssignmentHistory } from './RoomAssignmentHistory';
 import { useTranslation } from '@/hooks/useTranslation';
 import { resolveHistoricalHousekeepingState } from '@/lib/housekeepingHistoricalFinalState';
 
@@ -80,18 +84,18 @@ type SectionType = 'checkout' | 'daily' | 'noshow' | 'arrival';
 type StatusKey = 'clean' | 'dirty' | 'in_progress' | 'out_of_order' | 'inspected' | 'pending_approval';
 
 const STATUS_COLORS: Record<StatusKey, string> = {
-  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
-  dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
-  out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200 dark:border-red-600',
-  inspected: 'bg-teal-200 text-teal-900 border-teal-500 dark:bg-teal-900/50 dark:text-teal-200 dark:border-teal-600',
-  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200 dark:border-violet-600',
+  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500',
+  dirty: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  out_of_order: 'bg-red-200 text-red-900 border-red-500',
+  inspected: 'bg-teal-200 text-teal-900 border-teal-500',
+  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500',
 };
 
 const TASK_STATUS_COLORS: Record<string, string> = {
-  assigned: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
-  completed: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
+  assigned: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  completed: 'bg-emerald-200 text-emerald-900 border-emerald-500',
 };
 
 const DEFAULT_COLOR = 'bg-muted text-muted-foreground border-border';
@@ -184,7 +188,12 @@ export function HistoricalHotelRoomOverviewSaved({
   refreshKey,
 }: HistoricalHotelRoomOverviewProps) {
   const { t } = useTranslation();
+  const { profile } = useAuth();
+  const canReadHistory = hasManagerPowers(profile?.role);
+  const [historyRoomId, setHistoryRoomId] = useState<string | null>(null);
   const [rows, setRows] = useState<RoomSnapshot[]>([]);
+  const historyRoom = rows.find(r => r.room_id === historyRoomId);
+  useEffect(() => { setHistoryRoomId(null); }, [selectedDate, hotelName]);
   const [tasks, setTasks] = useState<HistoricalTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -296,6 +305,10 @@ export function HistoricalHotelRoomOverviewSaved({
     return (
       <div key={room.room_id} className="flex flex-col items-center gap-0.5 select-none">
         <div
+          role={canReadHistory ? 'button' : undefined}
+          tabIndex={canReadHistory ? 0 : undefined}
+          onClick={canReadHistory ? () => setHistoryRoomId(room.room_id) : undefined}
+          onKeyDown={canReadHistory ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setHistoryRoomId(room.room_id); } } : undefined}
           className={`relative rounded border-2 px-2 py-1 text-xs font-bold min-w-[40px] text-center ${colorClass} ${dnd ? 'ring-2 ring-purple-500 ring-offset-1' : ''} ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''} ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}`}
           title={[
             `Room ${room.room_number}`,
@@ -531,6 +544,15 @@ export function HistoricalHotelRoomOverviewSaved({
           </>
         )}
       </CardContent>
+      {canReadHistory && historyRoom && (
+        <Dialog open onOpenChange={open => { if (!open) setHistoryRoomId(null); }}>
+          <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>{historyRoom.room_number} · {selectedDate}</DialogTitle></DialogHeader>
+            <RoomAssignmentHistory hotel={hotelName} roomId={historyRoom.room_id}
+              roomNumber={historyRoom.room_number} selectedDate={selectedDate} />
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
   );
 }

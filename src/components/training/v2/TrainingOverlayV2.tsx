@@ -10,11 +10,13 @@ import {
   ArrowRight,
   Check,
   MousePointer2,
-  Lightbulb,
-  ShieldCheck,
   Info,
 } from 'lucide-react';
 import { useTrainingV2, txt } from './TrainingV2Provider';
+
+const DETAILS = {
+  en: 'Details', hu: 'Részletek', es: 'Detalles', vi: 'Chi tiết', mn: 'Дэлгэрэнгүй', uk: 'Подробиці',
+};
 
 const LABELS = {
   managerTrainingMode: { en: 'GUIDED TRAINING · Real controls are live — explore carefully', hu: 'VEZETETT TRÉNING · A valódi vezérlők aktívak — körültekintően használd', es: 'FORMACIÓN GUIADA · Los controles reales siguen activos', vi: 'HƯỚNG DẪN · Các nút thật vẫn hoạt động', mn: 'СУРГАЛТ · Бодит товчнууд ажилласаар байна', uk: 'НАВЧАННЯ · Справжні дії залишаються активними' },
@@ -419,33 +421,19 @@ export function TrainingOverlayV2() {
               <h3 id={titleId} className="text-lg font-semibold leading-tight mb-2">
                 {txt(step.title, lang)}
               </h3>
-              <p id={descId} className="text-sm text-muted-foreground leading-relaxed">
-                {txt(step.body, lang)}
-              </p>
+              <div id={descId} className="text-sm text-muted-foreground leading-relaxed">
+                {rect && !waiting ? (
+                  <details>
+                    <summary className="min-h-8 cursor-pointer text-xs font-medium">{txt(DETAILS, lang)}</summary>
+                    <p>{txt(step.body, lang)}</p>
+                    {step.purpose && <p className="mt-2">{txt(step.purpose, lang)}</p>}
+                    {step.tip && <p className="mt-2">{txt(step.tip, lang)}</p>}
+                  </details>
+                ) : <p>{txt(step.body, lang)}</p>}
+              </div>
 
               {step.advanceOnClick && isHousekeeperTour && (
                 <p className="mt-2 text-xs font-medium text-primary">{txt(LABELS.clickToContinue, lang)}</p>
-              )}
-
-              {step.purpose && (!isGuidedTour || !isMobile) && (
-                <div className="mt-3 flex items-start gap-2.5 rounded-lg border bg-muted/45 px-3 py-2.5">
-                  <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-primary" aria-hidden="true" />
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground/75">
-                      {txt(LABELS.why, lang)}
-                    </p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                      {txt(step.purpose, lang)}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {step.tip && (
-                <div className="mt-2 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
-                  <Lightbulb className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-500" aria-hidden="true" />
-                  <span><strong className="font-semibold text-foreground/80">{txt(LABELS.tip, lang)}:</strong> {txt(step.tip, lang)}</span>
-                </div>
               )}
 
               {requiresAction && step.selector && !waiting && (

@@ -7,14 +7,16 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
-  cellLabel, cellStyle, formatHours, hotelShort, monthBalanceMinutes, summarizeStaffMonth, WEEKDAY_SHORT, weekdayOf,
-  type WorkforceDepartment, type WorkforceEntry, type WorkforceJobRole, type WorkforceStaff,
+  cellLabel, cellStyle, formatHours, hasPendingChange, HOTEL_STYLE, hotelShort, monthBalanceMinutes, summarizeStaffMonth, weekdayOf, weekdayShort,
+  type CellLabels, type ChangeNotice, type WorkforceDepartment, type WorkforceEntry, type WorkforceJobRole, type WorkforceStaff,
 } from '@/lib/workforce/model';
+import { dayCoverage } from '@/lib/workforce/view';
+import { localName } from '@/lib/workforce/names';
 import {
   entryFromText, fillHandleTargets, inRange, normalizeRange, parseTsv, pasteTargets, textOfEntry, toTsv, type CellRange,
 } from '@/lib/workforce/grid';
 import { WORKING_KINDS, type CustomShiftCode } from '@/lib/workforce/cellParser';
-import { calendarDay, workingDays, type CalendarDayKind } from '@/lib/workforce/holidays';
+import { calendarDay, calendarDayName, workingDays, type CalendarDayKind } from '@/lib/workforce/holidays';
 import { useTranslation } from '@/hooks/useTranslation';
 import { entryKey } from '@/hooks/useWorkforce';
 
@@ -45,6 +47,13 @@ export interface WorkforceGridProps {
   pinTotals?: boolean;
   /** Use the whole window height (full-screen mode). */
   tall?: boolean;
+  /** Published changes the employee has not confirmed yet, by "staff|date". */
+  notices?: Map<string, ChangeNotice>;
+  /** Split each team by hotel in the header (when several hotels are shown). */
+  groupByHotel?: boolean;
+  cellLabels: CellLabels;
+  /** Click on a name: open that person's details (when the planner may change them). */
+  onEditStaff?: (staff: WorkforceStaff) => void;
 }
 
 type Pos = { r: number; c: number };
@@ -52,6 +61,7 @@ type Pos = { r: number; c: number };
 const SUMMARY_ROWS: Array<{ key: string; label: string; hint?: string }> = [
   { key: 'days', label: 'wf.t.days' },
   { key: 'nights', label: 'wf.t.nights' },
+  { key: 'worked', label: 'wf.t.worked' },
   { key: 'leave', label: 'wf.t.leave' },
   { key: 'sick', label: 'wf.t.sick' },
   { key: 'off', label: 'wf.t.off' },
@@ -63,8 +73,13 @@ const SUMMARY_ROWS: Array<{ key: string; label: string; hint?: string }> = [
 const SUMMARY_ROW_H = 24;
 
 export function WorkforceGrid(props: WorkforceGridProps) {
-  const { staff, days, today, departments, jobRoles, entries, notes, leaveUsed, codes, layout, canEdit, onApply, onOpenDetails, onEditNote, onSelectionChange, applyRef, zoom = 1, onZoomStep, pinTotals = false, tall = false } = props;
-  const { t } = useTranslation();
+  const { staff, days, today, departments, jobRoles, entries, notes, leaveUsed, codes, layout, canEdit, onApply, onOpenDetails, onEditNote, onSelectionChange, applyRef, zoom = 1, onZoomStep, pinTotals = false, tall = false, notices, groupByHotel = false, cellLabels, onEditStaff } = props;
+  const { t, language } = useTranslation();
+  // `t` changes identity on every render; callbacks read it through a ref so they stay stable.
+  const tRef = useRef(t);
+  tRef.current = t;
+  const tr = useCallback((key: string) => tRef.current(key), []);
+  const tn = useCallback((key: string, n: number | string) => tRef.current(key).replace('{n}', String(n)), []);
   const normDays = useMemo(() => workingDays(days), [days]);
   const gridRef = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<Pos | null>(null);
@@ -102,13 +117,16 @@ export function WorkforceGrid(props: WorkforceGridProps) {
     const out: Array<{ id: string; name: string; color: string; span: number }> = [];
     for (const s of staff) {
       const d = s.department_id ? deptName.get(s.department_id) : undefined;
-      const id = d?.id ?? 'none';
+      const id = `${d?.id ?? 'none'}${groupByHotel ? `|${s.hotel_id ?? ''}` : ''}`;
       const last = out[out.length - 1];
       if (last && last.id === id) last.span++;
-      else out.push({ id, name: d?.name ?? 'No department', color: d?.color ?? '#94a3b8', span: 1 });
+      else out.push({ id, name: `${d ? localName(d.name, t) : t('wf.g.noDept')}${groupByHotel ? ` · ${s.hotel_id ? hotelShort(s.hotel_id) : t('wf.m.company')}` : ''}`, color: d?.color ?? '#94a3b8', span: 1 });
     }
     return out;
-  }, [staff, departments]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staff, departments, groupByHotel, language]);
+  const coverage = useMemo(() => dayCoverage(staff, days, (id, d) => entries.get(entryKey(id, d))), [staff, days, entries]);
+  const coverageText = (date: string) => { const c = coverage.get(date); return !c || (!c.working && !c.nights) ? '' : c.nights ? `${c.working}+${c.nights}` : String(c.working); };
   const roleName = useMemo(() => new Map(jobRoles.map((r) => [r.id, r.name])), [jobRoles]);
 
   const summaries = useMemo(() => {
@@ -127,6 +145,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
     switch (key) {
       case 'days': return String(m.dayShifts);
       case 'nights': return m.nights ? String(m.nights) : '';
+      case 'worked': return m.workedDays ? String(m.workedDays) : '';
       case 'leave': return m.leaveDays ? String(m.leaveDays) : '';
       case 'sick': return m.sickDays ? String(m.sickDays) : '';
       case 'off': return String(m.daysOff);
@@ -171,16 +190,16 @@ export function WorkforceGrid(props: WorkforceGridProps) {
       if (next && current && textOfEntry(current, s.hotel_id) === textOfEntry(next, s.hotel_id) && current.note === next.note) continue;
       changes.push({ staff: s, date, next });
     }
-    if (locked) toast.info(`${locked} past ${locked === 1 ? 'day is' : 'days are'} read-only and ${locked === 1 ? 'was' : 'were'} skipped`);
+    if (locked) toast.info(tn('wf.g.lockedSkipped', locked));
     return changes;
-  }, [at, canEdit, codes, entries]);
+  }, [at, canEdit, codes, entries, tn]);
 
   const fillSelection = useCallback((text: string) => {
-    if (!range) { toast.info('Select one or more cells first'); return; }
+    if (!range) { toast.info(tr('wf.g.selectFirst')); return; }
     const targets: Array<{ pos: Pos; value: string }> = [];
     for (let r = range.r1; r <= range.r2; r++) for (let c = range.c1; c <= range.c2; c++) targets.push({ pos: { r, c }, value: text });
     void apply(changesFromTexts(targets));
-  }, [range, apply, changesFromTexts]);
+  }, [range, apply, changesFromTexts, tr]);
 
   useEffect(() => { if (applyRef) applyRef.current = fillSelection; }, [applyRef, fillSelection]);
 
@@ -238,11 +257,11 @@ export function WorkforceGrid(props: WorkforceGridProps) {
 
   const menuCopy = async (cut = false) => {
     try { await navigator.clipboard.writeText(selectionTsv()); if (cut) clearSelection(); }
-    catch { toast.info('Use Ctrl+C / Ctrl+X to copy here'); }
+    catch { toast.info(t('wf.g.useKeys')); }
   };
   const menuPaste = async () => {
     try { pasteText(await navigator.clipboard.readText()); }
-    catch { toast.info('Use Ctrl+V to paste here'); }
+    catch { toast.info(t('wf.g.useKeys')); }
   };
 
   // Clipboard: listen on the document so Ctrl+C / Ctrl+V work while the grid has focus.
@@ -302,7 +321,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
       case 'Enter': case 'F2': {
         e.preventDefault();
         const { staff: s, date } = at(focus);
-        if (!canEdit(date, s)) { toast.info('Past days are read-only'); return; }
+        if (!canEdit(date, s)) { toast.info(t('wf.g.readOnlyPast')); return; }
         setEditing({ pos: focus, value: textOfEntry(entries.get(entryKey(s.id, date)), s.hotel_id) });
         return;
       }
@@ -317,7 +336,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
     if (mod && e.key.toLowerCase() === 'r' && range) { e.preventDefault(); fillFromEdge('right'); return; }
     if (!mod && !e.altKey && e.key.length === 1) {
       const { staff: s, date } = at(focus);
-      if (!canEdit(date, s)) { toast.info('Past days are read-only'); return; }
+      if (!canEdit(date, s)) { toast.info(t('wf.g.readOnlyPast')); return; }
       e.preventDefault();
       setEditing({ pos: focus, value: e.key });
     }
@@ -384,12 +403,28 @@ export function WorkforceGrid(props: WorkforceGridProps) {
     const entry = entries.get(entryKey(s.id, date));
     const locked = !canEdit(date, s);
     const isEditing = editing && editing.pos.r === pos.r && editing.pos.c === pos.c;
+    const label = entry ? cellLabel(entry, cellLabels) : '';
+    const pending = hasPendingChange(entry);
+    const unseen = !!notices?.has(entryKey(s.id, date));
+    const title = [
+      entry ? label || t('wf.k.fixed_day_off') : '',
+      entry?.worked_minutes ? `${formatHours(entry.worked_minutes)} ${t('wf.my.hours')}` : '',
+      entry?.note && entry.note !== label ? entry.note : '',
+      pending ? t('wf.g.pendingTip').replace('{old}', cellLabel(entry!.published_version!, cellLabels) || t('wf.k.day_off')) : entry?.status === 'draft' ? t('wf.g.draftTip') : '',
+      unseen ? t('wf.g.unseenTip') : '',
+      locked ? t('wf.g.readOnly') : '',
+    ].filter(Boolean).join('\n');
     return (
       <ScheduleCell
         key={`${pos.r}:${pos.c}`}
         r={pos.r}
         c={pos.c}
         entry={entry}
+        label={label}
+        title={title}
+        pending={pending}
+        unseen={unseen}
+        fillTitle={t('wf.g.dragFill')}
         baseHotel={s.hotel_id}
         selected={inRange(range, pos.r, pos.c)}
         focused={!!focus && focus.r === pos.r && focus.c === pos.c}
@@ -421,27 +456,30 @@ export function WorkforceGrid(props: WorkforceGridProps) {
     );
   };
 
+  // The workbook's first rows are colour coded: every person carries the colour of their hotel.
+  const hotelColor = (s: WorkforceStaff) => (s.hotel_id ? HOTEL_STYLE[s.hotel_id]?.bg : undefined) ?? '#94a3b8';
   const staffHeader = (s: WorkforceStaff) => (
     <div className="flex flex-col gap-0.5 leading-tight">
-      <span className="truncate font-semibold" title={s.full_name}>{s.nickname || s.full_name}</span>
-      <span className="truncate text-[10px] font-normal text-muted-foreground" title={`${s.full_name} · ${s.job_role_id ? roleName.get(s.job_role_id) : ''}`}>
-        {s.job_role_id ? roleName.get(s.job_role_id) : 'No role'} · {hotelShort(s.hotel_id)}
+      {onEditStaff
+        ? <button type="button" className="truncate text-left font-semibold underline-offset-2 hover:underline" title={tr('wf.g.editPerson').replace('{name}', s.full_name)} onClick={() => onEditStaff(s)}>{s.nickname || s.full_name}</button>
+        : <span className="truncate font-semibold" title={s.full_name}>{s.nickname || s.full_name}</span>}
+      <span className="truncate text-[10px] font-normal text-muted-foreground" title={`${s.full_name} · ${s.job_role_id ? localName(roleName.get(s.job_role_id), t) : ''}`}>
+        {s.job_role_id ? localName(roleName.get(s.job_role_id), t) : t('wf.g.noRole')} · {s.hotel_id ? hotelShort(s.hotel_id) : t('wf.m.company')}
       </span>
     </div>
   );
 
   const dayHeader = (date: string, compact = false) => {
-    const wd = weekdayOf(date);
     const special = calendarDay(date);
     return (
       <span className={cn('flex items-baseline gap-1 tabular-nums', date === today && 'font-bold text-primary')}
-        title={special ? `${special.nameHu} – ${special.name}` : undefined}>
+        title={special ? calendarDayName(special, t, language) : undefined}>
         <span className={cn(special?.kind === 'holiday' && 'font-semibold text-red-600 dark:text-red-400')}>{Number(date.slice(8))}</span>
-        <span className="text-[10px] text-muted-foreground">{WEEKDAY_SHORT[wd]}</span>
+        <span className="text-[10px] text-muted-foreground">{weekdayShort(date, language)}</span>
         {special && (compact
           ? <span className={cn('h-1.5 w-1.5 self-center rounded-full', special.kind === 'working_saturday' ? 'bg-sky-500' : 'bg-red-500')} />
           : <span className={cn('truncate text-[10px] font-medium', special.kind === 'working_saturday' ? 'text-sky-600 dark:text-sky-400' : 'text-red-600 dark:text-red-400')}>
-              {special.kind === 'working_saturday' ? 'munkanap' : special.nameHu}
+              {calendarDayName(special, t, language)}
             </span>)}
       </span>
     );
@@ -465,7 +503,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
       onKeyDown={onKeyDown}
       onWheel={(ev) => { if ((ev.ctrlKey || ev.metaKey) && onZoomStep) { ev.preventDefault(); onZoomStep(ev.deltaY < 0 ? 1 : -1); } }}
       className={cn('relative min-h-[320px] select-none overflow-auto rounded-md border bg-background text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary/40', tall ? 'max-h-[calc(100vh-150px)]' : 'max-h-[calc(100vh-200px)]')}
-      aria-label="Work schedule grid. Arrow keys move, type to edit, Ctrl+C and Ctrl+V copy and paste."
+      aria-label={`${t('wf.tab.schedule')}. ${t('wf.m.help1')} ${t('wf.m.help2')}`}
       role="grid"
     >
       <datalist id="workforce-codes">
@@ -479,16 +517,19 @@ export function WorkforceGrid(props: WorkforceGridProps) {
               <th className="sticky left-0 z-20 border-b border-r bg-background" />
               {groups.map((g, i) => (
                 <th key={`${g.id}-${i}`} colSpan={g.span} className="border-b border-r px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide"
-                  style={{ boxShadow: `inset 0 3px 0 ${g.color}` }}>
-                  <span className="sticky left-[112px]">{g.name}</span>
+                  style={{ boxShadow: `inset 0 3px 0 ${g.color}`, backgroundColor: `${g.color}33` }}>
+                  <span className="sticky left-[112px]">{g.name} <span className="font-normal text-muted-foreground">{g.span}</span></span>
                 </th>
               ))}
+              <th className="sticky right-0 z-20 border-b border-l bg-muted" />
             </tr>
             <tr>
               <th className="sticky left-0 z-20 w-[104px] min-w-[104px] max-w-[104px] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">{t('wf.m.day')}</th>
               {staff.map((s) => (
-                <th key={s.id} className={cn('w-[92px] min-w-[92px] max-w-[92px] border-b border-r px-1.5 py-1 text-left font-normal', !s.is_active && 'opacity-60')}>{staffHeader(s)}</th>
+                <th key={s.id} className={cn('w-[92px] min-w-[92px] max-w-[92px] border-b border-r px-1.5 py-1 text-left font-normal', !s.is_active && 'opacity-60')}
+                  style={{ backgroundColor: `${hotelColor(s)}40`, boxShadow: `inset 0 -3px 0 ${hotelColor(s)}` }}>{staffHeader(s)}</th>
               ))}
+              <th className="sticky right-0 z-20 min-w-[58px] border-b border-l bg-muted px-1.5 text-right text-[10px] font-medium" title={t('wf.t.onDutyHint')}>{t('wf.t.onDuty')}</th>
             </tr>
           </thead>
           <tbody>
@@ -496,15 +537,17 @@ export function WorkforceGrid(props: WorkforceGridProps) {
               <tr key={date}>
                 <th className={cn('sticky left-0 z-[5] max-w-[104px] overflow-hidden border-b border-r px-2 text-left font-normal', dayRowClass(date))}>{dayHeader(date)}</th>
                 {staff.map((_, c) => renderCell({ r, c }))}
+                <td className="sticky right-0 z-[5] border-b border-l bg-muted px-1.5 text-right font-medium tabular-nums" title={t('wf.t.onDutyHint')}>{coverageText(date)}</td>
               </tr>
             ))}
             <tr>
               <th className="sticky left-0 z-[5] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground" >{t('wf.m.note')}</th>
               {staff.map((s) => (
-                <td key={s.id} className="h-7 max-w-[92px] cursor-pointer truncate border-b border-r px-1 text-[10px] text-muted-foreground hover:bg-muted" title={notes.get(s.id) ?? 'Add a remark for this month'} onClick={() => onEditNote(s)}>
+                <td key={s.id} className="h-7 max-w-[92px] cursor-pointer truncate border-b border-r px-1 text-[10px] text-muted-foreground hover:bg-muted" title={notes.get(s.id) ?? t('wf.g.addRemark')} onClick={() => onEditNote(s)}>
                   {notes.get(s.id) ?? ''}
                 </td>
               ))}
+              <td className="sticky right-0 border-b border-l bg-muted" />
             </tr>
             {SUMMARY_ROWS.map((row, i) => {
               const pin = pinTotals ? { position: 'sticky' as const, bottom: (SUMMARY_ROWS.length - 1 - i) * SUMMARY_ROW_H, zIndex: 6 } : undefined;
@@ -515,6 +558,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
                     const value = summaryValue(s, row.key);
                     return <td key={s.id} style={{ height: SUMMARY_ROW_H, ...pin }} className={cn('border-b border-r bg-muted px-1.5 text-right tabular-nums', row.key === 'balance' && value.startsWith('+') && 'font-semibold text-amber-700 dark:text-amber-400', row.key === 'balance' && value.startsWith('−') && 'text-sky-700 dark:text-sky-400', row.key === 'hours' && 'font-semibold')}>{value}</td>;
                   })}
+                  <td className="sticky right-0 border-b border-l bg-muted" style={{ height: SUMMARY_ROW_H, ...pin }} />
                 </tr>
               );
             })}
@@ -536,40 +580,46 @@ export function WorkforceGrid(props: WorkforceGridProps) {
               return [
                 first ? (
                   <tr key={`g-${s.id}`}>
-                    <th colSpan={days.length + SUMMARY_ROWS.length + 1} className="border-b bg-muted/60 px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ boxShadow: `inset 3px 0 0 ${g?.color ?? '#94a3b8'}` }}>
-                      <span className="sticky left-2">{g?.name ?? 'No department'}</span>
+                    <th colSpan={days.length + SUMMARY_ROWS.length + 1} className="border-b bg-muted/60 px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ boxShadow: `inset 3px 0 0 ${g?.color ?? '#94a3b8'}`, backgroundColor: `${g?.color ?? '#94a3b8'}33` }}>
+                      <span className="sticky left-2">{g ? localName(g.name, t) : t('wf.g.noDept')}</span>
                     </th>
                   </tr>
                 ) : null,
                 <tr key={s.id}>
-                  <th className={cn('sticky left-0 z-[5] border-b border-r bg-background px-2 py-1 text-left font-normal', !s.is_active && 'opacity-60')}>{staffHeader(s)}</th>
+                  <th className={cn('sticky left-0 z-[5] border-b border-r bg-background px-2 py-1 text-left font-normal', !s.is_active && 'opacity-60')}
+                    style={{ boxShadow: `inset 4px 0 0 ${hotelColor(s)}` }}>{staffHeader(s)}</th>
                   {days.map((_, c) => renderCell({ r, c }))}
                   {SUMMARY_ROWS.map((row) => <td key={row.key} className="border-b border-r bg-muted/40 px-1.5 text-right tabular-nums">{summaryValue(s, row.key)}</td>)}
                 </tr>,
               ];
             })}
+            <tr>
+              <th className="sticky left-0 z-[5] border-b border-r bg-muted px-2 py-1 text-left font-medium" title={t('wf.t.onDutyHint')}>{t('wf.t.onDuty')}</th>
+              {days.map((d) => <td key={d} className="border-b border-r bg-muted px-1 text-center font-medium tabular-nums">{coverageText(d)}</td>)}
+              <td colSpan={SUMMARY_ROWS.length} className="border-b bg-muted" />
+            </tr>
           </tbody>
         </table>
       )}
     </div>
     </ContextMenuTrigger>
     <ContextMenuContent className="w-60" onCloseAutoFocus={(e) => { e.preventDefault(); gridRef.current?.focus(); }}>
-      <ContextMenuItem disabled={!range} onSelect={() => void menuCopy(true)}>Cut<ContextMenuShortcut>Ctrl+X</ContextMenuShortcut></ContextMenuItem>
-      <ContextMenuItem disabled={!range} onSelect={() => void menuCopy()}>Copy<ContextMenuShortcut>Ctrl+C</ContextMenuShortcut></ContextMenuItem>
-      <ContextMenuItem disabled={!range} onSelect={() => void menuPaste()}>Paste<ContextMenuShortcut>Ctrl+V</ContextMenuShortcut></ContextMenuItem>
-      <ContextMenuItem disabled={!range} onSelect={clearSelection}>Clear<ContextMenuShortcut>Del</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!range} onSelect={() => void menuCopy(true)}>{t('wf.g.cut')}<ContextMenuShortcut>Ctrl+X</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!range} onSelect={() => void menuCopy()}>{t('wf.g.copy')}<ContextMenuShortcut>Ctrl+C</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!range} onSelect={() => void menuPaste()}>{t('wf.g.paste')}<ContextMenuShortcut>Ctrl+V</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!range} onSelect={clearSelection}>{t('wf.m.clear')}<ContextMenuShortcut>Del</ContextMenuShortcut></ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem disabled={!range || range.r1 === range.r2} onSelect={() => fillFromEdge('down')}>Fill down<ContextMenuShortcut>Ctrl+D</ContextMenuShortcut></ContextMenuItem>
-      <ContextMenuItem disabled={!range || range.c1 === range.c2} onSelect={() => fillFromEdge('right')}>Fill right<ContextMenuShortcut>Ctrl+R</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!range || range.r1 === range.r2} onSelect={() => fillFromEdge('down')}>{t('wf.g.fillDown')}<ContextMenuShortcut>Ctrl+D</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!range || range.c1 === range.c2} onSelect={() => fillFromEdge('right')}>{t('wf.g.fillRight')}<ContextMenuShortcut>Ctrl+R</ContextMenuShortcut></ContextMenuItem>
       <ContextMenuSub>
-        <ContextMenuSubTrigger disabled={!range}>Set selected cells to</ContextMenuSubTrigger>
+        <ContextMenuSubTrigger disabled={!range}>{t('wf.g.setTo')}</ContextMenuSubTrigger>
         <ContextMenuSubContent className="max-h-80 w-48 overflow-y-auto">
           {quickCodes.map((code) => <ContextMenuItem key={code} onSelect={() => fillSelection(code)}>{code}</ContextMenuItem>)}
         </ContextMenuSubContent>
       </ContextMenuSub>
       <ContextMenuSeparator />
-      <ContextMenuItem disabled={!single} onSelect={() => single && onOpenDetails(single.staff, single.date)}>Details, times and note…</ContextMenuItem>
-      <ContextMenuItem disabled={!single} onSelect={() => single && onEditNote(single.staff)}>Monthly remark…</ContextMenuItem>
+      <ContextMenuItem disabled={!single} onSelect={() => single && onOpenDetails(single.staff, single.date)}>{t('wf.g.details')}</ContextMenuItem>
+      <ContextMenuItem disabled={!single} onSelect={() => single && onEditNote(single.staff)}>{t('wf.g.monthlyRemark')}</ContextMenuItem>
     </ContextMenuContent>
     </ContextMenu>
   );
@@ -579,6 +629,11 @@ interface CellProps {
   r: number;
   c: number;
   entry: WorkforceEntry | undefined;
+  label: string;
+  title: string;
+  pending: boolean;
+  unseen: boolean;
+  fillTitle: string;
   baseHotel: string | null;
   selected: boolean;
   focused: boolean;
@@ -594,14 +649,9 @@ interface CellProps {
   onDoubleClick: (pos: Pos) => void;
 }
 
-const ScheduleCell = memo(function ScheduleCell({ r, c, entry, baseHotel, selected, focused, locked, weekend, isToday, dayKind, fillPreview, handle, editor, onMouseDown, onMouseEnter, onDoubleClick }: CellProps) {
+const ScheduleCell = memo(function ScheduleCell({ r, c, entry, label, title, pending, unseen, fillTitle, baseHotel, selected, focused, locked, weekend, isToday, dayKind, fillPreview, handle, editor, onMouseDown, onMouseEnter, onDoubleClick }: CellProps) {
   const pos = { r, c };
   const style = entry ? cellStyle(entry, baseHotel) : null;
-  const label = entry ? cellLabel(entry) : '';
-  const title = entry
-    ? [label || 'Fixed day off', entry.worked_minutes ? `${formatHours(entry.worked_minutes)} h` : '', entry.note && entry.note !== label ? entry.note : '',
-      entry.status === 'draft' ? 'Draft – not visible to the employee yet' : '', locked ? 'Read-only (history)' : ''].filter(Boolean).join('\n')
-    : locked ? 'Read-only (history)' : '';
   return (
     <td
       data-cell={`${r}:${c}`}
@@ -620,16 +670,18 @@ const ScheduleCell = memo(function ScheduleCell({ r, c, entry, baseHotel, select
         selected && 'after:pointer-events-none after:absolute after:inset-0 after:bg-primary/20',
         focused && 'outline outline-2 -outline-offset-2 outline-primary',
         fillPreview && 'outline-dashed outline-1 -outline-offset-1 outline-primary',
+        pending && !focused && 'shadow-[inset_0_0_0_2px_#f59e0b]',
       )}
       style={style ? { backgroundColor: style.bg, color: style.fg } : undefined}
     >
       {label}
-      {entry?.status === 'draft' && <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-amber-500 ring-1 ring-background" aria-label="draft" />}
+      {entry?.status === 'draft' && <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-amber-500 ring-1 ring-background" />}
+      {unseen && <span className="absolute left-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-sky-500 ring-1 ring-background" />}
       {locked && focused && <Lock className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 opacity-60" />}
       {handle && (
         <span
           onMouseDown={handle}
-          title="Drag to fill"
+          title={fillTitle}
           className="absolute bottom-0 right-0 z-10 h-[7px] w-[7px] cursor-crosshair border border-background bg-primary"
         />
       )}

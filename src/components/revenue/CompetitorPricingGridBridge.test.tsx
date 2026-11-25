@@ -42,6 +42,12 @@ describe("competitor calendar market signal", () => {
     expect(css).toContain("z-index: 40 !important");
   });
 
+  it("does not hide undecorated demand text before market data is attached", () => {
+    const css = competitorGridStyleText();
+    expect(css).toContain('> button[data-hc-market-cell="1"]');
+    expect(css).not.toMatch(/> button\s*\{/);
+  });
+
   it("uses the validated median as the visible reference instead of a pulled arithmetic average", () => {
     const signal = marketSignalFor(row(), NOW);
     expect(signal.referenceRate).toBe(150);

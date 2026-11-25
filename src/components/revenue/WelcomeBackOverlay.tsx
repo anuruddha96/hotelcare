@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { readLegacyQuoteHistory } from "@/lib/welcomeQuoteHistory";
+import { rememberDisplayedWelcomeQuote, type DisplayedWelcomeQuote } from "@/lib/welcomeQuoteDisplay";
 
 const GREETINGS = [
   "Welcome back", "Good to see you", "Good to have you back",
@@ -15,7 +16,7 @@ const GREETINGS = [
 
 const GREETING_KEY = "hc.greetingRotation.v2";
 const LOW_STOCK_THRESHOLD = 35;
-type ClaimedQuote = { quote_key: string; quote_text: string; author: string };
+type ClaimedQuote = DisplayedWelcomeQuote;
 type QuoteResult = { status: "ready"; quote: ClaimedQuote } | { status: "exhausted" | "error" };
 
 // React Strict Mode or router redirects may mount the loader twice while a
@@ -125,7 +126,9 @@ export function WelcomeBackOverlay({
     setLine(null);
     if (!viewerId) return () => { active = false; };
     void claimOnce(viewerId).then((result) => {
-      if (active) setLine(result.status === "ready" ? result.quote : null);
+      if (!active) return;
+      if (result.status === "ready") rememberDisplayedWelcomeQuote(viewerId, result.quote);
+      setLine(result.status === "ready" ? result.quote : null);
     });
     return () => { active = false; };
   }, [viewerId]);

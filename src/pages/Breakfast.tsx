@@ -11,7 +11,8 @@ import { toast } from "sonner";
 import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
 import OccupancyPickupChart from "@/components/breakfast/OccupancyPickupChart";
-import RestaurantReservations from "@/components/breakfast/RestaurantReservations";
+import RestaurantReservationsGate from "@/components/breakfast/RestaurantReservationsGate";
+import BreakfastRecipes from "@/components/breakfast/BreakfastRecipes";
 import BreakfastAuthControl from "@/components/breakfast/BreakfastAuthControl";
 
 
@@ -92,8 +93,20 @@ export default function Breakfast() {
   const [dataSource, setDataSource] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [tab, setTab] = useState<"rooms" | "reservations">("rooms");
+  const [tab, setTab] = useState<"rooms" | "reservations" | "recipes">("rooms");
   const resultRef = useRef<HTMLDivElement | null>(null);
+
+  // Notifications can open /bb?bbTab=reservations&bbDate=...&bbReservation=...
+  // Restore the reservation tab and selected day before its list mounts.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("bbTab") === "reservations" || params.has("bbReservation")) {
+      setTab("reservations");
+    }
+    const targetDate = params.get("bbDate");
+    if (targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) setDate(targetDate);
+  }, []);
+
 
 
   // Load this org's hotels (skipped on hotel-code direct lookup)
@@ -135,6 +148,26 @@ export default function Breakfast() {
     })();
     return () => { cancelled = true; };
   }, [hotelCode, orgSlug]);
+
+  // A staff member may tap a notification on a different phone or after
+  // switching hotels. The URL identifies the hotel that owns the booking.
+  useEffect(() => {
+    if (hotelCode || !hotels.length) return;
+    const targetHotel = new URLSearchParams(window.location.search).get("bbHotel");
+    if (!targetHotel || selection?.hotel_id === targetHotel) return;
+    const hotel = hotels.find(h => h.hotel_id === targetHotel);
+    if (!hotel || !hotel.restaurants.length) return;
+    const restaurant = hotel.restaurants[0];
+    const target: Selection = {
+      hotel_id: hotel.hotel_id,
+      hotel_label: hotel.label,
+      location_key: restaurant.key,
+      location_label: restaurant.label || restaurant.labelKey || restaurant.key,
+      org_slug: orgSlug,
+    };
+    persistSelection(orgSlug, target);
+    setSelection(target);
+  }, [hotels, hotelCode, selection?.hotel_id, orgSlug]);
 
   // Reset selection if it no longer belongs to this org's hotels
   useEffect(() => {
@@ -418,7 +451,7 @@ export default function Breakfast() {
 
   return (
     <div className="min-h-screen bg-background flex items-start justify-center p-2 sm:items-center sm:p-4">
-      <Card className="w-full max-w-xl overflow-hidden">
+      <Card className={["w-full overflow-hidden", tab === "recipes" ? "max-w-3xl" : "max-w-xl"].join(" ")}>
         <CardHeader className="pb-2 px-4 sm:px-6">
           <div className="flex items-start justify-between gap-3">
             <CardTitle className="flex min-w-0 items-center gap-2 text-xl">
@@ -438,10 +471,11 @@ export default function Breakfast() {
         </CardHeader>
         <CardContent className="space-y-3 px-3 pb-4 sm:px-6 sm:pb-6">
           {!hotelCode && selection && (
-            <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+            <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1" role="group" aria-label={tt("title")}>
               <button
                 type="button"
                 onClick={() => setTab("rooms")}
+                aria-pressed={tab === "rooms"}
                 className={`min-h-11 rounded-md px-2 py-2 text-sm font-medium transition-colors ${tab === "rooms" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
               >
                 {tt("tabRooms")}
@@ -449,9 +483,18 @@ export default function Breakfast() {
               <button
                 type="button"
                 onClick={() => setTab("reservations")}
+                aria-pressed={tab === "reservations"}
                 className={`min-h-11 rounded-md px-2 py-2 text-sm font-medium transition-colors ${tab === "reservations" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
               >
                 {tt("tabReservations")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("recipes")}
+                aria-pressed={tab === "recipes"}
+                className={["min-h-11 rounded-md px-2 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500", tab === "recipes" ? "bg-background shadow-sm" : "text-muted-foreground"].join(" ")}
+              >
+                {tt("tabRecipes")}
               </button>
             </div>
           )}
@@ -462,8 +505,12 @@ export default function Breakfast() {
                 <Label>{tt("date")}</Label>
                 <Input className="h-11 text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               </div>
-              <RestaurantReservations hotelId={selection.hotel_id} date={date} language={language} />
+              <RestaurantReservationsGate hotelId={selection.hotel_id} date={date} language={language} onDateChange={setDate} />
             </>
+          )}
+
+          {!hotelCode && selection && tab === "recipes" && (
+            <BreakfastRecipes language={language} />
           )}
 
           {tab === "rooms" && (

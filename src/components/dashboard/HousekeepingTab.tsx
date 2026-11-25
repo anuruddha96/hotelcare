@@ -27,7 +27,7 @@ export function HousekeepingTab(props: Props = {}) {
     && isGozsduCourtHotel(profile.assigned_hotel)
     && (profile.role === 'housekeeping' || profile.acts_as_housekeeper === true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (background = false) => {
     if (!scoped || !user?.id || !profile?.organization_slug) return;
     const { data, error } = await (supabase as any).from('gozsdu_laundry_duties')
       .select('user_id').eq('organization_slug', profile.organization_slug)
@@ -43,6 +43,8 @@ export function HousekeepingTab(props: Props = {}) {
         return;
       }
       console.error('[HousekeepingTab] Laundryner duty read failed', error);
+      // A failed resume/poll must not replace mounted room/photo workflows.
+      if (background) return;
       setFailed(true);
       setReady(true);
       return;
@@ -57,14 +59,14 @@ export function HousekeepingTab(props: Props = {}) {
     setReady(false);
     void refresh();
     const channel = supabase.channel(`my-gozsdu-laundry-duty-${user?.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'gozsdu_laundry_duties' }, () => { void refresh(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gozsdu_laundry_duties' }, () => { void refresh(true); })
       .subscribe();
     const poll = window.setInterval(() => {
       const date = todayBudapest();
       if (date !== workDate) setWorkDate(date);
-      else void refresh();
+      else void refresh(true);
     }, 20_000);
-    const visible = () => { if (!document.hidden) void refresh(); };
+    const visible = () => { if (!document.hidden) void refresh(true); };
     document.addEventListener('visibilitychange', visible);
     return () => {
       window.clearInterval(poll);

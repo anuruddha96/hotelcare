@@ -3,10 +3,15 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useAssistant } from "@/hooks/useAssistant";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { hasUnreadAssistantReply } from "@/lib/assistant/threadState";
 import { getRememberedAssistantThread, rememberAssistantReturnPath } from "@/lib/assistant/activeThread";
 import { canUseAssistant } from "@/lib/assistantAccess";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
+import MiraFloatingButton from "./MiraFloatingButton";
+
+/** Touch screens of any size, and narrow windows, get the draggable round launcher. */
+const FLOATING_LAUNCHER_QUERY = "(pointer: coarse), (max-width: 767px)";
 
 /**
  * Mira is a first-class workspace, never a cramped secondary drawer.
@@ -20,6 +25,9 @@ export default function AssistantLauncher() {
   const { threads, loadThreads } = useAssistant(null);
   const org = profile?.organization_slug;
   const unread = threads.some(hasUnreadAssistantReply);
+  const manager = ["admin", "manager", "top_management", "top_management_manager"].includes(profile?.role ?? "");
+  const positionKey = `hc-mira-launcher-position:${user?.id ?? "guest"}`;
+  const floating = useMediaQuery(FLOATING_LAUNCHER_QUERY);
 
   const openMira = useCallback((question?: string) => {
     if (!user?.id || !org) return;
@@ -57,17 +65,25 @@ export default function AssistantLauncher() {
   if (location.pathname.startsWith("/bb") || location.pathname.startsWith("/auth")) return null;
   if (/\/assistant(\/|$)/.test(location.pathname)) return null;
 
+  if (floating) {
+    return <MiraFloatingButton key={positionKey} storageKey={positionKey} unread={unread} onOpen={() => openMira()} />;
+  }
+
+  // Desktop with a mouse: the labelled pill stays fixed in the bottom-right corner.
   return (
     <Button
       onClick={() => openMira()}
-      className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-40 h-14 min-h-14 min-w-14 touch-manipulation rounded-full px-0 shadow-lg sm:px-4"
-      aria-label={unread ? "Open Mira by HotelCare, unread reply" : "Open Mira by HotelCare"}
+      className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-40 h-14 min-h-14 min-w-14 gap-2 rounded-full px-4 shadow-lg"
+      aria-label={unread ? "Open Mira AI Operator, unread reply" : "Open Mira AI Operator"}
+      title="Mira AI Operator"
     >
-      <span className="relative pointer-events-none flex h-10 w-10 items-center justify-center rounded-full bg-background shadow-sm">
+      <span className="relative pointer-events-none flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
         <img src={hotelCareMark} alt="" className="h-7 w-7" />
         {unread && <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-background bg-sky-500" />}
       </span>
-      <span className="pointer-events-none hidden sm:inline">Ask Mira</span>
+      <span className="pointer-events-none text-left text-xs font-semibold leading-tight">
+        {manager ? <>Mira Operator<br /><span className="font-normal">Try me</span></> : "Ask Mira"}
+      </span>
     </Button>
   );
 }

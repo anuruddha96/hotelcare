@@ -13,6 +13,9 @@ import { iso3ToIso2 } from '../../../supabase/functions/_shared/viza/country';
 export interface MrzGuestFields {
   firstName: string;
   lastName: string;
+  /** Names exactly as the code lines carry them (capital letters, no accents). */
+  mrzFirstName: string;
+  mrzLastName: string;
   /** ISO 3166-1 alpha-2 (converted from the document's alpha-3; VIZA/NTAK use alpha-2). */
   nationality: string;
   /** The alpha-3 code exactly as printed in the MRZ. */
@@ -52,6 +55,21 @@ export function normalizeMrzLine(raw: string): string {
     .replace(/[^A-Z0-9<]/g, '');
 }
 
+/**
+ * In the name line everything after the given names is filler ('<'). On worn
+ * or low-resolution documents OCR reads that filler as K, S or C, which would
+ * otherwise end up as extra "names". Two fillers in a row end the given names,
+ * so whatever follows is restored to filler.
+ */
+export function repairNameFiller(line: string): string {
+  const separator = line.indexOf('<<');
+  if (separator < 0) return line;
+  const namesStart = separator + 2;
+  const end = line.indexOf('<<', namesStart);
+  if (end < 0) return line;
+  return line.slice(0, end) + '<'.repeat(line.length - end);
+}
+
 /** Pick the MRZ lines out of free OCR text (other printed text is ignored). */
 export function extractMrzLines(ocrText: string): { format: 'TD1' | 'TD2' | 'TD3'; lines: string[] } | null {
   const candidates = ocrText
@@ -68,9 +86,15 @@ export function extractMrzLines(ocrText: string): { format: 'TD1' | 'TD2' | 'TD3
     const rows = format === 'TD1' ? 3 : 2;
     const near = candidates.filter((line) => Math.abs(line.length - len) <= 2);
     if (near.length >= rows) {
-      const lines = near.slice(-rows).map((line) => fit(line, len));
-      // A document line starts with P, I, A, C or V.
-      if (/^[PIACV]/.test(lines[0])) return { format, lines };
+      // Text printed under the code zone can look like one more line: take the
+      // last block that starts like a document line (P, I, A, C or V).
+      for (let start = near.length - rows; start >= 0; start--) {
+        const lines = near.slice(start, start + rows).map((line) => fit(line, len));
+        if (!/^[PIACV]/.test(lines[0])) continue;
+        const nameRow = format === 'TD1' ? 2 : 0;
+        lines[nameRow] = repairNameFiller(lines[nameRow]);
+        return { format, lines };
+      }
     }
   }
   return null;
@@ -122,6 +146,8 @@ export function readMrz(ocrText: string, today = new Date()): MrzReadResult | nu
     fields: {
       firstName: title(clean(f.firstName)),
       lastName: title(clean(f.lastName)),
+      mrzFirstName: clean(f.firstName).toUpperCase(),
+      mrzLastName: clean(f.lastName).toUpperCase(),
       nationality: iso3ToIso2((clean(f.nationality) || rawNationality).toUpperCase()) ?? (clean(f.nationality) || rawNationality).toUpperCase(),
       nationalityIso3: (clean(f.nationality) || rawNationality).toUpperCase(),
       dateOfBirth: mrzDate(f.birthDate, 'birth', today),

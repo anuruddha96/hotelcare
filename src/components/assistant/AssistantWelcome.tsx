@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, BellRing, CheckCircle2, Lightbulb } from "lucide-react";
+import { ArrowUpRight, BellRing, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Lightbulb, Mic, MicOff, Pause, Play } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useAssistantContext } from "@/hooks/useAssistantContext";
@@ -24,13 +24,15 @@ const TONE = {
   good: { label: "On track", icon: CheckCircle2, chip: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400", ring: "hover:border-emerald-500/50" },
 } as const;
 
-const CACHE_MINUTES = 10;
+const REFRESH_MS = 90_000;
+const CACHE_MS = 120_000;
 
-/** Live "where should I start" cards. Computed by fixed rules; no AI usage. */
+/** Role-filtered real data from assistant-priorities; rotating the display never triggers AI calls. */
 function usePriorities(enabled: boolean, hotelId: string | null) {
   const { user } = useAuth();
   const [cards, setCards] = useState<PriorityCard[] | null>(null);
   const [hotelName, setHotelName] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!enabled || !user) return;
@@ -38,58 +40,76 @@ function usePriorities(enabled: boolean, hotelId: string | null) {
     const key = `hc-assistant-priorities:${user.id}:${hotelId ?? ""}`;
     try {
       const cached = JSON.parse(sessionStorage.getItem(key) ?? "null");
-      if (cached && Date.now() - cached.at < CACHE_MINUTES * 60_000) {
+      if (cached && Date.now() - cached.at < CACHE_MS) {
         setCards(cached.cards);
         setHotelName(cached.hotelName ?? null);
-        return;
+        setUpdatedAt(cached.updatedAt ?? null);
+      } else {
+        setCards(null);
       }
-    } catch {
-      // A broken cache entry only means one extra request.
-    }
-    setCards(null);
-    supabase.functions
-      .invoke("assistant-priorities", { body: { hotelId } })
-      .then(({ data, error }) => {
+    } catch { setCards(null); }
+
+    const refresh = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("assistant-priorities", { body: { hotelId } });
         if (cancelled) return;
-        const next: PriorityCard[] = !error && Array.isArray((data as any)?.cards) ? (data as any).cards : [];
+        if (error || !Array.isArray((data as any)?.cards)) { setCards((current) => current ?? []); return; }
+        const next = (data as any).cards as PriorityCard[];
         const name = (data as any)?.hotel?.name ?? null;
+        const time = (data as any)?.generatedAt ?? new Date().toISOString();
         setCards(next);
         setHotelName(name);
-        try {
-          sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), cards: next, hotelName: name }));
-        } catch {
-          // Storage can be unavailable (private mode); the cards still show.
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setCards([]);
-      });
-    return () => {
-      cancelled = true;
+        setUpdatedAt(time);
+        try { sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), cards: next, hotelName: name, updatedAt: time })); } catch { /* private mode */ }
+      } catch { if (!cancelled) setCards((current) => current ?? []); }
     };
-  }, [enabled, hotelId, user]);
+    void refresh();
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, REFRESH_MS);
+    const onFocus = () => { if (document.visibilityState === "visible") void refresh(); };
+    window.addEventListener("focus", onFocus);
+    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener("focus", onFocus); };
+  }, [enabled, hotelId, user?.id]);
 
-  return { cards, hotelName };
+  return { cards, hotelName, updatedAt };
 }
 
-/**
- * Opening screen of a conversation. In the full workspace it leads with what
- * needs attention today; in the side panel it stays a compact list of starters.
- */
 export default function AssistantWelcome({
-  workspace = false,
-  disabled = false,
-  onAsk,
+  workspace = false, disabled = false, onAsk, onVoice, voiceSupported = false, voiceState = "idle",
 }: {
   workspace?: boolean;
   disabled?: boolean;
   onAsk: (text: string) => void;
+  onVoice?: () => void;
+  voiceSupported?: boolean;
+  voiceState?: "idle" | "starting" | "recording" | "transcribing" | "paused";
 }) {
+  const voiceBusy = voiceState === "starting" || voiceState === "transcribing";
+  const voiceButtonLabel = voiceState === "recording" ? "Pause dictation" :
+    voiceState === "paused" ? "Resume dictation" :
+    voiceBusy ? "Preparing voice input…" : "Talk to Mira";
   const { profile } = useAuth();
   const { page } = useAssistantContext();
   const revenueAllowed = capabilitiesFor(profile).revenueRead;
   const starters = useMemo(() => starterPrompts(profile?.role, page.module, revenueAllowed), [profile?.role, page.module, revenueAllowed]);
-  const { cards, hotelName } = usePriorities(workspace, page.hotelId ?? profile?.assigned_hotel ?? null);
+  const { cards, hotelName, updatedAt } = usePriorities(workspace, page.hotelId ?? profile?.assigned_hotel ?? null);
+  const [rotation, setRotation] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [showPriorities, setShowPriorities] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const count = cards?.length ?? 0;
+  const windowSize = Math.min(3, count);
+  useEffect(() => { setRotation(0); setExpanded(false); setShowPriorities(false); }, [page.hotelId, profile?.assigned_hotel]);
+  useEffect(() => {
+    if (!showPriorities || count <= windowSize || expanded || paused) return;
+    const timer = window.setInterval(() => setRotation((index) => (index + 1) % count), 6500);
+    return () => window.clearInterval(timer);
+  }, [count, windowSize, expanded, paused, showPriorities]);
+
+  const visibleCards = useMemo(() => {
+    if (!cards) return [];
+    if (expanded || count <= windowSize) return cards;
+    return Array.from({ length: windowSize }, (_, i) => cards[(rotation + i) % count]);
+  }, [cards, count, expanded, rotation, windowSize]);
 
   if (!workspace) {
     return (
@@ -98,21 +118,15 @@ export default function AssistantWelcome({
           <img src={hotelCareMark} alt="" className="h-11 w-11 rounded-xl" />
           <div>
             <p className="text-lg font-semibold leading-tight">{greeting(profile?.full_name)}</p>
-            <p className="text-sm text-muted-foreground">
-              {profile?.assigned_hotel ? `${profile.assigned_hotel} · ` : ""}
-              How can I help?
-            </p>
+            <p className="text-sm text-muted-foreground">Ask Mira about your hotel, or give her a task.</p>
           </div>
         </div>
+        {onVoice && <button type="button" onClick={onVoice} disabled={disabled || !voiceSupported || voiceBusy} className="flex w-full items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3 text-left text-sm font-medium text-primary disabled:opacity-50">{voiceState === "recording" ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}{voiceState === "idle" ? "Tap to speak instead of typing" : voiceButtonLabel} <ArrowUpRight className="ml-auto h-4 w-4" /></button>}
         <div className="grid gap-2">
           {starters.map((starter) => (
-            <button
-              key={starter.prompt}
-              type="button"
-              disabled={disabled}
+            <button key={starter.prompt} type="button" disabled={disabled}
               className="rounded-xl border bg-card px-3.5 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-              onClick={() => onAsk(starter.prompt)}
-            >
+              onClick={() => onAsk(starter.prompt)}>
               <span className="block text-sm font-medium">{starter.label}</span>
               <span className="block text-xs text-muted-foreground">{starter.prompt}</span>
             </button>
@@ -124,70 +138,88 @@ export default function AssistantWelcome({
 
   const loading = cards === null;
   return (
-    <div className="mx-auto w-full max-w-2xl px-3 pb-6 pt-8 sm:pt-14">
-      <div className="flex items-center gap-3">
-        <img src={hotelCareMark} alt="" className="h-10 w-10 rounded-xl" />
-        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{greeting(profile?.full_name)}</h2>
-      </div>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Check what's happening{hotelName ? ` at ${hotelName}` : " across your hotels"}, make decisions, and ask Mira to handle tasks within your access.
-      </p>
+    <div className="mx-auto w-full max-w-2xl space-y-7 px-4 pb-8 pt-9 sm:px-6 sm:pt-14">
+      <section aria-label="Meet Mira" className="flex flex-col items-center gap-3 text-center">
+        <span className="grid h-14 w-14 place-items-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
+          <img src={hotelCareMark} alt="" className="h-10 w-10 object-contain" />
+        </span>
+        <p className="text-xs font-semibold tracking-wide text-primary">Mira by HotelCare</p>
+        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">What can I help you with?</h2>
+        <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
+          Your AI operator for <span className="font-medium text-foreground">{hotelName || "your hotel"}</span>.
+          Ask questions, check priorities, or prepare an action within your access.
+        </p>
+        {onVoice && (
+          <button type="button" onClick={onVoice} disabled={disabled || !voiceSupported || voiceBusy}
+            className="mt-1 inline-flex min-h-10 items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50">
+            {voiceState === "recording" ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            {voiceButtonLabel}
+          </button>
+        )}
+      </section>
 
-      {(loading || (cards?.length ?? 0) > 0) && (
-        <section className="mt-7" aria-label="Where to start">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Live priorities</h3>
-          <div className="grid gap-2">
-            {loading
-              ? [0, 1, 2].map((row) => <Skeleton key={row} className="h-[68px] w-full rounded-xl" />)
-              : cards!.map((card) => {
-                  const tone = TONE[card.tone] ?? TONE.opportunity;
-                  const Icon = tone.icon;
-                  return (
-                    <button
-                      key={card.id}
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => onAsk(card.prompt)}
-                      className={cn(
-                        "group flex w-full items-start gap-3 rounded-xl border bg-card px-3.5 py-3 text-left transition-colors disabled:opacity-60",
-                        tone.ring,
-                      )}
-                    >
-                      <span className={cn("mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg", tone.chip)}>
-                        <Icon className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-center gap-x-2">
-                          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{tone.label}</span>
-                        </span>
-                        <span className="block text-sm font-medium leading-snug">{card.title}</span>
-                        <span className="block text-xs text-muted-foreground">{card.detail}</span>
-                      </span>
-                      <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-                    </button>
-                  );
-                })}
-          </div>
-        </section>
-      )}
-
-      <section className="mt-6" aria-label="Suggestions">
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Try asking</h3>
-        <div className="flex flex-wrap gap-2">
-          {starters.map((starter) => (
-            <button
-              key={starter.prompt}
-              type="button"
-              disabled={disabled}
-              title={starter.prompt}
-              onClick={() => onAsk(starter.prompt)}
-              className="rounded-full border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-            >
+      <section aria-label="Suggested questions" className="space-y-3">
+        <h3 className="text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">Or try asking</h3>
+        <div className="flex flex-wrap justify-center gap-2">
+          {starters.slice(0, 3).map((starter) => (
+            <button key={starter.prompt} type="button" disabled={disabled} title={starter.prompt} onClick={() => onAsk(starter.prompt)}
+              className="rounded-full border bg-card px-3.5 py-2.5 text-left text-xs font-medium leading-snug transition-colors hover:border-primary/40 hover:bg-accent disabled:opacity-60 sm:text-sm">
               {starter.label}
             </button>
           ))}
         </div>
       </section>
+
+      {(loading || count > 0) && (
+        <section aria-label="Live hotel priorities" className="mx-auto max-w-xl">
+          <button type="button" aria-expanded={showPriorities} onClick={() => setShowPriorities((open) => !open)}
+            className="flex w-full items-center gap-2.5 rounded-xl border bg-card px-4 py-3 text-left text-sm transition-colors hover:border-primary/30 hover:bg-accent/50">
+            <BellRing className="h-4 w-4 shrink-0 text-primary" />
+            <span className="flex-1 font-medium">Live hotel priorities</span>
+            {count > 0 && <span className="rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums">{count}</span>}
+            {showPriorities ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          </button>
+          {showPriorities && (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">Latest operational items</p>
+                {count > windowSize && (
+                  <div className="flex items-center gap-1">
+                    <button type="button" aria-label="Previous priorities" className="rounded-lg p-1.5 hover:bg-muted" onClick={() => setRotation((n) => (n + count - 1) % count)}><ChevronLeft className="h-4 w-4" /></button>
+                    <button type="button" aria-label="Next priorities" className="rounded-lg p-1.5 hover:bg-muted" onClick={() => setRotation((n) => (n + 1) % count)}><ChevronRight className="h-4 w-4" /></button>
+                    <button type="button" aria-label={paused ? "Resume priority rotation" : "Pause priority rotation"} className="rounded-lg p-1.5 hover:bg-muted" onClick={() => setPaused((value) => !value)}>{paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}</button>
+                    <button type="button" className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium hover:bg-muted" onClick={() => setExpanded((value) => !value)}>
+                      {expanded ? "Show less" : "View all"} {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="grid gap-2" aria-live="off">
+                {loading ? [0, 1].map((item) => <Skeleton key={item} className="h-[72px] w-full rounded-xl" />) :
+                  visibleCards.map((card) => {
+                    const tone = TONE[card.tone] ?? TONE.opportunity;
+                    const Icon = tone.icon;
+                    return (
+                      <button key={card.id} type="button" disabled={disabled} onClick={() => onAsk(card.prompt)}
+                        className={cn("group flex w-full items-start gap-3 rounded-xl border bg-card px-3 py-3 text-left transition-colors disabled:opacity-60", tone.ring)}>
+                        <span className={cn("mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg", tone.chip)}><Icon className="h-4 w-4" /></span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold leading-snug">{card.title}</span>
+                          <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{card.detail}</span>
+                        </span>
+                        <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-primary" />
+                      </button>
+                    );
+                  })}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {updatedAt ? `Checked ${new Date(updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. ` : ""}
+                Mira prepares actions; permissions and approvals still apply.
+              </p>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

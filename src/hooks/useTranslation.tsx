@@ -1,3 +1,4 @@
+import { hrTranslations } from '@/lib/hr-translations';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { expandedTranslations } from '@/lib/expanded-translations';
 import { additionalTranslations } from '@/lib/comprehensive-translations';
@@ -4174,6 +4175,7 @@ const getStaticTranslationBundle = (lang: Language): Record<string, string> => (
   ...flattenBundle(pmsTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(highlightedTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(screenTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(hrTranslations[lang]),
   ...flattenBundle(roomOverviewTranslations[lang as keyof typeof roomOverviewTranslations] as Record<string, unknown> | undefined),
   ...flattenBundle((purchaseInvoiceTranslations as any)[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(locationTranslations[lang] as Record<string, unknown> | undefined),

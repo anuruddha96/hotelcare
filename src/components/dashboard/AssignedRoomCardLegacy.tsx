@@ -1228,9 +1228,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, addi
             <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-600 rounded-lg">
               <div className="flex items-start gap-2">
                 <Info className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">{pmsOwnsVisibleNote ? 'Previo housekeeping note' : (t('roomCard.managerNotes') || 'Manager Notes')}</p>
-                  <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
+                  <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5 whitespace-pre-wrap break-words">
                     {translatedManagerNote || managerVisibleNote}
                   </p>
                   <RoomNoteProvenance roomId={assignment.room_id} roomNotes={assignment.rooms?.notes} language={language} />
@@ -1295,8 +1295,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, addi
       <CardContent className={assignment.rooms?.hotel === 'slnt-group' ? 'space-y-3' : 'space-y-4'}>
         {/* Timer - always visible while in-progress so housekeepers see time spent per room */}
         {assignment.status === 'in_progress' && assignment.started_at && (
-          <div className="flex items-center justify-between p-2 bg-muted/30 rounded-lg">
-            <div className="flex items-center gap-2 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-muted/30 border border-border rounded-lg">
+            <div className="flex min-w-0 items-center gap-2 text-sm">
               <Clock className="h-4 w-4 text-primary" />
               <span className="font-medium">
                 {assignment.estimated_duration
@@ -1304,7 +1304,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, addi
                   : t('completion.timeOnRoom') || 'Time on this room'}
               </span>
             </div>
-            <div className="bg-background px-2 py-1 rounded-md shadow-sm border border-border">
+            <div className="shrink-0">
               <PausableTimerComponent
                 assignmentId={assignment.id}
                 startedAt={assignment.started_at}
@@ -1346,11 +1346,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, addi
 
             </div>
           )}
-          {/* Primary Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3">
-            {/* Wrap HoldButton in a div with bottom padding to accommodate the absolute "Press & Hold" text */}
+          {/* Primary Action Buttons: hide empty rows during active cleaning. */}
+          <div className="flex flex-col sm:flex-row gap-3 empty:hidden">
+            {/* HoldButton renders its instructions in normal flow. */}
           {(assignment.status === 'assigned' || assignment.status === 'dnd_pending_retry') && !isCheckoutWaiting && (
-              <div className="pb-7 w-full sm:w-auto">
+              <div className="w-full sm:w-auto [&>div]:w-full">
                 <HoldButton
                   size="lg"
                   holdDuration={2000}
@@ -1499,11 +1499,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, addi
 
           {/* Room checklist — modern, friendly card of optional in-room tools */}
           {assignment.status === 'in_progress' && (() => {
-            const tileBase = 'group flex flex-col items-center justify-center gap-1.5 h-auto min-h-[76px] py-3 px-2 rounded-xl border bg-card hover:bg-accent/40 hover:-translate-y-0.5 transition-all shadow-sm';
-            const iconWrap = 'flex items-center justify-center h-8 w-8 rounded-full';
-            const label = 'text-[11px] leading-tight text-center break-words hyphens-auto text-foreground/80 font-medium';
+            const tileBase = 'group flex min-w-0 flex-col items-center justify-center gap-1.5 h-auto min-h-[68px] py-2.5 px-2 rounded-xl border bg-card hover:bg-accent/40 active:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-[76px] sm:py-3';
+            const iconWrap = 'flex items-center justify-center h-8 w-8 shrink-0 rounded-full';
+            const label = 'text-xs leading-tight text-center break-words hyphens-auto text-foreground font-medium';
             return (
-              <div data-training="room-work-tools" className="p-4 bg-card rounded-2xl border border-border shadow-sm">
+              <div data-training="room-work-tools" className="p-3 sm:p-4 bg-card rounded-xl border border-border">
                 <div className="flex items-start gap-2 mb-3">
                   <div className="flex items-center justify-center h-9 w-9 rounded-full bg-primary/10 shrink-0">
                     <ClipboardList className="h-4 w-4 text-primary" />
@@ -1630,8 +1630,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, addi
 
           {/* Complete, Add Note, Details Buttons - After Required Actions */}
           {assignment.status === 'in_progress' && (
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="relative pb-8 w-full sm:w-auto">
+            <div className="grid grid-cols-2 items-start gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:gap-3">
+              <div className="col-span-2 min-w-0 sm:col-span-1 [&>div]:w-full">
                 <HoldButton 
                   onClick={handleCompleteRequest}
                   onHoldComplete={handleCompleteRequest}
@@ -1652,7 +1652,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, addi
                   <Button 
                     size="lg" 
                     variant="outline" 
-                    className="w-full sm:w-auto"
+                    className="w-full min-h-11 h-auto px-2 py-2 whitespace-normal text-sm sm:w-auto sm:px-4"
                     data-training="notes-button"
                   >
                     <MessageSquare className="h-5 w-5" />
@@ -1696,7 +1696,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, addi
                 size="lg"
                 variant="outline" 
                 onClick={() => openRoomDetail('details')} 
-                className="w-full sm:w-auto"
+                className="w-full min-h-11 h-auto px-2 py-2 whitespace-normal text-sm sm:w-auto sm:px-4"
               >
                 <Eye className="h-5 w-5" />
                 {t('common.details')}

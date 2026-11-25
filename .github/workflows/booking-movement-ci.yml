@@ -7,6 +7,8 @@ on:
       - 'src/components/revenue/PickupMovementBoard.tsx'
       - 'src/components/revenue/TodaysSalesAdrGoal.tsx'
       - 'src/lib/bookingMovementPresentation*'
+      - 'src/lib/bookingInsights*'
+      - 'src/hooks/useRevenueHotelData.ts'
       - 'src/pages/RevenueHotelDetail.tsx'
       - 'supabase/migrations/20261010182*.sql'
       - '.github/workflows/booking-movement-ci.yml'
@@ -27,6 +29,6 @@ jobs:
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
       - name: Booking movement and cancellation tests
-        run: bunx vitest run src/lib/bookingMovementPresentation.test.ts src/lib/pickupMovementAccuracy.test.ts
+        run: bunx vitest run src/lib/bookingMovementPresentation.test.ts src/lib/pickupMovementAccuracy.test.ts src/lib/bookingInsights.test.ts
       - name: Production UI build
         run: bun run build

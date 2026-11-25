@@ -9,6 +9,8 @@
 // Delivery to Previo is asynchronous: HotelCare records the intended price and
 // a serialized background publisher sends it, one hotel at a time.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { authorizeRevenueWorkerWithVault } from "../_shared/revenueWorkerAuth.ts";
+
 import {
   roundMoney,
   priorityOf,
@@ -822,24 +824,17 @@ Deno.serve(async (req) => {
     // A run asked for by a person carries their session. We keep the same
     // tenant rules the rest of the app uses: you can only run automation for a
     // property inside your own organization, and only revenue roles may do it.
-    const engineKey = req.headers.get("x-engine-key");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-    const apiKeyHeader = req.headers.get("apikey") ?? "";
-    // Scheduled ticks call in with the service key (header or bearer); those
-    // are the machine runs and keep working exactly as before.
-    //
-    // The database scheduler (pg_cron → pg_net) can only send the project
-    // apikey, not a user session. Such a call is accepted ONLY in scheduler
-    // mode: it may not name a hotel, it just asks the database for whichever
-    // property is due. That is idempotent — `claim_due_automation_rule`
-    // returns nothing until a property's own interval has elapsed — so an
-    // extra call can never bring a price change forward.
-    const schedulerCall = body?.scheduled === true && !onlyHotel;
-    const isEngine = (!!engineKey && engineKey === serviceKey)
-      || (!!bearer && bearer === serviceKey)
-      || (apiKeyHeader === serviceKey)
-      || schedulerCall;
+    // A public apikey or an unverified {scheduled:true} body can never
+    // authorize a pricing run. pg_cron uses its dedicated Vault worker token.
+    const isEngine = Boolean(await authorizeRevenueWorkerWithVault(req, serviceKey,
+      async (_candidate) => {
+        if (!serviceKey) return false;
+        const { data, error } = await admin.rpc("hotelcare_verify_revenue_cron_token", { _candidate });
+        return !error && data === true;
+      },
+    ));
     let actorName: string | null = null;
     let actorUserId: string | null = null;
     if (!isEngine) {

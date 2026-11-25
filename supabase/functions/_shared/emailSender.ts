@@ -6,6 +6,9 @@
 //   * an organization can switch transactional mail or the digest off,
 //   * a bad Resend key produces one clear, human message instead of silence.
 
+// This server module is also imported by frontend tests without Deno's types.
+declare const Deno: { env: { get(name: string): string | undefined } };
+
 export interface EmailSettings {
   organization_slug: string;
   from_name: string;

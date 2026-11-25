@@ -58,7 +58,9 @@ const messageCache = new Map<string, AssistantMessage[]>();
 /** Threads + messages for the signed-in user, persisted in the database. */
 export function useAssistant(threadId: string | null) {
   const { user, profile } = useAuth();
-  const cacheKey = `${user?.id ?? "anon"}:${profile?.organization_slug ?? ""}:${profile?.assigned_hotel ?? ""}`;
+  // One history per person and organization: switching hotels keeps every
+  // conversation in the list (it used to show only the current hotel's).
+  const cacheKey = `${user?.id ?? "anon"}:${profile?.organization_slug ?? ""}`;
   const [threads, setThreads] = useState<AssistantThread[]>(() => threadCache.get(cacheKey) ?? []);
   const [messages, setMessages] = useState<AssistantMessage[]>(() =>
     threadId ? (messageCache.get(threadId) ?? []) : [],
@@ -70,9 +72,10 @@ export function useAssistant(threadId: string | null) {
 
   const loadThreads = useCallback(async () => {
     if (!user) return;
-    // A user without an assigned property saves threads with a null hotel and
-    // organisation. Matching those with .eq("", ...) never hit a row, so their
-    // history looked wiped; null scopes are matched with .is() instead.
+    // A user without an organisation saves threads with a null organisation.
+    // Matching those with .eq("", ...) never hit a row, so their history
+    // looked wiped; null is matched with .is() instead. Threads of every
+    // hotel are listed: the hotel a chat started in no longer hides it.
     const run = (columns: string) => {
       let query = (supabase as any)
         .from("assistant_threads")
@@ -81,10 +84,7 @@ export function useAssistant(threadId: string | null) {
       query = profile?.organization_slug
         ? query.eq("organization_slug", profile.organization_slug)
         : query.is("organization_slug", null);
-      query = profile?.assigned_hotel
-        ? query.eq("hotel_id", profile.assigned_hotel)
-        : query.is("hotel_id", null);
-      return query.order("updated_at", { ascending: false }).limit(100);
+      return query.order("updated_at", { ascending: false }).limit(200);
     };
     // Pins and projects arrive with the workspace migration; until it has been
     // applied the history still loads from the original columns.
@@ -118,10 +118,16 @@ export function useAssistant(threadId: string | null) {
       }
     }
     const withPreview = rows.map((row) => ({ ...row, preview: previews.get(row.id) ?? null }));
-    threadCache.set(cacheKeyRef.current, withPreview);
-    setThreads(withPreview);
+    // A chat created a moment ago may not be in this read yet (it raced the
+    // insert); keep it instead of letting it vanish from the list.
+    const fresh = (threadCache.get(cacheKeyRef.current) ?? []).filter(
+      (thread) => !withPreview.some((row) => row.id === thread.id) && Date.now() - Date.parse(thread.updated_at) < 120_000,
+    );
+    const merged = [...fresh, ...withPreview];
+    threadCache.set(cacheKeyRef.current, merged);
+    setThreads(merged);
     setLoadingThreads(false);
-  }, [user, profile?.organization_slug, profile?.assigned_hotel]);
+  }, [user, profile?.organization_slug]);
 
   useEffect(() => {
     // Paint whatever is cached for this scope first, then refresh quietly.

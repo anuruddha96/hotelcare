@@ -1,6 +1,7 @@
 import { generateLowCostText } from "../_shared/lowCostAi.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.78.0";
-import { buildCuratedReply, requiresCarefulReview } from "../_shared/reputation-replies.ts";
+import { buildCuratedReply, classifyReview, requiresCarefulReview } from "../_shared/reputation-replies.ts";
+import { autoEligible, MAX_REVIEW_PAGES, shouldFetchNextReviewPage } from "./reviewPolicy.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -61,41 +62,6 @@ const rating = (value: unknown) => {
   return ({ ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 } as Record<string, number>)[text] || 5;
 };
 
-function classifyReview(stars: number, comment: string) {
-  const text = String(comment || "").toLowerCase();
-  const categories: string[] = [];
-  const add = (name: string, words: string[]) => {
-    if (words.some((word) => text.includes(word))) categories.push(name);
-  };
-  add("cleanliness", ["clean", "dirty", "dust", "smell", "bathroom", "toilet"]);
-  add("breakfast", ["breakfast", "brunch", "coffee", "food", "buffet"]);
-  add("staff", ["staff", "reception", "service", "waiter", "friendly", "rude"]);
-  add("noise", ["noise", "noisy", "loud", "street", "music"]);
-  add("room", ["room", "bed", "mattress", "small", "spacious"]);
-  add("maintenance", ["air conditioning", "ac ", "heater", "broken", "shower", "water", "wifi", "elevator"]);
-  add("price", ["price", "expensive", "value", "cost", "charge"]);
-  add("location", ["location", "metro", "tram", "central", "walk"]);
-  add("check-in", ["check in", "check-in", "arrival", "key", "late"]);
-  add("cafe", ["cafe", "café", "pastry", "barista"]);
-
-  const highRiskWords = [
-    "refund", "fraud", "stolen", "theft", "police", "injury", "injured", "unsafe",
-    "discrimination", "racist", "bedbug", "bed bug", "food poisoning", "legal", "lawyer",
-  ];
-  const mediumRiskWords = ["complaint", "manager", "charged", "overcharged", "mold", "mould", "cockroach"];
-  const risk =
-    stars <= 1 || highRiskWords.some((word) => text.includes(word))
-      ? "high"
-      : stars <= 3 || mediumRiskWords.some((word) => text.includes(word)) || requiresCarefulReview(comment)
-        ? "medium"
-        : "low";
-  const sentiment = stars >= 4 ? "positive" : stars === 3 ? "mixed" : "negative";
-  const summary = comment
-    ? comment.replace(/\s+/g, " ").trim().slice(0, 180)
-    : `${stars}-star rating without written comment`;
-  return { categories, risk, sentiment, summary, confidence: comment ? 0.9 : 0.7 };
-}
-
 const toneInstruction: Record<string, string> = {
   warm_professional: "warm, professional and human",
   friendly_concise: "friendly, concise and conversational",
@@ -129,27 +95,24 @@ function friendlyGoogleError(status: number, rawMessage: string) {
 }
 
 /**
- * Auto-reply policy: 4–5★ low-risk reviews no older than AUTO_REPLY_WINDOW_DAYS
- * are answered automatically for venues that have auto-reply on. Anything
- * older stays a draft for managers to reply manually (the explicitly
- * authorized historical backfill path is separate and unchanged).
+ * Listings added to (or shared with) the connected Google account after the
+ * initial setup used to stay invisible until a manager re-ran discovery by
+ * hand, so their reviews were never synced or answered. The scheduled worker
+ * now checks every connection for new listings once per cycle. New listings
+ * are added with auto-reply OFF (column defaults); publishing still requires
+ * explicit consent in Reputation settings.
+ *
+ * Each connection owns one two-minute cron slot per cycle (180 slots = 6 h),
+ * so no schedule state needs to be stored and connections are spread out.
  */
-const AUTO_REPLY_WINDOW_DAYS = 7;
+const CRON_TICK_MS = 120_000;
+const LOCATION_DISCOVERY_SLOTS = 180;
 
-function autoEligible(location: any, stars: number, risk: string, reviewTime: string | null) {
-  if (!location?.auto_reply_enabled || !location?.auto_reply_enabled_at) return false;
-  if (risk !== "low" || location.reply_mode === "draft_only") return false;
-  const minimum = Math.max(1, Math.min(5, Number(location.min_auto_rating || 4)));
-  const approvalFloor = Math.max(1, Math.min(5, Number(location.require_approval_below_rating || 4)));
-  if (stars < approvalFloor) return false;
-  if (location.reply_mode === "auto_positive" && stars < Math.max(4, minimum)) return false;
-  if (location.reply_mode === "auto_all" && stars < minimum) return false;
-  const reviewMs = new Date(reviewTime || "").getTime();
-  if (!Number.isFinite(reviewMs)) return false;
-  // Fresh reviews only: within the rolling window, never older.
-  if (Date.now() - reviewMs > AUTO_REPLY_WINDOW_DAYS * 86_400_000) return false;
-  const delayMs = Math.max(0, Math.min(1440, Number(location.auto_reply_delay_minutes || 0))) * 60_000;
-  return Date.now() - reviewMs >= delayMs;
+function connectionsDueForDiscovery(connections: any[], now = Date.now()) {
+  const slot = Math.floor(now / CRON_TICK_MS) % LOCATION_DISCOVERY_SLOTS;
+  return [...connections]
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+    .filter((_, index) => index % LOCATION_DISCOVERY_SLOTS === slot);
 }
 
 Deno.serve(async (req) => {
@@ -158,15 +121,23 @@ Deno.serve(async (req) => {
   const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const admin = createClient(supabaseUrl, serviceRole);
 
-  // Scheduled runs use a single-location round-robin to spread Google API calls.
-  // Manual/admin invocations without this flag retain the existing full sync behavior.
+  // Scheduled queued_location calls check one business per dispatch; explicit
+  // full/manual scans and the legacy round-robin mode remain available.
   const requestBody = await req.json().catch(() => ({}));
   const roundRobin = requestBody?.mode === "round_robin";
+  const queued = requestBody?.mode === "queued_location";
+  const queuedLocationId = String(requestBody?.location_id || "");
+  // On-demand listing discovery only (no review sync), e.g. right after a
+  // listing was shared with the connected Google account.
+  const discoverOnly = requestBody?.mode === "discover_locations";
 
   const providedSecret = req.headers.get("x-worker-secret") || "";
   const { data: expectedSecret, error: secretError } = await admin.rpc("get_google_reputation_worker_secret");
   if (secretError || !safeEqual(providedSecret, String(expectedSecret || ""))) {
     return json({ error: "Unauthorized" }, 401);
+  }
+  if (queued && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(queuedLocationId)) {
+    return json({ error: "Queued review checking requires a valid location UUID" }, 400);
   }
 
   const { data: run, error: runError } = await admin
@@ -183,6 +154,7 @@ Deno.serve(async (req) => {
   let repliesPublished = 0;
   let historicalPublished = 0;
   const errors: Array<Record<string, unknown>> = [];
+  const discovery: Array<Record<string, unknown>> = [];
 
   async function audit(review: any, eventType: string, replyText: string | null = null, metadata: Record<string, unknown> = {}) {
     const { error: auditError } = await admin.from("google_review_reply_events").insert({
@@ -200,7 +172,16 @@ Deno.serve(async (req) => {
     }
   }
 
+  const tokenCache = new Map<string, string>();
   async function tokenFor(connection: any) {
+    const cached = tokenCache.get(connection.id);
+    if (cached) return cached;
+    const token = await freshTokenFor(connection);
+    tokenCache.set(connection.id, token);
+    return token;
+  }
+
+  async function freshTokenFor(connection: any) {
     if (
       connection.access_token_ciphertext &&
       connection.access_token_expires_at &&
@@ -237,7 +218,14 @@ Deno.serve(async (req) => {
     return String(result.access_token);
   }
 
-  async function googleFetch(connection: any, accessToken: string, target: string, init: RequestInit = {}) {
+  async function googleFetch(
+    connection: any,
+    accessToken: string,
+    target: string,
+    init: RequestInit = {},
+    // Discovery failures must not put review syncing into quota backoff.
+    options: { recordError?: boolean } = {},
+  ) {
     const response = await fetch(target, {
       ...init,
       headers: {
@@ -255,28 +243,122 @@ Deno.serve(async (req) => {
     }
     if (!response.ok) {
       const message = friendlyGoogleError(response.status, payload?.error?.message || text || "Google API error");
-      await admin
-        .from("google_business_connections")
-        .update({ last_error: message, updated_at: new Date().toISOString() })
-        .eq("id", connection.id);
+      if (options.recordError !== false) {
+        await admin
+          .from("google_business_connections")
+          .update({ last_error: message, updated_at: new Date().toISOString() })
+          .eq("id", connection.id);
+      }
       throw new Error(message);
     }
     return payload;
   }
 
-  async function generateDraft(review: any, location: any) {
-    const brand = String(location.reply_brand_name || location.google_location_title || "our business");
-    const curated = buildCuratedReply({
+  /**
+   * Imports Google listings the connection can see but HotelCare does not
+   * know yet. Existing rows are never modified (a manager may have changed or
+   * deactivated them); new rows get the safe column defaults (draft only,
+   * auto-reply off) and show up in Reputation for mapping and consent.
+   */
+  async function discoverLocations(connection: any) {
+    const accessToken = await tokenFor(connection);
+    const accounts: any[] = [];
+    let accountToken = "";
+    do {
+      const params = new URLSearchParams({ pageSize: "20" });
+      if (accountToken) params.set("pageToken", accountToken);
+      const page = await googleFetch(connection, accessToken,
+        `https://mybusinessaccountmanagement.googleapis.com/v1/accounts?${params.toString()}`, {}, { recordError: false });
+      accounts.push(...(page.accounts || []));
+      accountToken = page.nextPageToken || "";
+    } while (accountToken && accounts.length < 200);
+
+    const { data: known, error: knownError } = await admin
+      .from("google_business_locations")
+      .select("google_location_name")
+      .eq("connection_id", connection.id);
+    if (knownError) throw knownError;
+    const knownNames = new Set((known || []).map((row: any) => String(row.google_location_name)));
+
+    let listingsSeen = 0;
+    const added: Array<{ id: string; title: string }> = [];
+    for (const account of accounts) {
+      if (!account?.name) continue;
+      let locationToken = "";
+      do {
+        const params = new URLSearchParams({ readMask: "name,title,storeCode,metadata", pageSize: "100" });
+        if (locationToken) params.set("pageToken", locationToken);
+        const page = await googleFetch(connection, accessToken,
+          `https://mybusinessbusinessinformation.googleapis.com/v1/${account.name}/locations?${params.toString()}`,
+          {}, { recordError: false });
+        for (const listing of page.locations || []) {
+          listingsSeen++;
+          const name = String(listing?.name || "");
+          if (!name || knownNames.has(name)) continue;
+          knownNames.add(name);
+          const { data: inserted, error: insertError } = await admin
+            .from("google_business_locations")
+            .insert({
+              connection_id: connection.id,
+              organization_id: connection.organization_id,
+              google_account_name: account.name,
+              google_location_name: name,
+              google_location_title: listing.title || name,
+              place_id: listing.metadata?.placeId || null,
+              store_code: listing.storeCode || null,
+              is_active: true,
+            })
+            .select("id,google_location_title")
+            .single();
+          if (insertError) {
+            // A concurrent manual discovery may have inserted it first.
+            if (insertError.code === "23505") continue;
+            throw insertError;
+          }
+          added.push({ id: inserted.id, title: inserted.google_location_title });
+          console.log("google-reputation-discovery new listing", JSON.stringify({
+            connection_id: connection.id, location_id: inserted.id, title: inserted.google_location_title,
+          }));
+        }
+        locationToken = page.nextPageToken || "";
+      } while (locationToken);
+    }
+    return { accounts: accounts.length, listings_seen: listingsSeen, added };
+  }
+
+  async function runLocationDiscovery(connection: any) {
+    try {
+      const result = await discoverLocations(connection);
+      discovery.push({ connection_id: connection.id, ...result });
+    } catch (error) {
+      // Recorded on the run, but never as a connection error: a discovery
+      // problem must not stop or back off review syncing.
+      errors.push({
+        discovery_connection_id: connection.id,
+        error: `Location discovery: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  // Shared by draft generation and automatic publishing so both always pick
+  // the same deterministic curated wording for a review.
+  function curatedReplyFor(review: any, location: any) {
+    return buildCuratedReply({
       reviewId: String(review.google_review_name || review.id),
       rating: Number(review.star_rating || 5),
       comment: review.comment || "",
       reviewerName: review.reviewer_display_name,
-      venueName: brand,
+      venueName: String(location.reply_brand_name || location.google_location_title || "our business"),
       venueCategory: location.business_category,
       venueContext: location.brand_context,
       signature: location.reply_signature,
       languageMode: location.reply_language_mode,
     });
+  }
+
+  async function generateDraft(review: any, location: any) {
+    const brand = String(location.reply_brand_name || location.google_location_title || "our business");
+    const curated = curatedReplyFor(review, location);
     if (curated && String(review.ai_risk_level || "low") === "low") return curated.text;
     if (!Deno.env.get("OPENAI_API_KEY") && !Deno.env.get("GEMINI_API_KEY"))
       throw new Error("AI providers not configured");
@@ -317,25 +399,53 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       .order("updated_at", { ascending: false });
     if (connectionsError) throw connectionsError;
 
-    // All organizations share one rotating slot: one active Google listing
-    // per two-minute cron tick, regardless of how many OAuth connections exist.
+    if (discoverOnly) {
+      const targetConnection = requestBody?.connection_id ? String(requestBody.connection_id) : "";
+      for (const connection of connections || []) {
+        if (targetConnection && connection.id !== targetConnection) continue;
+        connectionsChecked++;
+        await runLocationDiscovery(connection);
+      }
+      const status = errors.length ? "partial" : "completed";
+      await admin.from("google_reputation_worker_runs").update({
+        finished_at: new Date().toISOString(),
+        status,
+        connections_checked: connectionsChecked,
+        errors,
+      }).eq("id", run.id);
+      return json({ ok: true, status, connections_checked: connectionsChecked, discovery, errors });
+    }
+
+    // The queued 3-hour schedule targets exactly one active business each call.
     let selectedLocation: { id: string; connection_id: string } | null = null;
-    if (roundRobin) {
-      const { data: activeLocations, error: activeLocationsError } = await admin
+    if (!roundRobin && !queued && requestBody?.trigger === "cron") {
+      // Discover newly shared listings in the same scheduled run so they are
+      // picked up immediately (with auto-reply disabled until consented).
+      for (const connection of connections || []) {
+        if (!shouldBackoff(connection)) await runLocationDiscovery(connection);
+      }
+    }
+    if (roundRobin || queued) {
+      let locationQuery = admin
         .from("google_business_locations")
         .select("id,connection_id")
-        .eq("is_active", true)
-        .order("id");
+        .eq("is_active", true);
+      if (queued) locationQuery = locationQuery.eq("id", queuedLocationId);
+      const { data: activeLocations, error: activeLocationsError } = await locationQuery.order("id");
       if (activeLocationsError) throw activeLocationsError;
       const activeConnectionIds = new Set((connections || []).map((connection: any) => connection.id));
       const candidates = (activeLocations || []).filter((location: any) => activeConnectionIds.has(location.connection_id));
-      if (candidates.length > 0) {
-        selectedLocation = candidates[Math.floor(Date.now() / 120_000) % candidates.length];
+      if (candidates.length) {
+        selectedLocation = queued
+          ? candidates[0]
+          : candidates[Math.floor(Date.now() / 120_000) % candidates.length];
+      } else if (queued) {
+        errors.push({ location_id: queuedLocationId, error: "Queued location is no longer active or connected" });
       }
     }
 
     for (const connection of connections || []) {
-      if (roundRobin && connection.id !== selectedLocation?.connection_id) continue;
+      if ((roundRobin || queued) && connection.id !== selectedLocation?.connection_id) continue;
       connectionsChecked++;
       if (shouldBackoff(connection)) continue;
       try {
@@ -345,7 +455,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
           .select("*")
           .eq("connection_id", connection.id)
           .eq("is_active", true);
-        if (roundRobin && selectedLocation) locationsQuery = locationsQuery.eq("id", selectedLocation.id);
+        if ((roundRobin || queued) && selectedLocation) locationsQuery = locationsQuery.eq("id", selectedLocation.id);
         const { data: locations, error: locationsError } = await locationsQuery;
         if (locationsError) throw locationsError;
 
@@ -359,22 +469,34 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                 .eq("id", location.id);
               location.auto_backfill_active = false;
             }
-            const query = new URLSearchParams({ pageSize: "50", orderBy: "updateTime desc" });
-            const response = await googleFetch(
-              connection,
-              accessToken,
-              `https://mybusiness.googleapis.com/v4/${location.google_account_name}/${location.google_location_name}/reviews?${query.toString()}`,
-            );
+            // Google sorts by updateTime, so a single page can be filled by
+            // edited older reviews and hide newly created ones. Follow pages
+            // until we pass the recent review window, with a quota guard.
+            let nextPageToken = "";
+            let pagesFetched = 0;
+            do {
+              const query = new URLSearchParams({ pageSize: "50", orderBy: "updateTime desc" });
+              if (nextPageToken) query.set("pageToken", nextPageToken);
+              const response = await googleFetch(
+                connection,
+                accessToken,
+                `https://mybusiness.googleapis.com/v4/${location.google_account_name}/${location.google_location_name}/reviews?${query.toString()}`,
+              );
+              pagesFetched++;
 
-            await admin.from("google_business_locations")
-              .update({
-                google_total_review_count: Number.isFinite(Number(response.totalReviewCount))
-                  ? Number(response.totalReviewCount) : location.google_total_review_count,
-                google_average_rating: Number.isFinite(Number(response.averageRating))
-                  ? Number(response.averageRating) : location.google_average_rating,
-                google_review_stats_updated_at: new Date().toISOString(),
-              }).eq("id", location.id);
-            for (const googleReview of response.reviews || []) {
+              if (pagesFetched === 1) {
+                await admin.from("google_business_locations")
+                  .update({
+                    google_total_review_count: Number.isFinite(Number(response.totalReviewCount))
+                      ? Number(response.totalReviewCount) : location.google_total_review_count,
+                    google_average_rating: Number.isFinite(Number(response.averageRating))
+                      ? Number(response.averageRating) : location.google_average_rating,
+                    google_review_stats_updated_at: new Date().toISOString(),
+                  }).eq("id", location.id);
+              }
+
+              const pageReviews = response.reviews || [];
+              for (const googleReview of pageReviews) {
               const stars = rating(googleReview.starRating);
               const comment = googleReview.comment || null;
               const analysis = classifyReview(stars, comment || "");
@@ -404,8 +526,8 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
               const origin = hasGoogleReply
                 ? (["automatic", "manager", "bulk"].includes(existing?.reply_origin) ? existing.reply_origin : "google")
                 : "unknown";
-              const eligible = autoEligible(location, stars, analysis.risk, googleReview.createTime || updateTime) &&
-                !requiresCarefulReview(comment || "");
+              const eligible = autoEligible(location, stars, analysis.risk, googleReview.createTime || null) &&
+                !existing?.draft_edited_at && !requiresCarefulReview(comment || "");
               const reviewMs = new Date(googleReview.createTime || "").getTime();
               const historicalEligible = Boolean(location.auto_backfill_active) &&
                 historicalPublished < 5 &&
@@ -472,26 +594,24 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
               }
 
               let draft = retainedDraft;
-              if (historicalEligible && !existing?.draft_edited_at) {
-                // Replace any previously generated generic draft with a vetted,
-                // business-specific choice from the varied zero-cost reply pool.
-                const curated = buildCuratedReply({
-                  reviewId: reviewName,
-                  rating: stars,
-                  comment,
-                  reviewerName: saved.reviewer_display_name,
-                  venueName: location.reply_brand_name || location.google_location_title,
-                  venueCategory: location.business_category,
-                  venueContext: location.brand_context,
-                  signature: location.reply_signature,
-                  languageMode: location.reply_language_mode,
-                });
-                if (curated) {
+              if ((eligible || historicalEligible) && !existing?.draft_edited_at) {
+                // Automatic publishing only uses the vetted, business-specific
+                // zero-cost reply pool. This also replaces an earlier AI draft
+                // written while the review was still held for manual review.
+                const curated = curatedReplyFor(saved, location);
+                if (curated && curated.text !== draft) {
+                  const replacedDraft = Boolean(draft);
                   draft = curated.text;
                   await admin.from("google_reviews")
                     .update({ ai_draft: draft, ai_draft_generated_at: new Date().toISOString(),
                       reply_status: "draft", updated_at: new Date().toISOString() })
                     .eq("id", saved.id);
+                  await audit(saved, "draft_generated", draft, {
+                    risk: analysis.risk,
+                    method: curated.method,
+                    template_id: curated.templateId,
+                    replaced_previous_draft: replacedDraft,
+                  });
                 }
               }
               if (!draft && draftsGenerated < 20) {
@@ -549,6 +669,15 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                 repliesPublished++;
                 if (isHistorical) historicalPublished++;
               }
+              }
+              nextPageToken = response.nextPageToken || "";
+              if (!shouldFetchNextReviewPage(pageReviews, nextPageToken, pagesFetched)) break;
+            } while (true);
+            if (nextPageToken && pagesFetched >= MAX_REVIEW_PAGES) {
+              errors.push({
+                location_id: location.id,
+                error: `Google review polling reached ${MAX_REVIEW_PAGES} pages; recent reviews may require another sync`,
+              });
             }
 
             await admin
@@ -582,8 +711,21 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       }
     }
 
+    // Discover new business listings only on the first slot of each 3-hour
+    // cycle. This prevents discovery calls for every property poll. Newly
+    // discovered venues default to auto-replies OFF until manager consent.
+    if (queued && Number(requestBody?.queue_index) === 0) {
+      for (const connection of connections || []) {
+        if (!shouldBackoff(connection)) await runLocationDiscovery(connection);
+      }
+    } else if (roundRobin) {
+      for (const connection of connectionsDueForDiscovery(connections || [])) {
+        if (!shouldBackoff(connection)) await runLocationDiscovery(connection);
+      }
+    }
+
     // A cron tick without any discovered listings is not a completed review sync.
-    const awaitingMapping = roundRobin ? !selectedLocation : connectionsChecked > 0 && locationsChecked === 0;
+    const awaitingMapping = roundRobin || queued ? !selectedLocation : connectionsChecked > 0 && locationsChecked === 0;
     const finalStatus = errors.length || awaitingMapping ? "partial" : "completed";
     await admin
       .from("google_reputation_worker_runs")
@@ -607,6 +749,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       reviews_synced: reviewsSynced,
       drafts_generated: draftsGenerated,
       replies_published: repliesPublished,
+      ...(discovery.length ? { discovery } : {}),
       errors: errors.length,
     });
   } catch (error) {

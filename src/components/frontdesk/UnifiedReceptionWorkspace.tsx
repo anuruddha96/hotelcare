@@ -5,15 +5,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { RoomStatePeriodManager } from '@/components/dashboard/RoomStatePeriodManager';
 import {
   CalendarDays, Coffee, List, LogIn, LogOut, Plus, Search,
   Users, AlertTriangle,
   Hourglass, ListOrdered, Sparkles, Waves,
 } from 'lucide-react';
 import { ReservationCalendar, type RoomStatus } from '@/components/reservations/ReservationCalendar';
-import { VizaStatusCard } from '@/components/frontdesk/VizaStatusCard';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
+import { VizaGuestRecoveryCard } from '@/components/frontdesk/VizaGuestRecoveryCard';
+import { WalkInSaleDialog } from '@/components/frontdesk/WalkInSaleDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
 import { PmsSyncButton } from '@/components/frontdesk/PmsSyncButton';
 import { toast } from 'sonner';
@@ -28,7 +31,7 @@ import { useGuestSignals } from '@/hooks/useGuestSignals';
 import { GuestSignalBadge } from '@/components/guests/GuestSignalBadge';
 import type { GuestSignal } from '@/lib/guestJourney';
 
-const RES_SELECT = '*, guests(first_name, last_name, email, phone, vip_status, id_document_number), rooms:room_id(id, room_number, room_type, status)';
+const RES_SELECT = '*, guests!reservations_guest_id_fkey(first_name, last_name, email, phone, vip_status, id_document_number), rooms:room_id(id, room_number, room_type, status)';
 type ViewMode = 'planner' | 'list';
 
 type SnapshotRow = ReceptionSnapshot & {
@@ -64,7 +67,7 @@ function snapshotStatus(value: string | null): string {
 
 function isSnapshotOnly(row: any): boolean { return row?.snapshotOnly === true; }
 
-function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, signals }: {
+function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, signals, actionAnchor }: {
   title: string;
   icon: typeof Users;
   items: any[];
@@ -73,6 +76,7 @@ function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, 
   signals?: Map<string, GuestSignal>;
   /** One-tap action per row (e.g. Check in / Check out) so reception never has to hunt. */
   actionLabel?: string;
+  actionAnchor?: string;
   onAction?: (row: Record<string, unknown>) => void;
 }) {
   const { t } = useTranslation();
@@ -93,7 +97,7 @@ function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, 
             </div><span className="text-[10px] text-primary shrink-0 font-medium">{reservationChannel(row).label}</span></div>
           </button>
           {actionLabel && onAction && !isSnapshotOnly(row) && (
-            <button type="button" onClick={() => onAction(row)}
+            <button type="button" data-training={actionAnchor} onClick={() => onAction(row)}
               className="shrink-0 px-2 my-1.5 mr-1.5 rounded-md border border-border text-[11px] font-medium text-primary hover:bg-primary hover:text-primary-foreground transition-colors">
               {actionLabel}
             </button>
@@ -114,6 +118,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const [reservations, setReservations] = useState<any[]>([]);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
+  const [periodRoom, setPeriodRoom] = useState<{ id: string; room_number: string } | null>(null);
   const [importHistory, setImportHistory] = useState<ImportHistory | null>(null);
   const [lastImportSuccess, setLastImportSuccess] = useState<string | null>(null);
   // Bookings Previo no longer returns: hidden from the plan and counts, but never silently.
@@ -123,6 +128,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const [search, setSearch] = useState('');
   const [view, setView] = useState<ViewMode>('planner');
   const [createOpen, setCreateOpen] = useState(false);
+  const [walkInOpen, setWalkInOpen] = useState(false);
   const [statPanel, setStatPanel] = useState<'arrivals' | 'departures' | 'inhouse' | 'unassigned' | null>(null);
   // One-tap check-in / check-out straight from the side lists.
   const [actioned, setActioned] = useState<{ row: Record<string, unknown>; dialog: 'checkin' | 'checkout' } | null>(null);
@@ -237,9 +243,10 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       if (auth.user?.id) patch.last_cleaned_by = auth.user.id;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await supabase.from('rooms').update(patch as any).eq('id', room.id).select('id').maybeSingle();
+    const { data, error } = await supabase.from('rooms').update(patch as any).eq('id', room.id).select('id,status').maybeSingle();
     if (error || !data) { toast.error(error?.message || t('pms.room.statusFailed')); return; }
-    setRooms((list) => list.map((item) => (item.id === room.id ? { ...item, status: next } : item)));
+    if (data.status !== next) { toast.error(t('ntak.phase4.activeOverride')); void fetchAll(); return; }
+    setRooms((list) => list.map((item) => (item.id === room.id ? { ...item, status: data.status } : item)));
     toast.success(t('pms.room.statusSaved').replace('{room}', room.room_number).replace('{status}', label(next).toLowerCase()));
   }, [t]);
 
@@ -353,12 +360,13 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         </div>
         {breakfastUploadPath && <Link to={breakfastUploadPath} title={t('pms.tip.breakfast')}><Button type="button" size="sm" variant="outline" className="h-9 gap-1.5">🥐 <span className="hidden lg:inline">{t('pms.fd.breakfastUpload')}</span></Button></Link>}
         {canSync && hotelId && !nativeHotel && <span title="🔄 Pull the latest bookings from Previo."><PmsSyncButton hotelId={hotelId} onSynced={fetchAll} compact /></span>}
+        {hotelId && organizationSlug && !isPortfolio && <Button type="button" size="sm" variant="outline" className="h-9 gap-1" onClick={() => setWalkInOpen(true)}>{t('ntak.phase5.title')}</Button>}
         <Button type="button" size="sm" title={t('pms.tip.newReservation')} className="h-9 gap-1" onClick={() => setCreateOpen(true)}>➕ {t('pms.fd.newReservation')}</Button>
       </div>
     </div>
 
-    {hotelId && <VizaStatusCard hotelId={hotelId} />}
 
+    {hotelId && !isPortfolio && <VizaGuestRecoveryCard key={hotelId} hotelId={hotelId} />}
     <div className="relative" data-training="fd-quick-search">
       <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
       <Input
@@ -393,7 +401,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       )}
     </div>
 
-    {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Reception data could not be verified. Previous property data has been cleared. Retry refresh.</div>}
+    {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Unable to load the room plan. <Button variant="outline" size="sm" onClick={fetchAll}>Retry</Button></div>}
     {!loadingData && !loadError && !nativeHotel && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0) &&
       <details role="status" className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
         <summary className="cursor-pointer select-none flex items-center gap-2 font-medium">
@@ -462,8 +470,8 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       </div>;
     })()}
 
-    <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
-      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned editable={nativeHotel} onChanged={fetchAll} pmsName={nativeHotel ? null : 'Previo'} onQuickAction={(row, action) => setActioned({ row, dialog: action })} onRoomStatusChange={changeRoomStatus} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
+    {!loadError && <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
+      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned editable={nativeHotel} onChanged={fetchAll} pmsName={nativeHotel ? null : 'Previo'} onQuickAction={(row, action) => setActioned({ row, dialog: action })} onRoomStatusChange={changeRoomStatus} onRoomPeriodManage={(room) => setPeriodRoom(room)} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
         <thead className="sticky top-0 bg-card z-10 border-b border-border"><tr className="text-left text-xs text-muted-foreground">
           <th className="px-3 py-2 font-medium">{t('pms.reservations.guest')}</th><th className="px-3 py-2 font-medium">{t('pms.res.room')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.checkInDate')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.status')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.source')}</th>
         </tr></thead><tbody className="divide-y divide-border">{filtered.map((row) => <tr key={row.id} onClick={() => openReservation(row)} className={isSnapshotOnly(row) ? 'bg-muted/15' : 'cursor-pointer hover:bg-accent/30'}>
@@ -475,9 +483,9 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       <aside className="border border-border rounded-lg overflow-hidden bg-card 2xl:sticky 2xl:top-3">
         <SideSection signals={guestSignals} title={unassignedUrgent ? `${floatingTitle} · ${unassignedUrgent} ${t('pms.cal.floatingUrgent')}` : floatingTitle} icon={unassignedUrgent ? AlertTriangle : Waves} items={unassigned} onOpen={openReservation} />
         <SideSection signals={guestSignals} title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation}
-          actionLabel={t('pms.checkIn')} onAction={(row) => setActioned({ row, dialog: 'checkin' })} />
+          actionAnchor="fd-checkin-button" actionLabel={t('pms.checkIn')} onAction={(row) => setActioned({ row, dialog: 'checkin' })} />
         <SideSection signals={guestSignals} title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation}
-          actionLabel={t('pms.checkOut')} onAction={(row) => setActioned({ row, dialog: 'checkout' })} />
+          actionAnchor="fd-checkout-button" actionLabel={t('pms.checkOut')} onAction={(row) => setActioned({ row, dialog: 'checkout' })} />
         <SideSection signals={guestSignals} title={t('pms.fd.inHouseNow')} icon={Users} items={inHouse} onOpen={openReservation} />
         {newOnline.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.newOnline')} icon={Sparkles} items={newOnline} onOpen={openReservation} />}
         {expiringOptions.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.expiringOptions')} icon={Hourglass} items={expiringOptions} onOpen={openReservation} />}
@@ -485,7 +493,15 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         {isOttofiori && <SideSection signals={guestSignals} title={`Tomorrow check-ins · ${tomorrow}${importStale ? ' · unverified' : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
         <SideSection signals={guestSignals} title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
       </aside>
-    </div>
+    </div>}
+    <Dialog open={!!periodRoom} onOpenChange={(isOpen) => { if (!isOpen) setPeriodRoom(null); }}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+        <DialogHeader><DialogTitle>{t('ntak.phase4.title')}</DialogTitle></DialogHeader>
+        {periodRoom && <RoomStatePeriodManager hotelId={hotelId} roomId={periodRoom.id}
+          roomNumber={periodRoom.room_number} active onChanged={() => void fetchAll()} />}
+      </DialogContent>
+    </Dialog>
+    {hotelId && organizationSlug && !isPortfolio && <WalkInSaleDialog key={hotelId} open={walkInOpen} onOpenChange={setWalkInOpen} hotelId={hotelId} organizationSlug={organizationSlug} />}
     <CreateReservationDialog open={createOpen} onOpenChange={setCreateOpen} onSuccess={() => { setCreateOpen(false); void fetchAll(); }} />
     {actioned?.dialog === 'checkin' && (
       <CheckInDialog reservation={actioned.row} open onOpenChange={(next) => { if (!next) setActioned(null); }}

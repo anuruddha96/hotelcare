@@ -1,3 +1,4 @@
+import { ThemeProvider } from "next-themes";
 import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -15,8 +16,11 @@ import { ServiceOutageBanner } from "@/components/system/ServiceOutageBanner";
 import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncementBanner";
 import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
 import { getSessionSuspension, observeSessionSuspension } from "@/lib/clientSessionGuard";
+import { canAccessChannelManager, canAccessLegacyModules } from "@/lib/roleAccess";
 import { usePurchaseInvoiceAccess } from "@/hooks/usePurchaseInvoiceAccess";
 import { effectiveAccessRole } from "@/lib/accessPolicy";
+import { canSeeWinterSnow } from "@/lib/winterSeason";
+import { WinterSnow } from "@/components/layout/WinterWorkspace";
 
 // Lazy load all pages to keep initial bundle small
 const Index = lazy(() => import("./pages/Index"));
@@ -122,9 +126,16 @@ const RootRedirect = () => {
   if (!user) return <Navigate to="/auth" replace />;
   if (!profile?.organization_slug) return <Navigate to="/auth" replace />;
 
-  // Every top manager starts on Revenue, including Hotel Memories top managers.
-  // Controlling and HR keep their own landing pages.
-  if (effectiveAccessRole(profile) === "top_management" && profile.assigned_hotel) {
+  // Hotel Memories top managers are operational managers: they must land on
+  // the same dashboard/Housekeeping view as normal managers. Keep the existing
+  // revenue-first behaviour untouched for top managers assigned to other hotels.
+  const isMemoriesTopManager = profile.role === "top_management_manager" &&
+    ["memories-budapest", "Hotel Memories Budapest"].includes(profile.assigned_hotel || "");
+  // Controlling and HR have top-management access but their own first screen
+  // (Purchase invoices / HR), chosen on the organization page.
+  const ownLanding = ["controlling", "hr"].includes(effectiveAccessRole(profile));
+
+  if (!ownLanding && (profile.role === "top_management" || (profile.role === "top_management_manager" && !isMemoriesTopManager)) && profile.assigned_hotel) {
     return <Navigate to={`/${profile.organization_slug}/revenue/${profile.assigned_hotel}`} replace />;
   }
   return <Navigate to={`/${profile.organization_slug}`} replace />;
@@ -132,16 +143,14 @@ const RootRedirect = () => {
 
 /** Purchase invoices are rolled out per organization by the database (pi_module_access), not by a nickname. */
 const PurchaseInvoicesGate = ({ fallback }: { fallback: string }) => {
-  const { profile } = useAuth();
   const access = usePurchaseInvoiceAccess();
-  const permittedRole = !!profile?.is_super_admin ||
-    ['admin', 'top_management', 'controlling'].includes(effectiveAccessRole(profile));
   if (access.loading) return <PageLoader />;
   // Finance admins may open the page while the module is disabled, to enable it (data stays gated by RLS).
-  return permittedRole && (access.hasAccess || access.isFinanceAdmin) ? <PurchaseInvoices /> : <Navigate to={fallback} replace />;
+  return access.hasAccess || access.isFinanceAdmin ? <PurchaseInvoices /> : <Navigate to={fallback} replace />;
 };
 
 const TenantRouter = () => {
+  const location = useLocation();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { user, profile, loading, bootstrapProgress } = useAuth();
 
@@ -156,51 +165,45 @@ const TenantRouter = () => {
     return <Navigate to={`/${profile.organization_slug}`} replace />;
   }
 
-  const accessRole = effectiveAccessRole(profile);
-  const restrictedHR = accessRole === 'hr' && !profile?.is_super_admin;
-  const executive = ['admin', 'top_management', 'controlling'].includes(accessRole) || !!profile?.is_super_admin;
-  const canSeeRevenue = executive || (organizationSlug === 'channex' && accessRole === 'manager');
-  const canSeeChannels = executive || accessRole === 'manager';
-  const canSeeReputation = executive || accessRole === 'manager';
-  const canUseParking = profile?.role === 'admin' || !!profile?.is_super_admin;
+  const canUseLegacyModules = canAccessLegacyModules(profile?.nickname);
   const legacyFallback = `/${organizationSlug}`;
-  const hrFallback = `${legacyFallback}?tab=attendance`;
 
   return (
     <TenantProvider organizationSlug={organizationSlug}>
+      {user && profile && canSeeWinterSnow(profile) && !/\/(?:auth|reset-password)(?:\/|$)/.test(location.pathname) && <WinterSnow />}
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
                   <Route path="/reset-password" element={<PasswordRecovery />} />
-          <Route path="/front-desk" element={!restrictedHR ? <FrontDesk /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/reservations" element={!restrictedHR ? <Reservations /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/reservations/:id" element={!restrictedHR ? <ReservationDetail /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/guests" element={!restrictedHR ? <Guests /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/guests/:guestId" element={!restrictedHR ? <GuestDetail /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/guests/k/:hotelId/:profileKey" element={!restrictedHR ? <GuestDetail /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/channel-manager" element={canSeeChannels ? <ChannelManager /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/booking-engine" element={!restrictedHR ? <BookingEngineSettings /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/rates-availability" element={canSeeRevenue ? <RatesAvailability /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/revenue" element={canSeeRevenue ? <Revenue /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/revenue/:hotelId" element={canSeeRevenue ? <RevenueHotelDetail /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/reputation" element={canSeeReputation ? <Reputation /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/price-list" element={!restrictedHR ? <PriceList /> : <Navigate to={hrFallback} replace />} />
+          <Route path="/front-desk" element={<FrontDesk />} />
+          <Route path="/reservations" element={<Reservations />} />
+          <Route path="/reservations/:id" element={<ReservationDetail />} />
+          <Route path="/guests" element={<Guests />} />
+          <Route path="/guests/:guestId" element={<GuestDetail />} />
+          <Route path="/guests/k/:hotelId/:profileKey" element={<GuestDetail />} />
+          <Route path="/channel-manager" element={user && canAccessChannelManager(profile?.role, profile?.nickname, profile?.organization_slug) ? <ChannelManager /> : <Navigate to={legacyFallback} replace />} />
+          <Route path="/booking-engine" element={<BookingEngineSettings />} />
+          <Route path="/rates-availability" element={<RatesAvailability />} />
+          <Route path="/revenue" element={<Revenue />} />
+          <Route path="/revenue/:hotelId" element={<RevenueHotelDetail />} />
+          <Route path="/reputation" element={<Reputation />} />
+          <Route path="/price-list" element={<PriceList />} />
           <Route path="/bb" element={<Breakfast />} />
           <Route path="/bb/:hotelCode" element={<Breakfast />} />
           <Route path="/purchase-invoices" element={<PurchaseInvoicesGate fallback={legacyFallback} />} />
           <Route path="/training" element={<TrainingCenterPage />} />
-          <Route path="/reception" element={!restrictedHR ? <ReceptionHome /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/reception/breakfast-upload" element={!restrictedHR ? <ReceptionBreakfastUpload /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/reception/reports" element={!restrictedHR ? <ReceptionReports /> : <Navigate to={hrFallback} replace />} />
+          <Route path="/reception" element={<ReceptionHome />} />
+          <Route path="/reception/breakfast-upload" element={<ReceptionBreakfastUpload />} />
+          <Route path="/reception/reports" element={<ReceptionReports />} />
           <Route path="/assistant" element={<AssistantPage />} />
           <Route path="/assistant/:threadId" element={<AssistantPage />} />
           <Route path="/assistant-insights" element={<AssistantInsights />} />
           <Route path="/billing" element={<Billing />} />
-          <Route path="/admin/invoicing" element={executive ? <InvoicingSettings /> : <Navigate to={legacyFallback} replace />} />
-          <Route path="/admin/session-protection" element={executive ? <SessionProtectionAdmin /> : <Navigate to={legacyFallback} replace />} />
-          <Route path="/insuite" element={!restrictedHR ? <InSuiteStaff /> : <Navigate to={hrFallback} replace />} />
-          <Route path="/parking-tickets" element={canUseParking ? <ParkingTickets /> : <Navigate to={legacyFallback} replace />} />
+          <Route path="/admin/invoicing" element={<InvoicingSettings />} />
+          <Route path="/admin/session-protection" element={<SessionProtectionAdmin />} />
+          <Route path="/insuite" element={<InSuiteStaff />} />
+          <Route path="/parking-tickets" element={profile?.role === "admin" && canUseLegacyModules ? <ParkingTickets /> : <Navigate to={legacyFallback} replace />} />
         </Routes>
         <AssistantLauncher />
       </Suspense>
@@ -275,6 +278,7 @@ const AuthenticatedShell = ({ children }: { children: React.ReactNode }) => {
 };
 
 const MainApp = () => (
+  <ThemeProvider attribute="class" defaultTheme="light" enableSystem storageKey="hotelcare-appearance" disableTransitionOnChange>
   <QueryClientProvider client={queryClient}>
     <TranslationProvider>
       <AuthProvider>
@@ -305,6 +309,7 @@ const MainApp = () => (
       </AuthProvider>
     </TranslationProvider>
   </QueryClientProvider>
+  </ThemeProvider>
 );
 
 const App = () => {

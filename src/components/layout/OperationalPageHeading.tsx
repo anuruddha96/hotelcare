@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb';
+import { useTenant } from '@/contexts/TenantContext';
+import { useAccessPolicy } from '@/hooks/useAccessPolicy';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
@@ -7,6 +9,8 @@ import { supabase } from '@/integrations/supabase/client';
 /** Title and breadcrumb styled to match the Housekeeping dashboard heading. */
 export function OperationalPageHeading({ section }: { section: string }) {
   const { profile } = useAuth();
+  const { hrWorkspace } = useAccessPolicy();
+  const { organization } = useTenant();
   const { t } = useTranslation();
   const [hotelDisplayName, setHotelDisplayName] = useState<string | null>(null);
 
@@ -41,9 +45,9 @@ export function OperationalPageHeading({ section }: { section: string }) {
         </Breadcrumb>
       </div>
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-foreground">{hotelDisplayName || t('dashboard.title')}</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-foreground">{hrWorkspace ? t('hr.heading') : hotelDisplayName || t('dashboard.title')}</h1>
         <p className="text-sm sm:text-base text-muted-foreground">
-          {hotelDisplayName ? t('dashboard.managementSystem').replace('{hotel}', hotelDisplayName) : t('dashboard.subtitle')}
+          {hrWorkspace ? organization?.name || profile?.organization_slug : hotelDisplayName ? t('dashboard.managementSystem').replace('{hotel}', hotelDisplayName) : t('dashboard.subtitle')}
         </p>
       </div>
     </>

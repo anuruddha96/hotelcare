@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type ChatStatus, type UIMessage } from "ai";
-import { CheckCircle2, Flag, Loader2, Mic, MicOff, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
+import { DefaultChatTransport, type ChatStatus, type FileUIPart, type UIMessage } from "ai";
+import { Brain, Check, CheckCircle2, Copy, FileImage, FileText, Flag, Loader2, Mic, MicOff, Paperclip, Pencil, RefreshCw, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Conversation,
@@ -11,20 +11,27 @@ import {
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import {
   PromptInput,
+  PromptInputActionAddAttachments,
+  PromptInputActionMenu,
+  PromptInputActionMenuContent,
+  PromptInputActionMenuTrigger,
   PromptInputButton,
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { loadAssistantDraft, saveAssistantDraft } from "@/lib/assistant/activeThread";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useMiraDictation, type MiraVoiceState } from "@/hooks/useMiraDictation";
 import { useAssistantContext } from "@/hooks/useAssistantContext";
 import {
   assistantRowsToUiMessages,
@@ -38,7 +45,10 @@ import EmailDraftCard, { isEmailDraft } from "./EmailDraftCard";
 import ReviewReplyCard, { isReviewReply } from "./ReviewReplyCard";
 import { cn } from "@/lib/utils";
 import { isAssistantDebugEnabled } from "@/lib/assistant/debugMode";
-import { reportAssistantIssue, sendAssistantFeedback } from "@/lib/assistant/issueReports";
+import { sendAssistantFeedback } from "@/lib/assistant/issueReports";
+import { fetchAssistantUsage, usageBlocked, usageNotice, type AssistantUsage } from "@/lib/assistant/usage";
+import { answerLooksUnresolved } from "@/lib/assistant/answerSignals";
+import ReportProblemDialog from "./ReportProblemDialog";
 import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCard";
 import ActionConfirmCard, { isActionProposal } from "./ActionConfirmCard";
 import ClarifyingQuestionCard, { isClarifyingQuestions } from "./ClarifyingQuestionCard";
@@ -49,6 +59,7 @@ import { pricingProposalKey, pricingReviewApprovals } from "@/lib/assistant/pric
 import AssistantActions, { isAssistantActions } from "./AssistantActions";
 import ActivityLine from "./ActivityLine";
 import PremiumTopupCard, { type PremiumPackage } from "./PremiumTopupCard";
+import { rolePlaceholderExamples } from "@/lib/assistant/starters";
 
 const SCOPE_LABEL: Record<string, string> = {
   revenue: "Revenue management",
@@ -59,6 +70,9 @@ const SCOPE_LABEL: Record<string, string> = {
 
 type AssistantMetadata = {
   needsScope?: string;
+  /** Mira declined: outside HotelCare work or outside the person's role. */
+  declined?: string;
+  refused?: boolean;
   /** Charts and images of a stored answer, restored when a chat is reopened. */
   attachments?: unknown[];
   premiumRequired?: boolean;
@@ -79,199 +93,258 @@ function messageText(message: AssistantUiMessage) {
     .join("");
 }
 
-type DictationState = "idle" | "recording" | "transcribing";
+/** A visual suggestion only: this never sends a message by itself. */
+function useMiraTypewriter(examples: string[], enabled: boolean) {
+  const [preview, setPreview] = useState("");
 
-type BrowserSpeechRecognition = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((event: any) => void) | null;
-  onerror: ((event: any) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-};
-
-function speechRecognitionCtor(): (new () => BrowserSpeechRecognition) | null {
-  if (typeof window === "undefined") return null;
-  const w = window as any;
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
-}
-
-/**
- * Speak-to-type. iOS Safari's SpeechRecognition is unreliable, so the audio is
- * recorded in the browser and transcribed server-side for the final text.
- * Where the browser offers SpeechRecognition (Chrome, Edge, Android), it runs
- * alongside the recording so the words appear in the box while the person is
- * still speaking; the server transcript then replaces that live preview.
- */
-function useDictation(onText: (text: string) => void, language: string, onInterim?: (text: string | null) => void) {
-  const [state, setState] = useState<DictationState>("idle");
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
-  const cancelledRef = useRef(false);
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
-  const liveTextRef = useRef<string>("");
-  const supported =
-    typeof window !== "undefined" &&
-    typeof navigator !== "undefined" &&
-    Boolean(navigator.mediaDevices?.getUserMedia) &&
-    typeof MediaRecorder !== "undefined";
-
-  const stopRecognition = useCallback(() => {
-    const recognition = recognitionRef.current;
-    recognitionRef.current = null;
-    if (!recognition) return;
-    recognition.onresult = null;
-    recognition.onerror = null;
-    recognition.onend = null;
-    try { recognition.stop(); } catch { /* already stopped */ }
-  }, []);
-
-  const cleanup = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    recorderRef.current = null;
-    chunksRef.current = [];
-    stopRecognition();
-  }, [stopRecognition]);
-
-  useEffect(() => () => cleanup(), [cleanup]);
-
-  const transcribe = useCallback(
-    async (blob: Blob, mimeType: string) => {
-      setState("transcribing");
-      try {
-        const { supabase } = await import("@/integrations/supabase/client");
-        const extension = mimeType.includes("mp4") ? "mp4" : mimeType.includes("ogg") ? "ogg" : "webm";
-        const form = new FormData();
-        form.append("file", new File([blob], `speech.${extension}`, { type: mimeType }));
-        if (language) form.append("language", language);
-        const { data, error } = await supabase.functions.invoke("assistant-transcribe", { body: form });
-        if (error) throw error;
-        const text = String((data as any)?.text ?? "").trim();
-        if (text) onText(text);
-        else if (liveTextRef.current.trim()) onText(liveTextRef.current.trim());
-        else toast.error("I didn’t catch that. Try again a little closer to the microphone.");
-      } catch (error) {
-        console.error("dictation failed", error);
-        // The browser's own live transcript is better than losing the words.
-        if (liveTextRef.current.trim()) onText(liveTextRef.current.trim());
-        else toast.error("Could not turn that recording into text.");
-      } finally {
-        liveTextRef.current = "";
-        onInterim?.(null);
-        setState("idle");
+  useEffect(() => {
+    if (!enabled || !examples.length) { setPreview(""); return; }
+    let current = 0;
+    let typed = 0;
+    let hold = 0;
+    const tick = window.setInterval(() => {
+      const example = examples[current];
+      if (typed < example.length) {
+        typed += 1;
+        setPreview(example.slice(0, typed));
+      } else if (++hold >= 32) {
+        current = (current + 1) % examples.length;
+        typed = 0;
+        hold = 0;
+        setPreview("");
       }
-    },
-    [language, onText, onInterim],
-  );
-
-  // Live preview while recording (best effort; the server transcript is final).
-  const startRecognition = useCallback(() => {
-    const Ctor = speechRecognitionCtor();
-    if (!Ctor) return;
-    try {
-      const recognition = new Ctor();
-      recognition.lang = language || (typeof navigator !== "undefined" ? navigator.language : "en");
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      let committed = "";
-      recognition.onresult = (event: any) => {
-        let interim = "";
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const result = event.results[i];
-          const transcript = String(result[0]?.transcript ?? "");
-          if (result.isFinal) committed = `${committed} ${transcript}`.trim();
-          else interim += transcript;
-        }
-        liveTextRef.current = `${committed} ${interim}`.trim();
-        onInterim?.(liveTextRef.current);
-      };
-      recognition.onerror = () => { /* preview only; the recording still transcribes */ };
-      recognition.onend = () => {
-        // Chrome ends recognition after silence; keep listening while recording.
-        if (recognitionRef.current === recognition && recorderRef.current?.state === "recording") {
-          try { recognition.start(); } catch { /* ignore */ }
-        }
-      };
-      recognition.start();
-      recognitionRef.current = recognition;
-    } catch (error) {
-      console.warn("live transcript unavailable", error);
-    }
-  }, [language, onInterim]);
-
-  const start = useCallback(async () => {
-    if (!supported) {
-      toast.error("Voice input is not available in this browser");
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const mimeType = [
-        "audio/webm;codecs=opus",
-        "audio/webm",
-        "audio/mp4",
-        "audio/ogg;codecs=opus",
-      ].find((type) => MediaRecorder.isTypeSupported?.(type));
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      chunksRef.current = [];
-      cancelledRef.current = false;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      };
-      recorder.onstop = () => {
-        const type = recorder.mimeType || mimeType || "audio/webm";
-        const blob = new Blob(chunksRef.current, { type });
-        cleanup();
-        if (cancelledRef.current || blob.size < 1200) {
-          // Too short to transcribe: keep whatever the live preview heard.
-          const live = liveTextRef.current.trim();
-          liveTextRef.current = "";
-          if (live && !cancelledRef.current) onText(live);
-          onInterim?.(null);
-          setState("idle");
-          return;
-        }
-        void transcribe(blob, type);
-      };
-      recorder.start();
-      recorderRef.current = recorder;
-      liveTextRef.current = "";
-      setState("recording");
-      startRecognition();
-    } catch (error) {
-      console.error("microphone unavailable", error);
-      cleanup();
-      setState("idle");
-      toast.error("Microphone access is needed for voice input.");
-    }
-  }, [cleanup, supported, transcribe, startRecognition, onText, onInterim]);
-
-  const stop = useCallback(() => {
-    stopRecognition();
-    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
-    else setState("idle");
-  }, [stopRecognition]);
-
-  const toggle = useCallback(() => {
-    if (state === "recording") stop();
-    else if (state === "idle") void start();
-  }, [start, state, stop]);
-
-  return { state, supported, toggle };
+    }, 60);
+    return () => window.clearInterval(tick);
+  }, [enabled, examples]);
+  return preview || "Ask Mira anything about your hotel…";
 }
 
-function AnswerFeedback({ threadId, messageId }: { threadId: string; messageId: string }) {
+const MIRA_FILE_ACCEPT = "image/png,image/jpeg,image/webp,application/pdf,.pdf";
+const MIRA_FILE_MAX_BYTES = 4 * 1024 * 1024;
+
+/** Preview supported image attachments before sending and in Mira's chat transcript. */
+function MiraFileTile({ file, inMessage = false, onRemove }: {
+  file: FileUIPart;
+  inMessage?: boolean;
+  onRemove?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+  const filename = file.filename || "Attachment";
+  const isImage = /^image\/(jpeg|png|webp)$/i.test(file.mediaType || "") &&
+    /^(blob:|data:image\/|https:\/\/)/i.test(file.url || "");
+  const showThumbnail = isImage && !imageFailed;
+
+  return (
+    <>
+      <div className={cn(
+        "group/file relative inline-flex max-w-full overflow-hidden rounded-xl border text-xs transition-colors",
+        inMessage ? "border-primary-foreground/20 bg-primary-foreground/10 text-primary-foreground" : "border-border bg-muted/40 text-foreground",
+      )}>
+        {showThumbnail ? (
+          <button type="button" onClick={() => setExpanded(true)} className="flex max-w-52 flex-col items-start text-left"
+            title={`Preview ${filename}`} aria-label={`Preview ${filename}`}>
+            <img src={file.url} alt={filename} loading="lazy" onError={() => setImageFailed(true)}
+              className="h-28 w-44 max-w-full bg-muted/30 object-cover sm:h-32 sm:w-48" />
+            <span className="block w-full truncate px-2 py-1.5 text-[11px]">{filename}</span>
+          </button>
+        ) : (
+          <span className="flex min-h-10 max-w-56 items-center gap-2 px-3 py-2">
+            {file.mediaType === "application/pdf" ? <FileText className="h-4 w-4 shrink-0" /> : <FileImage className="h-4 w-4 shrink-0" />}
+            <span className="truncate">{filename}</span>
+          </span>
+        )}
+        {onRemove && (
+          <button type="button" aria-label={`Remove ${filename}`} onClick={onRemove}
+            className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-background/95 text-foreground shadow-sm hover:bg-destructive/10 hover:text-destructive">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {showThumbnail && (
+        <Dialog open={expanded} onOpenChange={setExpanded}>
+          <DialogContent className="max-w-4xl border-0 bg-background p-2 shadow-xl sm:p-4">
+            <DialogTitle className="pr-8 text-sm font-medium">{filename}</DialogTitle>
+            <img src={file.url} alt={filename} className="max-h-[80dvh] w-full rounded-lg object-contain" />
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+type StoredMiraFile = { kind: "user_file"; path: string; filename: string; mediaType: string };
+function isStoredMiraFile(value: unknown): value is StoredMiraFile {
+  if (!value || typeof value !== "object") return false;
+  const file = value as Record<string, unknown>;
+  return file.kind === "user_file" && typeof file.path === "string" &&
+    typeof file.filename === "string" && typeof file.mediaType === "string";
+}
+
+/** Signed URLs are requested on view, so private evidence does not become public. */
+function StoredMiraFileTile({ spec }: { spec: StoredMiraFile }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setUrl(null);
+    supabase.storage.from("assistant-media").createSignedUrl(spec.path, 3600).then(({ data, error }) => {
+      if (cancelled) return;
+      if (!error && data?.signedUrl) setUrl(data.signedUrl);
+    });
+    return () => { cancelled = true; };
+  }, [spec.path]);
+  return url
+    ? <MiraFileTile file={{ type: "file", filename: spec.filename, mediaType: spec.mediaType, url }} inMessage />
+    : <span className="inline-flex items-center gap-2 rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-3 py-2 text-xs">
+        {spec.mediaType === "application/pdf" ? <FileText className="h-4 w-4" /> : <FileImage className="h-4 w-4" />}
+        <span className="max-w-44 truncate">{spec.filename}</span>
+      </span>;
+}
+
+/** The composer uses the same visual previews as messages sent to Mira. */
+function MiraFilePreview() {
+  const { files, remove } = usePromptInputAttachments();
+  if (!files.length) return null;
+  return (
+    <div className="flex flex-wrap gap-2 border-b px-3 pb-3 pt-2" aria-label="Files ready to attach">
+      {files.map((file) => (
+        <MiraFileTile key={file.id} file={file} onRemove={() => remove(file.id)} />
+      ))}
+    </div>
+  );
+}
+
+/** File-only asks are valid; disable Submit only when neither text nor files exist. */
+function MiraSubmit({ draft, status, busy = false, quotaReached = false, voicePending = false, onStop }: {
+  draft: string;
+  status?: ChatStatus;
+  busy?: boolean;
+  quotaReached?: boolean;
+  voicePending?: boolean;
+  onStop?: () => void;
+}) {
+  const { files } = usePromptInputAttachments();
+  const generating = status === "submitted" || status === "streaming";
+  return (
+    <PromptInputSubmit
+      className="h-10 w-10 rounded-full"
+      status={status}
+      onStop={onStop}
+      disabled={!generating && (busy || quotaReached || voicePending || (!draft.trim() && files.length === 0))}
+    />
+  );
+}
+
+
+/** One composer, with a status line rather than a second transcription field. */
+function MiraVoiceStatus({ state, liveHint, onCancel }: {
+  state: MiraVoiceState;
+  liveHint: string;
+  onCancel: () => void;
+}) {
+  if (state === "idle") return null;
+  const label = state === "starting" ? "Opening microphone…" :
+    state === "recording" ? liveHint :
+    state === "transcribing" ? "Finishing transcription…" : "Paused · resume or finish";
+  return (
+    <div className="flex w-full items-center justify-between gap-2 px-3 pb-1 text-xs text-muted-foreground">
+      <span role="status" className="flex min-w-0 items-center gap-2">
+        {state === "recording" && <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-rose-500" />}
+        {(state === "starting" || state === "transcribing") && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+        {label}
+      </span>
+      <button type="button" onClick={onCancel} className="shrink-0 rounded px-2 py-1 text-muted-foreground underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+        Cancel dictation
+      </button>
+    </div>
+  );
+}
+
+function MiraVoiceControls({ state, supported, disabled = false, onToggle, onDone }: {
+  state: MiraVoiceState;
+  supported: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+  onDone: () => void;
+}) {
+  const recording = state === "recording";
+  const paused = state === "paused";
+  const busy = state === "starting" || state === "transcribing";
+  const label = recording ? "Pause" : paused ? "Resume" : "Voice";
+  return (
+    <>
+      <PromptInputButton
+        tooltip={!supported ? "Voice input requires microphone access" : label}
+        variant={recording ? "default" : "outline"}
+        onClick={onToggle}
+        disabled={!supported || disabled || busy}
+        aria-label={recording ? "Pause dictation" : paused ? "Resume dictation" : "Start voice input"}
+        className="h-9 gap-1.5 rounded-full border px-2.5 text-xs font-medium"
+      >
+        {recording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+        <span className={state === "idle" ? "hidden sm:inline" : undefined}>{label}</span>
+      </PromptInputButton>
+      {(recording || paused) && (
+        <PromptInputButton variant="default" onClick={onDone} aria-label="Finish dictation"
+          className="h-9 gap-1.5 rounded-full px-3 text-xs font-medium">
+          <Check className="h-4 w-4" /> Done
+        </PromptInputButton>
+      )}
+    </>
+  );
+}
+
+function draftWithSpeech(draft: string, speech: string) {
+  return speech ? (draft.trim() ? draft.trimEnd() + " " + speech : speech) : draft;
+}
+
+function MiraAddFileMenu() {
+  return (
+    <PromptInputActionMenu>
+      <PromptInputActionMenuTrigger className="h-9 gap-1.5 rounded-full border px-2.5 text-xs font-medium sm:px-3" aria-label="Attach a photo or PDF">
+        <Paperclip className="h-4 w-4" /><span className="hidden sm:inline">Photo / PDF</span>
+      </PromptInputActionMenuTrigger>
+      <PromptInputActionMenuContent>
+        <PromptInputActionAddAttachments label="Attach photos or a PDF" />
+      </PromptInputActionMenuContent>
+    </PromptInputActionMenu>
+  );
+}
+
+/** Copies text and briefly shows a tick, like other chat apps. */
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={copied ? "Copied" : label}
+      title={copied ? "Copied" : label}
+      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        }).catch(() => toast.error("Could not copy"));
+      }}
+    >
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
+
+/** Actions under an answer: copy, regenerate, rate, report. */
+function AnswerActions({
+  threadId, messageId, text, canRegenerate, onRegenerate, onReport,
+}: {
+  threadId: string;
+  messageId: string;
+  text: string;
+  canRegenerate: boolean;
+  onRegenerate: () => void;
+  onReport: () => void;
+}) {
   const { profile } = useAuth();
   const [sent, setSent] = useState<null | boolean>(null);
-  if (sent !== null) {
-    return <p className="mt-2 text-xs text-muted-foreground">Thanks for the feedback.</p>;
-  }
   const send = (helpful: boolean) => {
     setSent(helpful);
     void sendAssistantFeedback({
@@ -281,14 +354,31 @@ function AnswerFeedback({ threadId, messageId }: { threadId: string; messageId: 
       organizationSlug: profile?.organization_slug ?? null,
       hotelId: profile?.assigned_hotel ?? null,
     });
+    if (!helpful) toast("Thanks. Want the HotelCare team to look at it?", { action: { label: "Report", onClick: onReport } });
   };
+  const iconButton = "rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
   return (
-    <div className="mt-2 flex items-center gap-1 opacity-60 transition-opacity hover:opacity-100">
-      <button aria-label="Helpful" className="rounded p-1 hover:bg-accent" onClick={() => send(true)}>
-        <ThumbsUp className="h-3.5 w-3.5" />
-      </button>
-      <button aria-label="Not helpful" className="rounded p-1 hover:bg-accent" onClick={() => send(false)}>
-        <ThumbsDown className="h-3.5 w-3.5" />
+    <div className="mt-1.5 flex items-center gap-0.5 opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100" aria-label="Answer actions">
+      <CopyButton text={text} label="Copy answer" />
+      {canRegenerate && (
+        <button type="button" aria-label="Regenerate answer" title="Regenerate" className={iconButton} onClick={onRegenerate}>
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {sent === null ? (
+        <>
+          <button type="button" aria-label="Helpful" title="Helpful" className={iconButton} onClick={() => send(true)}>
+            <ThumbsUp className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" aria-label="Not helpful" title="Not helpful" className={iconButton} onClick={() => send(false)}>
+            <ThumbsDown className="h-3.5 w-3.5" />
+          </button>
+        </>
+      ) : (
+        <span className="px-1.5 text-xs text-muted-foreground">Thanks for the feedback.</span>
+      )}
+      <button type="button" aria-label="Report this answer to the HotelCare team" title="Report to the HotelCare team" className={iconButton} onClick={onReport}>
+        <Flag className="h-3.5 w-3.5" />
       </button>
     </div>
   );
@@ -299,6 +389,7 @@ function ChatSession({
   initialMessages,
   language,
   initialPrompt,
+  initialFiles,
   externalPrompt,
   onExternalPromptConsumed,
   onThreadUpdated,
@@ -310,6 +401,7 @@ function ChatSession({
   initialMessages: AssistantUiMessage[];
   language: string;
   initialPrompt?: string | null;
+  initialFiles?: FileUIPart[];
   externalPrompt?: { id: number; text: string } | null;
   onExternalPromptConsumed?: () => void;
   onThreadUpdated: () => void;
@@ -319,16 +411,23 @@ function ChatSession({
 }) {
   const { user, profile } = useAuth();
   const { page, capabilities } = useAssistantContext();
+  const typewriterExamples = useMemo(() => rolePlaceholderExamples(profile?.role), [profile?.role]);
   const [draft, setDraft] = useState(() => loadAssistantDraft(threadId));
+  const typedPlaceholder = useMiraTypewriter(typewriterExamples, !draft.trim());
   useEffect(() => { saveAssistantDraft(threadId, draft); }, [threadId, draft]);
   const [showResume, setShowResume] = useState(initialMessages.length > 0);
   const [modelTier, setModelTier] = useState<"auto" | "fast" | "balanced" | "deep">("auto");
-  const [usage, setUsage] = useState<{ used: number; remaining: number | null; unlimited: boolean; resets_on?: string } | null>(null);
+  // Plan and usage come from the server; sending pauses only at a real limit.
+  const [usage, setUsage] = useState<AssistantUsage | null>(null);
   const refreshUsage = useCallback(async () => {
-    const { data, error } = await (supabase as any).rpc("assistant_monthly_status");
-    if (!error && data) setUsage(data);
+    const next = await fetchAssistantUsage().catch(() => null);
+    if (next) setUsage(next);
   }, []);
   useEffect(() => { void refreshUsage(); }, [refreshUsage]);
+  const blocked = usageBlocked(usage);
+  const notice = usageNotice(usage);
+  // Report to the HotelCare team: from an answer, a failure or the composer.
+  const [report, setReport] = useState<{ messageId: string | null; error: string | null; category?: string } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const failureDetailsRef = useRef<string | null>(null);
   const [analysisElapsedMs, setAnalysisElapsedMs] = useState(0);
@@ -360,10 +459,10 @@ function ChatSession({
     onError: (error) => {
       void refreshUsage();
       failureDetailsRef.current = error instanceof Error ? error.message.slice(0, 700) : String(error).slice(0, 700);
-      const quotaFailure = /monthly (?:allowance|message|quota)|message limit reached/i.test(failureDetailsRef.current);
-      setFailed(quotaFailure
-        ? "Your monthly message allowance has been reached. It resets on the 1st."
-        : "The assistant could not process this request. No action has been confirmed.");
+      const limitFailure = /monthly|daily safety limit|messages to Mira|allowance|message limit/i.test(failureDetailsRef.current);
+      setFailed(limitFailure
+        ? failureDetailsRef.current.replace(/^.*?"error"\s*:\s*"([^"]+)".*$/s, "$1")
+        : "Mira could not answer this just now. Nothing was changed. Try again, or report it and the HotelCare team will look at it.");
     },
     onFinish: async ({ message, isAbort }) => {
       if (isAbort && user && !cancelSavedRef.current) {
@@ -412,8 +511,8 @@ function ChatSession({
     if (!initialPrompt || initialPromptSentRef.current) return;
     initialPromptSentRef.current = true;
     lastQuestionRef.current = initialPrompt;
-    void sendMessage({ text: initialPrompt });
-  }, [initialPrompt, sendMessage]);
+    void sendMessage({ text: initialPrompt, files: initialFiles });
+  }, [initialPrompt, initialFiles, sendMessage]);
   const lastExternalPromptIdRef = useRef<number | null>(null);
   useEffect(() => {
     if (!externalPrompt || lastExternalPromptIdRef.current === externalPrompt.id) return;
@@ -423,27 +522,17 @@ function ChatSession({
     onExternalPromptConsumed?.();
   }, [externalPrompt, sendMessage, onExternalPromptConsumed]);
 
-  // The draft as it was when recording started; live words are appended to it
-  // and the final transcript replaces them, so nothing typed before is lost.
-  const dictationBaseRef = useRef<string | null>(null);
-  const { state: dictation, supported, toggle } = useDictation(
-    useCallback((text: string) => {
-      setDraft((value) => {
-        const base = dictationBaseRef.current ?? value;
-        dictationBaseRef.current = null;
-        return base ? `${base} ${text}` : text;
-      });
+  // Render speech directly in the composer while preserving the original draft
+  // so cancellation can discard only the current voice session.
+  const {
+    state: dictation, preview: voicePreview, liveHint: voiceHint, supported,
+    toggle, cancel: cancelVoice, confirm: confirmVoice,
+  } = useMiraDictation(
+    useCallback((spoken: string) => {
+      setDraft((value) => value.trim() ? value.trimEnd() + " " + spoken : spoken);
       window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
     }, []),
     language,
-    useCallback((live: string | null) => {
-      if (live === null) { dictationBaseRef.current = null; return; }
-      setDraft((value) => {
-        if (dictationBaseRef.current === null) dictationBaseRef.current = value;
-        const base = dictationBaseRef.current;
-        return base ? `${base} ${live}` : live;
-      });
-    }, []),
   );
 
   const askForAccess = async (scope: string, question: string) => {
@@ -459,20 +548,20 @@ function ChatSession({
     else toast.success("Access request sent to your manager");
   };
 
-  const submit = async ({ text }: { text: string }) => {
-    const value = text.trim();
-    if (!value || (usage && !usage.unlimited && usage.remaining === 0) || status === "submitted" || status === "streaming") return;
+  const submit = async ({ text, files = [] }: { text: string; files?: FileUIPart[] }) => {
+    const value = text.trim() || (files.length ? "Examine these attachments and identify the issue. Do not create or change a ticket unless I explicitly requested it." : "");
+    if (!value || dictation !== "idle" || blocked || status === "submitted" || status === "streaming") return;
     setDraft("");
     setShowResume(false);
     setFailed(null);
     lastQuestionRef.current = value;
-    await sendMessage({ text: value });
+    await sendMessage({ text: value, files });
   };
 
   // A tapped answer to Mira's question. Unlike submit, a half-typed draft stays.
   const sendQuickAnswer = (text: string): boolean => {
     const value = text.trim();
-    if (!value || (usage && !usage.unlimited && usage.remaining === 0) || status === "submitted" || status === "streaming") return false;
+    if (!value || dictation !== "idle" || blocked || status === "submitted" || status === "streaming") return false;
     setShowResume(false);
     setFailed(null);
     lastQuestionRef.current = value;
@@ -486,19 +575,18 @@ function ChatSession({
     await regenerate();
   };
 
-  const reportFailure = async () => {
-    const result = await reportAssistantIssue({
-      title: "The assistant could not answer",
-      description: lastQuestionRef.current || "No question captured",
-      category: "assistant",
-      severity: "normal",
-      threadId,
-      page,
-      diagnostics: { error: failureDetailsRef.current },
+  const reportFailure = () => setReport({ messageId: null, error: failureDetailsRef.current, category: "assistant" });
+
+  /** Edit the last question: it goes back into the composer, ready to resend. */
+  const editLastQuestion = (text: string) => {
+    if (status === "submitted" || status === "streaming") return;
+    setDraft(text);
+    window.requestAnimationFrame(() => {
+      const box = textareaRef.current;
+      if (!box) return;
+      box.focus();
+      box.setSelectionRange(text.length, text.length);
     });
-    if (!result.ok) toast.error(result.error ?? "Could not save the report.");
-    else if (result.emailed) toast.success("Report saved and emailed to administrators.");
-    else toast.warning("Report saved as " + result.id + ", but email delivery could not be confirmed.");
   };
 
   const generating = status === "submitted" || status === "streaming";
@@ -525,6 +613,11 @@ function ChatSession({
     return () => window.clearInterval(timer);
   }, [generating]);
 
+  const lastUserIndex = useMemo(
+    () => messages.reduce((last, m, i) => (m.role === "user" ? i : last), -1),
+    [messages],
+  );
+
   const analysisLabel = useMemo(() => {
     const q = lastQuestionRef.current.toLowerCase();
     const revenueQuestion = page.module === "revenue" || /\b(sales?|sold|bookings?|pickup|revenue|adr|revpar|occupancy|rates?|pricing|demand)\b/.test(q);
@@ -550,7 +643,7 @@ function ChatSession({
             </div>
           )}
           {messages.length === 0 && (
-            <AssistantWelcome workspace={workspace} onAsk={(text) => void submit({ text })} />
+            <AssistantWelcome workspace={workspace} onAsk={(text) => void submit({ text })} onVoice={toggle} voiceSupported={supported} voiceState={dictation} />
           )}
 
           {messages.map((message, index) => {
@@ -571,16 +664,28 @@ function ChatSession({
                 >
                   {message.role === "assistant" ? (
                     <>
-                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                      <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                         <span className="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-primary">
                           <Sparkles className="h-3.5 w-3.5" />
                         </span>
                         <span className="text-foreground">Mira</span>
-                        <span className="font-normal">HotelCare Operator</span>
                       </div>
                       <MessageResponse>{text}</MessageResponse>
                     </>
-                  ) : <p className="whitespace-pre-wrap">{text}</p>}
+                  ) : (
+                    <div className="group/user space-y-2">
+                      <p className="whitespace-pre-wrap">{text}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {message.parts.filter((part) => part.type === "file").map((part, partIndex) => (
+                          <MiraFileTile key={partIndex} file={part} inMessage />
+                        ))}
+                        {!message.parts.some((part) => part.type === "file") &&
+                          (message.metadata?.attachments ?? []).filter(isStoredMiraFile).map((spec, partIndex) => (
+                            <StoredMiraFileTile key={`${spec.path}-${partIndex}`} spec={spec} />
+                          ))}
+                      </div>
+                    </div>
+                  )}
                   {message.role === "assistant" &&
                     message.parts.map((part, partIndex) => {
                       if (!(part.type.startsWith("tool-") || part.type === "dynamic-tool")) return null;
@@ -588,6 +693,16 @@ function ChatSession({
                       const toolName = part.type === "dynamic-tool" ? toolPart.toolName : part.type.slice(5);
                       const key = `${message.id}-${partIndex}`;
 
+                      if ((toolName === "remember_about_user" || toolName === "forget_about_user") && toolPart.state === "output-available") {
+                        const saved = toolPart.output?.memoryUpdate === "saved";
+                        const deleted = toolPart.output?.memoryUpdate === "deleted";
+                        if (!saved && !deleted) return null;
+                        return (
+                          <p key={`${key}-memory`} className="mt-2 inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+                            <Brain className="h-3 w-3" /> {saved ? "Memory updated" : "Removed from memory"}
+                          </p>
+                        );
+                      }
                       if (toolName === "execute_action" && toolPart.output?.ok === true) {
                         return (
                           <div key={key} className="mt-2 flex items-start gap-2 rounded-xl border bg-muted/30 p-3 text-xs">
@@ -779,10 +894,43 @@ function ChatSession({
                       </Button>
                     </div>
                   )}
+                  {message.role === "assistant" && !generating && text.length > 0 && isLast &&
+                    !message.metadata?.declined && !needsScope && answerLooksUnresolved(text) && (
+                    <Button size="sm" variant="outline" className="mt-3 h-8 gap-1.5 rounded-full text-xs"
+                      onClick={() => setReport({ messageId: message.id, error: null, category: "assistant" })}>
+                      <Flag className="h-3.5 w-3.5" /> Report to the HotelCare team
+                    </Button>
+                  )}
                   {message.role === "assistant" && !generating && text.length > 0 && (
-                    <AnswerFeedback threadId={threadId} messageId={message.id} />
+                    <AnswerActions
+                      threadId={threadId}
+                      messageId={message.id}
+                      text={text}
+                      canRegenerate={isLast}
+                      onRegenerate={() => void retryLastQuestion()}
+                      onReport={() => setReport({ messageId: message.id, error: null })}
+                    />
                   )}
                 </MessageContent>
+                {message.role === "user" && text.length > 0 && (
+                  <div className={cn(
+                    "ml-auto flex items-center gap-0.5 transition-opacity",
+                    index === lastUserIndex ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-70 focus-within:opacity-100",
+                  )}>
+                    <CopyButton text={text} label="Copy message" />
+                    {index === lastUserIndex && !generating && (
+                      <button
+                        type="button"
+                        aria-label="Edit and resend"
+                        title="Edit and resend"
+                        className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        onClick={() => editLastQuestion(text)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </Message>
             );
           })}
@@ -824,11 +972,7 @@ function ChatSession({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-3xl px-2 sm:px-6" : "border-t")}>
-        <div className="mb-2 flex items-center justify-between gap-2 px-2 text-[11px] text-muted-foreground">
-          <span className="truncate">Mira · {page.hotelId || profile?.assigned_hotel || "Your authorized hotels"} · Permission-aware</span>
-          {usage && <span>{usage.unlimited ? "Unlimited messages" : `${usage.used}/20 messages this month`}</span>}
-        </div>
+      <div className={cn("shrink-0 bg-background px-1 pb-3 pt-2", workspace ? "mx-auto w-full max-w-3xl px-2 sm:px-6" : "border-t")}>
         {profile?.role === "admin" && (
           <div className="mb-2 flex items-center gap-2 px-2">
             <span className="text-xs text-muted-foreground">AI model</span>
@@ -843,66 +987,50 @@ function ChatSession({
             </Select>
           </div>
         )}
-        {usage && !usage.unlimited && usage.remaining === 0 && (
+        {notice && (
           <p role="status" className="mb-2 rounded-lg bg-muted px-3 py-2 text-xs">
-            Your 20 monthly messages are used. Your allowance resets on the 1st.
+            {notice}
           </p>
         )}
-        <PromptInput onSubmit={submit} className="rounded-2xl bg-background shadow-sm">
+        <PromptInput onSubmit={submit} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className="bg-background [&>[data-slot=input-group]]:rounded-2xl">
+          <MiraFilePreview />
           <PromptInputTextarea
             ref={textareaRef}
-            value={draft}
+            value={draftWithSpeech(draft, voicePreview)}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask Mira to check, explain, or handle a task…"
+            readOnly={dictation !== "idle"}
+            placeholder={dictation === "recording" ? "Listening…" : typedPlaceholder}
             rows={1}
             enterKeyHint="send"
             autoCapitalize="sentences"
             autoCorrect="on"
-            className="min-h-12 max-h-36 resize-none text-base leading-relaxed"
+            className={cn("min-h-12 max-h-36 resize-none text-base leading-relaxed", dictation !== "idle" && "italic text-muted-foreground")}
           />
+          <MiraVoiceStatus state={dictation} liveHint={voiceHint} onCancel={cancelVoice} />
           <PromptInputFooter>
             <PromptInputTools>
-              <PromptInputButton
-                tooltip={
-                  !supported ? "Microphone input requires browser permission and a secure connection"
-                  : dictation === "recording" ? "Stop recording and transcribe"
-                  : dictation === "transcribing" ? "Transcribing your recording…"
-                  : "Record a message and convert speech to text"
-                }
-                variant={dictation === "recording" ? "default" : "outline"}
-                onClick={toggle}
-                disabled={dictation === "transcribing"}
-                aria-label={dictation === "recording" ? "Stop and transcribe voice input" : "Start voice-to-text"}
-                className="h-9 rounded-full border px-3 text-xs font-medium gap-2"
-              >
-                {dictation === "transcribing" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : dictation === "recording" ? (
-                  <MicOff className="h-4 w-4" />
-                ) : (
-                  <Mic className="h-4 w-4" />
-                )}
-                <span>{dictation === "recording" ? "Stop & transcribe" : dictation === "transcribing" ? "Transcribing…" : "Voice to text"}</span>
-              </PromptInputButton>
-              {dictation === "recording" && (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> {speechRecognitionCtor() ? "Listening — your words appear as you speak" : "Listening…"}
-                </span>
-              )}
-              {dictation === "transcribing" && (
-                <span className="text-xs text-muted-foreground">Writing your words…</span>
-              )}
+              {dictation === "idle" && <MiraAddFileMenu />}
+              <MiraVoiceControls state={dictation} supported={supported} onToggle={toggle} onDone={confirmVoice} />
             </PromptInputTools>
 
-            <PromptInputSubmit
-              className="h-10 w-10 rounded-full"
-              status={status as ChatStatus}
-              onStop={() => void stop()}
-              disabled={!generating && (!draft.trim() || Boolean(usage && !usage.unlimited && usage.remaining === 0))}
-            />
+            <MiraSubmit draft={draft} status={status as ChatStatus} onStop={() => void stop()} quotaReached={blocked} voicePending={dictation !== "idle"} />
           </PromptInputFooter>
         </PromptInput>
+        <div className="mt-1.5 flex items-center justify-center gap-1.5 px-2 text-center text-[11px] text-muted-foreground">
+          <span>Mira can make mistakes<span className="hidden sm:inline">; check important details</span>.</span>
+          <button type="button" className="whitespace-nowrap underline-offset-2 hover:underline" onClick={() => setReport({ messageId: null, error: null })}>
+            Report a problem
+          </button>
+        </div>
       </div>
+      <ReportProblemDialog
+        open={report !== null}
+        onOpenChange={(open) => { if (!open) setReport(null); }}
+        threadId={threadId}
+        messageId={report?.messageId ?? null}
+        defaultCategory={report?.category}
+        technicalError={report?.error ?? null}
+      />
     </div>
   );
 }
@@ -928,6 +1056,22 @@ export default function AssistantChat({
   onSuggestedPromptConsumed?: () => void;
 }) {
   const { language } = useTranslation();
+  const { profile } = useAuth();
+  const [welcomeDraft, setWelcomeDraft] = useState("");
+  const welcomeTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const {
+    state: welcomeDictation, preview: welcomeVoicePreview, liveHint: welcomeVoiceHint,
+    supported: welcomeVoiceSupported, toggle: toggleWelcomeVoice,
+    cancel: cancelWelcomeVoice, confirm: confirmWelcomeVoice,
+  } = useMiraDictation(
+    useCallback((spoken: string) => {
+      setWelcomeDraft((value) => value.trim() ? value.trimEnd() + " " + spoken : spoken);
+      window.requestAnimationFrame(() => welcomeTextareaRef.current?.focus({ preventScroll: true }));
+    }, []),
+    language,
+  );
+  const welcomeExamples = useMemo(() => rolePlaceholderExamples(profile?.role), [profile?.role]);
+  const welcomePlaceholder = useMiraTypewriter(welcomeExamples, !welcomeDraft.trim());
   const { messages: rows, loadingMessages, loadThreads } = useAssistant(threadId);
   const latestVisibleReply = rows.filter((item) => item.role === "assistant").at(-1)?.created_at ?? null;
   useEffect(() => {
@@ -946,13 +1090,14 @@ export default function AssistantChat({
   // The first question of a brand-new chat is kept together with the thread it
   // belongs to. Keeping them in one value means the URL update that follows
   // thread creation can no longer race the transcript into dropping it.
-  const [pending, setPending] = useState<{ id: string; text: string } | null>(null);
+  const [pending, setPending] = useState<{ id: string; text: string; files?: FileUIPart[] } | null>(null);
   const [starting, setStarting] = useState(false);
   const activeThreadId = threadId ?? pending?.id ?? null;
 
-  const createAndSend = async ({ text }: { text: string }) => {
-    const value = text.trim();
-    if (!value || starting) return;
+  const createAndSend = async ({ text, files = [] }: { text: string; files?: FileUIPart[] }) => {
+    const value = text.trim() || (files.length ? "Examine these attachments and identify the issue. Do not create or change a ticket unless I explicitly requested it." : "");
+    if (!value || starting || welcomeDictation !== "idle") return;
+    setWelcomeDraft("");
     setStarting(true);
     try {
       const id = await onNeedThread();
@@ -960,7 +1105,7 @@ export default function AssistantChat({
         toast.error("Could not start a conversation");
         return;
       }
-      setPending({ id, text: value });
+      setPending({ id, text: value, files });
     } finally {
       setStarting(false);
     }
@@ -975,27 +1120,35 @@ export default function AssistantChat({
   if (!activeThreadId) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} />
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
+          <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} onVoice={toggleWelcomeVoice} voiceSupported={welcomeVoiceSupported} voiceState={welcomeDictation} />
         </div>
-        <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-4xl sm:px-6" : "border-t")}>
-          <PromptInput onSubmit={createAndSend} className={cn("bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
-            <PromptInputTextarea
-              rows={1}
-              enterKeyHint="send"
-              autoCapitalize="sentences"
-              autoCorrect="on"
-              className="min-h-16 max-h-44 text-base leading-relaxed"
-              placeholder="Ask Mira anything about your hotel…"
-              autoFocus
-            />
-            <PromptInputFooter className="justify-end">
-              <PromptInputSubmit
-                className="h-10 w-10 rounded-full"
-                status={starting ? "submitted" : undefined}
+        <div className="z-10 w-full shrink-0 bg-background px-3 pb-3 pt-2 sm:px-6">
+          <div className="mx-auto w-full max-w-3xl">
+            <PromptInput onSubmit={async ({ text, files }) => createAndSend({ text: text || welcomeDraft, files })} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className={cn("bg-background [&>[data-slot=input-group]]:rounded-xl", workspace && "[&>[data-slot=input-group]]:rounded-2xl")}>
+              <MiraFilePreview />
+              <PromptInputTextarea
+                ref={welcomeTextareaRef}
+                value={draftWithSpeech(welcomeDraft, welcomeVoicePreview)}
+                onChange={(event) => setWelcomeDraft(event.target.value)}
+                readOnly={welcomeDictation !== "idle"}
+                rows={1}
+                enterKeyHint="send"
+                autoCapitalize="sentences"
+                autoCorrect="on"
+                className={cn("min-h-14 max-h-40 resize-none text-base leading-relaxed", welcomeDictation !== "idle" && "italic text-muted-foreground")}
+                placeholder={welcomeDictation === "recording" ? "Listening…" : welcomePlaceholder}
               />
-            </PromptInputFooter>
-          </PromptInput>
+              <MiraVoiceStatus state={welcomeDictation} liveHint={welcomeVoiceHint} onCancel={cancelWelcomeVoice} />
+              <PromptInputFooter>
+                <PromptInputTools>
+                  {welcomeDictation === "idle" && <MiraAddFileMenu />}
+                  <MiraVoiceControls state={welcomeDictation} supported={welcomeVoiceSupported} disabled={starting} onToggle={toggleWelcomeVoice} onDone={confirmWelcomeVoice} />
+                </PromptInputTools>
+                <MiraSubmit draft={welcomeDraft} status={starting ? "submitted" : undefined} busy={starting} voicePending={welcomeDictation !== "idle"} />
+              </PromptInputFooter>
+            </PromptInput>
+          </div>
         </div>
       </div>
     );
@@ -1019,6 +1172,7 @@ export default function AssistantChat({
       initialMessages={assistantRowsToUiMessages(rows) as AssistantUiMessage[]}
       language={language}
       initialPrompt={pending?.id === activeThreadId ? pending.text : null}
+      initialFiles={pending?.id === activeThreadId ? pending.files : undefined}
       externalPrompt={pending?.id === activeThreadId ? null : suggestedPrompt}
       onExternalPromptConsumed={onSuggestedPromptConsumed}
       onNavigate={onNavigate}

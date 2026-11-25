@@ -7,10 +7,14 @@ export const PMS_PAYMENT_METHODS = [
   'szep_otp',
   'szep_mbh',
   'szep_kh',
+  'on_account',
   'other',
 ] as const;
 
 export type PmsPaymentMethod = typeof PMS_PAYMENT_METHODS[number];
+
+// Walk-in sales have no guest account to carry receivables.
+export const WALK_IN_PAYMENT_METHODS = PMS_PAYMENT_METHODS.filter(method => method !== 'on_account');
 
 export interface FinancialLineLike {
   gross_total?: number | string | null;

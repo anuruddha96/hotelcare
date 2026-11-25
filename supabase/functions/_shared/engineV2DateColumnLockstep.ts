@@ -58,3 +58,13 @@ export function hotelDateSafetyBounds(input: HotelDateSafetyBoundsInput): Effect
   const max = Math.max(min, wholePositive(input.hotelMax, min));
   return { min, max, source: "hotel_safety_lockstep" };
 }
+
+/** Keep a pace tier inside the publisher's persisted absolute boundary. */
+export function clampPaceBoundsToHotelSafety(
+  hotel: EffectiveDateColumnBounds,
+  pace: { min: number; max: number },
+): EffectiveDateColumnBounds {
+  const min = Math.max(hotel.min, wholePositive(pace.min, hotel.min));
+  const max = Math.max(min, Math.min(hotel.max, wholePositive(pace.max, hotel.max)));
+  return { min, max, source: "hotel_safety_lockstep" };
+}

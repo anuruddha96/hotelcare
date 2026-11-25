@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import { CalendarDays, ChevronLeft, ChevronRight, Lock, RefreshCw, Tags } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, History, Lock, RefreshCw, Tags } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useAccessPolicy } from "@/hooks/useAccessPolicy";
@@ -10,6 +10,7 @@ import { Header } from "@/components/layout/Header";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -25,7 +26,7 @@ import {
 const DAYS = 14;
 
 /**
- * Price list for managers: today's room prices per date for any hotel of the
+ * Read-only price list for managers: current and archived room prices for any hotel of the
  * organization, read-only. Revenue figures (bookings, revenue, ADR, pickup,
  * goals) are not part of it — they stay on the Revenue pages of top management.
  */
@@ -104,7 +105,7 @@ export default function PriceList() {
               </CardTitle>
               <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <Lock className="h-3.5 w-3.5" />
-                {hu ? "Aktuális szobaárak, csak megtekintés." : "Current room prices, view only."}
+                {hu ? "Aktuális és korábbi szobaárak, csak megtekintés." : "Current and historical room prices, view only."}
               </p>
             </div>
 
@@ -120,6 +121,15 @@ export default function PriceList() {
                 </SelectContent>
               </Select>
 
+              <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => setStart(shiftDate(today, -14))}
+                aria-label={hu ? "Korábbi 14 nap" : "Past 14 days"}>
+                <History className="h-4 w-4" />
+                <span>{hu ? "Korábbi 14 nap" : "Past 14 days"}</span>
+              </Button>
+              <Input type="date" value={start} onChange={(event) => {
+                if (/^\d{4}-\d{2}-\d{2}$/.test(event.target.value)) setStart(event.target.value);
+              }} aria-label={hu ? "Kezdődátum" : "Start date"} title={hu ? "Válasszon kezdődátumot" : "Choose a start date"}
+                className="h-9 w-[155px] bg-background" />
               <div className="flex items-center rounded-md border bg-background">
                 <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setStart(shiftDate(start, -7))}
                   aria-label={hu ? "Előző hét" : "Previous week"}>
@@ -156,11 +166,13 @@ export default function PriceList() {
                       {dates.map((date) => {
                         const day = new Date(`${date}T00:00:00Z`).getUTCDay();
                         const weekend = day === 5 || day === 6;
+                        const archived = date < today;
                         return (
                           <th key={date} scope="col"
                             className={cn("px-2 py-2 text-center font-normal", weekend && "bg-primary/5", date === today && "text-primary")}>
                             <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{weekday.format(new Date(`${date}T00:00:00Z`))}</div>
                             <div className={cn("whitespace-nowrap font-semibold", date === today && "text-primary")}>{dayMonth.format(new Date(`${date}T00:00:00Z`))}</div>
+                            {archived && <div className="text-[10px] text-muted-foreground">{hu ? "Archív" : "Archived"}</div>}
                           </th>
                         );
                       })}
@@ -213,7 +225,7 @@ export default function PriceList() {
                   ? `${hu ? "Previóból frissítve" : "Updated from Previo"}: ${syncedAt}`
                   : hu ? "Még nincs frissítés a Previóból." : "No update from Previo yet."}
               </span>
-              <span>{hu ? "Az árakat a felső vezetés módosítja." : "Prices are changed by top management."}</span>
+              <span>{hu ? "A korábbi napok az elmentett árakat mutatják. Csak a felső vezetés módosíthat árakat." : "Past dates show archived prices when available. Only top management can change rates."}</span>
             </div>
           </CardContent>
         </Card>

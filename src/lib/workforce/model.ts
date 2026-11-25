@@ -18,13 +18,33 @@ export interface WorkforceStaff {
   daily_hours: number; annual_leave_days: number | null; leave_note: string | null;
   start_date: string | null; end_date: string | null; is_active: boolean; sort_order: number;
   notes: string | null; source_label: string | null;
+  /** Contact details kept by HR and managers (planners only). */
+  phone?: string | null; email?: string | null;
 }
 export interface WorkforceEntry {
   id?: string; staff_id: string; work_date: string; kind: WorkforceKind; code: string | null;
   start_time: string | null; end_time: string | null; day_fraction: number; extra_minutes: number;
   hotel_id: string | null; raw_text: string | null; note: string | null; worked_minutes?: number;
   status: 'draft' | 'published';
+  /** Who last changed the day. */
+  updated_by?: string | null;
+  /** What the employee still sees while a change to a published day waits to be published. */
+  published_version?: ShiftSnapshot | null;
 }
+/** One day as it was shown to the employee (database: workforce_entry_snapshot). */
+export interface ShiftSnapshot {
+  kind: WorkforceKind; code: string | null; start_time: string | null; end_time: string | null;
+  day_fraction: number; extra_minutes: number; hotel_id: string | null; note: string | null; worked_minutes?: number;
+}
+/** A published day changed: the employee is told and confirms. `null` = day off. */
+export interface ChangeNotice {
+  id: string; staff_id: string; work_date: string; before: ShiftSnapshot | null; after: ShiftSnapshot | null;
+  short_notice: boolean; reason: string | null; changed_at: string; changed_by?: string | null; changed_by_name?: string | null;
+  acknowledged_at?: string | null;
+}
+/** A change the employee has not been shown yet (edited after publishing, not published again). */
+export const hasPendingChange = (entry?: Pick<WorkforceEntry, 'status' | 'published_version'> | null) =>
+  !!entry && entry.status === 'draft' && !!entry.published_version;
 
 export const ORG_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
 export const PROPERTY_ROLES = ['manager', 'housekeeping_manager', 'maintenance_manager', 'reception_manager',
@@ -99,20 +119,24 @@ export function cellStyle(entry: Pick<WorkforceEntry, 'kind' | 'hotel_id'>, base
   return KIND_STYLE[entry.kind];
 }
 
+/** Short words for absences inside a cell, in the reader's language (defaults: the workbook's Hungarian codes). */
+export interface CellLabels { leave: string; halfLeave: string; sick: string; unpaid: string; absent: string; night: string; dayOff: string }
+export const DEFAULT_CELL_LABELS: CellLabels = { leave: 'SZB', halfLeave: '½ SZB', sick: 'B', unpaid: 'FNSZ', absent: 'IG', night: 'É', dayOff: '–' };
+
 /** Short text shown inside a grid cell. */
-export function cellLabel(entry: WorkforceEntry): string {
+export function cellLabel(entry: Pick<WorkforceEntry, 'kind' | 'code' | 'start_time' | 'end_time' | 'extra_minutes' | 'note'> & { raw_text?: string | null }, labels: CellLabels = DEFAULT_CELL_LABELS): string {
   const times = entry.start_time && entry.end_time ? `${entry.start_time.slice(0, 5).replace(/:00$/, '')}-${entry.end_time.slice(0, 5).replace(/:00$/, '')}` : '';
   const extra = entry.extra_minutes ? (entry.extra_minutes > 0 ? '+' : '−') + formatMinutesShort(Math.abs(entry.extra_minutes)) : '';
   switch (entry.kind) {
-    case 'leave': return 'SZB';
-    case 'half_leave': return '½ SZB';
-    case 'sick': return 'B';
-    case 'unpaid_leave': return 'FNSZ';
-    case 'absent': return 'IG';
+    case 'leave': return labels.leave;
+    case 'half_leave': return labels.halfLeave;
+    case 'sick': return labels.sick;
+    case 'unpaid_leave': return labels.unpaid;
+    case 'absent': return labels.absent;
     case 'fixed_day_off': return '';
-    case 'day_off': return '–';
+    case 'day_off': return labels.dayOff;
     case 'other': return entry.note ?? entry.raw_text ?? '?';
-    case 'night': return `É ${times}${extra ? ' ' + extra : ''}`.trim();
+    case 'night': return `${labels.night} ${times}${extra ? ' ' + extra : ''}`.trim();
     default: {
       const code = entry.code && entry.code !== 'SZ' ? entry.code : entry.code === 'SZ' && !times ? 'SZ' : '';
       return [code, times, extra].filter(Boolean).join(' ') || '✓';
@@ -199,6 +223,16 @@ export function monthDays(year: number, month: number): string[] {
   return Array.from({ length: count }, (_, i) => `${year}-${pad2(month)}-${pad2(i + 1)}`);
 }
 export const WEEKDAY_SHORT = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+/** The app's language codes as Intl locales (Tagalog is "fil" for Intl; English uses European dates). */
+export const intlLocale = (language?: string | null) => (language === 'tl' ? 'fil' : !language || language === 'en' ? 'en-GB' : language);
+/** Two-letter weekday in the reader's language ("Mo", "H", "Lu" …). */
+export function weekdayShort(date: string, language?: string | null): string {
+  try {
+    const text = new Date(`${date}T12:00:00Z`).toLocaleDateString(intlLocale(language), { weekday: 'short', timeZone: 'UTC' });
+    const clean = text.replace(/\.$/, '');
+    return (language === 'vi' ? clean : clean.slice(0, 2)).replace(/^./, (c) => c.toUpperCase());
+  } catch { return WEEKDAY_SHORT[weekdayOf(date)]; }
+}
 export const weekdayOf = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay();
 
 /**

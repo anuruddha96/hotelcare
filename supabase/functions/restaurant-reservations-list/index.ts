@@ -1,6 +1,6 @@
-// Public read endpoint for the /bb page: today's restaurant (brunch) reservations
-// for one hotel. Mirrors the access model of breakfast-public-lookup — the BB page
-// is used by restaurant staff on shared devices without a login.
+// Property-scoped restaurant reservation board for authenticated /bb staff.
+// A shared tablet signs into a breakfast-staff account; anonymous callers must
+// never receive guest names, phone numbers, or reservation notes.
 //
 // Before reading, it pulls the latest bookings from the Sales Dashboard (the
 // source of truth for every RD property), throttled per hotel+date. Website
@@ -10,6 +10,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { syncHotelReservations } from "../_shared/syncReservations.ts";
+import { authenticateRestaurantStaff, authorizeRestaurantHotel } from "../_shared/restaurantStaffAuth.ts";
+import { budapestDate } from "../_shared/salesDashboard.ts";
 
 const ipHits = new Map<string, { count: number; reset: number }>();
 function rateLimit(ip: string, limit = 60, windowMs = 60_000): boolean {
@@ -32,6 +34,10 @@ function shouldSync(key: string, force: boolean): boolean {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   try {
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
     if (!rateLimit(ip)) {
@@ -42,7 +48,7 @@ Deno.serve(async (req) => {
     const hotelId = typeof body?.hotel_id === "string" ? body.hotel_id.trim() : "";
     const serviceDate = typeof body?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
       ? body.date
-      : new Date().toISOString().slice(0, 10);
+      : budapestDate(new Date());
     if (!hotelId || hotelId.length > 100) throw new Error("Missing or invalid hotel_id");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -50,43 +56,13 @@ Deno.serve(async (req) => {
     if (!supabaseUrl || !serviceRoleKey) throw new Error("Server configuration unavailable");
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // The public BB picker uses hotel_configurations.hotel_id (for example
-    // "memories-budapest"), while website webhooks use the canonical UUID from
-    // public.hotels. Resolve both forms before reading restaurant reservations.
-    let reservationHotelId = hotelId;
-    const { data: directSource } = await supabase
-      .from("restaurant_webhook_sources")
-      .select("hotel_id, property_slug")
-      .eq("hotel_id", hotelId)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    let source = directSource;
-    if (!source) {
-      const { data: config } = await supabase
-        .from("hotel_configurations")
-        .select("hotel_name")
-        .eq("hotel_id", hotelId)
-        .eq("is_active", true)
-        .maybeSingle();
-
-      if (config?.hotel_name) {
-        const { data: canonicalHotel } = await supabase
-          .from("hotels")
-          .select("id")
-          .ilike("name", config.hotel_name)
-          .maybeSingle();
-        if (canonicalHotel?.id) reservationHotelId = canonicalHotel.id;
-      }
-
-      const { data: resolvedSource } = await supabase
-        .from("restaurant_webhook_sources")
-        .select("hotel_id, property_slug")
-        .eq("hotel_id", reservationHotelId)
-        .eq("is_active", true)
-        .maybeSingle();
-      source = resolvedSource;
-    }
+    // Authenticate before any guest-data reads or upstream synchronization.
+    const session = await authenticateRestaurantStaff(req, supabase);
+    if (!session.ok) return json({ error: session.error }, session.status);
+    const access = await authorizeRestaurantHotel(supabase, session.actor, hotelId);
+    if (!access.ok) return json({ error: access.error }, access.status);
+    const reservationHotelId = access.hotel.reservationHotelId;
+    const source = access.hotel.propertySlug ? { property_slug: access.hotel.propertySlug } : null;
 
     // Always ask the shared sync layer to refresh when a source is mapped.
     // Previously this call was silently skipped when the Sales Dashboard secret
@@ -110,7 +86,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await supabase
       .from("restaurant_reservations")
-      .select("id, guest_name, guest_phone, party_size, starts_at, ends_at, status, occasion, special_requests, notes, outlet_slug, status_marked_at, status_marked_by, dashboard_sync_state, dashboard_synced_at")
+      .select("id, guest_name, guest_phone, party_size, starts_at, ends_at, created_at, booked_at, first_seen_at, status, occasion, special_requests, notes, outlet_slug, source_project, raw_payload, status_marked_at, status_marked_by, dashboard_sync_state, dashboard_synced_at")
       .eq("hotel_id", reservationHotelId)
       .eq("service_date", serviceDate)
       .order("starts_at", { ascending: true });
@@ -144,7 +120,14 @@ Deno.serve(async (req) => {
     });
     const lastWebhookAt = lastRealWebhook?.created_at ?? null;
 
-    const rows = data ?? [];
+    // Never expose the raw upstream payload through the public BB list.
+    // Only surface the small manual booking source label used in the UI.
+    const rows = (data ?? []).map(({ raw_payload, ...r }: any) => ({
+      ...r,
+      booking_mode: r.source_project === "manual" &&
+        ["phone", "walk_in", "hotel_guest", "other"].includes(raw_payload?.booking_mode)
+        ? raw_payload.booking_mode : null,
+    }));
     const active = rows.filter((r) => r.status !== "cancelled");
     const feedStatus = !source
       ? "unconfigured"
@@ -168,7 +151,8 @@ Deno.serve(async (req) => {
       last_webhook_at: lastWebhookAt,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message ?? String(e) }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } catch (e) {
+    console.error("restaurant-reservations-list failed", e);
+    return json({ error: "Could not retrieve restaurant reservations" }, 500);
   }
 });

@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useAccessPolicy } from '@/hooks/useAccessPolicy';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { Clock, CheckCircle, XCircle, User, Calendar } from 'lucide-react';
@@ -36,6 +37,7 @@ interface BreakRequestApprovalViewProps {
 
 export function BreakRequestApprovalView({ hideWhenEmpty = false }: BreakRequestApprovalViewProps = {}) {
   const { user, profile } = useAuth();
+  const { hrWorkspace } = useAccessPolicy();
   const { t } = useTranslation();
   const [requests, setRequests] = useState<BreakRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,15 +46,15 @@ export function BreakRequestApprovalView({ hideWhenEmpty = false }: BreakRequest
   const [showRejectionInput, setShowRejectionInput] = useState<string | null>(null);
 
   const fetchBreakRequests = useCallback(async () => {
-    if (!profile?.organization_slug || !profile?.assigned_hotel) {
+    if (!profile?.organization_slug || (!hrWorkspace && !profile?.assigned_hotel)) {
       setRequests([]);
       setLoading(false);
       return;
     }
 
     try {
-      const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
-      if (hotelKeys.length === 0) hotelKeys.push(profile.assigned_hotel);
+      const hotelKeys = !hrWorkspace && profile.assigned_hotel ? await resolveHotelKeys(profile.assigned_hotel) : [];
+      if (!hrWorkspace && profile.assigned_hotel && hotelKeys.length === 0) hotelKeys.push(profile.assigned_hotel);
       let query = (supabase as any)
         .from('break_requests')
         .select(`
@@ -64,7 +66,8 @@ export function BreakRequestApprovalView({ hideWhenEmpty = false }: BreakRequest
         .eq('organization_slug', profile.organization_slug)
         .order('requested_at', { ascending: false });
 
-      query = query.in('profiles.assigned_hotel', hotelKeys);
+      if (hrWorkspace) query = query.neq('user_id', user?.id);
+      else query = query.in('profiles.assigned_hotel', hotelKeys);
       const { data, error } = await query;
       if (error) throw error;
       setRequests(data || []);
@@ -74,7 +77,7 @@ export function BreakRequestApprovalView({ hideWhenEmpty = false }: BreakRequest
     } finally {
       setLoading(false);
     }
-  }, [profile?.organization_slug, profile?.assigned_hotel, t]);
+  }, [profile?.organization_slug, profile?.assigned_hotel, hrWorkspace, user?.id, t]);
 
   useEffect(() => {
     void fetchBreakRequests();
@@ -103,9 +106,9 @@ export function BreakRequestApprovalView({ hideWhenEmpty = false }: BreakRequest
   const handleApprove = async (requestId: string) => {
     setProcessingId(requestId);
     try {
-      const { error } = await supabase
-        .from('break_requests')
-        .update({
+      const { error } = hrWorkspace
+        ? await (supabase as any).rpc('hr_decide_break_request', { _id: requestId, _decision: 'approved', _reason: null })
+        : await supabase.from('break_requests').update({
           status: 'approved',
           approved_by: user?.id,
           approved_at: new Date().toISOString()
@@ -132,9 +135,9 @@ export function BreakRequestApprovalView({ hideWhenEmpty = false }: BreakRequest
 
     setProcessingId(requestId);
     try {
-      const { error } = await supabase
-        .from('break_requests')
-        .update({
+      const { error } = hrWorkspace
+        ? await (supabase as any).rpc('hr_decide_break_request', { _id: requestId, _decision: 'rejected', _reason: rejectionReason.trim() })
+        : await supabase.from('break_requests').update({
           status: 'rejected',
           approved_by: user?.id,
           approved_at: new Date().toISOString(),

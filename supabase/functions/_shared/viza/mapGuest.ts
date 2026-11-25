@@ -9,14 +9,19 @@
  * the manual group.
  */
 import { iso3ToIso2 } from './country.ts';
+import { isVizaPlaceholder } from './fieldRules.ts';
 import type { VizaGuestFields } from './messages.ts';
 
 export interface GuestRowForViza {
   first_name?: string | null;
   last_name?: string | null;
+  birth_last_name?: string | null;
+  birth_first_name?: string | null;
   date_of_birth?: string | null;
   birth_place?: string | null;
   mother_name?: string | null;
+  mother_family_name?: string | null;
+  mother_given_name?: string | null;
   gender?: string | null; // male | female | other
   nationality?: string | null; // alpha-2 or alpha-3
   id_document_type?: string | null; // passport | id_card | driving_licence | …
@@ -47,19 +52,24 @@ export function splitMotherName(value: string | null | undefined): { csalad: str
 }
 
 const norm = (v: string | null | undefined) => String(v ?? '').trim();
+const reviewedText = (v: string | null | undefined) => isVizaPlaceholder(v) ? null : norm(v) || null;
 const same = (a: string | null | undefined, b: string | null | undefined) =>
   norm(a).toLocaleLowerCase() === norm(b).toLocaleLowerCase();
 
 export function guestToVizaGroups(guest: GuestRowForViza): { scanned: VizaGuestFields | null; manual: VizaGuestFields | null } {
   const scanned: VizaGuestFields | null = guest.document_scan?.fields ?? null;
-  const mother = splitMotherName(guest.mother_name);
+  const mother = guest.mother_family_name != null || guest.mother_given_name != null
+    ? { csalad: norm(guest.mother_family_name) || null, uto: norm(guest.mother_given_name) || null }
+    : splitMotherName(guest.mother_name);
   const current: VizaGuestFields = {
     csaladnev: norm(guest.last_name) || null,
     utonev: norm(guest.first_name) || null,
+    szuletesiCsaladnev: reviewedText(guest.birth_last_name),
+    szuletesiUtonev: reviewedText(guest.birth_first_name),
     szuletesiDatum: norm(guest.date_of_birth) || null,
-    szuletesiHely: norm(guest.birth_place) || null,
-    anyjaCsaladnev: mother.csalad,
-    anyjaUtonev: mother.uto,
+    szuletesiHely: reviewedText(guest.birth_place),
+    anyjaCsaladnev: reviewedText(mother.csalad),
+    anyjaUtonev: reviewedText(mother.uto),
     allampolgarsagKod: iso3ToIso2(guest.nationality) ?? (norm(guest.nationality) || null),
     nem: guest.gender ? GENDER_TO_VIZA[guest.gender] ?? 'EGYEB_VAGY_NEM_ISMERT' : null,
     okmanyTipus: guest.id_document_type ? DOC_TYPE_TO_VIZA[guest.id_document_type] ?? 'EGYEB' : null,
@@ -76,6 +86,20 @@ export function guestToVizaGroups(guest: GuestRowForViza): { scanned: VizaGuestF
       || !same(String(scannedValue), String(value))) {
       (manual as Record<string, unknown>)[key] = value;
       hasManual = true;
+    }
+  }
+
+  // THF requires both halves of each name pair in the manual block.
+  // If either half differs, transmit both reviewed values, while leaving the
+  // original reader payload intact (including accents and letter case).
+  for (const [family, given] of [
+    ['csaladnev', 'utonev'],
+    ['szuletesiCsaladnev', 'szuletesiUtonev'],
+    ['anyjaCsaladnev', 'anyjaUtonev'],
+  ] as const) {
+    if (manual[family] != null || manual[given] != null) {
+      manual[family] = current[family];
+      manual[given] = current[given];
     }
   }
 

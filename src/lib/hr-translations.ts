@@ -1,0 +1,70 @@
+// HR phase 1 labels in all supported app languages.
+const rows = {
+  en: ['People and HR','People','Attendance','Documents','Training','Employee directory','Search by name','No employees found','Unable to load employees','Name','Login linked','No login','Documents will be available after the secure document module is installed.','View and manage people','View staff attendance','Open training'],
+  hu: ['Munkatársak és HR','Munkatársak','Jelenlét','Dokumentumok','Képzés','Munkatársi névsor','Keresés név szerint','Nincs találat','A munkatársak betöltése sikertelen','Név','Fiók összekapcsolva','Nincs fiók','A dokumentumok a biztonságos dokumentummodul telepítése után érhetők el.','Munkatársak megtekintése és kezelése','Jelenlét megtekintése','Képzés megnyitása'],
+  es: ['Personas y RR. HH.','Personas','Asistencia','Documentos','Formación','Directorio de empleados','Buscar por nombre','No se encontraron empleados','No se pudieron cargar los empleados','Nombre','Cuenta vinculada','Sin cuenta','Los documentos estarán disponibles tras instalar el módulo seguro.','Ver y gestionar empleados','Ver asistencia','Abrir formación'],
+  vi: ['Nhân sự và HR','Nhân viên','Chấm công','Tài liệu','Đào tạo','Danh bạ nhân viên','Tìm theo tên','Không tìm thấy nhân viên','Không thể tải danh sách nhân viên','Tên','Đã liên kết tài khoản','Chưa có tài khoản','Tài liệu sẽ có sau khi cài đặt mô-đun bảo mật.','Xem và quản lý nhân viên','Xem chấm công','Mở đào tạo'],
+  mn: ['Хүний нөөц','Ажилтнууд','Ирц','Баримт бичиг','Сургалт','Ажилтны жагсаалт','Нэрээр хайх','Ажилтан олдсонгүй','Ажилтны жагсаалтыг ачаалж чадсангүй','Нэр','Бүртгэл холбогдсон','Бүртгэлгүй','Аюулгүй баримт бичгийн модуль суусны дараа ашиглах боломжтой.','Ажилтнуудыг харах, удирдах','Ирц харах','Сургалт нээх'],
+  az: ['İşçilər və HR','İşçilər','Davamiyyət','Sənədlər','Təlim','İşçi siyahısı','Ada görə axtar','İşçi tapılmadı','İşçiləri yükləmək mümkün olmadı','Ad','Hesab əlaqələndirilib','Hesab yoxdur','Sənədlər təhlükəsiz modul quraşdırıldıqdan sonra əlçatan olacaq.','İşçilərə bax və idarə et','Davamiyyətə bax','Təlimi aç'],
+  tl: ['Mga empleyado at HR','Mga empleyado','Pagdalo','Mga dokumento','Pagsasanay','Talaan ng empleyado','Maghanap ayon sa pangalan','Walang nahanap na empleyado','Hindi ma-load ang mga empleyado','Pangalan','Nakaugnay ang account','Walang account','Magagamit ang mga dokumento kapag na-install ang ligtas na module.','Tingnan at pamahalaan ang mga empleyado','Tingnan ang pagdalo','Buksan ang pagsasanay'],
+  uk: ['Персонал і HR','Працівники','Відвідуваність','Документи','Навчання','Список працівників','Пошук за іменем','Працівників не знайдено','Не вдалося завантажити працівників','Ім’я','Обліковий запис прив’язано','Немає облікового запису','Документи будуть доступні після встановлення захищеного модуля.','Перегляд і керування працівниками','Перегляд відвідуваності','Відкрити навчання'],
+  ru: ['Сотрудники и HR','Сотрудники','Посещаемость','Документы','Обучение','Список сотрудников','Поиск по имени','Сотрудники не найдены','Не удалось загрузить сотрудников','Имя','Аккаунт привязан','Нет аккаунта','Документы будут доступны после установки защищённого модуля.','Просмотр и управление сотрудниками','Просмотр посещаемости','Открыть обучение'],
+};
+const keys = ['hr.heading','hr.nav.people','hr.nav.attendance','hr.nav.documents','hr.nav.training','hr.directory','hr.search','hr.empty','hr.error','hr.name','hr.linked','hr.unlinked','hr.nav.documents.tip','hr.nav.people.tip','hr.nav.attendance.tip','hr.nav.training.tip'];
+export const hrTranslations: Record<string, Record<string,string>> = Object.fromEntries(Object.entries(rows).map(([lang, values]) => [lang, Object.fromEntries(keys.map((key, i) => [key, values[i]]))]));
+
+const trainingRows: Record<string, string[]> = {
+  en: ['Assign staff training','Select an employee','Select a guide','Restart selected guide','Restart this guide for the selected employee? Their previous progress for this guide will be reset.','Training assigned','Unable to assign training'],
+  hu: ['Munkatársak képzése','Munkatárs kiválasztása','Útmutató kiválasztása','Kiválasztott útmutató újraindítása','Újraindítja ezt az útmutatót a kiválasztott munkatársnál? Az eddigi haladás törlődik.','Képzés hozzárendelve','A képzés hozzárendelése sikertelen'],
+  es: ['Asignar formación','Seleccionar empleado','Seleccionar guía','Reiniciar guía seleccionada','¿Reiniciar esta guía para el empleado seleccionado? Se restablecerá su progreso anterior.','Formación asignada','No se pudo asignar la formación'],
+  vi: ['Giao khóa đào tạo','Chọn nhân viên','Chọn hướng dẫn','Khởi động lại hướng dẫn','Khởi động lại hướng dẫn cho nhân viên đã chọn? Tiến độ trước đó sẽ được đặt lại.','Đã giao đào tạo','Không thể giao đào tạo'],
+  mn: ['Ажилтны сургалт оноох','Ажилтан сонгох','Заавар сонгох','Сонгосон зааврыг дахин эхлүүлэх','Сонгосон ажилтны энэ зааврыг дахин эхлүүлэх үү? Өмнөх явц арилна.','Сургалт оноолоо','Сургалт оноож чадсангүй'],
+  az: ['İşçi təlimi təyin et','İşçi seçin','Təlimat seçin','Seçilmiş təlimatı yenidən başladın','Seçilmiş işçi üçün təlimatı yenidən başlatmaq? Əvvəlki irəliləyiş sıfırlanacaq.','Təlim təyin edildi','Təlim təyin edilə bilmədi'],
+  tl: ['Magtalaga ng pagsasanay','Pumili ng empleyado','Pumili ng gabay','I-restart ang napiling gabay','I-restart ang gabay para sa napiling empleyado? Mare-reset ang naunang progreso.','Naitalaga ang pagsasanay','Hindi maitalaga ang pagsasanay'],
+  uk: ['Призначити навчання','Вибрати працівника','Вибрати посібник','Перезапустити вибраний посібник','Перезапустити посібник для вибраного працівника? Попередній прогрес буде скинуто.','Навчання призначено','Не вдалося призначити навчання'],
+  ru: ['Назначить обучение','Выбрать сотрудника','Выбрать руководство','Перезапустить выбранное руководство','Перезапустить руководство для выбранного сотрудника? Предыдущий прогресс будет сброшен.','Обучение назначено','Не удалось назначить обучение'],
+};
+const trainingKeys = ['hr.training.assign','hr.training.employee','hr.training.guide','hr.training.restart','hr.training.confirm','hr.training.done','hr.training.error'];
+for (const [lang, values] of Object.entries(trainingRows)) {
+  trainingKeys.forEach((key, i) => { hrTranslations[lang][key] = values[i]; });
+}
+
+const attendanceKeys=['hr.a.fix','hr.a.edit','hr.a.delete','hr.a.manual','hr.a.reason','hr.a.save','hr.a.cancel','hr.a.confirmDelete','hr.a.break','hr.a.closePlan','hr.a.noSchedule','hr.a.onTime','hr.a.personDays','hr.a.completedDays','hr.a.failed','hr.a.saved','hr.a.month','hr.a.timezone','hr.a.export','hr.a.planned','hr.a.problems','hr.a.unverified','hr.a.missing','hr.a.note'];
+const attendanceRows: Record<string,string[]> = {
+en:['To fix — missing check-outs','Correct','Delete','Add missing attendance','Reason (required)','Save','Cancel','Delete this attendance record?','Break (minutes)','Use planned shift end','No scheduled start','{n} of {m} on time','Person-days','Completed person-days','Unable to complete the attendance request','Attendance saved','Month','Times shown in Budapest time','Export Excel','Planned shift','Only problems','Location not verified','Missing attendance','Note'],
+hu:['Javítandó – hiányzó kijelentkezések','Javítás','Törlés','Hiányzó jelenlét hozzáadása','Indok (kötelező)','Mentés','Mégse','Törli ezt a jelenléti bejegyzést?','Szünet (perc)','Tervezett műszak vége','Nincs tervezett kezdés','{n} / {m} időben','Személynapok','Lezárt személynapok','A jelenléti művelet sikertelen','Jelenlét mentve','Hónap','Budapesti idő','Excel export','Tervezett műszak','Csak problémák','Helyszín nem ellenőrzött','Hiányzó jelenlét','Megjegyzés'],
+es:['Por corregir: salidas pendientes','Corregir','Eliminar','Añadir asistencia faltante','Motivo (obligatorio)','Guardar','Cancelar','¿Eliminar este registro?','Descanso (minutos)','Usar fin de turno previsto','Sin inicio previsto','{n} de {m} a tiempo','Días-persona','Días-persona completados','No se pudo completar la solicitud','Asistencia guardada','Mes','Hora de Budapest','Exportar Excel','Turno previsto','Solo problemas','Ubicación no verificada','Asistencia faltante','Nota'],
+vi:['Cần sửa — thiếu giờ ra','Sửa','Xóa','Thêm chấm công còn thiếu','Lý do (bắt buộc)','Lưu','Hủy','Xóa bản ghi chấm công này?','Nghỉ (phút)','Dùng giờ kết thúc ca dự kiến','Không có giờ bắt đầu dự kiến','{n} trên {m} đúng giờ','Ngày công','Ngày công hoàn tất','Không thể hoàn thành yêu cầu','Đã lưu chấm công','Tháng','Giờ Budapest','Xuất Excel','Ca dự kiến','Chỉ vấn đề','Vị trí chưa xác minh','Thiếu chấm công','Ghi chú'],
+mn:['Засах — гарах цаг дутуу','Засах','Устгах','Дутуу ирц нэмэх','Шалтгаан (заавал)','Хадгалах','Цуцлах','Энэ ирцийг устгах уу?','Завсарлага (минут)','Төлөвлөсөн ээлжийн төгсгөл','Төлөвлөсөн эхлэх цаггүй','{m}-аас {n} цагтаа','Хүн-өдөр','Дууссан хүн-өдөр','Ирцийн үйлдэл амжилтгүй','Ирц хадгалагдлаа','Сар','Будапештийн цагаар','Excel экспорт','Төлөвлөсөн ээлж','Зөвхөн асуудал','Байршил баталгаажаагүй','Ирц дутуу','Тэмдэглэл'],
+az:['Düzəldilməli — çıxış yoxdur','Düzəlt','Sil','Çatışmayan davamiyyəti əlavə et','Səbəb (məcburi)','Saxla','Ləğv et','Bu davamiyyət qeydini silmək?','Fasilə (dəqiqə)','Planlaşdırılan növbənin sonu','Planlaşdırılmış başlanğıc yoxdur','{m} nəfərdən {n} vaxtında','İnsan-gün','Tamamlanmış insan-gün','Davamiyyət əməliyyatı uğursuz oldu','Davamiyyət saxlanıldı','Ay','Budapeşt vaxtı','Excel ixracı','Planlaşdırılan növbə','Yalnız problemlər','Məkan təsdiqlənməyib','Davamiyyət yoxdur','Qeyd'],
+tl:['Ayusin — kulang ang check-out','Itama','Tanggalin','Magdagdag ng kulang na pagdalo','Dahilan (kailangan)','I-save','Kanselahin','Tanggalin ang rekord na ito?','Pahinga (minuto)','Gamitin ang planong pagtatapos','Walang nakatakdang simula','{n} sa {m} nasa oras','Araw-tao','Nakumpletong araw-tao','Hindi nakumpleto ang kahilingan','Na-save ang pagdalo','Buwan','Oras sa Budapest','I-export ang Excel','Planong shift','Mga problema lamang','Hindi beripikado ang lokasyon','Kulang ang pagdalo','Tala'],
+uk:['Виправити — немає часу виходу','Виправити','Видалити','Додати відсутній запис','Причина (обов’язково)','Зберегти','Скасувати','Видалити цей запис?','Перерва (хвилини)','Використати плановий кінець зміни','Немає планового початку','{n} із {m} вчасно','Людино-дні','Завершені людино-дні','Не вдалося виконати запит','Відвідуваність збережено','Місяць','Час Будапешта','Експорт Excel','Планова зміна','Тільки проблеми','Місце не підтверджено','Відсутній запис','Примітка'],
+ru:['Исправить — нет времени выхода','Исправить','Удалить','Добавить пропущенную явку','Причина (обязательно)','Сохранить','Отмена','Удалить эту запись?','Перерыв (минуты)','Использовать плановый конец смены','Нет планового начала','{n} из {m} вовремя','Человеко-дни','Завершённые человеко-дни','Не удалось выполнить запрос','Посещаемость сохранена','Месяц','Время Будапешта','Экспорт Excel','Плановая смена','Только проблемы','Местоположение не проверено','Нет записи о явке','Примечание']
+};
+for (const [lang, values] of Object.entries(attendanceRows)) attendanceKeys.forEach((key,i)=>{hrTranslations[lang][key]=values[i];});
+
+const comparisonKeys=['hr.a.hotel','hr.a.department','hr.a.all','hr.a.from','hr.a.to','hr.a.late','hr.a.early','hr.a.dayOff'];
+const comparisonRows:Record<string,string[]>={
+en:['Hotel','Department','All','From','To','Late arrival','Left early','Worked on day off'],
+hu:['Szálloda','Részleg','Mind','Kezdő dátum','Záró dátum','Késés','Korai távozás','Szabadnapon dolgozott'],
+es:['Hotel','Departamento','Todos','Desde','Hasta','Llegada tarde','Salida anticipada','Trabajó en día libre'],
+vi:['Khách sạn','Bộ phận','Tất cả','Từ','Đến','Đến muộn','Về sớm','Làm ngày nghỉ'],
+mn:['Зочид буудал','Хэлтэс','Бүгд','Эхлэх','Дуусах','Хоцорсон','Эрт явсан','Амралтын өдөр ажилласан'],
+az:['Otel','Şöbə','Hamısı','Başlanğıc','Son','Gecikib','Erkən çıxıb','İstirahət günü işləyib'],
+tl:['Hotel','Departamento','Lahat','Mula','Hanggang','Huli sa pagdating','Maagang umalis','Nagtrabaho sa araw ng pahinga'],
+uk:['Готель','Відділ','Усі','З','До','Запізнення','Ранній вихід','Працював у вихідний'],
+ru:['Отель','Отдел','Все','С','По','Опоздание','Ранний уход','Работал в выходной']
+};for(const [lang,values] of Object.entries(comparisonRows))comparisonKeys.forEach((key,i)=>{hrTranslations[lang][key]=values[i];});
+
+const payrollKeys=['hr.a.norm','hr.a.overtime','hr.a.nightHours','hr.a.weekendHours','hr.a.holidayHours','hr.a.leaveDays','hr.a.sickDays'];
+const payrollRows:Record<string,string[]>={
+en:['Monthly norm (hours)','Overtime vs norm (hours)','Hours on night shifts','Hours on weekend shifts','Hours on public-holiday shifts','Leave days','Sick leave days'],
+hu:['Havi norma (óra)','Normán felüli órák','Éjszakai műszak órái','Hétvégi műszak órái','Ünnepnapi műszak órái','Szabadságnapok','Betegszabadság napjai'],
+es:['Norma mensual (horas)','Horas extra sobre la norma','Horas en turnos nocturnos','Horas en turnos de fin de semana','Horas en turnos festivos','Días de permiso','Días de baja'],
+vi:['Định mức tháng (giờ)','Giờ vượt định mức','Giờ ca đêm','Giờ ca cuối tuần','Giờ ca ngày lễ','Ngày nghỉ phép','Ngày nghỉ ốm'],
+mn:['Сарын норм (цаг)','Нормоос илүү цаг','Шөнийн ээлжийн цаг','Амралтын өдрийн ээлжийн цаг','Баярын өдрийн ээлжийн цаг','Чөлөөний өдөр','Өвчтэй өдөр'],
+az:['Aylıq norma (saat)','Normadan artıq saat','Gecə növbəsi saatları','Həftəsonu növbəsi saatları','Bayram növbəsi saatları','Məzuniyyət günləri','Xəstəlik günləri'],
+tl:['Buwanang pamantayan (oras)','Oras na lampas sa pamantayan','Oras sa night shift','Oras sa weekend shift','Oras sa holiday shift','Mga araw ng leave','Mga araw ng sick leave'],
+uk:['Місячна норма (год)','Години понад норму','Години нічних змін','Години змін у вихідні','Години змін у свята','Дні відпустки','Дні лікарняного'],
+ru:['Месячная норма (часы)','Часы сверх нормы','Часы ночных смен','Часы смен в выходные','Часы смен в праздники','Дни отпуска','Дни больничного']
+};for(const [lang,values] of Object.entries(payrollRows))payrollKeys.forEach((key,i)=>{hrTranslations[lang][key]=values[i];});

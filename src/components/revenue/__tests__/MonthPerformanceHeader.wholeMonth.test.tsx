@@ -109,10 +109,52 @@ describe("MonthPerformanceHeader — whole month", () => {
     expect(screen.getByText("ADR calculation & breakfast settings").closest("details")?.open).toBe(false);
   });
 
+  it("hides a partial stayed-only month when future Previo nights are missing", () => {
+    // The calendar contains all 30 dates, but the booking import has not
+    // loaded the nights from today onward. The pricing calendar has.
+    recon.data = DAYS.map((day) => day.stay_date < "2026-11-12"
+      ? day : { ...day, commercial_sold: 0, best_commercial_sold: 0, room_revenue_gross: 0 });
+    recon.isLoading = false;
+    renderHeader();
+    expect(screen.getByText(/PMS booking totals do not match the pricing calendar/)).toBeTruthy();
+    expect(screen.queryByText("110 of 300 room-nights · whole month")).toBeNull();
+    expect(screen.queryByText("€125")).toBeNull();
+  });
+
+  it("shows verified January ADR before the forward calendar finishes loading", () => {
+    recon.data = Array.from({ length: 31 }, (_, i) => ({
+      ...DAYS[12],
+      stay_date: `2027-01-${String(i + 1).padStart(2, "0")}`,
+      is_past_night: false,
+      commercial_sold: 2,
+      booked_nights_all: 2,
+      room_revenue_gross: 200,
+      unpriced_nights: 0,
+      flags: [],
+    }));
+    recon.isLoading = false;
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MonthPerformanceHeader
+          today="2026-11-12"
+          metrics={METRICS}
+          pickupWindowDays={2}
+          onPickupWindowChange={() => {}}
+          hotelId="ottofiori"
+          selectedMonth="2027-01"
+          roomsAvailable={10}
+          loadedThrough="2026-12-31"
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getAllByText("€100").length).toBeGreaterThan(0);
+    expect(screen.getByText("62 of 310 room-nights · whole month")).toBeTruthy();
+  });
+
   it("refuses to label future-only figures as whole-month ADR when the month request fails", () => {
     recon.data = undefined; recon.isLoading = false;
     renderHeader();
-    expect(screen.getByText(/Partial ADR is not shown as monthly ADR/)).toBeTruthy();
+    expect(screen.getByText(/PMS booking totals do not match the pricing calendar|Partial ADR is not shown as monthly ADR/)).toBeTruthy();
     expect(screen.getAllByText("Monthly data unavailable").length).toBeGreaterThan(0);
     expect(screen.queryByText("€145")).toBeNull();
     expect(screen.queryByTestId("month-breakdown")).toBeNull();

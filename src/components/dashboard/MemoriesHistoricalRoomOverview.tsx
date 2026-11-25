@@ -10,6 +10,7 @@ import { parseRoomFlags } from '@/lib/room-service-flags';
 import { resolveHistoricalMemoriesService } from '@/lib/housekeepingHistoricalFinalState';
 import { historicalDndState, isBudapestBusinessDate, selectSavedSnapshot, type HistoricalDndState } from '@/lib/historicalDndStatus';
 import { hasMemoriesHistoricalRoomTypeConflict, isMemoriesHistoricalCheckout } from '@/lib/memoriesHistoricalRoomType';
+import { RoomAssignmentHistory } from './RoomAssignmentHistory';
 import { useTranslation } from '@/hooks/useTranslation';
 
 type RoomSnapshot = {
@@ -49,11 +50,11 @@ type VerifiedRoom = {
 };
 
 const COLORS: Record<string, string> = {
-  approved: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200',
-  dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200',
-  pending: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200',
-  out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200',
+  approved: 'bg-emerald-200 text-emerald-900 border-emerald-500',
+  dirty: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  pending: 'bg-violet-200 text-violet-900 border-violet-500',
+  out_of_order: 'bg-red-200 text-red-900 border-red-500',
 };
 const isCheckout = isMemoriesHistoricalCheckout;
 const isNoShow = (row: RoomSnapshot) => {
@@ -353,6 +354,8 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
         <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
           {selectedRoom && <>
             <DialogHeader><DialogTitle>Room {selectedRoom.snapshot.room_number} — {selectedDate} (read-only)</DialogTitle></DialogHeader>
+            <RoomAssignmentHistory hotel={hotelName} roomId={selectedRoom.snapshot.room_id}
+              roomNumber={selectedRoom.snapshot.room_number} selectedDate={selectedDate} />
             <div className="space-y-2 text-sm">
               <p><strong>Saved room category:</strong> {selectedRoom.checkout ? 'Checkout' : 'Daily'}.</p>
               {hasMemoriesHistoricalRoomTypeConflict(selectedRoom.snapshot) && <p className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-900">A {selectedRoom.snapshot.assignment_type === 'checkout_cleaning' ? 'checkout' : 'daily'} cleaning assignment was recorded for this date, but the final saved room category is {selectedRoom.checkout ? 'checkout' : 'daily'}. The room is grouped by the saved category; the original work record is preserved for audit.</p>}

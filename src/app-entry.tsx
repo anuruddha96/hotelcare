@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@/lib/pms-reception-translations";
+import "@/lib/ntak-translations";
 import "@/lib/pms-unified-reception-translations";
 import "@/lib/workforce/translations";
 import App from "./App.tsx";

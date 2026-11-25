@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Download, FileText, Printer, RefreshCw, Shirt } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -100,6 +101,7 @@ export function MemoriesLinenManagement() {
     const channel = supabase.channel(`memories-linen-${profile.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_counts' }, () => { void load(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_public_area_counts' }, () => { void load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_items' }, () => { void load(); })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [hotel, profile?.id, load]);
@@ -157,7 +159,8 @@ export function MemoriesLinenManagement() {
     () => new Map(items.map((item, index) => [item.name, totals[index] || 0])),
     [items, totals],
   );
-  const vendorTemplateRows = useMemo(() => [
+  const vendorTemplateRows = useMemo(() => {
+    const standardRows = [
     { label: 'Hotel - paplanhuzat mosása', sent: vendorItemTotalsByName.get('duvet_covers') || 0 },
     { label: 'Hotel - párnahuzat nagy mosása', sent: vendorItemTotalsByName.get('big_pillow') || 0 },
     { label: 'Hotel - párnahuzat kicsi mosása', sent: vendorItemTotalsByName.get('small_pillow') || 0 },
@@ -166,10 +169,15 @@ export function MemoriesLinenManagement() {
     { label: 'Hotel - fürdőlepedő mosása', sent: vendorItemTotalsByName.get('big_towel') || 0 },
     { label: 'Hotel - kéztörlő mosása', sent: vendorItemTotalsByName.get('small_towel') || 0 },
     { label: 'Hotel - kádelő mosása', sent: vendorItemTotalsByName.get('bath_mat') || 0 },
+    { label: 'Hotel - köntös mosása', sent: vendorItemTotalsByName.get('memories_bathrobe') || 0 },
     { label: 'Hotel - ágysál mosása', sent: 0 },
     { label: 'Hotel - ágytakaró mosása', sent: 0 },
     { label: 'Hotel - díszpárnahuzat mosása', sent: 0 },
-  ], [vendorItemTotalsByName]);
+    ];
+    const customRows = items.filter(item => item.name.startsWith('memories_custom_'))
+      .map(item => ({ label: `Hotel - ${item.display_name}`, sent: vendorItemTotalsByName.get(item.name) || 0 }));
+    return [...standardRows, ...customRows];
+  }, [vendorItemTotalsByName, items]);
   const vendorDate = workDate ? `${workDate.split('-').join('.')}.` : '';
   const blankCount = Math.max(0, 7 - vendorRows.length);
   const sheetRows = useMemo(() => [
@@ -267,15 +275,27 @@ export function MemoriesLinenManagement() {
       #memories-vendor-print { display: none; }
       @media print {
         @page { size: A4 portrait; margin: 8mm; }
-        html, body { width: 210mm; min-height: 297mm; background: white !important; }
-        body * { visibility: hidden !important; }
-        #memories-vendor-print, #memories-vendor-print * { visibility: visible !important; }
+        html, body {
+          width: auto !important;
+          min-height: 0 !important;
+          height: auto !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: visible !important;
+          background: white !important;
+        }
+        /* The worksheet is a direct child of body (via a React portal).
+           Hiding the app with display:none removes its layout from pagination;
+           visibility:hidden would still create invisible blank pages. */
+        body > :not(#memories-vendor-print) { display: none !important; }
         #memories-vendor-print {
           display: block !important;
-          position: absolute !important;
-          left: 0;
-          top: 0;
-          width: 194mm;
+          position: static !important;
+          width: 100% !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          break-inside: avoid;
+          page-break-inside: avoid;
           background: white !important;
           color: black !important;
           font-family: "Times New Roman", Times, serif;
@@ -373,7 +393,7 @@ export function MemoriesLinenManagement() {
     `}</style>
     <div className="flex items-center justify-between flex-wrap gap-3">
       <div><h2 className="text-2xl font-bold flex items-center gap-2"><Shirt className="h-5 w-5" />Dirty Linen Management</h2>
-        <p className="text-sm text-muted-foreground">Hotel Memories Budapest · exact seven-column laundry provider order</p></div>
+        <p className="text-sm text-muted-foreground">Hotel Memories Budapest · seven standard linen types + Bathrobe / Köntös</p></div>
       <div className="flex flex-wrap items-center gap-2">
         <img
           src="/deluxe-mosoda-logo.svg"
@@ -391,13 +411,13 @@ export function MemoriesLinenManagement() {
     </label>
     {error && <Card role="alert" className="p-3 text-destructive">{error}</Card>}
     {!!unclassifiedTotal && <Card role="alert" className="p-3 text-amber-700 text-sm">
-      {unclassifiedTotal} items were recorded under other historical categories and are not included in the seven-column provider sheet.
+      {unclassifiedTotal} items were recorded under other historical categories and are not included in the Memories laundry collection sheet.
       Queen-size sheets and small/big pillow covers ARE included in their approved columns; remaining unclassified items are preserved. Review before sending.
     </Card>}
     <Card id="memories-linen-print" className="p-4 overflow-x-auto">
       <h3 className="font-bold text-lg mb-1">Hotel Memories Budapest — Dirty linen / Szennyes textília</h3>
       <p className="text-sm mb-4">Date / Dátum: {workDate}</p>
-      <table className="w-full min-w-[850px] border-collapse text-xs" aria-label="Hotel Memories laundry provider collection sheet">
+      <table className="w-full min-w-[980px] border-collapse text-xs" aria-label="Hotel Memories laundry provider collection sheet">
         <thead><tr>
           <th className="border p-2 text-left w-40">Housekeepers / Takarítók</th>
           {items.map(item => <th key={item.id} className="border p-2 text-center break-words">{memoriesLinenLabel(item, true)}</th>)}
@@ -412,7 +432,7 @@ export function MemoriesLinenManagement() {
       <p className="mt-3 text-sm font-semibold">Total pieces / Összes darab: {grandTotal}</p>
       {!!unclassifiedTotal && <p className="text-xs mt-1">Attention: {unclassifiedTotal} unclassified historical items excluded. Review before dispatch.</p>}
     </Card>
-    <div id="memories-vendor-print" aria-hidden="true">
+    {createPortal(<div id="memories-vendor-print" aria-hidden="true">
       <div className="vendor-sheet">
         <div className="vendor-title">
           <div className="vendor-logo"><img src="/deluxe-mosoda-logo.svg" alt="Deluxe Mosoda" /></div>
@@ -452,7 +472,7 @@ export function MemoriesLinenManagement() {
                 <td></td>
               </tr>
             ))}
-            {Array.from({ length: 7 }, (_, index) => (
+            {Array.from({ length: Math.max(0, 19 - vendorTemplateRows.length) }, (_, index) => (
               <tr key={`vendor-empty-${index}`}><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>
             ))}
           </tbody>
@@ -464,7 +484,7 @@ export function MemoriesLinenManagement() {
           </tbody>
         </table>
       </div>
-    </div>
+    </div>, document.body)}
     <Card className="p-4 space-y-3">
       <h3 className="font-bold flex items-center gap-2"><FileText className="h-4 w-4" />Room-level collection and manager corrections</h3>
       <p className="text-sm text-muted-foreground">Choose a room to correct active-category quantities. Approved historical sheets and pillow covers are included in totals but retained separately in the database.</p>

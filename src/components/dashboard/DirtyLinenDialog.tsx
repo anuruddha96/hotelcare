@@ -14,6 +14,7 @@ import { Shirt, Plus, Minus, CheckCircle, Trash2, RefreshCw, AlertTriangle } fro
 import { getLocalDateString } from '@/lib/utils';
 import { translateLinenItem } from '@/lib/linen-item-i18n';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { isMemoriesHotel, memoriesLinenLabel } from '@/lib/memoriesLinen';
 import { gozsduLinenLabel, loadHotelLinenCatalogue, type LinenCatalogueItem } from '@/lib/gozsduLinenCatalogue';
 import { DirtyLinenReliableQueue, dirtyLinenQueueKey, type LinenQueueSnapshot } from '@/lib/dirtyLinenReliableQueue';
 import { isValidRealtimeUuid } from '@/lib/realtimeUuidFilter';
@@ -38,13 +39,16 @@ type LinenRecord = {
 const initialSnapshot: LinenQueueSnapshot = { counts: {}, status: 'idle', pending: 0, error: null };
 
 /** Every hotel keeps its existing queues, RLS, autosave, realtime and cart.
- * Gozsdu alone gets the separately scoped catalogue in paper-sheet order. */
+ * Gozsdu and Memories receive their venue-specific catalogues. */
 export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assignmentId }: DirtyLinenDialogProps) {
   const { user, profile } = useAuth();
   const { t, language } = useTranslation();
   const gozsdu = isGozsduCourtHotel(profile?.assigned_hotel);
+  const memories = isMemoriesHotel(profile?.assigned_hotel);
   const displayName = (item: Pick<LinenCatalogueItem, 'name' | 'display_name'>) =>
-    gozsdu ? gozsduLinenLabel(item, language, t) : translateLinenItem(item.display_name || item.name.replace(/_/g, ' '), t);
+    gozsdu ? gozsduLinenLabel(item, language, t)
+      : memories ? memoriesLinenLabel(item, true)
+      : translateLinenItem(item.display_name || item.name.replace(/_/g, ' '), t);
   const [workDate, setWorkDate] = useState(() => getLocalDateString(new Date()));
   const [linenItems, setLinenItems] = useState<LinenCatalogueItem[]>([]);
   const [myRecords, setMyRecords] = useState<LinenRecord[]>([]);

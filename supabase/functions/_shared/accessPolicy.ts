@@ -58,11 +58,11 @@ export const ACCESS_ROLE_DESCRIPTION: Record<AccessRole, string> = {
   admin: "Everything, in every hotel.",
   top_management: "Everything; lands on Revenue.",
   controlling: "Top-management access; lands on Purchase invoices.",
-  hr: "HR, housekeeping, maintenance and staff schedules; no finance, revenue, reputation or channels.",
+  hr: "Top-management access; lands on HR.",
   manager: "All hotels and operational modules, Mira and review replies. Price list instead of Revenue: no revenue figures.",
-  housekeeping_manager: "Housekeeping and maintenance; work schedule of their own hotel only; no review replies.",
-  housekeeping_supervisor: "Like a housekeeping manager: own hotel only, no review replies.",
-  reception: "Reception staff start on Maintenance; front-office managers start on Housekeeping.",
+  housekeeping_manager: "Housekeeping and maintenance; sees the work schedule of every hotel and plans their own; no review replies.",
+  housekeeping_supervisor: "Housekeeping and maintenance; work schedule of their own hotel only; no review replies.",
+  reception: "Everything except Revenue management; lands on Housekeeping while the hotel runs on Previo.",
   housekeeping: "Own rooms and shift. No Mira. Schedule hidden until it goes live.",
   maintenance: "Own tickets and shift. No Mira. Schedule hidden until it goes live.",
   breakfast: "Breakfast lookup only.",
@@ -159,6 +159,10 @@ export type ScheduleScope = "org" | "property" | "home_hotel" | "self";
 
 export type AccessCapabilities = {
   accessRole: AccessRole;
+  hrWorkspace: boolean;
+  peopleManage: boolean;
+  attendanceManage: boolean;
+  hrDocuments: boolean;
   /** May open Mira at all. */
   mira: boolean;
   /** Revenue module and Mira revenue data (revenue, ADR, pickup, goals). */
@@ -175,6 +179,8 @@ export type AccessCapabilities = {
   finance: boolean;
   /** Work schedule: whole organization, the selected hotel, their own hotel, or only themselves. */
   scheduleScope: ScheduleScope;
+  /** May read the work schedule of every hotel (planning still follows scheduleScope). */
+  scheduleViewAll: boolean;
   /** Mira may build schedule plans for them. */
   scheduleBuilder: boolean;
   /** May switch the staff schedule live for housekeepers and maintenance. */
@@ -183,7 +189,7 @@ export type AccessCapabilities = {
   mail: boolean;
 };
 
-const EXECUTIVE: AccessRole[] = ["admin", "top_management", "controlling"];
+const EXECUTIVE: AccessRole[] = ["admin", "top_management", "controlling", "hr"];
 /** Sensitive sales targets: top management and above, plus Controlling (not HR). */
 const SALES_GOAL: AccessRole[] = ["admin", "top_management", "controlling"];
 
@@ -198,6 +204,10 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
   const executive = superAdmin || EXECUTIVE.includes(accessRole);
   const base: AccessCapabilities = {
     accessRole,
+    hrWorkspace: accessRole === "hr",
+    peopleManage: superAdmin || accessRole === "admin" || accessRole === "hr",
+    attendanceManage: superAdmin || accessRole === "admin" || accessRole === "hr" || accessRole === "top_management",
+    hrDocuments: superAdmin || accessRole === "admin" || accessRole === "hr",
     mira: false,
     revenueRead: false,
     priceList: false,
@@ -206,15 +216,11 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
     reviews: false,
     finance: false,
     scheduleScope: "self",
+    scheduleViewAll: false,
     scheduleBuilder: false,
     scheduleGoLive: false,
     mail: false,
   };
-  // HR can be backed by an executive database permission level, but the
-  // effective access role must not inherit executive finance/revenue rights.
-  if (accessRole === "hr" && !superAdmin) {
-    return { ...base, mira: true, scheduleScope: "org", scheduleBuilder: true, scheduleGoLive: true, mail: true };
-  }
   if (executive) {
     return {
       ...base,
@@ -226,6 +232,7 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
       reviews: true,
       finance: true,
       scheduleScope: "org",
+      scheduleViewAll: true,
       scheduleBuilder: true,
       scheduleGoLive: true,
       mail: true,
@@ -243,13 +250,16 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
         mira: true,
         priceList: named,
         reviews: true,
-        finance: false,
+        finance: true,
         scheduleScope: named ? "org" : "property",
+        scheduleViewAll: named,
         scheduleBuilder: true,
         mail: true,
       };
     }
     case "housekeeping_manager":
+      // Sees every hotel's schedule (to cover and borrow staff), plans their own.
+      return { ...base, mira: true, scheduleScope: "home_hotel", scheduleViewAll: true, scheduleBuilder: true, mail: true };
     case "housekeeping_supervisor":
       return { ...base, mira: true, scheduleScope: "home_hotel", scheduleBuilder: true, mail: true };
     case "reception":
@@ -314,11 +324,10 @@ export function landingPathFor(subject: AccessSubject, context: LandingContext):
     case "controlling":
       return context.invoicesAvailable ? `${base}/purchase-invoices` : null;
     case "hr":
-      return `${base}?tab=attendance`;
+      return `${base}?tab=people`;
     case "reception":
-      // The reception permission role starts on Maintenance. A front-office
-      // manager holding the manager permission level starts on Housekeeping.
-      return subject?.role === "manager" || subject?.role === "reception_manager" ? null : `${base}?tab=tickets`;
+      // While the hotel runs on Previo, reception keeps today's start screen.
+      return context.nativePms ? `${base}/reception` : null;
     default:
       return null;
   }
@@ -327,7 +336,13 @@ export function landingPathFor(subject: AccessSubject, context: LandingContext):
 /** Dashboard tab to open first (null = keep the existing per-role default). */
 export function defaultDashboardTabFor(subject: AccessSubject): string | null {
   const accessRole = effectiveAccessRole(subject);
-  if (accessRole === "hr") return "attendance";
-  if (accessRole === "reception" && ["manager", "reception_manager"].includes(subject?.role ?? "")) return "housekeeping";
+  if (accessRole === "hr") return "people";
+  if (accessRole === "reception" && subject?.role === "manager") return "housekeeping";
   return null;
+}
+
+
+/** Dedicated HR navigation. Documents remain unavailable until their secure module ships. */
+export function hrNavigationFor(subject: AccessSubject): readonly string[] {
+  return capabilitiesFor(subject).hrWorkspace ? ["people", "staff-schedule", "attendance", "documents", "training", "tickets", "rooms"] : [];
 }

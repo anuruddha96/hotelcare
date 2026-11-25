@@ -253,36 +253,36 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
   };
 
   return (
-    <section className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50/80 to-white p-3 sm:p-4">
+    <section className="rounded-2xl border border-sky-200 dark:border-sky-800 bg-gradient-to-br from-sky-50/80 to-white dark:bg-none dark:bg-card dark:border-border p-3 sm:p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <CalendarDays className="h-4 w-4 text-sky-700" />
-            <p className="text-sm font-bold text-sky-950">Planned room notes</p>
-            <Badge className="bg-gradient-to-r from-fuchsia-600 to-violet-600 text-[9px]"><Sparkles className="mr-1 h-3 w-3" />NEW</Badge>
+            <CalendarDays className="h-4 w-4 text-sky-700 dark:text-sky-300" />
+            <p className="text-sm font-bold text-sky-950 dark:text-foreground">Planned room notes</p>
+            <Badge className="bg-gradient-to-r from-fuchsia-600 to-violet-600 text-white text-[9px]"><Sparkles className="mr-1 h-3 w-3" />NEW</Badge>
           </div>
-          <p className="mt-1 text-[11px] text-sky-900/70">Room {roomNumber} · {hotelName}. Future instructions stay separate from PMS sync.</p>
+          <p className="mt-1 text-[11px] text-sky-900/70 dark:text-muted-foreground">Room {roomNumber} · {hotelName}. Future instructions stay separate from PMS sync.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" className="border-sky-300" onClick={() => setPropertyOpen((value) => !value)}>
+          <Button size="sm" variant="outline" className="border-sky-300 dark:border-sky-700" onClick={() => setPropertyOpen((value) => !value)}>
             <Building2 className="mr-1 h-3.5 w-3.5" />{propertyOpen ? 'Hide property calendar' : 'Property calendar'}
           </Button>
-          {canEdit && <Button size="sm" variant="outline" className="border-sky-300" onClick={() => setComposerOpen((v) => !v)}><Plus className="mr-1 h-3.5 w-3.5" />Plan note</Button>}
+          {canEdit && <Button size="sm" variant="outline" className="border-sky-300 dark:border-sky-700" onClick={() => setComposerOpen((v) => !v)}><Plus className="mr-1 h-3.5 w-3.5" />Plan note</Button>}
         </div>
       </div>
 
       {todayNotes.length > 0 && (
-        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">Active today</p>
-          {todayNotes.map((n) => <p key={n.id} className="mt-1 text-xs font-semibold text-emerald-950">• {n.content}</p>)}
+        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/25 dark:border-emerald-800 p-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">Active today</p>
+          {todayNotes.map((n) => <p key={n.id} className="mt-1 text-xs font-semibold text-emerald-950 dark:text-emerald-100">• {n.content}</p>)}
         </div>
       )}
 
       {propertyOpen && (
-        <div className="mt-3 rounded-xl border border-sky-200 bg-white p-3">
+        <div className="mt-3 rounded-xl border border-sky-200 dark:border-sky-800 bg-white dark:bg-background p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <p className="text-xs font-bold text-slate-900">{hotelName} · property room-note calendar</p>
+              <p className="text-xs font-bold text-slate-900 dark:text-foreground">{hotelName} · property room-note calendar</p>
               <p className="text-[10px] text-muted-foreground">Only rooms visible inside this property are returned by HotelCare permissions.</p>
             </div>
             <Input type="date" min={localDate()} value={propertyDate} onChange={(event) => setPropertyDate(event.target.value)} className="h-8 w-[155px] text-xs" />
@@ -293,7 +293,7 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
                 key={date}
                 type="button"
                 onClick={() => setPropertyDate(date)}
-                className={`min-w-[66px] rounded-lg border px-2 py-1.5 text-center text-[10px] font-semibold ${propertyDate === date ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-sky-50'}`}
+                className={`min-w-[66px] rounded-lg border px-2 py-1.5 text-center text-[10px] font-semibold ${propertyDate === date ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-200 dark:border-border bg-white dark:bg-background text-slate-700 dark:text-foreground hover:bg-sky-50 dark:hover:bg-accent'}`}
               >
                 <span className="block">{new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' })}</span>
                 <span className="block">{shortDate(date)}</span>
@@ -306,13 +306,13 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
             ) : propertyDayNotes.length === 0 ? (
               <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">No planned room instructions for {prettyDate(propertyDate)}.</p>
             ) : propertyDayNotes.map((note) => (
-              <div key={`property-${note.id}`} className={`rounded-lg border p-2.5 ${note.room_id === roomId ? 'border-sky-300 bg-sky-50/60' : 'bg-slate-50/70'}`}>
+              <div key={`property-${note.id}`} className={`rounded-lg border p-2.5 ${note.room_id === roomId ? 'border-sky-300 dark:border-sky-700 bg-sky-50/60 dark:bg-sky-950/25' : 'bg-slate-50/70 dark:bg-muted/40'}`}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" className="bg-white text-[9px]">Room {propertyRoomNumbers[note.room_id] || '—'}</Badge>
-                  <Badge variant="outline" className="bg-white text-[9px]">{TYPES.find(([value]) => value === note.instruction_type)?.[1] || 'General'}</Badge>
-                  {note.room_id === roomId && <span className="text-[9px] font-semibold text-sky-700">Current room</span>}
+                  <Badge variant="outline" className="bg-white dark:bg-background text-[9px]">Room {propertyRoomNumbers[note.room_id] || '—'}</Badge>
+                  <Badge variant="outline" className="bg-white dark:bg-background text-[9px]">{TYPES.find(([value]) => value === note.instruction_type)?.[1] || 'General'}</Badge>
+                  {note.room_id === roomId && <span className="text-[9px] font-semibold text-sky-700 dark:text-sky-300">Current room</span>}
                 </div>
-                <p className="mt-1.5 text-xs font-medium text-slate-900">{note.content}</p>
+                <p className="mt-1.5 text-xs font-medium text-slate-900 dark:text-foreground">{note.content}</p>
                 <p className="mt-1 text-[9px] text-muted-foreground">Last saved by {names[note.updated_by] || names[note.created_by] || 'HotelCare user'} · {new Date(note.updated_at).toLocaleString()}</p>
               </div>
             ))}
@@ -321,7 +321,7 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
       )}
 
       {composerOpen && (
-        <div className="mt-3 space-y-3 rounded-xl border border-sky-200 bg-white p-3">
+        <div className="mt-3 space-y-3 rounded-xl border border-sky-200 dark:border-sky-800 bg-white dark:bg-background p-3">
           <div className="grid gap-2 sm:grid-cols-3">
             <Select value={type} onValueChange={setType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{TYPES.map(([value,label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
             <Input type="date" value={startDate} min={localDate()} onChange={(e) => { setStartDate(e.target.value); if (endDate < e.target.value) setEndDate(e.target.value); setSelectedDates([]); }} />
@@ -329,7 +329,7 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
           </div>
           <div>
             <p className="mb-1.5 text-[10px] font-semibold text-muted-foreground">Or select individual days</p>
-            <div className="flex flex-wrap gap-1.5">{Array.from({length:14},(_,i)=>localDate(i)).map((d)=><button type="button" key={d} onClick={()=>toggleQuickDate(d)} className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${selectedDates.includes(d)?'border-sky-600 bg-sky-600 text-white':'border-slate-200 bg-white hover:bg-sky-50'}`}>{shortDate(d)}</button>)}</div>
+            <div className="flex flex-wrap gap-1.5">{Array.from({length:14},(_,i)=>localDate(i)).map((d)=><button type="button" key={d} onClick={()=>toggleQuickDate(d)} className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${selectedDates.includes(d)?'border-sky-600 bg-sky-600 text-white':'border-slate-200 dark:border-border bg-white dark:bg-background hover:bg-sky-50 dark:hover:bg-accent'}`}>{shortDate(d)}</button>)}</div>
           </div>
           <Textarea value={content} onChange={(e)=>setContent(e.target.value)} placeholder="Example: Take baby bed out; prepare extra towels; VIP setup…" className="min-h-[72px]" />
           <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] text-muted-foreground">Creator, edits and timestamps are retained in HotelCare history.</p><Button size="sm" disabled={saving || !content.trim()} onClick={()=>void createNote()}>{saving?<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/>:<CheckCircle2 className="mr-1 h-3.5 w-3.5"/>}Save plan</Button></div>
@@ -343,23 +343,23 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
           const createdName = names[note.created_by] || (note.created_by === profile?.id ? 'You' : 'HotelCare user');
           const updatedName = names[note.updated_by] || (note.updated_by === profile?.id ? 'You' : createdName);
           return (
-            <div key={note.id} className="rounded-xl border bg-white p-2.5">
+            <div key={note.id} className="rounded-xl border bg-white dark:bg-background p-2.5">
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
                     <Badge variant="outline" className="text-[9px]">{TYPES.find(([v])=>v===note.instruction_type)?.[1] || 'General'}</Badge>
-                    <span className="font-semibold text-slate-700">{note.selected_dates?.length ? note.selected_dates.map(prettyDate).join(', ') : note.start_date === note.end_date ? prettyDate(note.start_date) : `${prettyDate(note.start_date)} – ${prettyDate(note.end_date)}`}</span>
+                    <span className="font-semibold text-slate-700 dark:text-foreground">{note.selected_dates?.length ? note.selected_dates.map(prettyDate).join(', ') : note.start_date === note.end_date ? prettyDate(note.start_date) : `${prettyDate(note.start_date)} – ${prettyDate(note.end_date)}`}</span>
                   </div>
                   {canEdit ? <Textarea value={note.content} onChange={(e)=>autosave(note.id,e.target.value)} className="mt-2 min-h-[56px] resize-y text-xs" /> : <p className="mt-2 text-xs font-medium">{note.content}</p>}
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-muted-foreground">
                     <span className="flex items-center gap-1"><UserRound className="h-3 w-3"/>Created by {createdName} · {new Date(note.created_at).toLocaleString()}</span>
                     <span className="flex items-center gap-1"><Clock3 className="h-3 w-3"/>Last saved by {updatedName} · {new Date(note.updated_at).toLocaleString()}</span>
                     {saveState[note.id] === 'saving' && <span>Saving…</span>}
-                    {saveState[note.id] === 'saved' && <span className="text-emerald-700">✓ Saved automatically</span>}
-                    {saveState[note.id] === 'error' && <span className="text-rose-700">Autosave failed — keep this window open and retry</span>}
+                    {saveState[note.id] === 'saved' && <span className="text-emerald-700 dark:text-emerald-300">✓ Saved automatically</span>}
+                    {saveState[note.id] === 'error' && <span className="text-rose-700 dark:text-rose-300">Autosave failed — keep this window open and retry</span>}
                   </div>
                 </div>
-                {canEdit && <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 text-rose-600" onClick={()=>void cancelNote(note.id)} aria-label="Remove planned instruction"><Trash2 className="h-3.5 w-3.5"/></Button>}
+                {canEdit && <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 text-rose-600 dark:text-rose-300" onClick={()=>void cancelNote(note.id)} aria-label="Remove planned instruction"><Trash2 className="h-3.5 w-3.5"/></Button>}
               </div>
             </div>
           );

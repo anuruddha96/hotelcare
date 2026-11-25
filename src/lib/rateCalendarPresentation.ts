@@ -12,13 +12,20 @@ export function canEditCalendarDate(date: string, today: string, canEditRates: b
 }
 
 /**
- * One shared column width for rolling and single-month navigation.
- * On a narrow viewport prefer horizontal scrolling to shrinking numbers.
+ * Match the calendar's actual date count (30 rolling nights or 28–31 month
+ * dates). Desktop fit mode deliberately overrides the zoom minimum; otherwise
+ * a 60px minimum forces users to scroll even on a large monitor. Narrow
+ * screens and explicitly zoomed-in detail mode keep legible scrollable cells.
  */
-export function rateCalendarColumnWidth(viewportWidth: number, leftWidth: number, zoomCellWidth: number): number {
+export function rateCalendarColumnWidth(
+  viewportWidth: number, leftWidth: number, zoomCellWidth: number,
+  dateCount = 30, fitAllDates = false,
+): number {
   const minWidth = Math.max(1, zoomCellWidth);
   const available = viewportWidth - leftWidth - 2;
-  return available <= 0 ? minWidth : Math.max(minWidth, Math.floor(available / 30));
+  if (available <= 0) return minWidth;
+  const fitted = Math.max(1, Math.floor(available / Math.max(1, dateCount)));
+  return fitAllDates ? fitted : Math.max(minWidth, fitted);
 }
 
 export function historicalRateKey(obkId: string, occupancy: number, date: string): string {

@@ -159,17 +159,17 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
   };
 
   const getTimerColor = () => {
-    if (isOnBreak) return 'text-yellow-600'; // Yellow when on break
-    if (elapsed < 1800) return 'text-green-600'; // Under 30 minutes
-    if (elapsed < 3600) return 'text-yellow-600'; // Under 1 hour
-    return 'text-red-600'; // Over 1 hour
+    if (isOnBreak) return 'text-yellow-700 dark:text-yellow-300'; // Yellow when on break
+    if (elapsed < 1800) return 'text-green-700 dark:text-green-400'; // Under 30 minutes
+    if (elapsed < 3600) return 'text-yellow-700 dark:text-yellow-300'; // Under 1 hour
+    return 'text-red-700 dark:text-red-400'; // Over 1 hour
   };
 
   return (
     <div className="flex flex-col gap-1 min-w-0">
       <Badge variant="outline" className={`${getTimerColor()} border-current text-xs px-2 py-1 flex items-center gap-1 w-fit`}>
         {isOnBreak ? <Pause className="h-3 w-3 flex-shrink-0" /> : <Clock className="h-3 w-3 flex-shrink-0" />}
-        <span className="truncate font-semibold">{formatTime(elapsed)}</span>
+        <span className="whitespace-nowrap font-semibold tabular-nums">{formatTime(elapsed)}</span>
         {isOnBreak && <span className="text-xs font-bold">(ON BREAK)</span>}
       </Badge>
       {totalBreakTime > 0 && (

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { Folder, MessageSquare, PanelLeft, Plus, Sparkles } from "lucide-react";
+import { ClipboardCheck, Folder, MessageSquare, PanelLeft, Plus, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +26,7 @@ import AssistantChat from "@/components/assistant/AssistantChat";
 import AssistantSidebar from "@/components/assistant/AssistantSidebar";
 import AssistantAccessRequests, { canApproveAssistantAccess } from "@/components/assistant/AssistantAccessRequests";
 import ReportProblemDialog from "@/components/assistant/ReportProblemDialog";
+import MemoryDialog from "@/components/assistant/MemoryDialog";
 import ApprovalsHistory from "@/components/assistant/plans/ApprovalsHistory";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MailboxesDialog from "@/components/assistant/MailboxesDialog";
@@ -71,6 +72,7 @@ export default function AssistantPage() {
   });
   const [mobileNav, setMobileNav] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -222,6 +224,13 @@ export default function AssistantPage() {
     void loadThreads();
   };
 
+  // Closing Mira returns to the screen that launched it. The floating Mira
+  // button remains available there, and existing threads/drafts can resume.
+  const minimizeMira = () => {
+    setMobileNav(false);
+    navigate(getAssistantReturnPath(userId, organizationSlug) ?? `/${profile?.organization_slug ?? ""}`);
+  };
+
   const saveProject = async () => {
     if (!projectDraft || savingProject) return;
     if (!projectDraft.name.trim()) {
@@ -289,13 +298,14 @@ export default function AssistantPage() {
       onDeleteProject={setDeletingProject}
       onOpenInsights={() => navigate(`/${profile?.organization_slug}/assistant-insights`)}
       onReport={() => setReportOpen(true)}
-      onBack={() => navigate(getAssistantReturnPath(userId, organizationSlug) ?? `/${profile?.organization_slug ?? ""}`)}
+      onOpenMemory={() => { setMobileNav(false); setMemoryOpen(true); }}
+      onBack={minimizeMira}
       onCollapse={onCollapse}
     />
   );
 
   return (
-    <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
+    <div className="flex h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] min-h-0 w-full overflow-hidden bg-background">
       {sidebarOpen && <aside className="hidden w-72 shrink-0 border-r md:block">{sidebar(() => toggleSidebar(false))}</aside>}
 
       <Sheet open={mobileNav} onOpenChange={setMobileNav}>
@@ -306,7 +316,7 @@ export default function AssistantPage() {
         </SheetContent>
       </Sheet>
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-16 shrink-0 items-center gap-1 border-b bg-background/95 px-2 backdrop-blur-xl sm:px-4">
           <Button size="icon" variant="ghost" className="h-9 w-9 md:hidden" aria-label="Open conversations" onClick={() => setMobileNav(true)}>
             <PanelLeft className="h-4 w-4" />
@@ -323,7 +333,7 @@ export default function AssistantPage() {
             <div className="min-w-0">
               <h1 className="flex items-center gap-2 text-sm font-semibold leading-5">
                 <span>Mira</span>
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">AI Operator</span>
+                <span className="hidden whitespace-nowrap rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary sm:inline">AI Operator</span>
               </h1>
               <p className="truncate text-xs text-muted-foreground">
                 {activeProject ? `${activeProject.name} · ` : ""}
@@ -331,15 +341,21 @@ export default function AssistantPage() {
               </p>
             </div>
           </div>
-          <Button size="sm" variant="ghost" className="text-xs" onClick={() => setRequestsOpen(true)}>
+          <Button size="sm" variant="ghost" className="hidden text-xs sm:inline-flex" onClick={() => setRequestsOpen(true)}>
             {canApproveAssistantAccess(profile?.role) ? "Approvals & requests" : "Approvals"}
           </Button>
-          <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="New chat" onClick={startBlank}>
+          <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0 sm:hidden" aria-label="Approvals and requests" title="Approvals and requests" onClick={() => setRequestsOpen(true)}>
+            <ClipboardCheck className="h-4 w-4" />
+          </Button>
+          <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" aria-label="New chat" onClick={startBlank}>
             <Plus className="h-4 w-4" />
+          </Button>
+          <Button size="icon" variant="outline" className="h-9 w-9 shrink-0 rounded-full" aria-label="Minimize Mira and return to HotelCare" title="Minimize Mira" onClick={minimizeMira}>
+            <X className="h-4 w-4" />
           </Button>
         </header>
 
-        <div className="min-h-0 flex-1 px-1 pb-1 sm:px-4">
+        <div className="min-h-0 flex-1 px-1 sm:px-4">
           <AssistantChat
             workspace
             threadId={threadId ?? null}
@@ -558,6 +574,7 @@ export default function AssistantPage() {
 
       <MailboxesDialog open={mailOpen} onOpenChange={setMailOpen} />
       <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} threadId={threadId ?? null} />
+      <MemoryDialog open={memoryOpen} onOpenChange={setMemoryOpen} />
     </div>
   );
 }

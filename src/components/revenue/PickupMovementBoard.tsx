@@ -16,7 +16,7 @@ import { usePickupSeenSince, useIsNewSince } from "@/lib/pickupSeen";
 import { supabase } from "@/integrations/supabase/client";
 import BookingMovementAnalytics from "./BookingMovementAnalytics";
 import { isDirectChannel, movementChannelKind, movementAdr, movementRoomNights } from "@/lib/bookingMovementPresentation";
-import { formatBookingMoney } from "@/lib/bookingInsights";
+import { formatBookingMoney, resolveBookingCurrency } from "@/lib/bookingInsights";
 
 type StatusFilter = "all" | "booked" | "cancelled" | "below" | "above" | "direct" | "ota";
 type SortKey = "created" | "arrival" | "value" | "adr_asc" | "adr_desc";
@@ -51,7 +51,7 @@ function Value({ amount, grouped, currencyCode }: { amount: number; grouped?: bo
 
 export default function PickupMovementBoard({
   metrics: _metrics, windowDays, nights = [], cancellations = [],
-  hotelId = null, organizationSlug = null, rates = [], canEdit = false, onRatesUpdated, lastSyncAt,
+  hotelId = null, organizationSlug = null, rates = [], canEdit = false, onRatesUpdated, lastSyncAt, publishedCurrency = null,
 }: {
   metrics: DayMetrics[];
   windowDays: number;
@@ -63,6 +63,7 @@ export default function PickupMovementBoard({
   canEdit?: boolean;
   onRatesUpdated?: () => void;
   lastSyncAt?: string | null;
+  publishedCurrency?: string | null;
 }) {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortKey>("created");
@@ -71,10 +72,13 @@ export default function PickupMovementBoard({
   const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
   const [goalAdjust, setGoalAdjust] = useState<GoalAdjustTarget | null>(null);
   const [targetAdr, setTargetAdr] = useState<number | null>(null);
-  const [currencyCode, setCurrencyCode] = useState<string | null>(null);
+  const [settingsCurrency, setSettingsCurrency] = useState<string | null>(null);
+  const currencyCode = resolveBookingCurrency(publishedCurrency, settingsCurrency);
   useEffect(() => {
-    if (!hotelId) { setTargetAdr(null); setCurrencyCode(null); return; }
+    if (!hotelId) { setTargetAdr(null); setSettingsCurrency(null); return; }
     let alive = true;
+    setSettingsCurrency(null);
+    setTargetAdr(null);
     void (async () => {
       const { data, error } = await supabase.from("hotel_revenue_settings")
         .select("target_adr, base_currency").eq("hotel_id", hotelId).maybeSingle();
@@ -313,7 +317,7 @@ export default function PickupMovementBoard({
           </div>
         )}
 
-        <BookingMovementAnalytics hotelId={hotelId} lastSyncAt={lastSyncAt} />
+        <BookingMovementAnalytics hotelId={hotelId} lastSyncAt={lastSyncAt} publishedCurrency={currencyCode} />
         <AdrGoalAdjustDialog
           // Remount with a fresh, fully populated booking range every time
           // an ADR shortcut opens (or a different booking is selected).

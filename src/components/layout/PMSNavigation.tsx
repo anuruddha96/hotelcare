@@ -7,7 +7,7 @@ import { OperationsNavigation } from '@/components/layout/OperationsNavigation';
  */
 export function PMSNavigation() {
   return (
-    <div className="sticky z-40 w-full border-b border-sky-100 bg-background/95 backdrop-blur-md dark:border-sky-900" style={{ top: "var(--hc-header-height, 0px)" }}>
+    <div className="w-full bg-card border-b border-border">
       <div className="container mx-auto px-3 sm:px-4 py-1.5">
         <OperationsNavigation />
       </div>

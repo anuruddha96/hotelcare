@@ -89,7 +89,9 @@ export function TrainingHelpButtonV2() {
     return {
       contextual: onThisScreen,
       others: availableCurricula.filter((c) => !contextualSlugs.has(c.slug)),
-      unfinishedHere: onThisScreen.some((m) => completion[m.curriculum.slug] !== 'done'),
+      unfinishedHere: onThisScreen.some(({ curriculum }) =>
+        [curriculum.slug, ...(curriculum.replaces || [])].every((slug) => completion[slug] !== 'done'),
+      ),
     };
   }, [onThisScreen, availableCurricula, completion]);
 
@@ -107,7 +109,7 @@ export function TrainingHelpButtonV2() {
           ref={btnRef}
           variant="ghost"
           size="icon"
-          className="relative min-h-11 min-w-11"
+          className="relative h-11 w-11 shrink-0 border border-border/60 bg-background sm:border-transparent sm:bg-transparent"
           aria-label={txt(TXT.ariaLabel, lang)}
           data-training="help-button"
           data-training-has-guide={unfinishedHere ? 'true' : undefined}
@@ -150,7 +152,7 @@ export function TrainingHelpButtonV2() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm">{txt(c.name, lang)}</div>
-                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{txt(c.description, lang)}</p>
+                    {!c.shortTopic && <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{txt(c.description, lang)}</p>}
                     <div className="mt-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
                       <span>
                         {c.steps.length} {txt(TXT.steps, lang)} · ~{minutesFor(c.steps.length, c.estMinutes)} {txt(TXT.min, lang)}
@@ -201,9 +203,9 @@ export function TrainingHelpButtonV2() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm">{txt(c.name, lang)}</div>
-                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                      {txt(c.description, lang)}
-                    </p>
+                    {!c.shortTopic && (
+                      <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{txt(c.description, lang)}</p>
+                    )}
                     <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-1">
                       {c.steps.length} {txt(TXT.steps, lang)} ·{' '}
                       {status === 'done' ? txt(TXT.completed, lang) : status === 'in_progress' ? txt(TXT.resume, lang) : txt(TXT.start, lang)}

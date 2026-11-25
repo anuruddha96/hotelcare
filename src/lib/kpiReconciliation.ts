@@ -45,6 +45,8 @@ export interface ReconciliationDay {
   room_revenue_gross: number | string;
   unpriced_nights: number;
   flags: string[] | null;
+  /** Evidence of when Previo last delivered bookings for this stay date. */
+  bookings_captured_at?: string | null;
   /** Breakfasts on the housekeeping list for the morning after; null = no list. */
   breakfast_guests?: number | null;
   /** Breakfast value included in rates, per guest per night (hotel currency); null = not set. */

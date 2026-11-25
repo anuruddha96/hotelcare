@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UserRound, UsersRound, Eye } from "lucide-react";
+import { Loader2, CalendarRange, Check, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UserRound, UsersRound, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,7 +21,7 @@ import { activePricingRoomTypes, isTechnicalRoomKind } from "@/lib/revenue/roomT
 import InitializeRoomRatesDialog from "@/components/revenue/InitializeRoomRatesDialog";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
-  type BookingNight, type DayMetrics, type RoomTypeRate,
+  type BookingNight, type CancelledNight, type DayMetrics, type RoomTypeRate,
   PICKUP_WINDOW_48H,
   DEFAULT_PICKUP_WINDOW_DAYS,
   pickupWindowLabel,
@@ -41,9 +41,10 @@ import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePi
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
+import PriceDemandJourney from "@/components/revenue/PriceDemandJourney";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "@/lib/rateCalendarWindow";
-import { canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
+import { RATE_HISTORY_DAYS, canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
 import { shouldAllowRateCalendarEdgePan, shouldResetRateCalendarViewport } from "@/lib/rateCalendarScroll";
 import { shouldPinRateSummary } from "@/lib/rateCalendarStickyBoundary";
 import { useHistoricalRoomRates } from "@/hooks/useHistoricalRoomRates";
@@ -83,6 +84,8 @@ interface Props {
   rates: RoomTypeRate[];
   metrics: DayMetrics[];
   nights?: BookingNight[];
+  cancellations?: CancelledNight[];
+  lastSyncAt?: string | null;
   pickupWindowDays: number;
   onPickupWindowChange: (days: number) => void;
   thresholds?: RevenueThresholds;
@@ -153,10 +156,10 @@ function monthBands(dates: string[]) {
 /** Colour coding for the internal demand grade. */
 function demandTone(band: DemandBand): string {
   switch (band) {
-    case "very_strong": return "bg-red-500 text-white";
-    case "strong": return "bg-orange-300 text-orange-950 dark:bg-orange-700 dark:text-orange-50";
-    case "normal": return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
-    case "soft": return "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100";
+    case "very_strong": return "bg-red-500 text-white dark:bg-red-700 dark:text-white";
+    case "strong": return "bg-orange-300 text-orange-950";
+    case "normal": return "bg-amber-100 text-amber-900";
+    case "soft": return "bg-sky-100 text-sky-900";
     default: return "bg-muted text-muted-foreground";
   }
 }
@@ -173,10 +176,10 @@ const DEMAND_SHORT: Record<DemandBand, string> = {
 /** How much inventory is left, colour-graded from plenty to sold out. */
 function leftTone(left: number, units: number): string {
   if (units <= 0) return "text-muted-foreground";
-  if (left <= 0) return "bg-destructive/20 text-destructive font-semibold";
+  if (left <= 0) return "bg-destructive/20 text-destructive font-semibold dark:bg-red-400/[0.07] dark:text-red-300";
   const pct = left / units;
-  if (pct <= 0.2) return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
-  return "text-muted-foreground";
+  if (pct <= 0.2) return "bg-amber-100 text-amber-900 dark:bg-amber-400/10 dark:text-amber-200";
+  return "text-foreground";
 }
 
 /**
@@ -197,7 +200,7 @@ function isMonday(d: string): boolean {
   return new Date(`${d}T00:00:00Z`).getUTCDay() === 1;
 }
 
-type WeekendTradingTone = "peak" | "sunday" | null;
+type WeekendTradingTone = "friday" | "saturday" | "sunday" | null;
 
 /**
  * Friday and Saturday are the strongest leisure/revenue trading nights.
@@ -206,7 +209,8 @@ type WeekendTradingTone = "peak" | "sunday" | null;
  */
 function weekendTradingTone(d: string): WeekendTradingTone {
   const day = new Date(`${d}T00:00:00Z`).getUTCDay();
-  if (day === 5 || day === 6) return "peak";
+  if (day === 5) return "friday";
+  if (day === 6) return "saturday";
   if (day === 0) return "sunday";
   return null;
 }
@@ -218,15 +222,16 @@ function isWeekendTrading(d: string): boolean {
 
 function weekendLabelTone(d: string): string {
   const tone = weekendTradingTone(d);
-  if (tone === "peak") return "font-bold text-foreground";
+  if (tone === "friday" || tone === "saturday") return "font-bold text-sky-950 dark:text-foreground";
   if (tone === "sunday") return "font-semibold text-foreground/80";
   return "text-muted-foreground";
 }
 
 /** Vertical rules: month > week > day, so columns never blur together. */
 function dayEdge(d: string): string {
-  if (d.endsWith("-01")) return "border-l-2 border-l-foreground/40";
-  return "border-l border-l-border/40";
+  if (d.endsWith("-01")) return "border-l-2 border-l-foreground/40 dark:border-l-[#737373]";
+  if (isMonday(d)) return "border-l border-l-border/40 dark:border-l-[#505050]";
+  return "border-l border-l-border/40 dark:border-l-[#292929]";
 }
 /** High-contrast vertical guide for the current Budapest date. */
 function dateColumnEdge(d: string, today: string): string {
@@ -236,11 +241,17 @@ function dateColumnEdge(d: string, today: string): string {
 /** Zebra shading so a long row of numbers stays trackable.
  *  Friday + Saturday get the stronger weekend fill; Sunday stays visibly
  *  related but lighter so the three days no longer read as one flat block. */
-function dayBg(d: string, i: number): string {
+function dayBg(d: string, i: number, surface: "body" | "header" = "body"): string {
   const weekendTone = weekendTradingTone(d);
-  if (weekendTone === "peak") return "bg-primary/20";
-  if (weekendTone === "sunday") return "bg-primary/10";
-  return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
+  // The dates are the strong visual anchor; the same blue continues through
+  // the price matrix at a calmer intensity. Keep the light palette intact.
+  if (weekendTone === "friday" || weekendTone === "saturday") {
+    return surface === "header" ? "bg-sky-200/85 dark:bg-[#234968]" : "bg-sky-200/85 dark:bg-[#172e43]";
+  }
+  if (weekendTone === "sunday") {
+    return surface === "header" ? "bg-sky-100/65 dark:bg-[#253747]" : "bg-sky-100/65 dark:bg-[#1a242e]";
+  }
+  return i % 2 === 1 ? "bg-foreground/[0.03] dark:bg-white/[0.025]" : "";
 }
 
 /** Compact money for a 60px column; the exact figure lives in the tooltip. */
@@ -341,7 +352,7 @@ interface PendingDraft {
  * visible, and scrolling to the right end automatically extends the horizon.
  */
 export default function RateStrategyGrid({
-  loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [],
+  loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [], cancellations = [], lastSyncAt,
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
   demandByDate, eventsByDate, leftByTypeDate, soldOutPrices = [], onRatesUpdated, onAvailabilityUpdated, onHorizonDaysChange,
 }: Props) {
@@ -400,6 +411,9 @@ export default function RateStrategyGrid({
       }
       return;
     }
+    // A deliberate zoom switches to the readable, horizontally scrollable
+    // detail view. Navigating to another date range restores full-width fit.
+    setFitAllDates(false);
     setZoomPref(clamped);
   }, [zoom, setZoomPref]);
 
@@ -411,13 +425,19 @@ export default function RateStrategyGrid({
    * month and squeezes its columns so all 28-31 days fit without scrolling.
    */
   const [monthFilter, setMonthFilter] = useState<string | null>(null);
+  const [fitAllDates, setFitAllDates] = useState(true);
   // Only the last three nights load by default; selecting a historical month
   // replaces those columns with one read-only archived month on explicit demand.
   const [historyMonth, setHistoryMonth] = useState<string | null>(null);
   const [historyPickerOpen, setHistoryPickerOpen] = useState(false);
   // Always show the previous three read-only nights in the default rolling view.
   const historyRevealed = !historyMonth && (!monthFilter || monthFilter === today.slice(0, 7));
-  const historical = useHistoricalRoomRates(hotelId, today, !!historyMonth || historyRevealed, historyMonth);
+  // For the selected current month, load the full archive through yesterday.
+  // The rolling view still fetches only its three historical nights.
+  const historical = useHistoricalRoomRates(
+    hotelId, today, !!historyMonth || historyRevealed,
+    historyMonth ?? (monthFilter === today.slice(0, 7) ? monthFilter : null),
+  );
   const displayedEventsByDate = useMemo(() => {
     if (!historyMonth && !historyRevealed) return eventsByDate;
     const combined = new Map(eventsByDate ?? []);
@@ -425,14 +445,6 @@ export default function RateStrategyGrid({
     return combined;
   }, [eventsByDate, historical.eventsByDate, historyMonth, historyRevealed]);
   const [viewportW, setViewportW] = useState(0);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
-    ro.observe(el);
-    setViewportW(el.clientWidth);
-    return () => ro.disconnect();
-  }, []);
 
   const ZOOM_CELL_W = Math.round(BASE_CELL_W * zoom);
 
@@ -491,10 +503,15 @@ export default function RateStrategyGrid({
 
   const LEFT_W = railed ? RAIL_W : leftW;
 
-  /** Keep all month and rolling date columns identical in size. */
+  /** Desktop fits exactly 30 upcoming nights or every day of the selected
+   * calendar month. Keep mobile and deliberate zoom at a readable scroll width. */
+  const dateColumnsToFit = historyMonth
+    ? historicalMonthDates(today, historyMonth).length
+    : monthFilter ? calendarWindow(today, monthFilter).length : 30 + RATE_HISTORY_DAYS;
+  const canFitDates = fitAllDates && !isMobile && viewportW >= 1024;
   const CELL_W = useMemo(
-    () => rateCalendarColumnWidth(viewportW, LEFT_W, ZOOM_CELL_W),
-    [viewportW, LEFT_W, ZOOM_CELL_W],
+    () => rateCalendarColumnWidth(viewportW, LEFT_W, ZOOM_CELL_W, dateColumnsToFit, canFitDates),
+    [viewportW, LEFT_W, ZOOM_CELL_W, dateColumnsToFit, canFitDates],
   );
 
   /**
@@ -996,12 +1013,11 @@ export default function RateStrategyGrid({
 
   /** Price-cell history on touch: tap a cell to read who changed it and when. */
   const [cellInfo, setCellInfo] = useState<{
-    date: string; roomTypeName: string; occ: number; published: number | null; draft: number | null;
+    date: string; roomTypeName: string; displayName?: string; occ: number; published: number | null; draft: number | null;
     obk?: string | null;
   } | null>(null);
 
   /** Make revenue calendar actions immediately visible on every visit; users may collapse them. */
-  const [calendarToolsOpen, setCalendarToolsOpen] = useState(true);
 
   /** Full-screen pricing mode — the calendar and nothing else. */
   const [expanded, setExpanded] = useState(false);
@@ -1907,27 +1923,8 @@ export default function RateStrategyGrid({
 
 
 
-  /** Whether there is more calendar to the left / right (drives the edge hints). */
+  /** Whether there is more calendar to the left / right (toolbar buttons). */
   const [edges, setEdges] = useState({ left: false, right: true });
-
-  /** True while the pointer rests on an arrow: automatic gliding pauses there. */
-  const manualNav = useRef(false);
-  const [hoverArrow, setHoverArrow] = useState<null | "left" | "right">(null);
-  // The "move manually" hint is a nudge, not a permanent label: it fades out
-  // three seconds after the cursor lands on an arrow.
-  const arrowHintTimer = useRef<number | null>(null);
-  const showArrowHint = (side: "left" | "right") => {
-    if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current);
-    setHoverArrow(side);
-    arrowHintTimer.current = window.setTimeout(() => setHoverArrow(null), 3000);
-  };
-  const hideArrowHint = () => {
-    if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current);
-    arrowHintTimer.current = null;
-    setHoverArrow(null);
-  };
-  useEffect(() => () => { if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current); }, []);
-
 
   // The summary and prices have separate horizontal panes so the summary can
   // remain CSS-sticky to the PAGE. Only scrollLeft is synchronized on user
@@ -1952,8 +1949,8 @@ export default function RateStrategyGrid({
       scrollRaf.current = null;
       const el = scrollRef.current;
       if (!el) return;
-      const idx = Math.min(allDates.length - 1, Math.max(0, Math.round(el.scrollLeft / CELL_W)));
-      const label = formatMonth(allDates[idx]);
+      const idx = Math.min(dates.length - 1, Math.max(0, Math.floor(el.scrollLeft / CELL_W)));
+      const label = formatMonth(dates[idx] ?? today);
       setVisibleMonth((prev) => (prev === label ? prev : label));
       const canLeft = el.scrollLeft > 4;
       const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
@@ -1963,29 +1960,14 @@ export default function RateStrategyGrid({
   }
   useEffect(() => () => { if (scrollRaf.current !== null) cancelAnimationFrame(scrollRaf.current); }, []);
 
-  /** Glide a whole screen of dates left or right, animated. */
+  /** Page left or right without animating the two separate panes. */
   const nudge = (dir: -1 | 1) => {
     const el = scrollRef.current;
     if (!el) return;
     const page = Math.max(CELL_W * 3, Math.floor((el.clientWidth - LEFT_W) * 0.8 / CELL_W) * CELL_W);
-    el.scrollBy({ left: dir * page, behavior: "smooth" });
+    el.scrollLeft += dir * page;
+    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = el.scrollLeft;
   };
-
-  /** Press and hold an arrow to keep moving; a single click moves one screen. */
-  const arrowHoldTimer = useRef<number | null>(null);
-  const holdRepeat = useRef<number | null>(null);
-  const startHold = (dir: -1 | 1) => {
-    manualNav.current = true;
-    arrowHoldTimer.current = window.setTimeout(() => {
-      holdRepeat.current = window.setInterval(() => nudge(dir), 350);
-    }, 450);
-  };
-  const endHold = () => {
-    if (arrowHoldTimer.current !== null) { clearTimeout(arrowHoldTimer.current); arrowHoldTimer.current = null; }
-    if (holdRepeat.current !== null) { clearInterval(holdRepeat.current); holdRepeat.current = null; }
-  };
-  useEffect(() => endHold, []);
-
 
   /**
    * Edge panning is available only during an intentional date/cell selection
@@ -2050,7 +2032,7 @@ export default function RateStrategyGrid({
       const r = el.getBoundingClientRect();
       const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
       // The drag or navigation control owns movement, never an idle cursor.
-      if (!inside || manualNav.current) { hardStop(); return; }
+      if (!inside) { hardStop(); return; }
 
       // Smooth ramp (ease-in-out) so entering the zone does not jolt.
       const ramp = (d: number) => {
@@ -2400,6 +2382,19 @@ export default function RateStrategyGrid({
     return true;
   }), [allDates, historyMonth, monthFilter, historyRevealed, today, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
 
+  // Selection applies to entire date columns, not only the day header.
+  // Share the same state with all grid rows and the fixed action bar.
+  const isDateSelected = (date: string): boolean =>
+    multiMode ? pickedDates.has(date) : selecting && selDates.has(date);
+  const visibleSelectedDates = dates.filter(isDateSelected);
+  const selectedDateLabel = (date: string) =>
+    new Intl.DateTimeFormat(hu ? "hu-HU" : "en-GB", {
+      day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
+    }).format(new Date(date + "T00:00:00Z"));
+  const selectedRangeLabel = visibleSelectedDates.length === 0 ? "" :
+    visibleSelectedDates.length === 1 ? selectedDateLabel(visibleSelectedDates[0]) :
+    selectedDateLabel(visibleSelectedDates[0]) + " – " + selectedDateLabel(visibleSelectedDates[visibleSelectedDates.length - 1]);
+
 
   /**
    * One continuous visual bar per real event. The source repeats multi-day
@@ -2479,10 +2474,17 @@ export default function RateStrategyGrid({
   const selectMonth = useCallback((value: string | null) => {
     setHistoryMonth(null);
     setMonthFilter(value);
+    setFitAllDates(true);
+    // An explicit full-period navigation overrides temporary date filters.
+    setReviewOnly(false);
+    setPickupOnly(false);
     setPickedDates(new Set());
     setSelDates(new Set());
-    requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
-  }, [today]);
+    requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollLeft = 0;
+      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = 0;
+    });
+  }, []);
 
   // A month that falls outside a newly narrowed range must not hide everything.
   useEffect(() => {
@@ -2629,25 +2631,60 @@ export default function RateStrategyGrid({
   // Only deliberate hotel/date-view navigation resets the horizontal viewport.
   // Briefly empty rows during a background refresh must NOT snap the reader back.
   const hasGridRows = rows.length > 0;
+  // Attach once the actual grid is rendered, including after initial loading.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setViewportW(el.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasGridRows]);
   const lastViewportKeyRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     const grid = scrollRef.current;
     const viewportKey = [hotelId ?? "", today, monthFilter ?? "", historyMonth ?? ""].join("|");
     if (!grid || !shouldResetRateCalendarViewport(lastViewportKeyRef.current, viewportKey, hasGridRows)) return;
     lastViewportKeyRef.current = viewportKey;
+    // Start at the first column: the rolling view includes three past dates
+    // followed by today and the remaining future dates.
     grid.scrollLeft = 0;
+    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = 0;
     setVisibleMonth(formatMonth(dates[0] ?? today));
   }, [hotelId, today, monthFilter, historyMonth, hasGridRows]);
 
+  // Recompute button availability when fitting, resizing or filtering changes
+  // the scrollable width, including when no scroll event fires.
+  useLayoutEffect(() => {
+    const body = scrollRef.current;
+    if (!body) return;
+    const left = body.scrollLeft > 4;
+    const right = body.scrollLeft + body.clientWidth < body.scrollWidth - 4;
+    setEdges(prev => prev.left === left && prev.right === right ? prev : { left, right });
+    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = body.scrollLeft;
+  }, [hasGridRows, dates.length, CELL_W, LEFT_W, viewportW, hotelId, monthFilter, historyMonth]);
+
   const scrollToToday = () => {
-    if (historyMonth || monthFilter) {
-      setHistoryMonth(null);
-      setMonthFilter(null);
-      setPickedDates(new Set());
-      setSelDates(new Set());
+    if (historyMonth || monthFilter) selectMonth(null);
+    else {
+      setReviewOnly(false);
+      setPickupOnly(false);
     }
+    // Reset both panes, preserving the three historical columns whenever
+    // today fits. At narrow zooms, reveal just enough to show today fully.
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({ left: 3 * CELL_W, behavior: "smooth" });
+      const body = scrollRef.current;
+      const header = headerScrollRef.current;
+      if (!body || !header) return;
+      body.scrollLeft = 0;
+      header.scrollLeft = 0;
+      const todayCell = headerRowRef.current?.querySelector<HTMLElement>(`[data-date="${today}"]`);
+      if (todayCell) {
+        const overflow = todayCell.getBoundingClientRect().right - (header.getBoundingClientRect().left + header.clientWidth);
+        body.scrollLeft = Math.max(0, Math.ceil(overflow));
+        header.scrollLeft = body.scrollLeft;
+      }
     }));
   };
 
@@ -3059,9 +3096,7 @@ export default function RateStrategyGrid({
               </span>
             )}
           </CardTitle>
-          <details className="group w-full sm:w-auto" open={calendarToolsOpen} onToggle={(event) => setCalendarToolsOpen(event.currentTarget.open)}>
-            <summary className="w-fit cursor-pointer rounded-md border px-3 py-2 text-xs font-medium">{hu ? "Naptári eszközök" : "Calendar tools"}</summary>
-            <div className="mt-2 flex flex-wrap items-center gap-2 sm:justify-end">
+          <div data-rate-calendar-actions="true" role="group" aria-label={hu ? "Naptári eszközök" : "Calendar actions"} className="flex min-w-0 flex-wrap items-center gap-1.5 sm:justify-end">
             <Sheet>
               <SheetTrigger asChild>
                 <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
@@ -3095,10 +3130,11 @@ export default function RateStrategyGrid({
                 size="sm"
                 variant={multiMode ? "default" : "outline"}
                 className="h-8 gap-1.5 text-xs"
+                aria-pressed={multiMode}
                 onClick={() => { setMultiMode((v) => !v); setPickedDates(new Set()); }}
               >
                 <CalendarRange className="h-3.5 w-3.5" />
-                {multiMode ? "Done selecting" : "Select days"}
+                {multiMode ? "Exit selection" : "Select days"}
               </Button>
             )}
 
@@ -3113,16 +3149,15 @@ export default function RateStrategyGrid({
               {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
               {expanded ? "Close" : "Expand"}
             </Button>
-            </div>
-          </details>
+          </div>
         </div>
 
-        {/* Separate pricing actions from analysis and display settings. */}
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5" role="group" aria-label="Pickup and calendar display controls">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
+        {/* Always-visible controls grouped by the revenue manager’s workflow. */}
+        <div data-rate-calendar-filters="true" className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 rounded-md border bg-muted/20 px-2 py-2" role="group" aria-label={hu ? "Szűrők és nézet" : "Filters & display"}>
+          <div role="group" aria-label={hu ? "Foglalásváltozás szűrése" : "Pickup filters"} className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="text-[11px] font-semibold text-foreground">{hu ? "Foglalásváltozás" : "Pickup period"}</span>
             <Select value={String(pickupWindowDays)} onValueChange={(value) => onPickupWindowChange(Number(value))}>
-              <SelectTrigger aria-label={hu ? "Foglalásváltozás időszaka" : "Pickup period"} className="h-8 w-[200px] max-w-[65vw] text-xs">
+              <SelectTrigger aria-label={hu ? "Foglalásváltozás időszaka" : "Pickup period"} className="h-8 w-[180px] max-w-full text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -3137,21 +3172,12 @@ export default function RateStrategyGrid({
                 ))}
               </SelectContent>
             </Select>
-            <span className="hidden lg:inline text-[11px] text-muted-foreground">
-              {isAutomationWindow
-                ? (hu ? "Gördülő 48 óra · automatizálás" : "Rolling 48h · automation")
-                : (hu ? "Budapesti naptári napok · éjféltől" : "Budapest calendar days · from midnight")}
-            </span>
             <MetricInfo
               title={hu ? "Foglalásváltozás időszaka" : "How pickup windows work"}
               body={hu
                 ? "A Tegnap és ma nézet a két budapesti naptári napot mutatja éjféltől. A 48 órás automatizálási nézet folyamatosan visszaszámolt 48 óra; a két nézet eredménye eltérhet."
                 : "Yesterday + today counts booking gains and losses from the start of yesterday in Budapest time through now. The automation view uses a rolling 48-hour window, so the totals may differ. Changing this period also updates pickup figures in the KPI header and market chart."}
             />
-          </div>
-          <details className="group">
-            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">{hu ? "Szűrők és nézet" : "Filters & display"}</summary>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant={pickupOnly ? "default" : "outline"}
@@ -3159,16 +3185,29 @@ export default function RateStrategyGrid({
               aria-pressed={pickupOnly}
               onClick={() => setPickupOnly((value) => !value)}
             >
-              {pickupOnly ? (hu ? "Minden dátum" : "All dates") : (hu ? "Csak változással" : "Dates with pickup")}
+              {hu ? "Csak változással" : "Dates with pickup"}
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant={isAutomationWindow ? "default" : "outline"}
               className="h-8 text-xs"
+              aria-pressed={isAutomationWindow}
               onClick={() => onPickupWindowChange(isAutomationWindow ? DEFAULT_PICKUP_WINDOW_DAYS : PICKUP_WINDOW_48H)}
               title={hu ? "Naptári napok és automatizálási időszak összehasonlítása" : "Compare calendar days with the automation's rolling window"}
             >
-              {isAutomationWindow ? (hu ? "Tegnap + ma" : "Yesterday + today") : (hu ? "48 óra (motor)" : "48h engine")}
+              {hu ? "48 óra (motor)" : "48h engine"}
+            </Button>
+          </div>
+          <div role="group" aria-label={hu ? "Nézet" : "Display"} className="flex min-w-0 flex-wrap items-center gap-1.5 xl:ml-auto">
+            <span className="text-[11px] font-semibold text-foreground">{hu ? "Nézet" : "Display"}</span>
+            {/* Desktop calendar fits the whole date range by default. Manual
+                zoom is a detail mode, and this button restores the full view. */}
+            <Button type="button" size="sm" variant={fitAllDates ? "secondary" : "outline"}
+              className="hidden h-8 px-2 text-[11px] lg:inline-flex"
+              aria-pressed={fitAllDates}
+              title={fitAllDates ? "Showing the full date range on one screen" : "Fit all dates into one screen"}
+              onClick={() => setFitAllDates(true)}>
+              Fit all dates
             </Button>
             {/* Calendar zoom remains independent of the pickup period. */}
             <div className="flex items-center overflow-hidden rounded-md border">
@@ -3197,8 +3236,7 @@ export default function RateStrategyGrid({
                 <ZoomIn className="h-3.5 w-3.5" />
               </Button>
             </div>
-            </div>
-          </details>
+          </div>
         </div>
         {/* Legend — a tidy two-column key on a phone, one line on a desktop. */}
         <details className="group text-[11px] text-muted-foreground">
@@ -3295,9 +3333,18 @@ export default function RateStrategyGrid({
           {/* Current date stays visible in the toolbar even when offscreen in the grid. */}
           <div className="flex items-center justify-between gap-2 border-b px-2 py-1">
             <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-              {historyMonth ? "Saved month · read-only" : monthFilter && monthFilter !== today.slice(0, 7) ? "Selected future month" : "Previous 3 days shown automatically"}
+              {historyMonth ? "Saved month · read-only" : monthFilter ? "Full calendar month · past dates read-only" : "Next 30 days · previous 3 days shown (read-only)"}
             </span>
-            <Button type="button" size="sm" variant="outline"
+            <div data-rate-calendar-navigation-controls="true" className="flex shrink-0 items-center gap-1">
+              <Button type="button" size="sm" variant="outline" className="h-7 w-7 p-0" disabled={!edges.left}
+                aria-label="Show earlier dates" title="Show earlier dates" onClick={() => nudge(-1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button type="button" size="sm" variant="outline" className="h-7 w-7 p-0" disabled={!edges.right}
+                aria-label="Show later dates" title="Show later dates" onClick={() => nudge(1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button type="button" size="sm" variant="outline"
               className="h-7 shrink-0 gap-1 border-sky-500/60 bg-sky-50 px-2 text-[11px] font-semibold text-sky-800 hover:bg-sky-100 dark:bg-sky-950/50 dark:text-sky-100"
               title={`Go to today, ${today} (Budapest date)`}
               aria-label={`Go to today, ${today}`}
@@ -3305,6 +3352,7 @@ export default function RateStrategyGrid({
               <CalendarRange className="h-3.5 w-3.5" />
               Today · {formatWeekday(today)} {formatDay(today)}
             </Button>
+            </div>
           </div>
           {/* Explicit navigation: no infinite load, no hidden extra columns. */}
           <div className="flex items-center gap-1 overflow-x-auto border-b px-2 py-1.5" aria-label="Rate calendar date navigation">
@@ -3336,6 +3384,9 @@ export default function RateStrategyGrid({
                       onClick={() => {
                         setHistoryMonth(m.value);
                         setMonthFilter(null);
+                        setFitAllDates(true);
+                        setReviewOnly(false);
+                        setPickupOnly(false);
                         setHistoryPickerOpen(false);
                         setPickedDates(new Set());
                         setSelDates(new Set());
@@ -3475,7 +3526,7 @@ export default function RateStrategyGrid({
                   </div>
 
                   {dates.map((d, i) => {
-                    const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
+                    const picked = isDateSelected(d);
                     const trail = auditByDate.get(d);
                     const windowChanges = dayChangesByDate.get(d) ?? [];
                     const dayChanges = windowChanges.length > 0 ? windowChanges : (markerChangesByDate.get(d) ?? []);
@@ -3486,7 +3537,7 @@ export default function RateStrategyGrid({
                     const dayOrigins = headerOriginsByDate.get(d) ?? [];
 
                     if (d < today) return (
-                      <div key={d} aria-label={d + " · historical, read-only"}
+                      <div key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined} aria-label={d + " · historical, read-only"}
                         title={d + " · Historical prices (read-only)"}
                         className="flex shrink-0 flex-col items-center justify-center border-r border-border/70 bg-muted/65 text-muted-foreground"
                         style={{ width: CELL_W, height: DAY_H }}>
@@ -3497,9 +3548,11 @@ export default function RateStrategyGrid({
                     );
                     const dayButton = (
                       <button
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         type="button"
                         data-date={d}
+                        aria-pressed={multiMode ? picked : undefined}
+                        aria-label={multiMode ? `${d}, ${picked ? "selected" : "not selected"}. Tap to ${picked ? "remove" : "add"} this date.` : undefined}
                         disabled={!canEditCalendarDate(d, today, canEditRates)}
                         onPointerDown={(e) => {
                           if (e.pointerType === "touch") return;
@@ -3529,12 +3582,17 @@ export default function RateStrategyGrid({
                           if (!canEditRates || multiMode) return;
                           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDayTool([d]); }
                         }}
-                        title={d === today ? `TODAY · ${d} · ${canEditRates ? "Tap to edit today's prices" : "Current Budapest date"}` : canEditRates ? (multiMode ? `Tap to add ${d} to the selection` : `Change every price on ${d}`) : d}
+                        title={d === today ? `TODAY · ${d} · ${canEditRates ? "Tap to edit today's prices" : "Current Budapest date"}` : canEditRates ? (multiMode ? `Tap to ${picked ? "remove" : "add"} ${d} ${picked ? "from" : "to"} the selection` : `Change every price on ${d}`) : d}
                         aria-current={d === today ? "date" : undefined}
-                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/25" : d === today ? "bg-sky-100 text-sky-950 dark:bg-sky-900/70 dark:text-sky-50" : dayBg(d, i)} ${dateColumnEdge(d, today)} ${d === today ? "ring-2 ring-inset ring-sky-600" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/35 text-foreground font-semibold ring-2 ring-inset ring-primary" : d === today ? "bg-sky-100 text-sky-950 dark:bg-sky-900/70 dark:text-sky-50" : dayBg(d, i, "header")} ${dateColumnEdge(d, today)} ${d === today && !picked ? "ring-2 ring-inset ring-sky-600" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
                         style={{ width: CELL_W, height: DAY_H , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${DAY_H}px` }}
                       >
 
+                        {picked && (
+                          <span aria-hidden="true" className="pointer-events-none absolute right-0.5 top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+                            <Check className="h-2.5 w-2.5" />
+                          </span>
+                        )}
                         <span className={d === today ? "font-bold text-sky-800 dark:text-sky-100" : weekendLabelTone(d)} style={{ fontSize: fz(10) }}>
                           {formatWeekday(d)}
                         </span>
@@ -3668,19 +3726,19 @@ export default function RateStrategyGrid({
                     const lost = m?.roomsLost ?? 0;
                     return (
                       <div
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         title={pickup === null
                           ? `${d} · pickup not available yet`
                           : `${d} · net ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} in, ${lost} out, counted over ${pickupWindowLabel(pickupWindowDays).toLowerCase()}${latestLabel ? ` · last movement ${latestLabel}` : ""}${isAutomationWindow ? "" : " · the automation reacts to the last 48 hours, so this window can disagree with the purple dots"}`}
-                        className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)}`}
+                        className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.severity === "none" ? `${dayBg(d, i)} ${tone.className}` : tone.className} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(11), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         <span>{pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}</span>
                         {lost > 0 && (
-                          <span className="font-medium text-destructive" style={{ fontSize: fz(8) }}>-{lost} lost</span>
+                          <span className="font-medium text-destructive dark:text-red-300" style={{ fontSize: fz(8) }}>-{lost} lost</span>
                         )}
                         {lost === 0 && latestLabel && pickup !== 0 && (
-                          <span className="max-w-[56px] truncate font-normal opacity-80" style={{ fontSize: fz(8) }}>{latestLabel}</span>
+                          <span className="max-w-[56px] truncate font-normal opacity-80 dark:opacity-100" style={{ fontSize: fz(8) }}>{latestLabel}</span>
                         )}
                       </div>
                     );
@@ -3707,11 +3765,11 @@ export default function RateStrategyGrid({
                     const recorded = d < today ? historical.kpisByDate.get(d) : null;
                     return (
                       <div
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         title={m
                           ? `${m.roomsSold} / ${m.roomsAvailable} rooms · ${tone?.label ?? "occupancy unavailable"}${recorded ? ` · recorded ${new Date(recorded.captured_at).toLocaleString()}` : ""}`
                           : `${d} · no recorded occupancy data`}
-                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone?.className || dayBg(d, i)} ${dateColumnEdge(d, today)}`}
+                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${!tone || tone.severity === "none" ? `${dayBg(d, i)} ${tone?.className ?? ""}` : tone.className} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(12), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         {pct === null || !Number.isFinite(pct) ? "—" : `${Math.round(pct)}%`}
@@ -3745,11 +3803,11 @@ export default function RateStrategyGrid({
                       .join(" · ");
                     return (
                       <div
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         title={m && left !== null
                           ? `${left} of ${units} rooms available for booking on ${d}. ${m.roomsSold} booked; ${d < today ? "based on saved same-day occupancy snapshot" : closedNotFull ? "some physical rooms are closed/not priced rather than occupied" : "physical occupancy is counted separately"}${manualDetailLabel ? ` · Previo inventory adjustment: ${manualDetailLabel}` : ""}`
                           : `${d} · no recorded inventory data`}
-                        className={`relative flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${left === null ? "text-muted-foreground" : leftTone(left, units)} ${dayBg(d, i)} ${dateColumnEdge(d, today)}`}
+                        className={`relative flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${left === null || units <= 0 ? `text-muted-foreground ${dayBg(d, i)}` : left > 0 && left / units > 0.2 ? `${leftTone(left, units)} ${dayBg(d, i)}` : leftTone(left, units)} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
                         <span className="leading-none">{units && left !== null ? (closedNotFull ? "Closed" : left === 0 ? "Sold out" : left) : "—"}</span>
@@ -3810,7 +3868,7 @@ export default function RateStrategyGrid({
                     const inDrag = !!minDrag && i >= Math.min(minDrag.a, minDrag.b) && i <= Math.max(minDrag.a, minDrag.b);
                     if (editing) {
                       return (
-                        <div key={d} className={`flex items-center justify-center shrink-0 ${dayBg(d, i)} ${dateColumnEdge(d, today)}`} style={{ width: CELL_W }}>
+                        <div key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined} className={`flex items-center justify-center shrink-0 ${dayBg(d, i)} ${dateColumnEdge(d, today)}`} style={{ width: CELL_W }}>
                           <input
                             autoFocus
                             type="number"
@@ -3832,7 +3890,7 @@ export default function RateStrategyGrid({
                     }
                     return (
                       <button
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         type="button"
                         disabled={!canEditCalendarDate(d, today, canEditRates) || busy}
                         onPointerDown={(e) => {
@@ -3864,7 +3922,7 @@ export default function RateStrategyGrid({
                 </div>
 
                 {/* Demand grade */}
-                <div className="flex border-b-2 border-b-foreground/20 bg-card" style={{ height: ROW_H }}>
+                <div data-rate-demand-row="true" className="flex border-b-2 border-b-foreground/20 bg-card" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
                     {railed ? <span title="Demand grade">Dem</span> : (
                       <>
@@ -3884,7 +3942,7 @@ export default function RateStrategyGrid({
                       : `${d} · demand not available yet`;
                     return (
                       <button
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         type="button"
                         onClick={() => setDemandDay(d)}
                         title={evs.length
@@ -3941,7 +3999,7 @@ export default function RateStrategyGrid({
             <div className="absolute inset-0 flex">
               {dates.map((d, i) => (
                 <button
-                  key={d}
+                  key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                   type="button"
                   onClick={() => setDemandDay(d)}
                   aria-label={`Open events for ${d}`}
@@ -3961,9 +4019,9 @@ export default function RateStrategyGrid({
                   .map((band) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-[#502525] dark:border-red-400/70 dark:text-red-100"
                     : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-[#4d3d1c] dark:border-amber-400/70 dark:text-amber-100"
                       : "border-border bg-muted/80 text-muted-foreground";
                   const spanColumns = revenueEventBandColumnSpan(band);
                   const wide = spanColumns >= 2;
@@ -4000,13 +4058,13 @@ export default function RateStrategyGrid({
                       </span>
 
                       {veryWide && band.event.venue && (
-                        <span className="hidden min-w-0 max-w-[35%] truncate text-[8px] leading-none opacity-70 lg:inline">
+                        <span className="hidden min-w-0 max-w-[35%] truncate text-[8px] leading-none opacity-70 dark:opacity-100 lg:inline">
                           {band.event.venue}
                         </span>
                       )}
 
                       {wide && (
-                        <span className="shrink-0 text-[8px] font-semibold uppercase leading-none opacity-80">
+                        <span className="shrink-0 text-[8px] font-semibold uppercase leading-none opacity-80 dark:opacity-100">
                           {impact || "event"}{band.endDate !== band.startDate && range ? ` · ${range}` : ""}
                         </span>
                       )}
@@ -4020,9 +4078,9 @@ export default function RateStrategyGrid({
                 {showEventBand && singleDayEventLayouts.map(({ band, dateIndex, topLane, heightLanes }) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-[#502525] dark:border-red-400/70 dark:text-red-100"
                     : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-[#4d3d1c] dark:border-amber-400/70 dark:text-amber-100"
                       : "border-border bg-muted/80 text-muted-foreground";
                   const expanded = heightLanes >= 1.45;
                   const roomy = heightLanes >= 2.25;
@@ -4060,7 +4118,7 @@ export default function RateStrategyGrid({
                       </span>
 
                       {roomy && (band.event.category || band.event.venue) && (
-                        <span className="mt-0.5 line-clamp-2 w-full min-w-0 break-words text-left text-[8px] leading-[1.1] opacity-75">
+                        <span className="mt-0.5 line-clamp-2 w-full min-w-0 break-words text-left text-[8px] leading-[1.1] opacity-75 dark:opacity-100">
                           {band.event.category && (
                             <span className="capitalize">{String(band.event.category).replace(/_/g, " ")}</span>
                           )}
@@ -4070,7 +4128,7 @@ export default function RateStrategyGrid({
                       )}
 
                       {expanded && (
-                        <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-1 text-[8px] leading-none opacity-80">
+                        <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-1 text-[8px] leading-none opacity-80 dark:opacity-100">
                           <span className="min-w-0 truncate capitalize">
                             {!roomy && band.event.category
                               ? String(band.event.category).replace(/_/g, " ")
@@ -4095,7 +4153,7 @@ export default function RateStrategyGrid({
                 <div
                   key={row.key}
                   data-rate-grid-row-kind={row.kind}
-                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/95" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
+                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/95 dark:border-t dark:border-t-[#4a4a4a] dark:border-b-[#393939] dark:bg-[#202020]" : row.kind === "rate" ? "border-b dark:border-b-[#272727] dark:bg-[#101010]" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold dark:border-t-[#4a4a4a] dark:bg-[#1d252c]"}`}
                   style={{
                     height: rowH(row.kind),
                     minHeight: rowH(row.kind),
@@ -4104,7 +4162,7 @@ export default function RateStrategyGrid({
                   {/* Frozen label cell — must stay fully opaque, otherwise the
                       scrolling date cells read through it. */}
                   <div
-                    className={`sticky left-0 z-20 flex items-center border-r px-2 ${row.kind === "group" ? "bg-muted font-semibold" : row.kind === "rate" ? "bg-card text-muted-foreground" : "bg-muted border-l-2 border-l-primary font-semibold text-foreground"}`}
+                    className={`sticky left-0 z-20 flex items-center border-r px-2 ${row.kind === "group" ? "bg-muted font-semibold dark:bg-[#202020] dark:text-foreground" : row.kind === "rate" ? "bg-card text-muted-foreground dark:bg-[#101010]" : "bg-muted border-l-2 border-l-primary font-semibold text-foreground dark:bg-[#1d252c]"}`}
                     style={{ width: LEFT_W, fontSize: fz(11) }}
 
                   >
@@ -4149,7 +4207,7 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     if (row.kind === "group") {
                       if (d < today) return (
-                        <div key={d} title={`${d} · room-type inventory was not recorded separately`}
+                        <div key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined} title={`${d} · room-type inventory was not recorded separately`}
                           className="flex shrink-0 items-center justify-center bg-muted/45 text-muted-foreground border-r"
                           style={{ width: CELL_W, fontSize: fz(11) }}>—</div>
                       );
@@ -4179,7 +4237,7 @@ export default function RateStrategyGrid({
                         : null;
                       return (
                         <button
-                          key={d}
+                          key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                           type="button"
                           disabled={!canEditCalendarDate(d, today, canEditRates) || busy || left === undefined || unpricedKind}
                           onClick={() => {
@@ -4200,16 +4258,16 @@ export default function RateStrategyGrid({
                             : left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
                             : `${row.typeName} · ${left === 0 ? "sold out" : `${left} of ${units} left`} on ${d}${calculated !== undefined ? ` · automatic ${calculated}` : ""}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}${left === 0 && closedAt != null ? ` · last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`}
-                          className={`relative flex flex-col items-center justify-center leading-tight shrink-0 font-semibold tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dateColumnEdge(d, today)}`}
+                          className={`relative flex flex-col items-center justify-center leading-tight shrink-0 font-semibold tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined || units <= 0 ? `text-muted-foreground ${dayBg(d, i)}` : left > 0 && left / units > 0.2 ? `${leftTone(left, units)} ${dayBg(d, i)}` : leftTone(left, units)} ${dateColumnEdge(d, today)}`}
                           style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : unpricedKind ? (
-                            <><span className="text-amber-700 dark:text-amber-300">{hu ? "Nincs ár" : "Not priced"}</span><span className="text-[9px] font-normal opacity-80">{left ?? 0} {hu ? "értékesíthető a Previóban" : "to sell in Previo"}</span></>
+                            <><span className="text-amber-700 dark:text-amber-300">{hu ? "Nincs ár" : "Not priced"}</span><span className="text-[9px] font-normal opacity-80 dark:opacity-100 dark:text-foreground">{left ?? 0} {hu ? "értékesíthető a Previóban" : "to sell in Previo"}</span></>
                           ) : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
                             <>
                               <span>{hu ? "Elfogyott" : "Sold out"}</span>
                               {closedAt != null && (
-                                <span className="font-semibold opacity-80 inline-flex max-w-full min-w-0 items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap" style={{ fontSize: fz(9) }}>
+                                <span className="font-semibold opacity-80 dark:opacity-100 dark:text-foreground inline-flex max-w-full min-w-0 items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap" style={{ fontSize: fz(9) }}>
                         {priceLabel(closedAt)}
                         {soldOcc != null && (
                           <>
@@ -4241,7 +4299,7 @@ export default function RateStrategyGrid({
                         : metricByDate.get(d)?.revparEur ?? null;
                       return (
                         <div
-                          key={d}
+                          key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                           title={value === null ? `${d} · no data` : `${d} · ${eur(value)}`}
                           className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${dayBg(d, i)} ${dateColumnEdge(d, today)}`}
                           style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
@@ -4257,10 +4315,10 @@ export default function RateStrategyGrid({
                         ? `Last recorded Previo price for ${d} · captured ${new Date(saved.captured_at).toLocaleString()}`
                         : historical.loading ? `Loading historical price for ${d}` : `No saved historical Previo rate for ${d}`;
                       return (
-                        <div key={d} role="cell"
+                        <div key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined} role="cell"
                           aria-label={`${row.roomTypeName} · ${d} · ${historicalPrice === null ? "No recorded price" : eur(historicalPrice)} · read-only`}
                           title={detail}
-                          className="flex shrink-0 items-center justify-center border-r border-border/70 bg-muted/45 font-bold tabular-nums text-muted-foreground"
+                          className="flex shrink-0 items-center justify-center border-r border-border/70 bg-muted/45 font-bold tabular-nums text-muted-foreground dark:text-foreground"
                           style={{ width: CELL_W, fontSize: fz(12) }}>
                           {historicalPrice === null ? (historical.loading ? "…" : "—") : priceLabel(historicalPrice)}
                         </div>
@@ -4345,7 +4403,7 @@ export default function RateStrategyGrid({
                     const picked = inRange(rowIdx, i);
                     const cellButton = (
                       <button
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         type="button"
                         ref={(el) => {
                           const key = `${rowIdx}:${i}`;
@@ -4357,7 +4415,6 @@ export default function RateStrategyGrid({
                         }}
                         data-cell-row={rowIdx}
                         data-cell-date={i}
-                        disabled={!canEditRates}
                         onPointerEnter={(e) => {
                           if (cellPointerEnter(rowIdx, i)) return;
                           if (e.pointerType === "touch") return;
@@ -4377,34 +4434,20 @@ export default function RateStrategyGrid({
                           cellPointerDown(rowIdx, i, e);
                         }}
                         onClick={() => {
-                          if (!canEditRates) return;
-                          // A drag just finished — the pricing tool is opening.
+                          // A drag selection still opens its existing bulk tool.
                           if (suppressClick.current || cellDragging) return;
-
-                          // On a phone there is no hover, so a tap tells the
-                          // cell's story first and offers editing from there.
-                          if (isMobile) {
-                            void loadCellHistory(d, false, marker?.at ?? markerByDate.get(d)?.at ?? null);
-                            void loadAutomationDate(d);
-                            setCellInfo({
-
-                              date: d,
-                              roomTypeName: row.roomTypeName,
-                              occ: row.occ,
-                              published: published ?? null,
-                              draft: draft ?? null,
-                              obk: row.obk,
-                            });
-                            return;
-                          }
-                          setApplyDays(1); setApplyWeekdays("all"); setApplyAllOcc(false); setEditMode("set");
-                          setEdit({
-                            stay_date: d,
-                            obk_id: row.obk,
-                            room_type_name: row.roomTypeName,
-                            occupancy: row.occ,
-                            old_price: published ?? null,
-                            value: String(shown ?? ""),
+                          // Price cells open the same evidence journey on mobile and
+                          // desktop. Editing remains an explicit action in the sheet.
+                          void loadCellHistory(d, false, marker?.at ?? markerByDate.get(d)?.at ?? null);
+                          void loadAutomationDate(d);
+                          setCellInfo({
+                            date: d,
+                            roomTypeName: row.roomTypeName,
+                            displayName: row.displayName,
+                            occ: row.occ,
+                            published: published ?? null,
+                            draft: draft ?? null,
+                            obk: row.obk,
                           });
                         }}
 
@@ -4412,7 +4455,7 @@ export default function RateStrategyGrid({
                            place the cell's story is told, so the browser
                            bubble can't fight it for the same pixels. */
                         aria-label={inverted ? `${d} · ${row.roomTypeName} · ${row.occ} guests · ${eur(shown ?? null)} · below a lower guest count, will be lifted` : soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.severity === "ok" ? "dark:font-medium dark:text-foreground" : ""} ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80 dark:opacity-100" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 dark:!bg-primary/20 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                          style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
 
                       >
@@ -4506,54 +4549,6 @@ export default function RateStrategyGrid({
             </div>
             </div>
 
-            {/* Edge hints: a soft fade plus an animated chevron showing there
-                is more calendar that way. They fade out at the ends. */}
-            <div
-              aria-hidden
-              className={`pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-background to-transparent transition-opacity duration-200 ${edges.right ? "opacity-100" : "opacity-0"}`}
-            />
-            <div
-              aria-hidden
-              className={`pointer-events-none absolute inset-y-0 w-10 bg-gradient-to-r from-background to-transparent transition-opacity duration-200 ${edges.left ? "opacity-100" : "opacity-0"}`}
-              style={{ left: LEFT_W }}
-            />
-            <button
-              type="button"
-              aria-label="Show earlier dates"
-              onClick={() => nudge(-1)}
-              onPointerEnter={() => { manualNav.current = true; showArrowHint("left"); }}
-              onPointerLeave={() => { manualNav.current = false; hideArrowHint(); endHold(); }}
-              onPointerDown={() => startHold(-1)}
-              onPointerUp={endHold}
-              onPointerCancel={endHold}
-              className={`absolute top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.left ? "opacity-90 hover:opacity-100" : "pointer-events-none opacity-0"}`}
-              style={{ left: LEFT_W + 6 }}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              {hoverArrow === "left" && (
-                <span className="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[11px] font-normal text-popover-foreground shadow-md">
-                  Click here to move manually
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              aria-label="Show later dates"
-              onClick={() => nudge(1)}
-              onPointerEnter={() => { manualNav.current = true; showArrowHint("right"); }}
-              onPointerLeave={() => { manualNav.current = false; hideArrowHint(); endHold(); }}
-              onPointerDown={() => startHold(1)}
-              onPointerUp={endHold}
-              onPointerCancel={endHold}
-              className={`absolute right-1.5 top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.right ? "opacity-90 hover:opacity-100" : "pointer-events-none opacity-0"}`}
-            >
-              <ChevronRight className="h-4 w-4" />
-              {hoverArrow === "right" && (
-                <span className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[11px] font-normal text-popover-foreground shadow-md">
-                  Click here to move manually
-                </span>
-              )}
-            </button>
 
           </div>
           </div>
@@ -4724,7 +4719,7 @@ export default function RateStrategyGrid({
               ) : (
                 <>
                   {existingSharedWatches.has(`${upgradePrompt.obkId}|${upgradePrompt.date}`) && (
-                    <p className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-slate-800">
+                    <p className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-slate-800 dark:border-sky-500/30 dark:bg-sky-400/10 dark:text-foreground">
                       These room types are already linked. Verify and restore availability
                       in Previo without creating a second rule.
                     </p>
@@ -4863,7 +4858,7 @@ export default function RateStrategyGrid({
             {/* One-tap presets — the same steps as the day editor. */}
             <div className="space-y-2">
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">{hu ? "Emelés" : "Increase"}</div>
+                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-300">{hu ? "Emelés" : "Increase"}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
@@ -4879,7 +4874,7 @@ export default function RateStrategyGrid({
                 </div>
               </div>
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600">{hu ? "Csökkentés" : "Decrease"}</div>
+                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600 dark:text-rose-300">{hu ? "Csökkentés" : "Decrease"}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
@@ -4953,8 +4948,14 @@ export default function RateStrategyGrid({
           style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}
         >
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-semibold">
-              {pickedDates.size} day{pickedDates.size === 1 ? "" : "s"} selected
+            <span aria-live="polite" className="flex min-w-0 flex-col gap-0.5">
+              <span className="flex items-center gap-1 text-sm font-semibold text-foreground">
+                <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                {visibleSelectedDates.length} day{visibleSelectedDates.length === 1 ? "" : "s"} selected
+              </span>
+              <span className="truncate text-[11px] text-muted-foreground" title={selectedRangeLabel}>
+                {selectedRangeLabel}
+              </span>
             </span>
             <div className="flex items-center gap-2">
               <Button
@@ -4983,14 +4984,14 @@ export default function RateStrategyGrid({
       <Sheet open={!!cellInfo} onOpenChange={(o) => !o && setCellInfo(null)}>
         <SheetContent
           side="bottom"
-          className="flex h-[min(78dvh,640px)] max-h-[calc(100dvh-0.5rem)] min-h-0 flex-col gap-0 overflow-hidden rounded-t-2xl border-t bg-background p-0 shadow-2xl"
+          className="flex h-[min(92dvh,850px)] max-h-[calc(100dvh-0.5rem)] min-h-0 flex-col gap-0 overflow-hidden rounded-t-2xl border-t bg-background p-0 shadow-2xl"
         >
           {cellInfo && (
             <>
               <div className="shrink-0 space-y-3 border-b px-4 pb-3 pt-4">
                 <SheetHeader className="pr-10 text-left">
                   <SheetTitle className="text-sm leading-snug">
-                    {cellInfo.roomTypeName} · {cellInfo.occ} guest{cellInfo.occ === 1 ? "" : "s"} · {cellInfo.date}
+                    {cellInfo.displayName || cellInfo.roomTypeName} · {cellInfo.occ} guest{cellInfo.occ === 1 ? "" : "s"} · {cellInfo.date}
                   </SheetTitle>
                 </SheetHeader>
                 <div className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-2 text-sm">
@@ -5000,8 +5001,25 @@ export default function RateStrategyGrid({
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
-                <p className="mb-2 text-xs font-semibold text-foreground">Recent price changes</p>
-                <RateCellHistory
+                <PriceDemandJourney
+                  key={cellInfo.date + "|" + cellInfo.roomTypeName + "|" + cellInfo.occ}
+                  hotelId={hotelId ?? null}
+                  date={cellInfo.date}
+                  roomTypeName={cellInfo.roomTypeName}
+                  obkId={cellInfo.obk ?? null}
+                  occupancy={cellInfo.occ}
+                  ratePlanId={rates.find((rate) =>
+                    rate.stay_date === cellInfo.date
+                    && rate.obk_id === cellInfo.obk
+                    && rate.occupancy === cellInfo.occ
+                  )?.rate_plan_id ?? null}
+                  roomsLeft={leftByTypeDate?.get(cellInfo.roomTypeName + "|" + cellInfo.date) ?? null}
+                  roomCapacity={roomTypes.find((room) => room.name === cellInfo.roomTypeName)?.num_rooms ?? null}
+                  nights={nights}
+                  cancellations={cancellations}
+                  metric={metrics.find((day) => day.stay_date === cellInfo.date) ?? null}
+                  demand={demandByDate?.get(cellInfo.date) ?? null}
+                  events={eventsByDate?.get(cellInfo.date) ?? []}
                   history={cellHistoryByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ))
                     ?? auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ))
                     ?? []}
@@ -5009,7 +5027,9 @@ export default function RateStrategyGrid({
                   hold={automationHolds.get(cellInfo.date) ?? null}
                   names={actorNames}
                   draftPrice={cellInfo.draft}
-                  sendingPrice={inFlight.get(`${cellInfo.date}|${cellInfo.roomTypeName}|${cellInfo.occ}`) ?? null}
+                  sendingPrice={inFlight.get(cellInfo.date + "|" + cellInfo.roomTypeName + "|" + cellInfo.occ) ?? null}
+                  lastSyncAt={lastSyncAt}
+                  revenueLoading={loading}
                 />
               </div>
 
@@ -5582,8 +5602,8 @@ export default function RateStrategyGrid({
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium">{e.title}</span>
                             <Badge variant="secondary" className={
-                              e.impact === "high" ? "bg-red-100 text-red-700"
-                                : e.impact === "medium" ? "bg-amber-100 text-amber-700"
+                              e.impact === "high" ? "bg-red-100 text-red-700 dark:bg-red-400/10 dark:text-red-200"
+                                : e.impact === "medium" ? "bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200"
                                 : "bg-muted text-muted-foreground"
                             }>
                               {e.impact} impact

@@ -55,22 +55,64 @@ export async function checkInReservation(
   reservationId: string,
   roomId: string,
   override = false,
+  occurredAt: string | null = null,
+  guestIds: string[] | null = null,
 ): Promise<{ ok: boolean; room_number?: string }> {
-  return rpc("pms_check_in_reservation", {
+  return rpc("pms_check_in", {
     _reservation_id: reservationId,
     _room_id: roomId,
     _override: override,
+    _moment: occurredAt,
+    _guest_ids: guestIds,
   });
 }
 
 export async function checkOutReservation(
   reservationId: string,
   acknowledgeBalance = false,
+  occurredAt: string | null = null,
+  guestIds: string[] | null = null,
 ): Promise<{ ok: boolean; balance_at_checkout?: number }> {
-  return rpc("pms_check_out_reservation", {
+  return rpc("pms_check_out", {
     _reservation_id: reservationId,
     _acknowledge_balance: acknowledgeBalance,
+    _moment: occurredAt,
+    _guest_ids: guestIds,
   });
+}
+
+export type GuestAction = 'arrive' | 'depart' | 'undo_arrival' | 'undo_departure';
+
+export async function guestTransitionReservation(
+  reservationId: string, action: GuestAction, guestIds: string[] | null,
+  occurredAt: string | null = null,
+) {
+  return rpc('pms_guest_transition', {
+    _reservation_id:reservationId,_action:action,_guest_ids:guestIds,
+    _moment:occurredAt,_room_id:null,_acknowledge_balance:false,_override:false,
+  });
+}
+
+export async function addStayGuest(reservationId: string, guestId: string) {
+  return rpc('pms_add_stay_guest', {_reservation_id:reservationId,_guest_id:guestId});
+}
+
+export async function setNtakBookingNumber(reservationId: string, bookingNo: string) {
+  return rpc('pms_set_ntak_booking_no', {_reservation_id:reservationId,_booking_no:bookingNo});
+}
+
+export async function changeRoomReservation(
+  reservationId: string, toRoomId: string, occurredAt: string | null = null,
+): Promise<{ ok: boolean; room_number?: string }> {
+  return rpc("pms_change_room", { _reservation_id: reservationId, _to_room: toRoomId, _moment: occurredAt });
+}
+
+export async function undoReservationCheckIn(reservationId: string, occurredAt: string | null = null) {
+  return rpc("pms_undo_check_in", { _reservation_id: reservationId, _moment: occurredAt });
+}
+
+export async function undoReservationCheckOut(reservationId: string, occurredAt: string | null = null) {
+  return rpc("pms_undo_check_out", { _reservation_id: reservationId, _moment: occurredAt });
 }
 
 export async function setReservationStatus(
@@ -90,16 +132,36 @@ export async function addFolioItem(
   description: string,
   amount: number,
   chargeType: string,
+  businessDay: string | null = null,
+  paymentMethod: string | null = null,
 ): Promise<{ ok: boolean; balance_due: number }> {
-  return rpc("pms_add_folio_item", {
+  if (amount < 0 && businessDay === null) return rpc("pms_add_folio_item", {
+    _reservation_id: reservationId, _description: description, _amount: amount, _charge_type: chargeType,
+  });
+  return rpc("pms_record_business_folio_item", {
     _reservation_id: reservationId,
     _description: description,
     _amount: amount,
     _charge_type: chargeType,
+    _business_day: businessDay,
+    _method: paymentMethod,
   });
 }
 
+export interface NtakBookingFields {
+  ntak_guaranteed?: boolean | null;
+  ntak_market_segment?: string | null;
+  ntak_sales_channel?: string | null;
+  booker_country?: string | null;
+  expected_guests?: number | null;
+  ntak_booking_no?: string | null;
+}
+export type NtakBookingFieldState = NtakBookingFields & { can_edit_booking_no: boolean };
+export async function fetchNtakBookingFields(hotelId: string, orgSlug: string, reservationId?: string): Promise<NtakBookingFieldState | null> {
+  return rpc("pms_ntak_booking_fields", {_hotel_id: hotelId, _organization_slug: orgSlug, _reservation_id: reservationId ?? null});
+}
 export interface CreateReservationParams {
+  ntakFields?: NtakBookingFields;
   hotelId: string;
   guestId: string | null;
   checkIn: string;
@@ -119,7 +181,7 @@ export interface CreateReservationParams {
 export async function createReservation(
   p: CreateReservationParams,
 ): Promise<{ ok: boolean; id: string; reservation_number: string }> {
-  return rpc("pms_create_reservation", {
+  const args = {
     _hotel_id: p.hotelId,
     _guest_id: p.guestId,
     _check_in: p.checkIn,
@@ -134,10 +196,12 @@ export async function createReservation(
     _special_requests: p.specialRequests ?? null,
     _internal_notes: p.internalNotes ?? null,
     _status: p.status ?? "confirmed",
-  });
+  };
+  return p.ntakFields && Object.keys(p.ntakFields).length ? rpc("pms_create_reservation_phase6", {_args: args, _fields: p.ntakFields}) : rpc("pms_create_reservation", args);
 }
 
 export interface UpdateReservationParams {
+  ntakFields?: NtakBookingFields;
   reservationId: string;
   checkIn?: string | null;
   checkOut?: string | null;
@@ -155,7 +219,7 @@ export interface UpdateReservationParams {
 export async function updateReservation(
   p: UpdateReservationParams,
 ): Promise<{ ok: boolean; pms_managed: boolean }> {
-  return rpc("pms_update_reservation", {
+  const args = {
     _reservation_id: p.reservationId,
     _check_in: p.checkIn ?? null,
     _check_out: p.checkOut ?? null,
@@ -168,5 +232,6 @@ export async function updateReservation(
     _room_type_requested: p.roomTypeRequested ?? null,
     _special_requests: p.specialRequests ?? null,
     _internal_notes: p.internalNotes ?? null,
-  });
+  };
+  return p.ntakFields && Object.keys(p.ntakFields).length ? rpc("pms_update_reservation_phase6", {_args: args, _fields: p.ntakFields}) : rpc("pms_update_reservation", args);
 }

@@ -9,19 +9,18 @@ import {
   type ReactNode,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
 import { useSlntTeamAEnabled } from '@/hooks/useSlntTeamAEnabled';
 import { useTranslation } from '@/hooks/useTranslation';
-import { useTenant } from '@/contexts/TenantContext';
-import { propertyTermsFor } from '@/lib/propertyTerminology';
-import type { LangCode, TrainingCurriculum, TrainingScreenContext, TrainingStepV2 } from './types';
+import type { LangCode, RoleKey, TrainingCurriculum, TrainingScreenContext, TrainingStepV2 } from './types';
 import { evaluateGuard } from './guards';
-import { ALL_CURRICULA, curriculaForRole, findCurriculum } from './curricula';
+import { ALL_CURRICULA, curriculaForRole, findCurriculum, trainingRoleFor } from './curricula';
 import { matchCurriculaToScreen, startKeyForScreenMatch, type ScreenMatch } from './screenContext';
-import { NUDGE_SNOOZE_DAYS, isNudgeSnoozed, snoozeNudge } from './nudgeStore';
+import { claimTrainingPrompt, hasSeenTraining, trainingReleases } from './trainingReleases';
+import { visibleTrainingTarget } from './visibleTarget';
+import { VisualTrainingCue } from './VisualTrainingCue';
 import { TrainingOverlayV2 } from './TrainingOverlayV2';
 import { TrainingFirstLoginPrompt } from './TrainingFirstLoginPrompt';
 import { TrainingNextModulePrompt } from './TrainingNextModulePrompt';
@@ -64,13 +63,14 @@ interface TrainingV2ContextValue {
   dismissCurriculum: (slug: string, days?: number) => Promise<void>;
   markComplete: (slug: string) => Promise<void>;
   resetCurriculum: (slug: string) => Promise<void>;
-  refreshStatuses: () => Promise<void>;
+  refreshStatuses: () => Promise<boolean>;
   availableCurricula: TrainingCurriculum[];
   completion: Record<string, CompletionStatus>;
   statuses: Record<string, CurriculumStatus>;
   registerLauncher: (el: HTMLElement | null) => void;
   /** First-login walkthrough prompt (null when hidden). */
   pendingAutoStart: TrainingCurriculum | null;
+  isReleasePrompt: boolean;
   acceptAutoStart: () => void;
   snoozeAutoStart: () => Promise<void>;
   skipAutoStart: () => Promise<void>;
@@ -100,30 +100,11 @@ const MANAGER_ROLES = [
   'top_management_manager',
 ];
 
-const AUTO_START_THROTTLE_MS = 4 * 60 * 60 * 1000; // 4 hours
 const SELECTOR_TIMEOUT_MS = 8000; // give up locating after 8s
 
 function tx(text: import('./types').I18nText, lang: LangCode): string {
   return ((text as unknown as Record<string, string | undefined>)[lang]) || text.en;
 }
-
-const SKIP_TOAST_LABELS: Record<LangCode, string> = {
-  en: 'Skipped — we will show this when it is relevant.',
-  hu: 'Kihagyva — akkor mutatjuk, amikor releváns lesz.',
-  es: 'Omitido — lo mostraremos cuando sea relevante.',
-  vi: 'Đã bỏ qua — sẽ hiển thị khi liên quan.',
-  mn: 'Алгасав — холбогдох үед үзүүлнэ.',
-  uk: 'Пропущено — покажемо, коли це буде доречно.',
-};
-
-const RESUME_TOAST_LABELS: Record<LangCode, { title: string; action: string }> = {
-  en: { title: 'Ready to continue your training?', action: 'Resume' },
-  hu: { title: 'Folytatod a tananyagot?', action: 'Folytatás' },
-  es: { title: '¿Listo para continuar tu formación?', action: 'Continuar' },
-  vi: { title: 'Tiếp tục đào tạo?', action: 'Tiếp tục' },
-  mn: { title: 'Сургалтаа үргэлжлүүлэх үү?', action: 'Үргэлжлүүлэх' },
-  uk: { title: 'Готові продовжити навчання?', action: 'Продовжити' },
-};
 
 export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
@@ -131,15 +112,6 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const simplifiedEnabled = rollout === true;
   const teamAEnabled = useSlntTeamAEnabled();
   const { language } = useTranslation();
-  // TrainingV2Provider mounts above the tenant router, so useTenant may throw
-  // on routes without a TenantProvider (e.g. /auth). Fall back safely.
-  let organization: { slug?: string } | null = null;
-  try {
-    organization = useTenant().organization;
-  } catch {
-    organization = null;
-  }
-  const isPropertyOrg = propertyTermsFor(organization?.slug).isProperty;
   const navigate = useNavigate();
   const location = useLocation();
   const lang = (language as LangCode) || 'en';
@@ -161,7 +133,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   );
 
   // Do NOT default role to 'housekeeping'. Wait until profile loads.
-  const role = (profile?.role as string) || null;
+  const role = trainingRoleFor(profile);
   const isSlntTrainingOrg = ['slnt', 'slnt-group'].includes(profile?.organization_slug || '');
   const [isSlntTeamB, setIsSlntTeamB] = useState<boolean | null>(null);
   useEffect(() => {
@@ -189,19 +161,36 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const [switchingHotel, setSwitchingHotel] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [pendingAutoStart, setPendingAutoStart] = useState<TrainingCurriculum | null>(null);
+  const [releasePrompt, setReleasePrompt] = useState<TrainingCurriculum | null>(null);
   const [pendingNextModule, setPendingNextModule] = useState<TrainingCurriculum | null>(null);
-  const autoStartedRef = useRef(false);
+  const autoStartedRef = useRef<string>();
   const dataReadyRef = useRef<Set<string>>(new Set());
   const launcherRef = useRef<HTMLElement | null>(null);
   const prevHotelRef = useRef<string | null>(assignedHotel);
   const deferredRef = useRef<DeferredStep[]>([]);
-  const resumePromptedRef = useRef<Set<string>>(new Set());
   const lastNextAtRef = useRef<number>(0);
   const pendingResumeIdxRef = useRef<number>(0);
   /** When a tour was last finished, paused or skipped — gates the contextual nudge. */
   const lastTourClosedAtRef = useRef<number>(0);
   /** True once progress has been fetched at least once (nudges wait for it). */
-  const statusesLoadedRef = useRef(false);
+  const [loadedForUser, setLoadedForUser] = useState<string>();
+  const latestStatuses = useRef(statuses);
+  latestStatuses.current = statuses;
+  const replayRef = useRef(false);
+  const progressWrites = useRef<Promise<unknown>>(Promise.resolve());
+  const latestUser = useRef(user?.id);
+  latestUser.current = user?.id;
+
+  useEffect(() => {
+    setActive(null);
+    setStepIndex(0);
+    setPendingAutoStart(null);
+    setReleasePrompt(null);
+    setPendingNextModule(null);
+    setCompletion({});
+    setStatuses({});
+    replayRef.current = false;
+  }, [user?.id, profile?.organization_slug]);
 
   const step = active ? active.steps[stepIndex] : null;
   const totalSteps = active?.steps.length || 0;
@@ -279,32 +268,40 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   }, [assignedHotel, active, step?.key, stepIndex, user]);
 
   const persist = useCallback(
-    async (slug: string, idx: number, status: 'in_progress' | 'completed', stepKey?: string) => {
-      if (!user) return;
-      await supabase.from('user_tour_progress').upsert(
-        {
-          user_id: user.id,
+    (slug: string, idx: number, status: 'in_progress' | 'completed', stepKey?: string) => {
+      if (!user || replayRef.current) return Promise.resolve();
+      const { id } = user;
+      const write = async () => {
+        const now = new Date().toISOString();
+        const row = {
+          user_id: id,
           tour_key: slug,
           current_step: idx,
           status,
-          completed_at: status === 'completed' ? new Date().toISOString() : null,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id,tour_key' },
-      );
-      if (stepKey) {
-        await supabase.from('user_training_state').upsert(
-          {
-            user_id: user.id,
-            last_active_step_key: stepKey,
-            last_guide_slug: slug,
-            last_step: idx,
-            paused_at: null,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id' },
+          completed_at: status === 'completed' ? now : null,
+          updated_at: now,
+        };
+        const { error } = await supabase.from('user_tour_progress').upsert(
+          row,
+          { onConflict: 'user_id,tour_key', ignoreDuplicates: true },
         );
-      }
+        if (error) return;
+        // An older tab or a voluntary replay cannot overwrite completion.
+        const updated = await supabase.from('user_tour_progress').update(row)
+          .eq('user_id', id).eq('tour_key', slug).neq('status', 'completed');
+        if (updated.error || !stepKey || latestUser.current !== id) return;
+        await supabase.from('user_training_state').upsert({
+          user_id: id,
+          last_active_step_key: stepKey,
+          last_guide_slug: slug,
+          last_step: idx,
+          paused_at: null,
+          updated_at: now,
+        }, { onConflict: 'user_id' });
+      };
+      const queued = progressWrites.current.then(write, write);
+      progressWrites.current = queued;
+      return queued;
     },
     [user],
   );
@@ -325,12 +322,13 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   );
 
   const refreshStatuses = useCallback(async () => {
-    if (!user) return;
-    const { data } = await supabase
+    if (!user) return false;
+    const { data, error } = await supabase
       .from('user_tour_progress')
       .select('tour_key, current_step, status, completed_at, updated_at')
       .eq('user_id', user.id);
 
+    if (error || latestUser.current !== user.id) return false;
     const map: Record<string, CompletionStatus> = {};
     const stMap: Record<string, CurriculumStatus> = {};
     ALL_CURRICULA.forEach((c) => {
@@ -353,27 +351,29 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
         updatedAt: row.updated_at,
       };
     });
+    latestStatuses.current = stMap;
     setCompletion(map);
     setStatuses(stMap);
-    statusesLoadedRef.current = true;
+    setLoadedForUser(user.id);
+    return true;
   }, [user]);
 
-  // Initial: load + auto-start (core curricula only, throttled to 4h)
+  // Offer a single role-specific starter to a new account.
   useEffect(() => {
-    if (!user || !role || autoStartedRef.current) return;
+    if (!user || !role || autoStartedRef.current === user.id) return;
     if (isSlntTrainingOrg && rollout === null) return;
     if (simplifiedEnabled && isSlntTrainingOrg && role === 'housekeeping' && isSlntTeamB === null) return;
     // Don't auto-start on transient routes — wait until the user lands on
     // a real screen so the first step's anchor (e.g. hotel-switcher) is
     // actually in the DOM.
     const path = location.pathname;
-    if (path === '/' || path === '/index' || path.startsWith('/auth')) return;
-    autoStartedRef.current = true;
+    if (path === '/' || path === '/index' || path.endsWith('/auth') || path.includes('/training')) return;
+    autoStartedRef.current = user.id;
 
     (async () => {
-      await refreshStatuses();
+      if (!await refreshStatuses()) { if (autoStartedRef.current === user.id) autoStartedRef.current = undefined; return; }
 
-      const { data: stateRow } = await supabase
+      const { data: stateRow, error: stateError } = await supabase
         .from('user_training_state')
         .select('dismissed_until, auto_start_pending, deferred_steps, last_auto_start_at')
         .eq('user_id', user.id)
@@ -390,54 +390,32 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       const dismissed =
         stateRow?.dismissed_until && new Date(stateRow.dismissed_until) > new Date();
       const forced = stateRow?.auto_start_pending === true;
-      const lastAuto = (stateRow as any)?.last_auto_start_at as string | null;
-      const tooRecent =
-        lastAuto && Date.now() - new Date(lastAuto).getTime() < AUTO_START_THROTTLE_MS;
 
-      // A newly versioned SLNT workflow should be offered on next login even
-      // when an older generic tour was shown within the last four hours.
-      if ((dismissed || (tooRecent && !simplifiedEnabled)) && !forced) return;
+      if (stateError || latestUser.current !== user.id) return;
+      const age = Date.now() - Date.parse(user.created_at);
+      const isNew = age >= 0 && age < 14 * 24 * 60 * 60 * 1000;
+      if (!forced && (!isNew || dismissed || stateRow?.last_auto_start_at)) return;
 
-      const { data: progressData } = await supabase
+      const { data: progressData, error: progressError } = await supabase
         .from('user_tour_progress')
         .select('tour_key, current_step, status')
         .eq('user_id', user.id);
-      const progressBySlug: Record<string, { idx: number; status: string }> = {};
-      (progressData || []).forEach((row: any) => {
-        progressBySlug[row.tour_key] = {
-          idx: row.current_step ?? 0,
-          status: row.status ?? 'in_progress',
-        };
-      });
-
+      if (progressError || latestUser.current !== user.id) return;
+      const progressBySlug = Object.fromEntries((progressData || []).map((row) => [row.tour_key, row]));
       const candidates = curriculaForRole(role).filter((c) => {
-        if (c.category !== 'core' || !c.roles.includes(role as any)) return false;
-        if (!isSlntTrainingOrg || !simplifiedEnabled) return !c.slug.startsWith('slnt_');
-        if (c.slug === 'slnt_simple_manager_b_v3') return role !== 'housekeeping';
+        if (!isSlntTrainingOrg || !simplifiedEnabled || c.moduleKey !== 'housekeeping') return c.onboarding && !c.slug.startsWith('slnt_');
         if (c.slug === 'slnt_team_b_cleaner_v3') return role === 'housekeeping' && isSlntTeamB === true;
         if (c.slug === 'slnt_team_a_cleaner_v1') return role === 'housekeeping' && teamAEnabled && isSlntTeamB === false;
-        return !c.slug.startsWith('slnt_') && role === 'housekeeping' && !teamAEnabled && isSlntTeamB === false;
+        if (c.slug === 'slnt_simple_manager_b_v3') return c.roles.includes(role as RoleKey);
+        return c.onboarding && role === 'housekeeping' && !teamAEnabled && isSlntTeamB === false;
       });
-      const target = candidates.find((c) => progressBySlug[c.slug]?.status !== 'completed');
+      const target = candidates.find((c) => [c.slug, ...(c.replaces || [])].every((slug) => progressBySlug[slug]?.status !== 'completed'));
       if (!target) return;
-
-      // Sanity check (catch curriculum config regressions)
-      if (!target.roles.includes(role as any)) {
-        console.warn('[training] core curriculum auto-start skipped — role mismatch', {
-          slug: target.slug,
-          role,
-        });
-        return;
-      }
-
-      const resumeIdx = progressBySlug[target.slug]?.idx ?? 0;
-      // Show the first-login prompt instead of auto-launching the tour so
-      // the user can Start, snooze, or skip. Chain seeding happens when
-      // they accept.
-      setTimeout(() => {
-        pendingResumeIdxRef.current = Math.min(resumeIdx, target.steps.length - 1);
-        setPendingAutoStart(target);
-      }, 1200);
+      if (!forced && !await claimTrainingPrompt(user.id, 'onboarding')) return;
+      if (latestUser.current !== user.id) return;
+      const resumeIdx = progressBySlug[target.slug]?.current_step ?? 0;
+      pendingResumeIdxRef.current = target.shortTopic ? 0 : Math.min(resumeIdx, target.steps.length - 1);
+      setPendingAutoStart(target);
 
       await supabase
         .from('user_training_state')
@@ -453,7 +431,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     })();
   }, [user, role, location.pathname, refreshStatuses, isSlntTrainingOrg, isSlntTeamB, simplifiedEnabled, rollout, teamAEnabled]);
 
-  const guardRole = role || 'unknown';
+  const guardRole = profile?.role || 'unknown';
+  const onSchedule = new URLSearchParams(location.search).get('view') === 'staff-schedule';
 
   // Step lifecycle: navigate, locate selector, gate on precondition
   //
@@ -465,6 +444,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
 
     let cancelled = false;
     let advanced = false;
+    let followTarget: MutationObserver | undefined;
     let detachTargetClick: (() => void) | null = null;
     const advanceOnce = () => {
       if (cancelled || advanced) return;
@@ -490,9 +470,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     };
 
     // Silently defer the current step (no toast — user asked for skips to
-    // happen in the background). The deferred queue still drives the
-    // "Resume" toast when the step's element + precondition later become
-    // available.
+    // happen in the background).
     const deferCurrent = async () => {
       const entry: DeferredStep = {
         slug: active.slug,
@@ -523,8 +501,9 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       }
       if (cancelled) return;
       const targetRoute = resolveRoute(step.route);
-      if (targetRoute && location.pathname !== targetRoute) {
-        navigate(targetRoute);
+      if (targetRoute && (location.pathname !== targetRoute || (step.tab && onSchedule))) {
+        const search = step.tab ? new URLSearchParams({ tab: step.tab }).toString() : '';
+        navigate({ pathname: targetRoute, search });
         // Stay hidden while we wait for the route to change — the effect
         // re-runs on location.pathname.
         return;
@@ -582,19 +561,34 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
         }
       }
 
+      if (step.skipIfTarget && visibleTrainingTarget(step.skipIfTarget)) {
+        advanceOnce();
+        return;
+      }
+      if (step.advanceOnTarget) {
+        const follow = () => {
+          if (visibleTrainingTarget(step.advanceOnTarget)) advanceOnce();
+        };
+        followTarget = new MutationObserver(follow);
+        followTarget.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-state', 'class', 'hidden'] });
+        follow();
+        if (advanced) return;
+      }
+
       if (step.selector) {
         const startedAt = Date.now();
         const tryLocate = () => {
           if (cancelled) return;
-          const el = Array.from(document.querySelectorAll<HTMLElement>(step.selector!))
-            .find((candidate) => candidate.getClientRects().length > 0 &&
-              window.getComputedStyle(candidate).visibility !== 'hidden');
+          const el = visibleTrainingTarget(step.selector);
           if (el) {
             setWaiting(false);
             if (step.advanceOnClick) {
-              const onTargetClick = () => window.setTimeout(advanceOnce, 80);
-              el.addEventListener('click', onTargetClick, { once: true });
-              detachTargetClick = () => el.removeEventListener('click', onTargetClick);
+              const onTargetClick = (event: MouseEvent) => {
+                const selected = (event.target as Element | null)?.closest(step.selector!);
+                if (selected && !selected.matches(':disabled')) window.setTimeout(advanceOnce, 80);
+              };
+              document.addEventListener('click', onTargetClick, true);
+              detachTargetClick = () => document.removeEventListener('click', onTargetClick, true);
             }
             try {
               el.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
@@ -606,8 +600,12 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
             }, 250);
             return;
           }
-          if (Date.now() - startedAt < (explainAnyway ? 2500 : SELECTOR_TIMEOUT_MS)) {
+          if (Date.now() - startedAt < (active.shortTopic || explainAnyway ? 2500 : SELECTOR_TIMEOUT_MS)) {
             setTimeout(tryLocate, 250);
+          } else if (active.shortTopic) {
+            setWaiting(true);
+            setStepReady(true);
+            setTimeout(tryLocate, 500);
           } else if (step.optional) {
             if (explainAnyway) {
               // Managers (and situational housekeeper lessons) need to
@@ -650,10 +648,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       detachTargetClick?.();
+      followTarget?.disconnect();
       if (waitInterval) clearInterval(waitInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active?.slug, stepIndex, switchingHotel, assignedHotel, location.pathname]);
+  }, [active?.slug, stepIndex, switchingHotel, assignedHotel, location.pathname, onSchedule, user?.id]);
 
   // Reposition on resize/scroll/orientation
   useEffect(() => {
@@ -662,8 +661,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     const reposition = () => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        const el = document.querySelector(step.selector!) as HTMLElement | null;
-        if (el) setRect(el.getBoundingClientRect());
+        const el = visibleTrainingTarget(step.selector);
+        setRect(el?.getBoundingClientRect() || null);
       });
     };
     window.addEventListener('resize', reposition);
@@ -689,7 +688,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     const nextCur = nextSlug ? findCurriculum(nextSlug) : undefined;
     const isRoot = active?.slug === MANAGER_PATH_SLUG;
 
-    if (active) {
+    if (active && !replayRef.current) {
       // The full path only becomes complete when its role-appropriate
       // individual modules have also been completed, not after its welcome.
       const status = isRoot && nextCur ? 'in_progress' : 'completed';
@@ -818,8 +817,12 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       const c = findCurriculum(slug);
       if (!c || !c.roles.includes(role as any)) return;
       if (slug.startsWith('slnt_') && (!isSlntTrainingOrg || !simplifiedEnabled)) return;
+      if (slug.startsWith('slnt_team_') && (isSlntTeamB === null || (slug === 'slnt_team_b_cleaner_v3' ? !isSlntTeamB : isSlntTeamB || !teamAEnabled))) return;
+      if (isSlntTrainingOrg && simplifiedEnabled && c.shortTopic && c.moduleKey === 'housekeeping' &&
+          (role !== 'housekeeping' || isSlntTeamB !== false || teamAEnabled)) return;
       setPendingNextModule(null);
       let resumeIdx = 0;
+      let alreadyDone = statuses[slug]?.status === 'done';
       if (user && !opts?.restart) {
         const { data } = await supabase
           .from('user_tour_progress')
@@ -827,7 +830,9 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           .eq('user_id', user.id)
           .eq('tour_key', slug)
           .maybeSingle();
-        if (data && data.status !== 'completed') resumeIdx = data.current_step || 0;
+        if (data?.status === 'completed') alreadyDone = true;
+        else if (data) resumeIdx = data.current_step || 0;
+        if (c.shortTopic && c.steps[resumeIdx]?.withinWorkflow) resumeIdx = 0;
       }
       if (opts?.startAtKey) {
         const idx = c.steps.findIndex((s) => s.key === opts.startAtKey);
@@ -848,6 +853,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
             { onConflict: 'user_id,tour_key' },
           );
       }
+      if (latestUser.current !== user?.id) return;
+      replayRef.current = alreadyDone && !opts?.restart;
       // Seed the chain queue from the curriculum definition. Manual restart
       // or explicit start replaces any prior in-flight chain.
       const rawChain = Array.isArray(c.chain) ? c.chain : [];
@@ -873,7 +880,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       setActive(c);
       setStepIndex(Math.min(resumeIdx, c.steps.length - 1));
     },
-    [user, role, statuses, isSlntTrainingOrg, simplifiedEnabled],
+    [user, role, statuses, isSlntTrainingOrg, simplifiedEnabled, isSlntTeamB, teamAEnabled],
   );
 
 
@@ -926,120 +933,15 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     [user, refreshStatuses],
   );
 
-  // ── Deferred-step watcher: when a previously-deferred step becomes
-  //    relevant (selector visible AND precondition true), surface a one-tap
-  //    resume toast. Runs on route changes + body MutationObserver (debounced).
-  useEffect(() => {
-    if (!user || !role) return;
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    let cancelled = false;
-
-    // Never surface a resume toast on transient/public routes.
-    const isBlockedRoute = () => {
-      const p = location.pathname;
-      return p.startsWith('/auth') || p.startsWith('/bb') || p.startsWith('/breakfast');
-    };
-
-    const check = async () => {
-      if (cancelled || active) return; // don't disrupt an active tour
-      if (pendingAutoStart) return; // don't stack on top of the first-login prompt
-      if (isBlockedRoute()) return;
-      const queue = deferredRef.current;
-      if (!queue.length) return;
-
-      // Dedupe by slug — only surface one resume prompt per curriculum per
-      // session even if multiple steps in the same unit were deferred.
-      for (const entry of queue) {
-        if (resumePromptedRef.current.has(entry.slug)) continue;
-        const cur = findCurriculum(entry.slug);
-        if (!cur) continue;
-        const s = cur.steps.find((st) => st.key === entry.stepKey);
-        if (!s) continue;
-        if (s.selector && !document.querySelector(s.selector)) continue;
-        if (s.precondition) {
-          const ok = await evaluateGuard(s.precondition, {
-            userId: user.id,
-            role: guardRole,
-            assignedHotel,
-            switchingHotel: false,
-            dataReady: dataReadyRef.current,
-          });
-          if (!ok) continue;
-        }
-        resumePromptedRef.current.add(entry.slug);
-        const labels = RESUME_TOAST_LABELS[lang] || RESUME_TOAST_LABELS.en;
-        const notNowLabel: Record<LangCode, string> = {
-          en: 'Not now',
-          hu: 'Most nem',
-          es: 'Ahora no',
-          vi: 'Để sau',
-          mn: 'Одоохондоо үгүй',
-          uk: 'Не зараз',
-        };
-        toast(`${labels.title} — ${tx(cur.name, lang)}`, {
-          id: `training-resume-${entry.slug}`,
-          duration: 20000,
-          action: {
-            label: labels.action,
-            onClick: () => {
-              const nextQ = deferredRef.current.filter(
-                (d) => !(d.slug === entry.slug && d.stepKey === entry.stepKey),
-              );
-              deferredRef.current = nextQ;
-              persistDeferred(nextQ);
-              start(entry.slug, { startAtKey: entry.stepKey });
-            },
-          },
-          cancel: {
-            label: notNowLabel[lang] || notNowLabel.en,
-            onClick: () => {
-              // Drop every deferred step for this curriculum + snooze 24h.
-              const nextQ = deferredRef.current.filter((d) => d.slug !== entry.slug);
-              deferredRef.current = nextQ;
-              persistDeferred(nextQ);
-              if (user) {
-                supabase.from('user_training_state').upsert(
-                  {
-                    user_id: user.id,
-                    dismissed_until: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-                    updated_at: new Date().toISOString(),
-                  },
-                  { onConflict: 'user_id' },
-                ).then(() => undefined);
-              }
-            },
-          },
-        });
-        break;
-      }
-    };
-
-    const debouncedCheck = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(check, 400);
-    };
-
-    debouncedCheck();
-
-    let observer: MutationObserver | null = null;
-    if (typeof document !== 'undefined') {
-      observer = new MutationObserver(debouncedCheck);
-      observer.observe(document.body, { childList: true, subtree: true });
-    }
-    return () => {
-      cancelled = true;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      observer?.disconnect();
-    };
-  }, [user, role, location.pathname, lang, active, pendingAutoStart, assignedHotel, guardRole, start, persistDeferred]);
-
-  // organization/isPropertyOrg computed above
-
   const availableCurricula = useMemo(() => {
     // Revenue Management training applies to every organization, including
     // property-style tenants (SLNT).
     return curriculaForRole(role || '').filter(c => {
-      if (!c.slug.startsWith('slnt_')) return true;
+      if (!c.slug.startsWith('slnt_')) {
+        const slntHousekeeping = isSlntTrainingOrg && simplifiedEnabled && c.shortTopic && c.moduleKey === 'housekeeping';
+        if (slntHousekeeping) return role === 'housekeeping' && isSlntTeamB === false && !teamAEnabled;
+        return true;
+      }
       if (!isSlntTrainingOrg || !simplifiedEnabled) return false;
       if (role !== 'housekeeping') return c.slug === 'slnt_simple_manager_b_v3';
       if (isSlntTeamB === null) return false;
@@ -1058,7 +960,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     async (slug: string) => {
       const match = onThisScreen.find((m) => m.curriculum.slug === slug);
       if (!match) return start(slug, { manual: true });
-      const startAtKey = startKeyForScreenMatch(match);
+      const startAtKey = match.curriculum.shortTopic ? undefined : startKeyForScreenMatch(match);
       // Open at the step that belongs to this screen (the engine still
       // navigates if needed); very early matches start from the welcome card
       // or the saved resume point instead.
@@ -1067,89 +969,81 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     [onThisScreen, start],
   );
 
-  // ── Contextual nudge: once per screen visit, offer the first relevant guide
-  //    the user has not finished. Never while a tour, the first-login prompt or
-  //    a module hand-over is open; never twice for the same guide on a device
-  //    (see nudgeStore); never on transient routes.
   const [nudge, setNudge] = useState<ScreenMatch | null>(null);
-  const nudgedThisSessionRef = useRef<Set<string>>(new Set());
-  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const statusesRef = useRef(statuses);
-  statusesRef.current = statuses;
-  const NUDGE_DELAY_MS = 1800;
-  const NUDGE_RETRY_MS = 1500;
-  const NUDGE_MAX_RETRIES = 6;
-  const NUDGE_AUTO_HIDE_MS = 15000;
-  const NUDGE_COOLDOWN_AFTER_TOUR_MS = 60000;
-
-  const clearNudgeTimer = () => {
-    if (nudgeTimerRef.current) { clearTimeout(nudgeTimerRef.current); nudgeTimerRef.current = null; }
-  };
-
-  // A stable key so a profile refetch (new resolveRoute identity) does not
-  // restart the timer mid-visit; only a real screen/match change does.
-  const matchesKey = onThisScreen.map((m) => `${m.curriculum.slug}@${m.stepKey}`).join('|');
-  const onThisScreenRef = useRef(onThisScreen);
-  onThisScreenRef.current = onThisScreen;
+  const visits = useRef(new Map<string, number>());
+  const previousScreen = useRef('');
+  const screenKey = [user?.id, screen.pathname, screen.tab, screen.subTab].join('|');
 
   useEffect(() => {
-    clearNudgeTimer();
     setNudge(null);
-    if (!user || !role) return;
-    if (active || pendingAutoStart || pendingNextModule) return;
-    const p = location.pathname;
-    if (p === '/' || p.startsWith('/auth') || p.startsWith('/bb') || p.startsWith('/breakfast') || p.includes('/training')) return;
-    // Right after a tour was closed the user has had enough coaching for now.
-    if (Date.now() - lastTourClosedAtRef.current < NUDGE_COOLDOWN_AFTER_TOUR_MS) return;
-    if (!matchesKey) return;
-
-    const fire = (attempt: number) => {
-      // Progress must be known before we offer anything, otherwise a finished
-      // guide could be nudged while the first fetch is still in flight.
-      if (!statusesLoadedRef.current) {
-        if (attempt < NUDGE_MAX_RETRIES) nudgeTimerRef.current = setTimeout(() => fire(attempt + 1), NUDGE_RETRY_MS);
-        return;
+    if (!user || !role || loadedForUser !== user.id || active || pendingAutoStart || releasePrompt || pendingNextModule) return;
+    if (Date.now() - lastTourClosedAtRef.current < 60000) return;
+    if (previousScreen.current !== screenKey) {
+      previousScreen.current = screenKey;
+      visits.current.set(screenKey, (visits.current.get(screenKey) || 0) + 1);
+    }
+    // A single page visit is ordinary work. Offer a guide on a return visit
+    // after the user has stayed on the relevant screen for a short interval.
+    if ((visits.current.get(screenKey) || 0) < 2) return;
+    let current = true;
+    const timer = window.setTimeout(async () => {
+      if (document.visibilityState !== 'visible' || document.querySelector('[role="dialog"][data-state="open"]')) return;
+      if (!await refreshStatuses() || !current || latestUser.current !== user.id) return;
+      for (const match of onThisScreen) {
+        const { curriculum, stepKey } = match;
+        if (!curriculum.shortTopic || hasSeenTraining(curriculum, latestStatuses.current)) continue;
+        if (!visibleTrainingTarget(curriculum.steps.find((item) => item.key === stepKey)?.selector)) continue;
+        const claimed = await claimTrainingPrompt(user.id, `context:${curriculum.slug}`);
+        if (!current) return;
+        if (claimed) {
+          setNudge(match);
+          return;
+        }
       }
-      const candidate = onThisScreenRef.current.find((m) => {
-        const slug = m.curriculum.slug;
-        if (statusesRef.current[slug]?.status === 'done') return false;
-        if (nudgedThisSessionRef.current.has(slug)) return false;
-        if (isNudgeSnoozed(user.id, slug)) return false;
-        // The deferred-step watcher already offers a resume toast for these.
-        if (deferredRef.current.some((d) => d.slug === slug)) return false;
-        return true;
-      });
-      if (!candidate) return;
-      nudgedThisSessionRef.current.add(candidate.curriculum.slug);
-      setNudge(candidate);
-      nudgeTimerRef.current = setTimeout(() => {
-        // Ignored: hide quietly and try again another week.
-        snoozeNudge(user.id, candidate.curriculum.slug, NUDGE_SNOOZE_DAYS.ignored);
-        setNudge(null);
-      }, NUDGE_AUTO_HIDE_MS);
-    };
-    nudgeTimerRef.current = setTimeout(() => fire(0), NUDGE_DELAY_MS);
+    }, 12000);
+    return () => { current = false; window.clearTimeout(timer); };
+  }, [user, role, screenKey, onThisScreen, active, pendingAutoStart, releasePrompt, pendingNextModule, refreshStatuses, loadedForUser]);
 
-    return clearNudgeTimer;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, role, matchesKey, active, pendingAutoStart, pendingNextModule, location.pathname]);
+  useEffect(() => {
+    if (!nudge) return;
+    const timer = window.setTimeout(() => setNudge(null), 15000);
+    return () => window.clearTimeout(timer);
+  }, [nudge]);
 
   const acceptNudge = useCallback(() => {
-    const current = nudge;
-    clearNudgeTimer();
     setNudge(null);
-    if (!current || !user) return;
-    snoozeNudge(user.id, current.curriculum.slug, NUDGE_SNOOZE_DAYS.accepted);
-    void startForScreen(current.curriculum.slug);
-  }, [nudge, user, startForScreen]);
+    if (nudge) void startForScreen(nudge.curriculum.slug);
+  }, [nudge, startForScreen]);
+  const declineNudge = useCallback(() => setNudge(null), []);
 
-  const declineNudge = useCallback(() => {
-    const current = nudge;
-    clearNudgeTimer();
-    setNudge(null);
-    if (!current || !user) return;
-    snoozeNudge(user.id, current.curriculum.slug, NUDGE_SNOOZE_DAYS.declined);
-  }, [nudge, user]);
+  useEffect(() => {
+    const org = profile?.organization_slug;
+    if (!trainingReleases.length || !org || !user || !role || loadedForUser !== user.id) return;
+    if (active || pendingAutoStart || releasePrompt || pendingNextModule || nudge || location.pathname.includes('/training')) return;
+    const eligible = trainingReleases.filter((release) => availableCurricula.some((guide) => guide.slug === release.curriculum));
+    if (!eligible.length) return;
+    let current = true;
+    const check = async () => {
+      if (document.visibilityState !== 'visible' || document.querySelector('[role="dialog"][data-state="open"]')) return;
+      const { data, error } = await (supabase as any).from('training_release_approvals').select('release_id').eq('organization_slug', org)
+        .in('release_id', eligible.map((release) => release.id));
+      if (!current || error || !data?.length) return;
+      if (!await refreshStatuses() || !current || latestUser.current !== user.id) return;
+      for (const release of eligible) {
+        const guide = availableCurricula.find((item) => item.slug === release.curriculum);
+        if (!guide || !data.some((row: { release_id: string }) => row.release_id === release.id)) continue;
+        if (hasSeenTraining(guide, latestStatuses.current)) continue;
+        if (await claimTrainingPrompt(user.id, `release:${org}:${release.id}`)) {
+          if (current) { setNudge(null); setReleasePrompt(guide); }
+          break;
+        }
+        if (!current) break;
+      }
+    };
+    const timer = window.setTimeout(check, 5000);
+    const interval = window.setInterval(check, 5 * 60 * 1000);
+    return () => { current = false; window.clearTimeout(timer); window.clearInterval(interval); };
+  }, [user, role, profile?.organization_slug, availableCurricula, active, pendingAutoStart, releasePrompt, pendingNextModule, nudge, location.pathname, refreshStatuses, loadedForUser]);
 
   // Continue only after the manager explicitly chooses the next module.
   const continueNextModule = useCallback(async () => {
@@ -1163,6 +1057,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       if (data && data.status !== 'completed') idx = data.current_step || 0;
     }
     setPendingNextModule(null);
+    replayRef.current = false;
     setActive(cur);
     setStepIndex(Math.min(idx, cur.steps.length - 1));
   }, [pendingNextModule, role, user]);
@@ -1175,6 +1070,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
 
   // First-login prompt actions
   const acceptAutoStart = useCallback(() => {
+    if (releasePrompt) {
+      setReleasePrompt(null);
+      void start(releasePrompt.slug, { manual: true });
+      return;
+    }
     const target = pendingAutoStart;
     if (!target) return;
     chainQueueRef.current = (target.chain || []).filter((linkedSlug) => {
@@ -1183,52 +1083,16 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     });
     chainRootRef.current = target.slug === MANAGER_PATH_SLUG && chainQueueRef.current.length > 0;
     setPendingAutoStart(null);
+    replayRef.current = false;
     setActive(target);
     setStepIndex(pendingResumeIdxRef.current || 0);
-  }, [pendingAutoStart, role, statuses]);
+  }, [pendingAutoStart, releasePrompt, role, statuses, start]);
 
   const snoozeAutoStart = useCallback(async () => {
     setPendingAutoStart(null);
-    if (!user) return;
-    await supabase.from('user_training_state').upsert(
-      {
-        user_id: user.id,
-        dismissed_until: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    );
-  }, [user]);
-
-  const skipAutoStart = useCallback(async () => {
-    const target = pendingAutoStart;
-    setPendingAutoStart(null);
-    if (!user) return;
-    await supabase.from('user_training_state').upsert(
-      {
-        user_id: user.id,
-        dismissed_until: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    );
-    if (target) {
-      // Mark the walkthrough as completed so we don't re-offer it.
-      await supabase.from('user_tour_progress').upsert(
-        {
-          user_id: user.id,
-          tour_key: target.slug,
-          current_step: target.steps.length,
-          status: 'completed',
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id,tour_key' },
-      );
-      await refreshStatuses();
-    }
-  }, [user, pendingAutoStart, refreshStatuses]);
-
+    setReleasePrompt(null);
+  }, []);
+  const skipAutoStart = snoozeAutoStart;
 
   const value: TrainingV2ContextValue = {
     active,
@@ -1254,7 +1118,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     completion,
     statuses,
     registerLauncher,
-    pendingAutoStart,
+    pendingAutoStart: pendingAutoStart || releasePrompt,
+    isReleasePrompt: Boolean(releasePrompt),
     acceptAutoStart,
     snoozeAutoStart,
     skipAutoStart,
@@ -1270,9 +1135,9 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   return (
     <TrainingV2Context.Provider value={value}>
       {children}
-      {active && step && stepReady && <TrainingOverlayV2 />}
-      {nudge && !active && !pendingAutoStart && !pendingNextModule && <TrainingContextNudge />}
-      {pendingAutoStart && !active && !pendingNextModule && <TrainingFirstLoginPrompt />}
+      {active && step && stepReady && (active.shortTopic ? <VisualTrainingCue /> : <TrainingOverlayV2 />)}
+      {nudge && !active && !pendingAutoStart && !releasePrompt && !pendingNextModule && <TrainingContextNudge />}
+      {(pendingAutoStart || releasePrompt) && !active && !pendingNextModule && <TrainingFirstLoginPrompt />}
       {pendingNextModule && !active && (
         <TrainingNextModulePrompt
           curriculum={pendingNextModule}

@@ -47,6 +47,7 @@ import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
 import { RoomMinibarOperations } from './RoomMinibarOperations';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { RoomPlannedNotesCalendar } from './RoomPlannedNotesCalendar';
+import { RoomAssignmentHistory } from './RoomAssignmentHistory';
 import { RoomNoteProvenance } from './RoomNoteProvenance';
 import { toast } from 'sonner';
 
@@ -1082,6 +1083,17 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       ? 'border-rose-200 bg-rose-50 text-rose-900'
       : statusTone(effectiveStatus);
 
+  // Keep compact status badges unchanged, but avoid large bright summary cards in dark mode.
+  const summaryStatusTone = isSlntOutOfService || hasNonCleaningOutcome || effectiveStatus === 'out_of_order'
+    ? 'dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-100'
+    : effectiveStatus === 'clean' || effectiveStatus === 'completed'
+      ? 'dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'
+      : effectiveStatus === 'in_progress'
+        ? 'dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100'
+        : effectiveStatus === 'pending_approval'
+          ? 'dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100'
+          : 'dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100';
+
   const activeRoomTypeNotice = selection?.pmsMetadata?.roomTypeChangeNotice as RoomTypeNotice | undefined;
   const managerTypeNotice = activeRoomTypeNotice?.date === selectedDate
     ? activeRoomTypeNotice
@@ -1120,43 +1132,43 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const mainView = !selection ? null : (
     <div className="space-y-4">
       {carryCopy && !selection.isCheckout && (
-        <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-amber-950" role="status">
+        <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-amber-950 dark:bg-amber-950/30 dark:text-amber-100" role="status">
           <p className="text-sm font-bold">{isRdCarryForwardHotel(hotelName) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-4 w-4" aria-hidden="true" /> Missed service · yesterday: {carryCopy.action}</span> : <>↪ Outstanding housekeeping service: {carryCopy.action}</>}</p>
           <p className="mt-1 text-xs">{carryCopy.summary}{carryCopy.detail ? ` · ${carryCopy.detail}` : ''}</p>
           <p className="mt-1 text-xs">This missed service is part of today's assignment; it may differ from the normal PMS service cycle below.</p>
         </div>
       )}
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className={`rounded-xl border p-3 ${visibleStatusTone}`}>
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Room condition</p>
+        <div className={`rounded-xl border p-3 ${visibleStatusTone} ${summaryStatusTone}`}>
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Room condition</p>
           <p className="mt-1 text-sm font-bold">{visibleStatusLabel}</p>
         </div>
-        <div className={`rounded-xl border p-3 ${selection.isCheckout ? 'border-orange-200 bg-orange-50 text-orange-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Service</p>
+        <div className={`rounded-xl border p-3 ${selection.isCheckout ? 'border-orange-200 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-100' : 'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-100'}`}>
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Service</p>
           <p className="mt-1 text-sm font-bold">{currentRequiredService}</p>
         </div>
-        <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-violet-900">
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Housekeeper</p>
+        <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-violet-900 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Housekeeper</p>
           <p className="mt-1 truncate text-sm font-bold">{assigneeName}</p>
         </div>
-        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-cyan-900">
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Room</p>
+        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-cyan-900 dark:border-cyan-800 dark:bg-cyan-950/30 dark:text-cyan-100">
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Room</p>
           <p className="mt-1 text-sm font-bold">{selection.roomSizeSqm ? `${selection.roomSizeSqm} m²` : selection.roomCategory || '—'}</p>
         </div>
       </section>
 
       {selection.assignmentStatus && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-white/80 px-3 py-2 text-xs">
-          <span className="font-semibold text-slate-700">Housekeeping task:</span>
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-white/80 px-3 py-2 text-xs dark:bg-muted/40">
+          <span className="font-semibold text-slate-700 dark:text-foreground">Housekeeping task:</span>
           <Badge variant="outline">{statusLabel(selection.assignmentStatus)}</Badge>
           {selection.roomStatus === 'dirty' && selection.assignmentStatus === 'completed' && (
-            <span className="text-amber-800">Previous cleaning is recorded, but this room is dirty again. Reopen it below.</span>
+            <span className="text-amber-800 dark:text-amber-200">Previous cleaning is recorded, but this room is dirty again. Reopen it below.</span>
           )}
         </div>
       )}
 
       {selection.isCheckout && (
-        <div role="status" className={`rounded-xl border px-3 py-2.5 text-sm ${selection.readyToClean ? 'border-teal-300 bg-teal-50 text-teal-900' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+        <div role="status" className={`rounded-xl border px-3 py-2.5 text-sm ${selection.readyToClean ? 'border-teal-300 bg-teal-50 text-teal-900 dark:border-teal-700 dark:bg-teal-950/30 dark:text-teal-100' : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100'}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-bold">{selection.readyToClean ? '✓ Ready to Clean (RTC)' : 'Awaiting verified guest checkout'}</span>
             <span className="text-xs">{selection.readyToClean
@@ -1167,17 +1179,17 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       )}
 
       {isMemories && canManage && selection.roomStatus !== 'out_of_order' && (
-        <section className="rounded-2xl border-2 border-amber-200 bg-amber-50/50 p-3 sm:p-4">
-          <p className="text-sm font-bold text-slate-900">Room status & cleaning controls</p>
-          <p className="mt-1 text-xs text-slate-700">A dirty room updates Previo. If today's approved cleaning is already completed, a new task opens without deleting that work.</p>
+        <section className="rounded-2xl border-2 border-amber-200 bg-amber-50/50 dark:border-amber-500/50 dark:bg-amber-950/20 p-3 sm:p-4">
+          <p className="text-sm font-bold text-slate-900 dark:text-foreground">Room status & cleaning controls</p>
+          <p className="mt-1 text-xs text-slate-700 dark:text-muted-foreground">A dirty room updates Previo. If today's approved cleaning is already completed, a new task opens without deleting that work.</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <Button className="min-h-11 border-amber-400 bg-white text-amber-900 hover:bg-amber-100" variant="outline" disabled={readOnlyForPast || !!actionLoading} onClick={() => void markRoomDirty()}>
+            <Button className="min-h-11 border-amber-400 bg-white text-amber-900 hover:bg-amber-100 dark:border-amber-500/60 dark:bg-card dark:text-amber-200 dark:hover:bg-amber-950/50" variant="outline" disabled={readOnlyForPast || !!actionLoading} onClick={() => void markRoomDirty()}>
               {actionLoading === 'mark-dirty' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {selection.assignmentStatus === 'completed'
                 ? selection.roomStatus === 'dirty' ? 'Reopen cleaning task' : 'Mark Dirty & Reopen'
                 : 'Mark Dirty'}
             </Button>
-            <Button className="min-h-11 bg-emerald-700 hover:bg-emerald-800" disabled={readOnlyForPast || !!actionLoading} onClick={() => void markRoomClean()}>
+            <Button className="min-h-11 bg-emerald-700 text-white hover:bg-emerald-800" disabled={readOnlyForPast || !!actionLoading} onClick={() => void markRoomClean()}>
               {actionLoading === 'mark-clean' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Mark Clean & Sync Previo
             </Button>
@@ -1219,7 +1231,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         </section>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-3 sm:p-4">
+      <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white dark:border-border dark:bg-none dark:bg-card p-3 sm:p-4">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div>
             <p className="text-sm font-bold">Today’s essentials</p>
@@ -1230,9 +1242,9 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
 
         <div className="mb-3 grid grid-cols-3 gap-2">
           {[
-            { value: 1, label: 'Low', active: 'border-sky-500 bg-sky-500 text-white', idle: 'border-sky-200 bg-sky-50 text-sky-800' },
-            { value: 2, label: 'Medium', active: 'border-amber-500 bg-amber-500 text-white', idle: 'border-amber-200 bg-amber-50 text-amber-800' },
-            { value: 3, label: 'High', active: 'border-rose-500 bg-rose-500 text-white', idle: 'border-rose-200 bg-rose-50 text-rose-800' },
+            { value: 1, label: 'Low', active: 'border-sky-500 bg-sky-500 text-sky-950', idle: 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-100' },
+            { value: 2, label: 'Medium', active: 'border-amber-500 bg-amber-500 text-amber-950', idle: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100' },
+            { value: 3, label: 'High', active: 'border-rose-500 bg-rose-700 text-white', idle: 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-700 dark:bg-rose-950/30 dark:text-rose-100' },
           ].map((item) => (
             <button
               key={item.value}
@@ -1248,7 +1260,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
 
         <Button
           type="button"
-          className={`mb-3 w-full justify-between ${selection.isCheckout ? 'bg-blue-600 hover:bg-blue-700' : 'bg-orange-500 hover:bg-orange-600'}`}
+          className={`mb-3 w-full justify-between ${selection.isCheckout ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-orange-500 text-orange-950 hover:bg-orange-600'}`}
           disabled={!canManage || readOnlyForPast || actionLoading === 'service'}
           onClick={() => void switchService()}
         >
@@ -1257,16 +1269,16 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         </Button>
 
         {canManualRtc && selection.isCheckout && selection.assignmentId && selection.assignmentType === 'checkout_cleaning' && (
-          <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 p-2.5">
+          <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 p-2.5 dark:border-teal-800 dark:bg-teal-950/25">
             {selection.readyToClean ? (
-              <div className="flex items-center justify-center gap-2 rounded-lg border border-teal-200 bg-white/80 px-3 py-2.5 text-sm font-bold text-teal-800">
+              <div className="flex items-center justify-center gap-2 rounded-lg border border-teal-200 bg-white/80 px-3 py-2.5 text-sm font-bold text-teal-800 dark:border-teal-700 dark:bg-card dark:text-teal-200">
                 <CheckCircle2 className="h-4 w-4" />
                 Ready to Clean (RTC)
               </div>
             ) : (
               <Button
                 type="button"
-                className="w-full bg-teal-600 font-bold hover:bg-teal-700"
+                className="w-full bg-teal-700 font-bold text-white hover:bg-teal-800"
                 disabled={readOnlyForPast || !!actionLoading || selection.assignmentStatus === 'completed'}
                 onClick={() => void markReadyToClean()}
               >
@@ -1276,11 +1288,11 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
                 Mark Ready to Clean (RTC)
               </Button>
             )}
-            <p className="mt-1.5 text-[10px] leading-snug text-teal-900/75">
+            <p className="mt-1.5 text-[10px] leading-snug text-teal-900/75 dark:text-teal-200">
               {isMemories ? 'Hotel Memories checkout override.' : 'Gozsdu reception override.'} Use only after confirming the guest has physically left. Previo reservation/checkout data remains unchanged.
             </p>
             {selection.pmsHold && !selection.readyToClean && (
-              <p className="mt-1 text-[10px] font-semibold text-amber-800">
+              <p className="mt-1 text-[10px] font-semibold text-amber-800 dark:text-amber-200">
                 PMS is currently holding this room. Manual RTC will explicitly release that HotelCare hold after your confirmation.
               </p>
             )}
@@ -1288,10 +1300,10 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         )}
 
         {canManage && (
-          <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5">
+          <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 dark:border-emerald-800 dark:bg-emerald-950/25">
             <Button
               type="button"
-              className="w-full bg-emerald-600 font-bold hover:bg-emerald-700"
+              className="w-full bg-emerald-700 font-bold text-white hover:bg-emerald-800"
               disabled={readOnlyForPast || !!actionLoading || (isSlntTenant && selection.roomStatus === 'out_of_order')}
               onClick={() => void markRoomClean()}
             >
@@ -1300,7 +1312,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
                 : <CheckCircle2 className="mr-2 h-4 w-4" />}
               {hasNonCleaningOutcome ? 'Override No Service → Mark Clean & Sync PMS' : 'Mark Clean & Sync PMS'}
             </Button>
-            <p className="mt-1.5 text-[10px] leading-snug text-emerald-900/75">
+            <p className="mt-1.5 text-[10px] leading-snug text-emerald-900/75 dark:text-emerald-200">
               Supervisor override: confirms the room as cleaned, clears active DND / No Service state, approves the assignment and pushes Clean to the PMS.
             </p>
           </div>
@@ -1311,7 +1323,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             type="button"
             disabled={!canManage || !!actionLoading}
             onClick={() => void patchRoom({ towel_change_required: !selection.towelChangeRequired }, { towelChangeRequired: !selection.towelChangeRequired }, `Towel change ${selection.towelChangeRequired ? 'removed' : 'required'} — room ${selection.roomNumber}`)}
-            className={`rounded-xl border p-3 text-left transition-all ${selection.towelChangeRequired ? 'border-blue-500 bg-blue-500 text-white shadow-sm' : 'border-blue-200 bg-blue-50 text-blue-900 hover:bg-blue-100'}`}
+            className={`rounded-xl border p-3 text-left transition-all ${selection.towelChangeRequired ? 'border-blue-500 bg-blue-700 text-white shadow-sm' : 'border-blue-200 bg-blue-50 text-blue-900 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-100 dark:hover:bg-blue-950/60'}`}
           >
             <div className="text-lg">🔄</div><p className="mt-1 text-xs font-bold">Towel Change</p><p className="text-[10px] opacity-80">{selection.towelChangeRequired ? 'Required' : 'Not required'}</p>
           </button>
@@ -1320,7 +1332,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             type="button"
             disabled={!canManage || !!actionLoading}
             onClick={() => void patchRoom({ linen_change_required: !selection.linenChangeRequired }, { linenChangeRequired: !selection.linenChangeRequired }, `${textileChangeLabel} ${selection.linenChangeRequired ? 'removed' : 'required'} — room ${selection.roomNumber}`)}
-            className={`rounded-xl border p-3 text-left transition-all ${selection.linenChangeRequired ? 'border-violet-500 bg-violet-500 text-white shadow-sm' : 'border-violet-200 bg-violet-50 text-violet-900 hover:bg-violet-100'}`}
+            className={`rounded-xl border p-3 text-left transition-all ${selection.linenChangeRequired ? 'border-violet-500 bg-violet-700 text-white shadow-sm' : 'border-violet-200 bg-violet-50 text-violet-900 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-100 dark:hover:bg-violet-950/60'}`}
           >
             <div className="text-lg">🛏️</div><p className="mt-1 text-xs font-bold">{textileChangeLabel}</p><p className="text-[10px] opacity-80">{selection.linenChangeRequired ? 'Required' : 'Not required'}</p>
           </button>
@@ -1329,7 +1341,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             type="button"
             disabled={!canManage || !!actionLoading}
             onClick={() => void saveServiceFlags({ roomCleaning: !selection.roomCleaning })}
-            className={`rounded-xl border p-3 text-left transition-all ${selection.roomCleaning ? 'border-emerald-500 bg-emerald-500 text-white shadow-sm' : 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'}`}
+            className={`rounded-xl border p-3 text-left transition-all ${selection.roomCleaning ? 'border-emerald-500 bg-emerald-500 text-emerald-950 shadow-sm' : 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-100 dark:hover:bg-emerald-950/60'}`}
           >
             <div className="text-lg">🧹</div><p className="mt-1 text-xs font-bold">Room Cleaning</p><p className="text-[10px] opacity-80">{selection.roomCleaning ? 'Required' : 'Normal service'}</p>
           </button>
@@ -1338,7 +1350,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             type="button"
             disabled={!canManage || !!actionLoading}
             onClick={() => void saveServiceFlags({ collectExtraTowels: !selection.collectExtraTowels })}
-            className={`rounded-xl border p-3 text-left transition-all ${selection.collectExtraTowels ? 'border-orange-500 bg-orange-500 text-white shadow-sm' : 'border-orange-200 bg-orange-50 text-orange-900 hover:bg-orange-100'}`}
+            className={`rounded-xl border p-3 text-left transition-all ${selection.collectExtraTowels ? 'border-orange-500 bg-orange-500 text-orange-950 shadow-sm' : 'border-orange-200 bg-orange-50 text-orange-900 hover:bg-orange-100 dark:border-orange-700 dark:bg-orange-950/30 dark:text-orange-100 dark:hover:bg-orange-950/60'}`}
           >
             <div className="text-lg">🧺</div><p className="mt-1 text-xs font-bold">Collect Extra Towels</p><p className="text-[10px] opacity-80">{selection.collectExtraTowels ? 'Outstanding' : 'None'}</p>
           </button>
@@ -1352,7 +1364,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       )}
 
       {isMemories && selection.roomId && canWriteNotes && (
-        <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3 sm:p-4">
+        <section className="rounded-2xl border border-blue-200 bg-blue-50/60 dark:border-blue-800 dark:bg-blue-950/20 p-3 sm:p-4">
           <RoomCommunicationPanel
             assignmentId={selection.assignmentId || ''}
             roomId={selection.roomId}
@@ -1364,29 +1376,29 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         </section>
       )}
 
-      <section className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-3 sm:p-4">
+      <section className="rounded-2xl border border-indigo-200 bg-indigo-50/70 dark:border-indigo-800 dark:bg-indigo-950/20 p-3 sm:p-4">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2"><MessageSquareText className="h-4 w-4 text-indigo-700" /><p className="text-sm font-bold text-indigo-950">Housekeeper / manager note</p></div>
-          <Badge variant="outline" className="border-indigo-300 bg-white/70 text-indigo-700">Shared</Badge>
+          <div className="flex items-center gap-2"><MessageSquareText className="h-4 w-4 text-indigo-700 dark:text-indigo-300" /><p className="text-sm font-bold text-indigo-950 dark:text-indigo-100">Housekeeper / manager note</p></div>
+          <Badge variant="outline" className="border-indigo-300 bg-white/70 text-indigo-700 dark:border-indigo-700 dark:bg-card dark:text-indigo-300">Shared</Badge>
         </div>
         {plannedTodayNotes.length > 0 && (
-          <div className="mb-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">Planned instructions active today</p>
+          <div className="mb-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/25">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:text-emerald-200">Planned instructions active today</p>
             {plannedTodayNotes.map((note, index) => (
-              <p key={`${note}-${index}`} className="mt-1 text-xs font-semibold text-emerald-950">• {note}</p>
+              <p key={`${note}-${index}`} className="mt-1 text-xs font-semibold text-emerald-950 dark:text-emerald-100">• {note}</p>
             ))}
-            <p className="mt-1 text-[9px] text-emerald-800/70">HotelCare calendar instruction · protected from PMS sync.</p>
+            <p className="mt-1 text-[9px] text-emerald-800/70 dark:text-emerald-200">HotelCare calendar instruction · protected from PMS sync.</p>
           </div>
         )}
         <Textarea
           value={notesDraft}
           onChange={(event) => setNotesDraft(event.target.value)}
           placeholder="Example: single beds please, guest requested extra towels, check balcony…"
-          className="min-h-[74px] border-indigo-200 bg-white text-sm"
+          className="min-h-[74px] border-indigo-200 bg-white text-sm dark:border-input dark:bg-background dark:text-foreground"
           disabled={!canWriteNotes}
         />
         <div className="mt-2 flex items-center justify-between gap-2">
-          <p className="text-[10px] text-indigo-700/80">
+          <p className="text-[10px] text-indigo-700/80 dark:text-indigo-200">
             {isSlntTenant
               ? noteSaveState === 'saving'
                 ? 'Saving…'
@@ -1398,7 +1410,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
               : 'Visible to the operational team. Saved with user/time history.'}
           </p>
           {canWriteNotes && (
-            <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" disabled={savingNotes} onClick={() => void saveNotes()}>
+            <Button size="sm" className="bg-indigo-600 text-white hover:bg-indigo-700" disabled={savingNotes} onClick={() => void saveNotes()}>
               {savingNotes ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1 h-3.5 w-3.5" />} Save note
             </Button>
           )}
@@ -1412,12 +1424,12 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       </section>
 
       {canManage && (selection.pmsMetadata?.slntPrevioHousekeepingNote || selection.pmsMetadata?.noteInternal) && (
-        <section className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-3 text-sm text-amber-950">
+        <section className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/25 dark:text-amber-100">
           <p className="font-semibold">Previo source note — not manager-approved</p>
           <p className="mt-1 whitespace-pre-wrap break-words">
             {String(selection.pmsMetadata.slntPrevioHousekeepingNote || selection.pmsMetadata.noteInternal)}
           </p>
-          <p className="mt-2 text-xs text-amber-800">
+          <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
             Unverified PMS information{selection.pmsMetadata.pmsSyncDate ? ` · snapshot ${selection.pmsMetadata.pmsSyncDate}` : ''}.
             It is not sent as a manager instruction. Review it before entering any required instruction above.
           </p>
@@ -1434,7 +1446,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       )}
 
       {!isMemories && selection.roomId && canCommunicate && (
-        <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3 sm:p-4">
+        <section className="rounded-2xl border border-blue-200 bg-blue-50/60 dark:border-blue-800 dark:bg-blue-950/20 p-3 sm:p-4">
           <RoomCommunicationPanel
             assignmentId={selection.assignmentId || ''}
             roomId={selection.roomId}
@@ -1449,8 +1461,8 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       {isSlntTenant && canManage && (
         <section className={`rounded-2xl border p-3 sm:p-4 ${
           selection.roomStatus === 'out_of_order'
-            ? 'border-rose-300 bg-rose-50'
-            : 'border-slate-200 bg-slate-50/70'
+            ? 'border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/25'
+            : 'border-slate-200 bg-slate-50/70 dark:border-border dark:bg-card'
         }`}>
           <div className="mb-3">
             <p className="text-sm font-bold">SLNT room control</p>
@@ -1474,7 +1486,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             {selection.roomStatus === 'out_of_order' ? (
               <Button
                 type="button"
-                className="bg-emerald-600 hover:bg-emerald-700"
+                className="bg-emerald-700 text-white hover:bg-emerald-800"
                 disabled={readOnlyForPast || !!actionLoading}
                 onClick={() => void setOutOfService(false)}
               >
@@ -1497,7 +1509,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
               <Button
                 type="button"
                 variant="outline"
-                className="border-amber-300 text-amber-800"
+                className="border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-200"
                 disabled={readOnlyForPast || !!actionLoading}
                 onClick={() => void patchRoom(
                   { status: 'dirty' },
@@ -1510,34 +1522,39 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             )}
           </div>
           {selection.roomStatus === 'out_of_order' && (
-            <p className="mt-2 rounded-lg border border-rose-200 bg-white/70 p-2 text-[11px] font-medium text-rose-800">
+            <p className="mt-2 rounded-lg border border-rose-200 bg-white/70 p-2 text-[11px] font-medium text-rose-800 dark:border-rose-700 dark:bg-card dark:text-rose-200">
               Out of Service is locked: this room cannot be assigned to housekeeping until a manager releases it.
             </p>
           )}
         </section>
       )}
 
+      {selection.roomId && hasManagerPowers(profile?.role) && (
+        <RoomAssignmentHistory hotel={hotelName} roomId={selection.roomId}
+          roomNumber={selection.roomNumber} selectedDate={selectedDate} />
+      )}
+
       <section className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <button
           type="button"
           onClick={() => setPanel('requests')}
-          className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-3 text-left transition-all hover:bg-fuchsia-100"
+          className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-3 text-left transition-all hover:bg-fuchsia-100 dark:border-fuchsia-800 dark:bg-fuchsia-950/25 dark:hover:bg-fuchsia-950/50"
         >
-          <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-sm font-bold text-fuchsia-950"><ClipboardList className="h-4 w-4" /> Guest Requests</span><Badge className="bg-fuchsia-600">Open</Badge></div>
-          <p className="mt-1 text-xs text-fuchsia-800">Extra towels, pillows and other requests with delivery / return history.</p>
+          <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-sm font-bold text-fuchsia-950 dark:text-fuchsia-100"><ClipboardList className="h-4 w-4" /> Guest Requests</span><Badge className="bg-fuchsia-700 text-white">Open</Badge></div>
+          <p className="mt-1 text-xs text-fuchsia-800 dark:text-fuchsia-200">Extra towels, pillows and other requests with delivery / return history.</p>
         </button>
 
         <button
           type="button"
           onClick={() => setPanel('minibar')}
-          className={`rounded-2xl border p-3 text-left transition-all ${selection.minibarPendingUnits > 0 ? 'border-rose-200 bg-rose-50 hover:bg-rose-100' : 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100'}`}
+          className={`rounded-2xl border p-3 text-left transition-all ${selection.minibarPendingUnits > 0 ? 'border-rose-200 bg-rose-50 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/25 dark:hover:bg-rose-950/50' : 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/25 dark:hover:bg-emerald-950/50'}`}
         >
-          <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-sm font-bold"><Wine className="h-4 w-4" /> Minibar</span><Badge className={selection.minibarPendingUnits > 0 ? 'bg-rose-600' : 'bg-emerald-600'}>{selection.minibarPendingUnits > 0 ? `${selection.minibarPendingUnits} pending` : 'Up to date'}</Badge></div>
+          <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-sm font-bold"><Wine className="h-4 w-4" /> Minibar</span><Badge className={selection.minibarPendingUnits > 0 ? 'bg-rose-700 text-white' : 'bg-emerald-700 text-white'}>{selection.minibarPendingUnits > 0 ? `${selection.minibarPendingUnits} pending` : 'Up to date'}</Badge></div>
           <p className="mt-1 text-xs opacity-80">Usage, refill status and room-level history.</p>
         </button>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-slate-50/70">
+      <section className="rounded-2xl border border-slate-200 bg-slate-50/70 dark:border-border dark:bg-card">
         <button type="button" onClick={() => setMoreOpen((value) => !value)} className="flex w-full items-center justify-between p-3 text-left">
           <span><span className="text-sm font-bold">More room details</span><span className="ml-2 text-xs text-muted-foreground">setup, activity & manual corrections</span></span>
           {moreOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -1545,13 +1562,13 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         {moreOpen && (
           <div className="border-t p-3 space-y-3">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 text-xs">
-              <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Type</p><p className="font-semibold">{selection.roomCategory || selection.roomType || 'Not set'}</p></div>
-              <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Bed</p><p className="font-semibold">{displayHousekeepingBedSetup(selection.bedConfiguration, hotelName) || 'Not set'}</p></div>
-              <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Floor</p><p className="font-semibold">{selection.floorNumber ?? '—'}</p></div>
-              <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Last cleaned</p><p className="font-semibold">{selection.lastCleanedAt ? new Date(selection.lastCleanedAt).toLocaleString() : 'Not recorded'}</p></div>
+              <div className="rounded-lg bg-white p-2 dark:bg-background dark:text-foreground"><p className="text-[9px] uppercase text-muted-foreground">Type</p><p className="font-semibold">{selection.roomCategory || selection.roomType || 'Not set'}</p></div>
+              <div className="rounded-lg bg-white p-2 dark:bg-background dark:text-foreground"><p className="text-[9px] uppercase text-muted-foreground">Bed</p><p className="font-semibold">{displayHousekeepingBedSetup(selection.bedConfiguration, hotelName) || 'Not set'}</p></div>
+              <div className="rounded-lg bg-white p-2 dark:bg-background dark:text-foreground"><p className="text-[9px] uppercase text-muted-foreground">Floor</p><p className="font-semibold">{selection.floorNumber ?? '—'}</p></div>
+              <div className="rounded-lg bg-white p-2 dark:bg-background dark:text-foreground"><p className="text-[9px] uppercase text-muted-foreground">Last cleaned</p><p className="font-semibold">{selection.lastCleanedAt ? new Date(selection.lastCleanedAt).toLocaleString() : 'Not recorded'}</p></div>
             </div>
             {canManage && !isMemories && selection.roomStatus !== 'out_of_order' && (
-              <Button variant="outline" className="w-full border-amber-300 text-amber-800" disabled={!!actionLoading} onClick={() => void patchRoom({ status: 'dirty' }, { roomStatus: 'dirty' }, `Room ${selection.roomNumber} marked dirty`)}>Mark Dirty</Button>
+              <Button variant="outline" className="w-full border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-200" disabled={!!actionLoading} onClick={() => void patchRoom({ status: 'dirty' }, { roomStatus: 'dirty' }, `Room ${selection.roomNumber} marked dirty`)}>Mark Dirty</Button>
             )}
           </div>
         )}
@@ -1565,8 +1582,8 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
 
       {(!venuesEnabled || isSlntTenant) && canOpen && (
         <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) { setPanel('main'); setMoreOpen(false); } }}>
-          <DialogContent className="flex max-h-[94vh] w-[calc(100vw-1.25rem)] max-w-3xl flex-col overflow-hidden p-0">
-            <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-slate-50 via-white to-sky-50 px-4 py-4 sm:px-5">
+          <DialogContent className="flex max-h-[94vh] w-[calc(100vw-1.25rem)] max-w-3xl flex-col overflow-hidden bg-background text-foreground p-0">
+            <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-slate-50 via-white to-sky-50 dark:bg-none dark:bg-card text-foreground px-4 py-4 sm:px-5">
               <div className="flex items-start gap-2 pr-8">
                 {panel !== 'main' && (
                   <Button type="button" size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => setPanel('main')}>
@@ -1577,7 +1594,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
                   <DialogTitle className="flex flex-wrap items-center gap-2 text-lg">
                     <BedDouble className="h-5 w-5" /> Room {selection?.roomNumber || ''}
                     {selection && <Badge className={visibleStatusTone}>{visibleStatusLabel}</Badge>}
-                    {selection?.isCheckout && <Badge className={selection.readyToClean ? 'bg-teal-600' : 'bg-amber-600'}>{selection.readyToClean ? 'RTC' : 'Waiting checkout'}</Badge>}
+                    {selection?.isCheckout && <Badge className={selection.readyToClean ? 'bg-teal-700 text-white' : 'bg-amber-500 text-amber-950'}>{selection.readyToClean ? 'RTC' : 'Waiting checkout'}</Badge>}
                   </DialogTitle>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                     <span className="flex items-center gap-1"><Hotel className="h-3.5 w-3.5" />{hotelName}</span>

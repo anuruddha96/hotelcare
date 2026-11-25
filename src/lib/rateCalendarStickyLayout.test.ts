@@ -178,3 +178,72 @@ describe('Month selection is not covered by the old sticky MONTH arrow', () => {
     expect(layout).not.toContain('position: sticky;\n    left: 0;\n    z-index: 2;');
   });
 });
+
+describe('Always-visible rate calendar controls', () => {
+  const component = readFileSync('src/components/revenue/RateStrategyGrid.tsx', 'utf8');
+  const actions = component.split('data-rate-calendar-actions="true"')[1]
+    ?.split('data-rate-calendar-filters="true"')[0] ?? '';
+  const filters = component.split('data-rate-calendar-filters="true"')[1]
+    ?.split('{/* Legend')[0] ?? '';
+
+  it('keeps pickup and display controls outside collapsible details', () => {
+    expect(filters).toContain('Pickup period');
+    expect(filters).toContain('Dates with pickup');
+    expect(filters).toContain('48h engine');
+    expect(filters).toContain('Fit all dates');
+    expect(filters).toContain('Make the calendar smaller');
+    expect(filters).toContain('Make the calendar bigger');
+    expect(filters).not.toContain('<details');
+    expect(filters).not.toContain('<summary');
+    expect(filters).toContain('aria-pressed={pickupOnly}');
+    expect(filters).toContain('aria-pressed={isAutomationWindow}');
+  });
+
+  it('exposes pricing actions without removing edit permissions', () => {
+    expect(actions).not.toContain('<details');
+    expect(actions).not.toContain('<summary');
+    expect(actions).toContain('Price activity');
+    expect(actions).toContain('Bulk edit prices');
+    expect(actions).toContain('Select days');
+    expect(actions).toContain('canEditRates && <PickupAutomationRules');
+    expect(actions).toContain('aria-pressed={multiMode}');
+    expect(component).not.toContain('calendarToolsOpen');
+  });
+});
+
+
+describe('Default calendar visibility and non-overlapping navigation', () => {
+  const component = readFileSync('src/components/revenue/RateStrategyGrid.tsx', 'utf8');
+
+  it('starts both panes at the first date and includes the three historical days in fit mode', () => {
+    const reset = component.split('const lastViewportKeyRef')[1]?.split('const scrollToToday')[0] ?? '';
+    expect(reset).toContain('grid.scrollLeft = 0;');
+    expect(reset).toContain('headerScrollRef.current.scrollLeft = 0;');
+    expect(reset).not.toContain('RATE_HISTORY_DAYS * CELL_W');
+    expect(component).toContain('30 + RATE_HISTORY_DAYS');
+    expect(component).toContain('calendarWindow(today, monthFilter, historyRevealed)');
+    expect(component).toContain('previous 3 days shown (read-only)');
+  });
+
+  it('keeps navigation buttons in the toolbar and removes date-covering gradients', () => {
+    const toolbar = component.split('data-rate-calendar-navigation-controls="true"')[1]
+      ?.split('{/* Explicit navigation:')[0] ?? '';
+    expect(toolbar).toContain('aria-label="Show earlier dates"');
+    expect(toolbar).toContain('aria-label="Show later dates"');
+    expect(toolbar).toContain('disabled={!edges.left}');
+    expect(toolbar).toContain('disabled={!edges.right}');
+    expect(component).not.toContain('style={{ left: LEFT_W + 6 }}');
+    expect(component).not.toContain('bg-gradient-to-r from-background to-transparent');
+    expect(component).not.toContain('bg-gradient-to-l from-background to-transparent');
+    expect(component).not.toContain('behavior: "smooth"');
+  });
+
+  it('measures the viewport after the grid loads and handles narrow Today navigation', () => {
+    expect(component).toContain('}, [hasGridRows]);');
+    const todayAction = component.split('const scrollToToday =')[1]?.split('/* ---- Free cell-range')[0] ?? '';
+    expect(todayAction).toContain('body.scrollLeft = 0;');
+    expect(todayAction).toContain('header.scrollLeft = 0;');
+    expect(todayAction).toContain('todayCell.getBoundingClientRect().right');
+    expect(todayAction).toContain('Math.max(0, Math.ceil(overflow))');
+  });
+});

@@ -116,19 +116,16 @@ describe('Contextual nudge', () => {
   it('offers the guide with one tap to start and one to snooze', () => {
     ctx.nudge = { curriculum: door, stepKey: 'door_intro', stepIndex: 0 };
     render(<TrainingContextNudge />);
-    const card = screen.getByRole('status');
-    expect(card).toHaveTextContent('There is a short guide for this screen');
-    expect(card).toHaveTextContent(door.name.en);
-    expect(card).toHaveTextContent(`${door.steps.length} steps`);
-    fireEvent.click(within(card).getByRole('button', { name: 'Show me' }));
+    expect(screen.getByRole('status')).toHaveTextContent(door.name.en);
+    fireEvent.click(screen.getByRole('button', { name: 'Show me' }));
     expect(ctx.acceptNudge).toHaveBeenCalledTimes(1);
-    fireEvent.click(within(card).getByRole('button', { name: 'Not now' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
     expect(ctx.declineNudge).toHaveBeenCalledTimes(1);
   });
 
   it('says "continue" for a guide already in progress', () => {
     ctx.nudge = { curriculum: first, stepKey: 'open_my_tasks', stepIndex: 3 };
     render(<TrainingContextNudge />);
-    expect(screen.getByRole('status')).toHaveTextContent('Continue your guide for this screen');
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeInTheDocument();
   });
 });

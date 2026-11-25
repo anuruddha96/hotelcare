@@ -1,0 +1,75 @@
+name: Mira v2 (accuracy, limits, reporting, memory)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/assistant-chat/**'
+      - 'supabase/functions/assistant-chat-router/**'
+      - 'supabase/functions/assistant-save-abort/**'
+      - 'supabase/functions/assistant-usage/**'
+      - 'supabase/functions/_shared/mira*.ts'
+      - 'supabase/functions/_shared/assistantGovernance.ts'
+      - 'supabase/functions/_shared/assistantHotels*.ts'
+      - 'supabase/functions/_shared/geminiFirstStreamingModel*.ts'
+      - 'supabase/migrations/*mira_v2*.sql'
+      - 'supabase/tests/mira_v2_*'
+      - '.github/workflows/mira-v2-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  edge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Dates, room history, models, limits, misuse, memory, reports
+        run: |
+          deno test --allow-env --allow-sys --allow-read --node-modules-dir=none \
+            supabase/functions/_shared/mira*_test.ts \
+            supabase/functions/_shared/assistantHotels_test.ts \
+            supabase/functions/_shared/geminiFirstStreamingModel_test.ts
+      - name: Type-check router, problem reports and usage endpoints
+        run: |
+          deno check --node-modules-dir=none supabase/functions/assistant-chat-router/index.ts
+          deno check --node-modules-dir=none supabase/functions/assistant-save-abort/index.ts
+          deno check --node-modules-dir=none supabase/functions/assistant-usage/index.ts
+
+  sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mira_v2_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: mira_v2_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: One history across hotels, private memory, alert kinds, re-runnable
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 -f supabase/tests/mira_v2_fixture.sql
+          psql -X -q -v ON_ERROR_STOP=1 -v migration=supabase/migrations/20261119160000_mira_v2.sql \
+            -f supabase/tests/mira_v2_integration.sql

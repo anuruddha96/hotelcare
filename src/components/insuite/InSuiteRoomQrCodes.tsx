@@ -67,9 +67,9 @@ export function InSuiteRoomQrCodes({ hotelId, hotelName, rooms, qrRooms, accent,
     finally { setBusy(false); }
   };
 
-  return <section className="rounded-2xl border bg-white p-4 sm:p-6 shadow-sm space-y-4">
+  return <section className="rounded-2xl border bg-white dark:bg-card p-4 sm:p-6 shadow-sm space-y-4">
     <h2 className="text-xl font-semibold flex items-center gap-2"><QrCode className="h-5 w-5" /> Room QR codes for guest phones</h2>
-    <p className="text-sm text-slate-600">
+    <p className="text-sm text-slate-600 dark:text-muted-foreground">
       Each room gets its own QR. A guest who scans it sees this hotel's In-Suite services on their phone —
       no app, no typed code. Requests still unlock only after reception verifies the checked-in stay.
       Codes remain valid across stays. Managers can view and reprint current codes without replacing them.
@@ -78,14 +78,14 @@ export function InSuiteRoomQrCodes({ hotelId, hotelName, rooms, qrRooms, accent,
     <div className="flex flex-wrap items-end gap-3">
       <label className="block space-y-1.5 text-sm font-semibold">
         <span>Single room</span>
-        <select className="w-48 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+        <select className="w-48 rounded-xl border border-slate-200 dark:border-border bg-white dark:bg-card px-3 py-2.5 text-sm"
           value={selected} onChange={(e) => setSelected(e.target.value)}>
           <option value="">Select room</option>
           {sortedRooms.map((r) => <option key={r.id} value={r.id}>
             Room {r.room_number}{qrRooms.has(r.id) ? " · has QR" : ""}</option>)}
         </select>
       </label>
-      <button disabled={!selected || busy} className="rounded-xl bg-slate-900 text-white px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
+      <button disabled={!selected || busy} className="rounded-xl bg-slate-900 dark:bg-primary text-white dark:text-primary-foreground px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
         onClick={() => void generate([selected], "Generate a QR code for this room?")}>
         Generate for room
       </button>
@@ -103,26 +103,26 @@ export function InSuiteRoomQrCodes({ hotelId, hotelName, rooms, qrRooms, accent,
         hidden={qrRooms.size === rooms.length}>
         Generate missing
       </button>
-      <button disabled={!rooms.length || busy} className="rounded-xl border border-amber-200 text-amber-900 px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
+      <button disabled={!rooms.length || busy} className="rounded-xl border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 px-4 py-2.5 text-sm font-semibold disabled:opacity-40"
         onClick={() => void generate(sortedRooms.map((r) => r.id), `Replace QR codes for all ${rooms.length} rooms of ${hotelName}?`)}>
         <RefreshCw className="h-4 w-4 inline mr-1" /> Generate for all {rooms.length} rooms
       </button>
     </div>
-    <p className="text-xs text-slate-500">
+    <p className="text-xs text-slate-500 dark:text-muted-foreground">
       {qrRooms.size} of {rooms.length} rooms currently have an active QR code.
       Tokens are stored as hashes. New codes can be securely reconstructed for authorized managers.
       Older codes must be reissued once to enable this feature.
     </p>
-    {legacyRooms.length > 0 && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+    {legacyRooms.length > 0 && <div role="alert" className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 p-3 text-sm text-amber-950 dark:text-amber-100">
       {legacyRooms.length} older QR code(s) cannot be recovered from their original one-way hashes.
       Their printed codes still work. Select those rooms and generate replacements only when ready to reprint.
     </div>}
     {issued.length > 0 && <>
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-amber-800">
+        <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
           {issued.length} room QR code(s) ready to view or print. Only show this page to authorized staff.
         </p>
-        <button className="rounded-xl bg-slate-900 text-white px-4 py-2.5 text-sm font-semibold"
+        <button className="rounded-xl bg-slate-900 dark:bg-primary text-white dark:text-primary-foreground px-4 py-2.5 text-sm font-semibold"
           onClick={() => window.print()}>
           <Printer className="h-4 w-4 inline mr-1" /> Print QR sheet
         </button>
@@ -131,11 +131,11 @@ export function InSuiteRoomQrCodes({ hotelId, hotelName, rooms, qrRooms, accent,
         body * { visibility: hidden !important; }
         #insuite-qr-print-area, #insuite-qr-print-area * { visibility: visible !important; }
         #insuite-qr-print-area { position: absolute; left: 0; top: 0; width: 100%; }
-        .insuite-qr-card { break-inside: avoid; }
+        .insuite-qr-card { break-inside: avoid; background: white !important; color: #0f172a !important; border-color: #e2e8f0 !important; }
       }`}</style>
       <div id="insuite-qr-print-area" className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {issued.map((entry) => <div key={entry.room_id}
-          className="insuite-qr-card rounded-2xl border p-5 text-center space-y-3 bg-white">
+          className="insuite-qr-card rounded-2xl border border-slate-200 p-5 text-center space-y-3 bg-white text-slate-900 [color-scheme:light]">
           <p className="font-semibold" style={{ color: accent || "#153B57" }}>{hotelName}</p>
           <QRCodeSVG value={`${origin}/suite?qr=${entry.token}`} size={180} level="M" includeMargin className="mx-auto" />
           <p className="text-2xl font-bold">Room {entry.room_number}</p>

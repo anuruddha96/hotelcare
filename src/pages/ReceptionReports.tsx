@@ -19,8 +19,11 @@ import {
   addDaysIso, channelProduction, dailyOverview, daysBetween, performanceReport, toCsv, type ReportReservation,
 } from '@/lib/receptionReports';
 
-type Tab = 'daily' | 'performance' | 'channels';
-const SELECT = 'id,reservation_number,status,check_in_date,check_out_date,room_id,total_amount,balance_due,currency,adults,children,source,pms_channel,ota_name,pms_missing_since,pms_payment_status,pms_guest_name,special_requests,source_reservation_id,guests(first_name,last_name),rooms:room_id(room_number,room_type)';
+import { NtakStatusCard } from '@/components/ntak/NtakStatusCard';
+import { VizaStatusCard } from '@/components/frontdesk/VizaStatusCard';
+
+type Tab = 'daily' | 'performance' | 'channels' | 'authority';
+const SELECT = 'id,reservation_number,status,check_in_date,check_out_date,room_id,total_amount,balance_due,currency,adults,children,source,pms_channel,ota_name,pms_missing_since,pms_payment_status,pms_guest_name,special_requests,source_reservation_id,guests!reservations_guest_id_fkey(first_name,last_name),rooms:room_id(room_number,room_type)';
 
 function download(name: string, csv: string) {
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -30,13 +33,19 @@ function download(name: string, csv: string) {
 }
 
 export default function ReceptionReports() {
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const { t } = useTranslation();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
   const { hotelId, hotelKeys, isPortfolio, ready } = useOperationalHotel();
   const today = todayBudapest();
   const [tab, setTab] = useState<Tab>('daily');
+  const canViewAuthority = !!profile && (profile.is_super_admin || ['admin', 'top_management', 'top_management_manager'].includes(profile.role));
+  const authority = canViewAuthority && tab === 'authority';
+  // A role downgrade during a session must not leave the user on a hidden tab.
+  useEffect(() => {
+    if (!canViewAuthority && tab === 'authority') setTab('daily');
+  }, [canViewAuthority, tab]);
   const [day, setDay] = useState(today);
   const [from, setFrom] = useState(`${today.slice(0, 8)}01`);
   const [to, setTo] = useState(today);
@@ -50,7 +59,7 @@ export default function ReceptionReports() {
   const loadTo = day > to ? day : to;
   const keysKey = hotelKeys.join('|');
   useEffect(() => {
-    if (!ready || !hotelId || isPortfolio) { setRows([]); setBusy(false); return; }
+    if (authority || !ready || !hotelId || isPortfolio) { setRows([]); setBusy(false); return; }
     let alive = true;
     setBusy(true); setFailed(false);
     const keys = hotelKeys.length ? hotelKeys : [hotelId];
@@ -66,7 +75,7 @@ export default function ReceptionReports() {
     });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, hotelId, isPortfolio, keysKey, loadFrom, loadTo]);
+  }, [ready, hotelId, isPortfolio, keysKey, loadFrom, loadTo, authority]);
 
   const currency = useMemo(() => rows.find((r) => r.currency)?.currency ?? '', [rows]);
   const money = (value: number | null) => value == null ? '—' : `${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`.trim();
@@ -144,19 +153,19 @@ export default function ReceptionReports() {
             <h1 className="text-xl font-bold">{t('pms.rep.title')}</h1>
             <p className="text-xs text-muted-foreground">{t('pms.rep.subtitle')}</p>
           </div>
-          <div className="flex items-center gap-2 print:hidden">
+          {!authority && <div className="flex items-center gap-2 print:hidden">
             <Button type="button" size="sm" variant="outline" className="h-9 gap-1.5" onClick={exportCsv} disabled={busy}><Download className="h-4 w-4" /> CSV</Button>
             <Button type="button" size="sm" variant="outline" className="h-9 gap-1.5" onClick={() => window.print()}><Printer className="h-4 w-4" /> {t('pms.rep.print')}</Button>
-          </div>
+          </div>}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 mb-3 print:hidden">
-          <div className="flex border border-border rounded-md overflow-hidden" role="tablist">
-            {(['daily', 'performance', 'channels'] as Tab[]).map((key) => (
-              <Button key={key} type="button" size="sm" role="tab" aria-selected={tab === key} variant={tab === key ? 'default' : 'ghost'} className="rounded-none h-9" onClick={() => setTab(key)}>{t(`pms.rep.tab_${key}`)}</Button>
+          <div className="flex flex-wrap border border-border rounded-md overflow-hidden" role="tablist">
+            {(['daily', 'performance', 'channels', 'authority'] as Tab[]).filter(key => key !== 'authority' || canViewAuthority).map((key) => (
+              <Button key={key} data-training={key === "daily" ? "reception-report-daily" : undefined} type="button" size="sm" role="tab" aria-selected={tab === key} variant={tab === key ? 'default' : 'ghost'} className="rounded-none h-9" onClick={() => setTab(key)}>{key === 'authority' ? 'NTAK / VIZA' : t(`pms.rep.tab_${key}`)}</Button>
             ))}
           </div>
-          {tab === 'daily' ? (
+          {!authority && (tab === 'daily' ? (
             <div className="flex items-center gap-1">
               <Button type="button" size="sm" variant="outline" className="h-9" onClick={() => setDay(addDaysIso(day, -1))}>‹</Button>
               <Input type="date" className="h-9 w-[150px]" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} aria-label={t('pms.rep.date')} />
@@ -169,12 +178,16 @@ export default function ReceptionReports() {
               <span>→</span>
               <Input type="date" className="h-9 w-[150px]" value={to} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label={t('pms.rep.to')} />
             </div>
-          )}
+          ))}
         </div>
 
-        {ready && !hotelId && <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">{t(isPortfolio ? 'pms.fd.selectProperty' : 'pms.fd.noPropertyAssigned')}</CardContent></Card>}
-        {failed && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive">{t('pms.rep.loadFailed')}</div>}
-        {busy && hotelId && <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}
+        {authority && ready && hotelId && !isPortfolio && <div key={hotelId} className="grid gap-4">
+          <NtakStatusCard hotelId={hotelId} report />
+          <VizaStatusCard hotelId={hotelId} report />
+        </div>}
+        {ready && (!hotelId || isPortfolio) && <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">{t(isPortfolio ? 'pms.fd.selectProperty' : 'pms.fd.noPropertyAssigned')}</CardContent></Card>}
+        {!authority && failed && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive">{t('pms.rep.loadFailed')}</div>}
+        {!authority && busy && hotelId && <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}
 
         {!busy && !failed && hotelId && tab === 'daily' && (
           <div className="space-y-3" data-training="rep-daily">
@@ -195,7 +208,7 @@ export default function ReceptionReports() {
           </div>
         )}
 
-        {!busy && !failed && hotelId && tab !== 'daily' && !rangeOk && <p className="text-sm text-muted-foreground">{t('pms.rep.badRange')}</p>}
+        {!busy && !failed && hotelId && !authority && tab !== 'daily' && !rangeOk && <p className="text-sm text-muted-foreground">{t('pms.rep.badRange')}</p>}
 
         {!busy && !failed && hotelId && tab === 'performance' && performance && (
           <div className="space-y-3" data-training="rep-performance">

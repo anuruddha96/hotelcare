@@ -198,6 +198,11 @@ verify_jwt = false
 [functions.assistant-mail-oauth-callback]
 verify_jwt = false
 
+# Mira usage: the app's plan/usage status (JWT checked in code) and the daily
+# report worker (x-worker-secret from Vault).
+[functions.assistant-usage]
+verify_jwt = false
+
 [functions.previo-sync-daily-overview]
 verify_jwt = false
 
@@ -220,6 +225,16 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.restaurant-reservation-status]
+verify_jwt = false
+
+# BB list cards can be acknowledged from shared service devices. The endpoint
+# validates reservation UUID and hotel scope, then rate-limits requests.
+[functions.restaurant-reservation-seen]
+verify_jwt = false
+
+# Manual booking creation verifies the signed-in user's token and assigned
+# hotel/role inside the function rather than trusting a client-supplied role.
+[functions.restaurant-reservation-create]
 verify_jwt = false
 
 [functions.demand-events-auto]
@@ -364,4 +379,15 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.pi-history-import]
+verify_jwt = false
+
+# Public sales chat on hotelcare.app: no user session. The function checks the
+# Origin, rate-limits per hashed IP, authenticates each chat with a random session
+# secret, the worker with a Vault secret, and e-mail links with signed tokens.
+[functions.website-sales-chat]
+verify_jwt = false
+
+# NTAK PMS v9: the cron worker authenticates with the Vault worker secret; UI
+# actions validate the user's JWT and hotel access inside the function.
+[functions.ntak-pms]
 verify_jwt = false

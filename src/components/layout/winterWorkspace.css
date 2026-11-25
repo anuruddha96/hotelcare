@@ -1,0 +1,46 @@
+/* Decorative only: no layout, input, focus or scroll participation. */
+.hc-winter-snow {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+  user-select: none;
+}
+.hc-winter-snow * { pointer-events: none; }
+.hc-winter-flake {
+  position: absolute;
+  top: -8px;
+  border-radius: 50%;
+  background: #64748b;
+  opacity: 0.34;
+  animation: hc-winter-fall 24s linear infinite;
+}
+.dark .hc-winter-flake {
+  background: #f0f7ff;
+  opacity: 0.43;
+}
+@keyframes hc-winter-fall {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(var(--hc-winter-drift, 0px), calc(100vh + 16px), 0); }
+}
+.hc-winter-hat {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 19px;
+  height: 17px;
+  pointer-events: none;
+  transform: rotate(12deg);
+}
+@media (max-width: 640px) {
+  .hc-winter-flake:nth-child(n+13) { display: none; }
+  .hc-winter-hat { width: 16px; height: 15px; }
+}
+@media (prefers-reduced-motion: reduce), print {
+  .hc-winter-snow { display: none; }
+}
+@media print {
+  .hc-winter-hat { display: none; }
+}

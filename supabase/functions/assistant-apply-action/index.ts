@@ -267,7 +267,10 @@ async function decideRequest(params: {
 
   const access = capabilitiesFor(profile);
   const hotels = await resolveAssistantHotels(service, profile as any);
-  if (!hotels.some((h) => h.hotel_id === request.hotel_id)) return json({ error: "That property is outside your access." }, 403);
+  // Plans saved before hotels were resolved to id and name may carry the name.
+  if (!hotels.some((h) => h.hotel_id === request.hotel_id || h.hotel_name === request.hotel_id)) {
+    return json({ error: "That property is outside your access." }, 403);
+  }
 
   const actorName = String(profile.full_name || profile.nickname || "").trim() || "Staff member";
   const decidedRole = ACCESS_ROLE_LABEL[access.accessRole];

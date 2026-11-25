@@ -100,18 +100,20 @@ export function GuestSearchSelect({ value, onChange, hotelKeys, hotelId, orgSlug
   };
 
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       <Label>{t('pms.guests.guestLabel')}</Label>
       {selectedGuest ? (
-        <div className="flex items-center justify-between p-2.5 rounded-md border border-border bg-accent/20">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="flex min-w-0 items-center justify-between gap-2 p-2.5 rounded-md border border-border bg-accent/20">
+          <div className="flex flex-1 items-center gap-2 min-w-0">
             <User className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="text-sm font-medium truncate">
+            <div className="min-w-0 flex-1">
+            <span className="block break-words text-sm font-medium">
               {selectedGuest.first_name} {selectedGuest.last_name}
             </span>
             {selectedGuest.email && (
-              <span className="text-xs text-muted-foreground truncate">{selectedGuest.email}</span>
+              <span className="block truncate text-xs text-muted-foreground">{selectedGuest.email}</span>
             )}
+            </div>
           </div>
           <Button
             variant="ghost"
@@ -124,13 +126,13 @@ export function GuestSearchSelect({ value, onChange, hotelKeys, hotelId, orgSlug
         </div>
       ) : createOpen ? (
         <div className="space-y-2 rounded-md border border-border p-3">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
             <Input placeholder={t('pms.guestQuick.firstName')} value={newGuest.first_name} onChange={(e) => setNewGuest({ ...newGuest, first_name: e.target.value })} />
             <Input placeholder={t('pms.guestQuick.lastName')} value={newGuest.last_name} onChange={(e) => setNewGuest({ ...newGuest, last_name: e.target.value })} />
             <Input placeholder={t('pms.guests.email')} type="email" value={newGuest.email} onChange={(e) => setNewGuest({ ...newGuest, email: e.target.value })} />
             <Input placeholder={t('pms.guests.phone')} value={newGuest.phone} onChange={(e) => setNewGuest({ ...newGuest, phone: e.target.value })} />
           </div>
-          <div className="flex items-center gap-2 justify-end">
+          <div className="flex flex-wrap items-center gap-2 justify-end">
             <Button variant="ghost" size="sm" onClick={() => setCreateOpen(false)}>{t('common.cancel')}</Button>
             <Button size="sm" onClick={createGuest} disabled={creating} className="gap-1">
               {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
@@ -165,15 +167,15 @@ export function GuestSearchSelect({ value, onChange, hotelKeys, hotelId, orgSlug
                   key={g.id}
                   onClick={() => selectGuest(g)}
                   className={cn(
-                    'w-full text-left px-3 py-2 hover:bg-accent/50 transition-colors flex items-center justify-between',
+                    'w-full min-w-0 text-left px-3 py-2 hover:bg-accent/50 transition-colors flex items-center justify-between gap-2',
                     value === g.id && 'bg-accent'
                   )}
                 >
-                  <div>
-                    <span className="text-sm font-medium">{g.first_name} {g.last_name}</span>
-                    {g.email && <span className="text-xs text-muted-foreground ml-2">{g.email}</span>}
+                  <div className="min-w-0">
+                    <span className="block break-words text-sm font-medium">{g.first_name} {g.last_name}</span>
+                    {g.email && <span className="block break-all text-xs text-muted-foreground">{g.email}</span>}
                   </div>
-                  {value === g.id && <Check className="h-4 w-4 text-primary" />}
+                  {value === g.id && <Check className="h-4 w-4 shrink-0 text-primary" />}
                 </button>
               ))}
             </div>

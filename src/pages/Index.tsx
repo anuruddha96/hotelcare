@@ -11,6 +11,7 @@ import { OperationalPageHeading } from '@/components/layout/OperationalPageHeadi
 import { MaintenanceIssueDeepLink } from '@/components/dashboard/MaintenanceIssueDeepLink';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
 import { StaffWorkVenueGate } from '@/components/layout/StaffWorkVenueGate';
+import { isReceptionRole } from '@/lib/roleAccess';
 import { effectiveAccessRole, landingPathFor } from '@/lib/accessPolicy';
 import { isNativePmsOrganization, useInvoicesAvailable } from '@/hooks/useAccessPolicy';
 
@@ -92,6 +93,12 @@ const Index = () => {
     }
   }, [profile?.role]);
 
+  // Reception / front-office: dedicated landing page focused on Daily
+  // Overview upload. Browsing the rest of the app is opt-in via links.
+  if (profile && isReceptionRole(profile.role)) {
+    return <Navigate to={`/${organizationSlug || 'rdhotels'}/reception`} replace />;
+  }
+
   // Controlling waits for the invoice-module check before choosing its first screen.
   if (profile && accessRole === 'controlling' && !hasExplicitTab.current && invoices.loading) {
     return (
@@ -102,9 +109,13 @@ const Index = () => {
   }
   if (roleLanding) return <Navigate to={roleLanding} replace />;
 
-  // Top managers always land on Revenue, regardless of their assigned hotel.
-  // HR and Controlling retain their dedicated role-based landing pages.
-  const isRevenueFirstExecutive = accessRole === 'top_management';
+  // Hotel Memories top managers should get the same operational dashboard as
+  // normal managers. Preserve revenue-first landing for top managers elsewhere.
+  // HR has top-management access but starts on HR (handled above).
+  const isMemoriesTopManager = profile?.role === 'top_management_manager' &&
+    ['memories-budapest', 'Hotel Memories Budapest'].includes(profile.assigned_hotel || '');
+  const isRevenueFirstExecutive = accessRole !== 'hr' && (profile?.role === 'top_management' ||
+    (profile?.role === 'top_management_manager' && !isMemoriesTopManager));
 
   if (profile && isRevenueFirstExecutive && !hasExplicitTab.current) {
     return <Navigate to={`/${organizationSlug || profile.organization_slug || 'rdhotels'}/revenue`} replace />;
@@ -135,7 +146,7 @@ const Index = () => {
   // has an assigned_hotel (the useEffect above will backfill today's date key).
   if (
     profile &&
-    MANAGER_ROLES.includes(profile.role) &&
+    accessRole !== 'hr' && MANAGER_ROLES.includes(profile.role) &&
     !hotelSelected &&
     !profile.assigned_hotel
   ) {
@@ -149,14 +160,15 @@ const Index = () => {
 
   return (
     <StaffWorkVenueGate>
-    <div className="min-h-screen min-w-0 bg-background">
+    <div className="min-h-screen bg-background overflow-x-hidden">
       <Header />
 
 
       {showingMasterSchedule ? (
-        <main className="container mx-auto px-4 py-6">
+        // The work schedule is a wide spreadsheet: it uses the whole window, not the centred page column.
+        <main className={isRdHotels ? 'w-full px-3 py-4 sm:px-4 lg:px-6' : 'container mx-auto px-4 py-6'}>
           <OperationalPageHeading section={isRdHotels ? 'Work schedule' : 'Master staff schedule'} />
-          <div className="sticky z-40 mt-4 mb-6 bg-background/95 py-1 backdrop-blur" style={{ top: "var(--hc-header-height, 0px)" }}>
+          <div className="mt-4 mb-6">
             <OperationsNavigation current="staff-schedule" />
           </div>
           {isRdHotels ? <WorkforceSchedule /> : <MasterStaffSchedulePlanner />}
