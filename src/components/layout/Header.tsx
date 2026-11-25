@@ -123,8 +123,8 @@ export function Header() {
     <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 dark:bg-background dark:supports-[backdrop-filter]:bg-background backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm w-full overflow-hidden">
       <div className="container mx-auto max-w-full flex flex-col gap-2 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4 sm:py-3">
         {/* Logo Section - More space on mobile */}
-        <div className="flex w-full min-w-0 items-center justify-between gap-3 sm:w-auto sm:shrink-0">
-          <div className="flex min-w-0 items-center gap-2 rounded-xl bg-secondary/60 p-1.5 ring-1 ring-border transition hover:ring-primary/40 sm:gap-3 sm:p-2">
+        <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:shrink-0 sm:gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-secondary/60 px-2 py-1.5 ring-1 ring-border transition hover:ring-primary/40 sm:flex-none sm:gap-3 sm:p-2">
             <div className="relative shrink-0">
               <img
                 src={hotelcareLogo}
@@ -136,7 +136,7 @@ export function Header() {
             <div className="flex flex-col leading-tight min-w-0">
               <span className="text-sm sm:text-base font-semibold tracking-tight truncate">Hotel Care</span>
               {hotelDisplayName && (
-                <span className="text-[10px] sm:text-xs text-muted-foreground truncate max-w-[90px] sm:max-w-[200px]">
+                <span title={hotelDisplayName} className="text-[11px] sm:text-xs text-muted-foreground truncate sm:max-w-[200px]">
                   {hotelDisplayName}
                 </span>
               )}
@@ -152,14 +152,13 @@ export function Header() {
           <WorkspaceConditions organizationSlug={profile?.organization_slug} hotelId={profile?.assigned_hotel} />
         )}
 
-        {/* Mobile actions scroll on a separate row instead of colliding with the language control. */}
-        <div className="flex w-full min-w-0 items-center justify-start gap-1 overflow-x-auto overscroll-x-contain scrollbar-hide sm:w-auto sm:flex-1 sm:gap-2">
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0 sm:ml-auto">
-            <div className="shrink-0">
-              <DirtyLinenCartBadge />
-            </div>
+        {/* Keep the account control visible; only the action rail may scroll. */}
+        <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-1">
+          <div className="flex min-w-0 flex-1 items-center overflow-x-auto overscroll-x-contain scrollbar-hide px-1 py-1">
+            <div className="flex w-max shrink-0 items-center gap-1.5 sm:ml-auto sm:gap-2">
+            <DirtyLinenCartBadge />
             <OrganizationSwitcher />
-            <div className={fieldStaff ? 'hidden sm:block' : ''}><HotelSwitcher /></div>
+            <div className={fieldStaff ? 'hidden sm:contents' : 'contents'}><HotelSwitcher /></div>
             <div className="hidden shrink-0 sm:block"><LanguageSwitcher /></div>
             <AppearanceMenu />
             <InstallAppPrompt />
@@ -201,10 +200,13 @@ export function Header() {
               </div>
             )}
             
+            </div>
+          </div>
+          <div className="shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-8 w-8 sm:h-10 sm:w-10 rounded-full shrink-0">
-                  <Avatar className="h-8 w-8 sm:h-10 sm:w-10">
+                <Button variant="ghost" size="icon" aria-label={t('common.profile')} className="relative h-11 w-11 rounded-full shrink-0 p-0 sm:h-10 sm:w-10">
+                  <Avatar className="h-9 w-9 sm:h-10 sm:w-10">
                     <AvatarImage src={profile?.profile_picture_url || ''} />
                     <AvatarFallback className="text-xs sm:text-sm">
                       {((profile?.nickname || profile?.full_name || user?.email || 'U').charAt(0) || 'U').toUpperCase()}
