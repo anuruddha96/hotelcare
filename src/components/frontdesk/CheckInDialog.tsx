@@ -153,7 +153,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
         if(problem)setFocusProblem({...problem,attempt:Date.now()});
         void roster.refresh();
       }
-      toast.error(registrationError ?? (key ? t(key) : (err as Error).message || t('pms.checkIn.failedCheckIn')));
+      toast.error(registrationError ?? (key ? t(key) : t('pms.checkIn.failedCheckIn')));
 
     } finally {
       setSubmitting(false);

@@ -35,7 +35,7 @@ export function NtakBookingNumberField({ reservation, onSaved }: {
       .catch(() => { if(alive) setEnabled(false); });
     return () => { alive=false; };
   },[reservation.hotel_id,reservation.id]);
-  if (!enabled) return null;
+  if (!enabled || !canManage) return null;
   const save = async () => {
     setSaving(true);
     try {

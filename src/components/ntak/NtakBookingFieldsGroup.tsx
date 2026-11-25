@@ -41,14 +41,14 @@ export function NtakBookingFieldsGroup({initial,patch,setPatch,source,guestCount
   const automatic=tr('Automatic','Automatikus');
   const channel=CHANNELS.find(x=>x[0]===inferredChannel(source));
   return <details className="min-w-0 rounded-md border p-3 space-y-3" data-training="ntak-booking-fields">
-    <summary className="cursor-pointer text-sm font-medium">{tr('Official reporting (NTAK)','Hivatalos adatszolgáltatás (NTAK)')}</summary>
+    <summary className="cursor-pointer text-sm font-medium">{tr('Additional booking details','További foglalási adatok')}</summary>
     <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 [&>label]:min-w-0 [&_input]:min-w-0">
       <Label>{tr('Guaranteed','Garantált')}<select aria-label={tr('Guaranteed','Garantált')} className={selectClass} value={values.ntak_guaranteed==null?AUTO:String(values.ntak_guaranteed)} onChange={e=>set('ntak_guaranteed',e.target.value===''?null:e.target.value==='true')}><option value="">{automatic}</option><option value="true">{tr('Yes','Igen')}</option><option value="false">{tr('No','Nem')}</option></select></Label>
       <Label>{tr('Purpose / group','Cél / csoport')}<select className={selectClass} value={values.ntak_market_segment??AUTO} onChange={e=>set('ntak_market_segment',e.target.value||null)}><option value="">{automatic}</option>{SEGMENTS.map(([code,en,h])=><option key={code} value={code}>{tr(en,h)}</option>)}</select></Label>
       <Label>{tr('Sales channel','Értékesítési csatorna')}<select className={selectClass} value={values.ntak_sales_channel??AUTO} onChange={e=>set('ntak_sales_channel',e.target.value||null)}><option value="">{automatic}{channel?' · '+tr(channel[1],channel[2]):''}</option>{CHANNELS.map(([code,en,h])=><option key={code} value={code}>{tr(en,h)}</option>)}</select></Label>
       <Label>{tr("Booker's country","Foglaló országa")}<select className={selectClass} value={values.booker_country??AUTO} onChange={e=>set('booker_country',e.target.value||null)}><option value="">{automatic}</option><option value="EGYEBKULFOLDI">{tr('Other foreign','Egyéb külföldi')}</option>{COUNTRIES.map(code=><option key={code} value={code}>{code}</option>)}</select></Label>
       <Label>{tr('Expected guests','Várható vendégek')}<Input type="number" min={1} max={99} step={1} placeholder={String(guestCount)} value={values.expected_guests??''} onChange={e=>set('expected_guests',e.target.value===''?null:Number(e.target.value))}/></Label>
-      <Label>{tr('Booking ID','Foglalási azonosító')}<Input maxLength={255} disabled={!initial.can_edit_booking_no} placeholder={automatic} value={values.ntak_booking_no??''} onChange={e=>set('ntak_booking_no',e.target.value||null)}/></Label>
+      {initial.can_edit_booking_no && <Label>{tr('Booking ID','Foglalási azonosító')}<Input maxLength={255} placeholder={automatic} value={values.ntak_booking_no??''} onChange={e=>set('ntak_booking_no',e.target.value||null)}/></Label>}
     </div>
   </details>;
 }

@@ -118,6 +118,7 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       expect(mocks.add).toHaveBeenCalledWith(resId, foreign.id);
       expect(confirm()).toBeDisabled();
       expect(screen.getByText('pms.stayGuest.registrationMissing')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'pms.stayGuest.editDetails' })).toBeInTheDocument();
       expect(screen.queryByRole('checkbox', { name: /pms.stayGuest.arrivingNow/ })).not.toBeInTheDocument();
       await waitFor(() => expect(document.querySelector('[data-viza-field="nationality"]')).toBeInTheDocument());
       // Adding an existing guest automatically opens the document scanner.

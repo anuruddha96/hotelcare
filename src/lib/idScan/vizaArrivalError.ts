@@ -15,7 +15,7 @@ export function formatVizaArrivalError(message: string, t: (key:string)=>string)
  try {
   const rows=JSON.parse(message.slice(message.indexOf(prefix)+prefix.length)) as Array<{guest:string;fields:string[]}>;
   if (!Array.isArray(rows)) return title;
-  return title + ' — ' + rows.map(row => row.guest + ': ' + row.fields.map(field => t(LABELS[field] || field)).join(', ')).join('; ');
+  return title + ' — ' + rows.map(row => row.guest + ': ' + row.fields.map(field => LABELS[field] ? t(LABELS[field]) : t('pms.stayGuest.repairUnknown')).join(', ')).join('; ');
  } catch { return title; }
 }
 

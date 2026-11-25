@@ -125,7 +125,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
       onSuccess();
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
-      toast.error(key ? t(key) : (err as Error).message || t('pms.checkOut.failedCheckOut'));
+      toast.error(key ? t(key) : t('pms.checkOut.failedCheckOut'));
 
     } finally {
       setSubmitting(false);
