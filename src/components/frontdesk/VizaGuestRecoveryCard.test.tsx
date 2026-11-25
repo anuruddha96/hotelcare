@@ -12,13 +12,14 @@ vi.mock('@/components/frontdesk/GuestDetailsSection', () => ({
   </>,
 }));
 describe('VizaGuestRecoveryCard', () => {
-  it('shows the THF rejection and cannot requeue until corrections are saved', async () => {
+  it('shows actionable guest guidance without raw authority errors and cannot requeue until corrections are saved', async () => {
     mocks.invoke.mockImplementation(async (_name, { body }) => ({ error: null, data: body.action === 'desk_status'
       ? { ok: true, total: 1, events: [{ id: 'event-1', guest_id: 'guest-1', reservation_id: 'reservation-1', guest_name: 'Test Guest', reservation_number: 'RES-123', last_error: 'THF EF0051: Születési hely túl hosszú.' }] }
       : { ok: true } }));
     render(<VizaGuestRecoveryCard hotelId="hotel-1" />);
-    expect(await screen.findByText('THF EF0051: Születési hely túl hosszú.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'pms.stayGuest.details' }));
+    expect(await screen.findByText('pms.stayGuest.repairBirthPlace')).toBeInTheDocument();
+    expect(screen.queryByText(/THF EF0051/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'pms.stayGuest.editDetails' }));
     const send = screen.getByRole('button', { name: 'pms.viza.sendAgain' });
     fireEvent.change(screen.getByRole('textbox', { name: 'Birth place' }), { target: { value: 'Budapest' } });
     expect(send).toBeDisabled();

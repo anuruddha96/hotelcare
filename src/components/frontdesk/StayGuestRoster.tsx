@@ -77,7 +77,7 @@ export function useStayGuestRoster(
       setPerGuestLifecycle(true);
       setGuests([]);
       setSelectedIds([]);
-      toast.error(error instanceof Error ? error.message : String(error));
+      toast.error(t('pms.stayGuest.actionFailed'));
     } finally { setLoading(false); }
   }, [hotelId,mode,open,reservationId,roomId,vizaRequired]);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -180,7 +180,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
       setAdding(false);setGuestIdToAdd('');
       await control.refresh();
       if (express) { setDetailsId(guestIdToAdd); setAutoScanId(guestIdToAdd); }
-    } catch(error) { toast.error(error instanceof Error ? error.message : String(error)); }
+    } catch(error) { toast.error(t('pms.stayGuest.actionFailed')); }
     finally { setBusy(false); }
   };
 
@@ -193,7 +193,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
       setUndo(null);
       await control.refresh();
       onChanged();
-    } catch(error) { toast.error(error instanceof Error ? error.message : String(error)); }
+    } catch(error) { toast.error(t('pms.stayGuest.actionFailed')); }
     finally { setBusy(false); }
   };
 
@@ -215,7 +215,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
         const canChoose = g.stay_state === (mode === 'arrive' ? 'expected' : 'in_house');
         const complete = vizaRequired ? vizaAdmissionFields(g.guests, reservationId, vizaArrivalDay(occurredAt)).length === 0 : vizaMissingFields(g.guests).length === 0 && vizaProblems(g.guests).length === 0;
         return <div key={g.guest_id} className="space-y-1">
-          <div className="flex gap-2 items-center rounded-md border border-border/70 p-2">
+          <div className="flex flex-wrap gap-2 items-center rounded-md border border-border/70 p-2">
             {control.perGuestLifecycle && <Checkbox disabled={!canChoose || busy} checked={canChoose && control.selectedIds.includes(g.guest_id)}
               aria-label={`${t(mode === 'arrive' ? 'pms.stayGuest.arrivingNow' : 'pms.stayGuest.leavingNow')} ${g.guests?.first_name ?? ''} ${g.guests?.last_name ?? ''}`}
               onCheckedChange={(v) => control.setSelectedIds(v
@@ -232,7 +232,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
               </div>
             </button>
             <div className="flex gap-1 flex-wrap justify-end">
-              {express && canChoose && !complete ? <Button type="button" size="sm" onClick={() => openExisting(g,true)} className="gap-1"><ScanLine className="h-4 w-4"/>{t('pms.express.scan')}</Button> :
+              {express && canChoose && !complete ? <><Button type="button" size="sm" variant="outline" disabled={savePending} aria-expanded={detailsId === g.guest_id} onClick={() => openExisting(g)}>{t('pms.stayGuest.editDetails')}</Button><Button type="button" size="sm" disabled={savePending} onClick={() => openExisting(g,true)} className="gap-1"><ScanLine className="h-4 w-4"/>{t('pms.express.scan')}</Button></> :
                 <Button type="button" size="sm" variant="ghost" aria-label={t('pms.stayGuest.details')} aria-expanded={detailsId === g.guest_id} onClick={() => openExisting(g)}><ChevronRight className="h-4 w-4"/></Button>}
               {control.perGuestLifecycle && (g.stay_state==='in_house' || g.stay_state==='departed') && (
                 <Button type="button" variant="outline" size="sm"

@@ -42,15 +42,15 @@ export function VizaGuestRecoveryCard({hotelId}:{hotelId:string}){
   if(dirty||busy)return;
   setBusy(true);
   try{await call({action:'desk_retry',hotel_id:hotelId,event_id:id});await refresh();setOpen(null);toast.success(t('pms.viza.queuedAgain'));}
-  catch(e){const msg=(e as Error).message;toast.error(formatVizaArrivalError(msg,t)??msg);}
+  catch(e){const msg=(e as Error).message;toast.error(formatVizaArrivalError(msg,t)??t('pms.stayGuest.repairRetryFailed'));}
   finally{setBusy(false);}
  };
  return <section role="alert" className="rounded-lg border border-destructive/40 p-3 space-y-2">
-  <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">{t('pms.viza.guestProblems')} · {total}</h2><Button size="sm" variant="ghost" onClick={()=>void refresh().catch(()=>{})}>{t('ntak.refreshReports')}</Button></div>
-  <p className="text-xs text-muted-foreground">{t('pms.viza.needsFix')}</p>
+  <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">{t('pms.stayGuest.repairTitle')} · {total}</h2><Button size="sm" variant="ghost" onClick={()=>void refresh().catch(()=>{})}>{t('ntak.refreshReports')}</Button></div>
+  <p className="text-xs text-muted-foreground">{t('pms.stayGuest.repairHint')}</p>
   {rows.map(row=><div key={row.id} className="border-t pt-2 space-y-2">
-   <div className="flex items-center gap-2 justify-between"><span className="text-sm font-medium">{row.guest_name||'—'} · {row.reservation_number||'—'}</span><Button size="sm" variant="outline" disabled={!row.guest_id||dirty||busy} onClick={()=>{setDirty(false);setOpen(open===row.id?null:row.id);}}>{t('pms.stayGuest.details')}</Button></div>
-   {row.last_error&&<p className="break-words text-xs text-destructive">{row.last_error}</p>}
+   <div className="flex items-center gap-2 justify-between"><span className="text-sm font-medium">{row.guest_name||'—'} · {row.reservation_number||'—'}</span><Button size="sm" variant="outline" disabled={!row.guest_id||dirty||busy} onClick={()=>{setDirty(false);setOpen(open===row.id?null:row.id);}}>{t('pms.stayGuest.editDetails')}</Button></div>
+   {row.last_error&&<p className="break-words text-xs text-destructive">{t(/születési hely túl hosszú|place of birth (?:is )?too long|birth place (?:is )?too long/i.test(row.last_error) ? 'pms.stayGuest.repairBirthPlace' : 'pms.stayGuest.repairUnknown')}</p>}
    {open===row.id&&row.guest_id&&<><GuestDetailsSection key={row.id} vizaReservationId={row.reservation_id} guestId={row.guest_id} onDirtyChange={setDirty}/><Button size="sm" disabled={busy||dirty} onClick={()=>void retry(row.id)}>{t('pms.viza.sendAgain')}</Button>{dirty&&<p className="text-xs text-muted-foreground">{t('pms.viza.saveCorrections')}</p>}</>}
   </div>)}
  </section>;
