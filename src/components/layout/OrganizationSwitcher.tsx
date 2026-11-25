@@ -1,3 +1,4 @@
+import { useTranslation } from '@/hooks/useTranslation';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenant } from '@/contexts/TenantContext';
@@ -23,6 +24,7 @@ interface Organization {
 }
 
 export function OrganizationSwitcher() {
+  const { t } = useTranslation();
   const { profile } = useAuth();
   const { organization } = useTenant();
   const navigate = useNavigate();
@@ -76,7 +78,7 @@ export function OrganizationSwitcher() {
 
       if (error) throw error;
 
-      toast.success(`Switched to ${selectedOrg?.name || slug}`);
+      toast.success(t('reception.shell.switched').replace('{name}', selectedOrg?.name || slug));
       
       // Navigate to the new organization
       navigate(`/${slug}`);
@@ -84,7 +86,7 @@ export function OrganizationSwitcher() {
       // Reload to refresh all data for the new organization
       window.location.reload();
     } catch (error: any) {
-      toast.error('Failed to switch organization');
+      toast.error(t('reception.shell.switchOrgFailed'));
       console.error('Organization switch error:', error);
     }
   };
@@ -104,7 +106,7 @@ export function OrganizationSwitcher() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Switch Organization</DropdownMenuLabel>
+        <DropdownMenuLabel>{t('reception.shell.switchOrg')}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {organizations.map((org) => (
           <DropdownMenuItem
