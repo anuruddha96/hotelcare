@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,7 @@ const SYNC_TYPES = ['reservations', 'daily_overview_live', 'status_update', 'rat
 /** Read-only, hotel-scoped health: a checkout poll is NOT a reservation import. */
 export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const [connected, setConnected] = useState<boolean | null>(null);
   const [health, setHealth] = useState<ReceptionSyncSignal[]>([]);
   const [busy, setBusy] = useState(false);
@@ -62,7 +64,7 @@ export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps
     try {
       const { data, error } = await supabase.functions.invoke('previo-sync-reservations', { body: { hotelId } });
       if (error) {
-        toast.error(`${t('pms.sync.syncFailed')}. Please retry or open PMS details.`);
+        toast.error(`${t('pms.sync.syncFailed')}. ${t('pms.pmsSync.retryHint')}`);
         await loadStatus();
         return;
       }
@@ -97,31 +99,31 @@ export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps
   const reservations = health.find((signal) => signal.category === 'reservations');
   const reservationWarning = statusError || (reservations != null && reservations.state !== 'ok');
   const attention = health.filter((signal) => signal.state === 'warning' || (signal.category === 'reservations' && signal.state === 'missing')).length;
-  const humanTime = (value: string | null | undefined) => value ? new Date(value).toLocaleString() : 'Not recorded';
+  const humanTime = (value: string | null | undefined) => value ? locale.formatDateTime(value) : t('pms.pmsSync.notRecorded');
 
   return <div className="flex items-center gap-2 min-w-0" data-training="fd-sync">
     <Button type="button" size="sm" variant="outline" onClick={() => void runSync()} disabled={busy || connected !== true || checking} className="gap-1.5">
       <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />
       {busy ? t('pms.sync.syncing') : t('pms.sync.syncNow')}
     </Button>
-    {statusError ? <span role="alert" className="text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1"><AlertTriangle className="h-3 w-3" />PMS status unavailable</span> :
+    {statusError ? <span role="alert" className="text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1"><AlertTriangle className="h-3 w-3" />{t('pms.pmsSync.unavailable')}</span> :
       <details className="relative text-[11px] max-w-[320px] w-full sm:w-auto" data-training="pms-sync-health">
         <summary className={`cursor-pointer select-none flex items-center gap-1 ${reservationWarning ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>
           {reservationWarning ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <CheckCircle2 className="h-3 w-3 shrink-0" />}
-          <span>{checking ? 'Checking PMS…' : reservationWarning ? 'PMS needs attention' : 'PMS synced'}</span>
-          {attention > 0 && <span className="font-semibold">· {attention} alerts</span>}
-          <span className="ml-1 underline underline-offset-2">Details</span>
+          <span>{checking ? t('pms.pmsSync.checking') : reservationWarning ? t('pms.pmsSync.attention') : t('pms.pmsSync.synced')}</span>
+          {attention > 0 && <span className="font-semibold">· {t('pms.pmsSync.alerts').replace('{count}', String(attention))}</span>}
+          <span className="ml-1 underline underline-offset-2">{t('common.details')}</span>
         </summary>
         <div className={`mt-1 rounded-md border border-border bg-card shadow-sm p-2 space-y-2 w-[min(310px,88vw)] ${compact ? 'sm:absolute sm:right-0 sm:top-full sm:z-50' : ''}`}>
-          <p className="font-semibold text-foreground">Independent Previo activity · this hotel only</p>
+          <p className="font-semibold text-foreground">{t('pms.pmsSync.activity')}</p>
           {health.map((signal) => <div key={signal.category} className="border-b border-border/50 last:border-b-0 pb-1">
-            <div className="flex items-center gap-1 font-medium">{signal.state === 'ok' ? <CheckCircle2 className="h-3 w-3 text-emerald-600" /> : <AlertTriangle className="h-3 w-3 text-amber-600" />}{signal.label} · {signal.lastAttempt?.sync_status ?? 'not recorded'}</div>
-            <p className="text-muted-foreground">Attempt: {humanTime(signal.lastAttempt?.created_at)}</p>
-            <p className="text-muted-foreground">Last success: {humanTime(signal.lastSuccess?.created_at)}</p>
+            <div className="flex items-center gap-1 font-medium">{signal.state === 'ok' ? <CheckCircle2 className="h-3 w-3 text-emerald-600" /> : <AlertTriangle className="h-3 w-3 text-amber-600" />}{signal.label} · {signal.lastAttempt?.sync_status ?? t('pms.pmsSync.notRecordedLower')}</div>
+            <p className="text-muted-foreground">{t('pms.pmsSync.attempt')} {humanTime(signal.lastAttempt?.created_at)}</p>
+            <p className="text-muted-foreground">{t('pms.pmsSync.lastSuccess')} {humanTime(signal.lastSuccess?.created_at)}</p>
             <p className={signal.state === 'ok' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}>{signal.note}{signal.lastAttempt?.error_message ? ` · ${signal.lastAttempt.error_message.slice(0, 160)}` : ''}</p>
             {syncEventCount(signal.lastAttempt) && <p className="text-muted-foreground">{syncEventCount(signal.lastAttempt)}</p>}
           </div>)}
-          <p className="text-muted-foreground">This does not verify Previo-to-OTA delivery, live inventory parity or government reporting.</p>
+          <p className="text-muted-foreground">{t('pms.pmsSync.disclaimer')}</p>
         </div>
       </details>}
   </div>;
