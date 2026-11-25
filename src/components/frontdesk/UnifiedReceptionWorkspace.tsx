@@ -1,3 +1,5 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
+import { bookingSourceLabel, reservationStatusLabel, reportingStateLabel } from '@/lib/i18n/receptionLabels';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -80,6 +82,7 @@ function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, 
   onAction?: (row: Record<string, unknown>) => void;
 }) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
   return <details open className="border-b border-border last:border-b-0 group">
     <summary className="list-none cursor-pointer select-none px-3 py-2 bg-muted/45 hover:bg-muted/70 flex items-center justify-between gap-2">
       <span className="flex items-center gap-2 min-w-0 text-xs font-semibold uppercase tracking-wide"><Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" /><span className="truncate">{title}</span></span>
@@ -94,7 +97,7 @@ function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, 
             <div className="flex items-start justify-between gap-2"><div className="min-w-0">
               <div className="flex items-center gap-1 min-w-0"><span className="text-xs font-semibold truncate">{reservationGuestLabel(row)}</span><GuestSignalBadge signal={signals?.get(row.id)} /></div>
               <div className="text-[10px] text-muted-foreground truncate mt-0.5">{row.rooms?.room_number || row.room_label || t('pms.unified.unassigned')} · {row.check_in_date?.slice(5)} → {row.check_out_date?.slice(5)}</div>
-            </div><span className="text-[10px] text-primary shrink-0 font-medium">{reservationChannel(row).label}</span></div>
+            </div><span className="text-[10px] text-primary shrink-0 font-medium">{bookingSourceLabel(reservationChannel(row).label, t)}</span></div>
           </button>
           {actionLabel && onAction && !isSnapshotOnly(row) && (
             <button type="button" data-training={actionAnchor} onClick={() => onAction(row)}
@@ -110,6 +113,7 @@ function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, 
 
 export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUploadPath?: string }) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const navigate = useNavigate();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
@@ -338,12 +342,12 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       <div className="min-w-0">
         <h1 className="text-xl font-bold">{t('pms.fd.title')}</h1>
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
-          <p className="text-xs text-muted-foreground">{today}</p>
+          <p className="text-xs text-muted-foreground">{locale.formatDate(today)}</p>
           {!loadingData && !loadError && !nativeHotel && (
             <span
               role="status"
               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${FRESHNESS_STYLE[freshness.state]}`}
-              title={lastImportSuccess ? new Date(lastImportSuccess).toLocaleString() : undefined}
+              title={lastImportSuccess ? locale.formatDateTime(lastImportSuccess) : undefined}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${freshness.state === 'fresh' ? 'bg-emerald-500' : freshness.state === 'aging' ? 'bg-amber-500' : 'bg-red-500'}`} aria-hidden="true" />
               {freshness.minutes == null
@@ -359,7 +363,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <Button type="button" size="sm" title={t('pms.tip.list')} variant={view === 'list' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('list')}>📋 <span className="hidden sm:inline">{t('pms.reservations.title')}</span></Button>
         </div>
         {breakfastUploadPath && <Link to={breakfastUploadPath} title={t('pms.tip.breakfast')}><Button type="button" size="sm" variant="outline" className="h-9 gap-1.5">🥐 <span className="hidden lg:inline">{t('pms.fd.breakfastUpload')}</span></Button></Link>}
-        {canSync && hotelId && !nativeHotel && <span title="🔄 Pull the latest bookings from Previo."><PmsSyncButton hotelId={hotelId} onSynced={fetchAll} compact /></span>}
+        {canSync && hotelId && !nativeHotel && <span title={t('pms.workspace.pull')}><PmsSyncButton hotelId={hotelId} onSynced={fetchAll} compact /></span>}
         {hotelId && organizationSlug && !isPortfolio && <Button type="button" size="sm" variant="outline" className="h-9 gap-1" onClick={() => setWalkInOpen(true)}>{t('ntak.phase5.title')}</Button>}
         <Button type="button" size="sm" title={t('pms.tip.newReservation')} className="h-9 gap-1" onClick={() => setCreateOpen(true)}>➕ {t('pms.fd.newReservation')}</Button>
       </div>
@@ -386,7 +390,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
               <div key={row.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-border/60 last:border-b-0 hover:bg-accent/40">
                 <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openReservation(row)}>
                   <div className="text-sm font-semibold truncate">{reservationGuestLabel(row)} <span className="text-xs font-normal text-muted-foreground">· {row.reservation_number}</span></div>
-                  <div className="text-xs text-muted-foreground truncate">{row.rooms?.room_number || t('pms.unified.unassigned')} · {row.check_in_date} → {row.check_out_date} · {String(row.status).replace('_', ' ')}</div>
+                  <div className="text-xs text-muted-foreground truncate">{row.rooms?.room_number || t('pms.unified.unassigned')} · {locale.formatDate(row.check_in_date)} → {locale.formatDate(row.check_out_date)} · {reservationStatusLabel(row.status, t)}</div>
                 </button>
                 {['pending', 'confirmed'].includes(row.status) && (
                   <Button type="button" size="sm" className="h-8 shrink-0" onClick={() => { setSearch(''); setActioned({ row, dialog: 'checkin' }); }}>{t('pms.checkIn')}</Button>
@@ -401,7 +405,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       )}
     </div>
 
-    {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Unable to load the room plan. <Button variant="outline" size="sm" onClick={fetchAll}>Retry</Button></div>}
+    {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />{t('pms.workspace.loadFailed')} <Button variant="outline" size="sm" onClick={fetchAll}>{t('pms.workspace.retry')}</Button></div>}
     {!loadingData && !loadError && !nativeHotel && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0) &&
       <details role="status" className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
         <summary className="cursor-pointer select-none flex items-center gap-2 font-medium">
@@ -409,11 +413,11 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <span className="ml-auto text-[11px] underline underline-offset-2">{t('pms.fd.details')}</span>
         </summary>
         <div className="mt-2 pl-6 text-muted-foreground">
-          {importStale ? `Latest reservation import: ${importHistory?.created_at ? new Date(importHistory.created_at).toLocaleString() : 'not recorded'} (${importHistory?.sync_status ?? 'unknown'}). ` : ''}
-          {snapshotReservations.length > 0 ? `${snapshotReservations.length} PMS observations could not be matched to HotelCare reservations. ` : ''}
-          {(snapshotAudit?.ambiguousRooms ?? 0) > 0 ? `${snapshotAudit?.ambiguousRooms} room labels could not be mapped uniquely. ` : ''}
+          {importStale ? `Latest reservation import: ${importHistory?.created_at ? locale.formatDateTime(importHistory.created_at) : t('pms.workspace.notRecorded')} (${importHistory?.sync_status ?? t('pms.workspace.unknown')}). ` : ''}
+          {snapshotReservations.length > 0 ? t('pms.workspace.unmatched').replace('{count}', String(snapshotReservations.length)) : ''}
+          {(snapshotAudit?.ambiguousRooms ?? 0) > 0 ? t('pms.workspace.ambiguous').replace('{count}', String(snapshotAudit?.ambiguousRooms)) : ''}
           {hiddenNotInPrevio > 0 ? `${hiddenNotInPrevio} ${t('pms.fd.hiddenNotInPrevio')} ` : ''}
-          Verify the affected reservation in Previo before changing it.
+          {t('pms.workspace.verify')}
         </div>
       </details>}
 
@@ -422,11 +426,11 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     )}
     {isOttofiori && !loadingData && !loadError && importStale && (
       <div role="alert" className="rounded-md border border-amber-400/60 bg-amber-50/70 dark:bg-amber-950/20 p-3 text-xs space-y-1">
-        <p className="font-semibold">Tomorrow check-ins ({tomorrow}) are not verified against Previo.</p>
-        <p>HotelCare has {tomorrowCheckIns.length} older reservation records for this date, but the latest reservation import has not succeeded. Do not use this number as tomorrow’s arrivals. Use Sync now above, and verify the guest list in Previo until the import succeeds.</p>
+        <p className="font-semibold">{t('pms.workspace.tomorrowUnverified').replace('{date}', locale.formatDate(tomorrow))}</p>
+        <p>{t('pms.workspace.tomorrowWarning').replace('{count}', String(tomorrowCheckIns.length))}</p>
       </div>
     )}
-    <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1" aria-label="HotelCare records only; not validated against Previo" data-training="fd-today-strip">
+    <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1" aria-label={t('pms.workspace.recordsOnly')} data-training="fd-today-strip">
       {([
         { key: 'arrivals' as const, label: `🛬 ${t('pms.fd.arrivalsRemaining')}`, rows: arrivals, tone: 'border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100', active: 'ring-2 ring-emerald-500' },
         { key: 'departures' as const, label: `🧳 ${t('pms.fd.departuresRemaining')}`, rows: departures, tone: 'border-orange-300 bg-orange-50 text-orange-900 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100', active: 'ring-2 ring-orange-500' },
@@ -455,7 +459,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <div key={row.id} className="flex items-center gap-3 px-4 py-2 hover:bg-accent/30">
             <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openReservation(row)}>
               <div className="flex items-center gap-1.5 min-w-0 text-sm font-medium"><span className="truncate">{reservationGuestLabel(row)}</span><GuestSignalBadge signal={guestSignals.get(row.id)} /><span className="shrink-0 text-xs font-normal text-muted-foreground">· {row.rooms?.room_number || t('pms.unified.unassigned')}</span></div>
-              <div className="text-xs text-muted-foreground truncate">{row.check_in_date} → {row.check_out_date}</div>
+              <div className="text-xs text-muted-foreground truncate">{locale.formatDate(row.check_in_date)} → {locale.formatDate(row.check_out_date)}</div>
             </button>
             <Badge className={`${RESERVATION_STATUS_COLORS[row.status] || 'bg-muted'} text-[10px]`}>{String(row.status).replace('_', ' ')}</Badge>
             {['pending', 'confirmed'].includes(row.status) && (
@@ -476,8 +480,8 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <th className="px-3 py-2 font-medium">{t('pms.reservations.guest')}</th><th className="px-3 py-2 font-medium">{t('pms.res.room')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.checkInDate')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.status')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.source')}</th>
         </tr></thead><tbody className="divide-y divide-border">{filtered.map((row) => <tr key={row.id} onClick={() => openReservation(row)} className={isSnapshotOnly(row) ? 'bg-muted/15' : 'cursor-pointer hover:bg-accent/30'}>
           <td className="px-3 py-2 font-medium">{reservationGuestLabel(row)}</td><td className="px-3 py-2">{row.rooms?.room_number || row.room_label || t('pms.res.unassigned')}</td>
-          <td className="px-3 py-2 whitespace-nowrap">{row.check_in_date} → {row.check_out_date}</td><td className="px-3 py-2"><Badge className={RESERVATION_STATUS_COLORS[row.status] || 'bg-muted'}>{String(row.status).replace('_', ' ')}</Badge></td>
-          <td className="px-3 py-2 capitalize" title={isSnapshotOnly(row) ? `Read-only snapshot captured ${new Date(row.captured_at).toLocaleString()}; not an independently verified booking` : undefined}>{isSnapshotOnly(row) ? 'Previo snapshot · read-only' : reservationChannel(row).label}</td>
+          <td className="px-3 py-2 whitespace-nowrap">{locale.formatDate(row.check_in_date)} → {locale.formatDate(row.check_out_date)}</td><td className="px-3 py-2"><Badge className={RESERVATION_STATUS_COLORS[row.status] || 'bg-muted'}>{String(row.status).replace('_', ' ')}</Badge></td>
+          <td className="px-3 py-2 capitalize" title={isSnapshotOnly(row) ? t('pms.workspace.snapshotCaptured').replace('{date}', locale.formatDateTime(row.captured_at)) : undefined}>{isSnapshotOnly(row) ? t('pms.workspace.snapshot') : bookingSourceLabel(reservationChannel(row).label, t)}</td>
         </tr>)}</tbody></table></div></CardContent></Card>}
     </div>
       <aside className="border border-border rounded-lg overflow-hidden bg-card 2xl:sticky 2xl:top-3">
