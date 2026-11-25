@@ -13,13 +13,13 @@
   position: absolute;
   top: -8px;
   border-radius: 50%;
-  background: #647f9d;
-  opacity: 0.22;
+  background: #64748b;
+  opacity: 0.34;
   animation: hc-winter-fall 24s linear infinite;
 }
 .dark .hc-winter-flake {
   background: #f0f7ff;
-  opacity: 0.34;
+  opacity: 0.43;
 }
 @keyframes hc-winter-fall {
   from { transform: translate3d(0, 0, 0); }
@@ -35,7 +35,7 @@
   transform: rotate(12deg);
 }
 @media (max-width: 640px) {
-  .hc-winter-flake:nth-child(n+9) { display: none; }
+  .hc-winter-flake:nth-child(n+13) { display: none; }
   .hc-winter-hat { width: 16px; height: 15px; }
 }
 @media (prefers-reduced-motion: reduce), print {

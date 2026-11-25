@@ -11,19 +11,19 @@ describe("2026 winter workspace", () => {
     expect(isWinterSeason(Date.parse("2027-12-25T12:00:00Z"))).toBe(false);
   });
 
-  it.each(["admin", "top_management", "top_management_manager", "manager", "housekeeping_manager", "reception_manager", "maintenance_manager", "hr", "control_finance", "back_office_manager"])("allows managers: %s", (role) => {
+  it.each(["admin", "top_management", "top_management_manager", "manager", "housekeeping_manager", "reception_manager", "maintenance_manager", "hr", "control_finance", "back_office_manager", "housekeeping", "maintenance", "reception", "front_office", "supervisor", "breakfast_staff", "marketing", "unknown"])("allows every signed-in staff role: %s", (role) => {
     expect(canSeeWinterSnow({ role })).toBe(true);
   });
 
-  it.each(["housekeeping", "maintenance", "reception", "front_office", "supervisor", "breakfast_staff", "marketing", "unknown"])("excludes non-managers: %s", (role) => {
-    expect(canSeeWinterSnow({ role })).toBe(false);
+  it("does not exclude staff with an explicit job role or newly introduced roles", () => {
+    expect(canSeeWinterSnow({ role: "manager", access_role: "housekeeping_supervisor" })).toBe(true);
+    expect(canSeeWinterSnow({ role: "manager", access_role: "reception" })).toBe(true);
+    expect(canSeeWinterSnow({ role: "future_role" })).toBe(true);
+    expect(canSeeWinterSnow({ role: "other", is_super_admin: true })).toBe(true);
   });
 
-  it("uses the effective job role rather than shared manager permission", () => {
-    expect(canSeeWinterSnow({ role: "manager", access_role: "housekeeping_manager" })).toBe(true);
-    expect(canSeeWinterSnow({ role: "manager", access_role: "housekeeping_supervisor" })).toBe(false);
-    expect(canSeeWinterSnow({ role: "manager", access_role: "reception" })).toBe(false);
+  it("excludes missing staff profiles", () => {
     expect(canSeeWinterSnow(null)).toBe(false);
-    expect(canSeeWinterSnow({ role: "other", is_super_admin: true })).toBe(true);
+    expect(canSeeWinterSnow(undefined)).toBe(false);
   });
 });
