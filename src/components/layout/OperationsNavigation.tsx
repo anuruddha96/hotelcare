@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   CalendarDays, CarFront, ChevronLeft, ChevronRight, Clock, DoorOpen, Home, Radio, Receipt,
@@ -89,37 +89,6 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     uk: ['Прокрутити модулі ліворуч', 'Прокрутити модулі праворуч'],
   };
 
-  useEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const update = () => {
-      const left = el.scrollLeft > 1;
-      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
-      setOverflow((old) => old.left === left && old.right === right ? old : { left, right });
-    };
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
-    observer?.observe(el);
-    if (el.firstElementChild) observer?.observe(el.firstElementChild);
-    window.addEventListener('resize', update);
-    el.addEventListener('scroll', update, { passive: true });
-    update();
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', update);
-      el.removeEventListener('scroll', update);
-    };
-  }, [profile?.role, profile?.access_role]);
-
-  useEffect(() => {
-    const el = scroller.current;
-    const selected = el?.querySelector('[aria-current="page"]');
-    if (!el || !selected) return;
-    const viewport = el.getBoundingClientRect();
-    const tab = selected.getBoundingClientRect();
-    if (tab.left < viewport.left) el.scrollLeft += tab.left - viewport.left;
-    else if (tab.right > viewport.right) el.scrollLeft += tab.right - viewport.right;
-  }, [active, language]);
-
   const scrollModules = (direction: number) => {
     const el = scroller.current;
     if (!el) return;
@@ -170,13 +139,66 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
   ];
   const hrOrder = hrNavigationFor(profile);
   const items = hrOrder.length ? hrOrder.flatMap(key => hrItems.filter(item => item.key === key)) : generalItems;
+  // Re-align after permissions change the tab list, or overflow arrows
+  // change the width available to the scrolling strip.
+  const itemKeys = items.map(item => item.key).join(',');
+  const showArrows = overflow.left || overflow.right;
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const update = () => {
+      const left = el.scrollLeft > 1;
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      setOverflow((old) => old.left === left && old.right === right ? old : { left, right });
+    };
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(el);
+    if (el.firstElementChild) observer?.observe(el.firstElementChild);
+    window.addEventListener('resize', update);
+    el.addEventListener('scroll', update, { passive: true });
+    update();
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+      el.removeEventListener('scroll', update);
+    };
+  }, [itemKeys]);
+
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+
+    const revealActive = () => {
+      const selected = el.querySelector('[aria-current="page"]');
+      if (!selected) return;
+      const viewport = el.getBoundingClientRect();
+      const tab = selected.getBoundingClientRect();
+      // Scroll only the module strip, never the page itself.
+      if (tab.left < viewport.left) el.scrollLeft += tab.left - viewport.left;
+      else if (tab.right > viewport.right) el.scrollLeft += tab.right - viewport.right;
+    };
+
+    revealActive();
+    // Layout can change after mount (e.g. fonts, viewport rotation).
+    // Do not listen to scroll here: users can still browse other modules.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(revealActive);
+    observer?.observe(el);
+    if (el.firstElementChild) observer?.observe(el.firstElementChild);
+    window.addEventListener('resize', revealActive);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', revealActive);
+    };
+  }, [active, language, itemKeys, showArrows, location.key]);
+
   if (!items.length) return null;
 
   const [scrollLeftLabel, scrollRightLabel] = scrollLabels[language as keyof typeof scrollLabels] || scrollLabels.en;
   return (
     <TooltipProvider delayDuration={350}>
       <nav aria-label={t('reception.shell.hotelModules')} className={cn('flex w-full min-w-0 items-center gap-1 rounded-xl border border-sky-200/70 bg-sky-50/80 p-1 shadow-sm dark:border-border dark:bg-card', className)}>
-        {(overflow.left || overflow.right) && <button type="button" disabled={!overflow.left} onClick={() => scrollModules(-1)}
+        {showArrows && <button type="button" disabled={!overflow.left} onClick={() => scrollModules(-1)}
           className="grid size-9 shrink-0 place-items-center rounded-lg text-foreground hover:bg-background focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-30"
           aria-label={scrollLeftLabel}><ChevronLeft className="size-4" aria-hidden="true" /></button>}
         <div ref={scroller} className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain scrollbar-hide">
@@ -211,7 +233,7 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
             })}
           </div>
         </div>
-        {(overflow.left || overflow.right) && <button type="button" disabled={!overflow.right} onClick={() => scrollModules(1)}
+        {showArrows && <button type="button" disabled={!overflow.right} onClick={() => scrollModules(1)}
           className="grid size-9 shrink-0 place-items-center rounded-lg text-foreground hover:bg-background focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-30"
           aria-label={scrollRightLabel}><ChevronRight className="size-4" aria-hidden="true" /></button>}
       </nav>
