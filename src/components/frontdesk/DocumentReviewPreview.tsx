@@ -7,7 +7,7 @@ interface DocumentReviewPreviewProps {
   children: ReactNode;
 }
 
-/** Transient, deliberately non-official display of extracted fields only.
+/** Transient display of the extracted fields as plain text only.
  * No document image, raw MRZ, export, persistence or verification claim.
  */
 export function DocumentReviewPreview({ documentType, children }: DocumentReviewPreviewProps) {
@@ -31,9 +31,6 @@ export function DocumentReviewPreview({ documentType, children }: DocumentReview
       </div>
       <div className="min-w-0 px-3 py-3 sm:px-4">
         {children}
-      </div>
-      <div className="border-t border-border bg-muted/40 px-3 py-2 text-xs leading-snug text-muted-foreground sm:px-4">
-        {t('pms.scan.documentPreviewNote')}
       </div>
     </section>
   );

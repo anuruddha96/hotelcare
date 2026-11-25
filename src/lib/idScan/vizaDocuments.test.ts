@@ -56,6 +56,14 @@ describe('document reading', () => {
     expect(repairNameFiller('ERIKSSON<<ANNA<MARIA<<<<<<<<<<')).toBe('ERIKSSON<<ANNA<MARIA<<<<<<<<<<');
   });
 
+  it('keeps the given names on German passports, whose country code is D<<', () => {
+    expect(repairNameFiller('P<D<<MUSTERMANN<<ERIKA<<<<<<<<<<<<<<<<<<<<<<', 5)).toBe('P<D<<MUSTERMANN<<ERIKA<<<<<<<<<<<<<<<<<<<<<<');
+    expect(repairNameFiller('P<D<<MUSTERMANN<<ERIKA<<<<<<KKKKKKKKKKKKKK<<', 5)).toBe('P<D<<MUSTERMANN<<ERIKA<<<<<<<<<<<<<<<<<<<<<<');
+    const r = readMrz('P<D<<MUSTERMANN<<ERIKA<<<<<<<<<<<<<<<<<<<<<<\nC01X00T478D<<6408125F3108284<<<<<<<<<<<<<<<0', TODAY)!;
+    expect(r.valid).toBe(true);
+    expect(r.fields).toMatchObject({ lastName: 'Mustermann', firstName: 'Erika', nationality: 'DE', documentNumber: 'C01X00T47', expiryDate: '2031-08-28' });
+  });
+
   it('keeps the names exactly as the code lines carry them', () => {
     const scan = toVizaDocumentScan(readMrz(HUNGARIAN_ID, TODAY)!, TODAY);
     expect(scan.fields).toMatchObject({ csaladnev: 'SZEPENE KISS', utonev: 'ROZALIA', allampolgarsagKod: 'HU', nem: 'NO', okmanyTipus: 'SZEM_IG', okmanyAzonositoSzam: '000000XX' });

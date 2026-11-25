@@ -17,6 +17,28 @@ export function guideCrop(videoWidth: number, videoHeight: number, boxWidth: num
   return { x, y, width: right - x, height: bottom - y };
 }
 
+/** Size of the tiny copy shown blurred while a capture is processed. */
+export function thumbnailSize(width: number, height: number, maxSide = 40): { width: number; height: number } {
+  if (![width, height, maxSide].every(n => Number.isFinite(n) && n > 0)) return { width: 1, height: 1 };
+  const scale = Math.min(1, maxSide / Math.max(width, height));
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+/**
+ * The only picture shown once a capture starts: at most 40 pixels on its
+ * longest side, too small to hold a readable letter, digit or face, and
+ * displayed blurred behind the progress animation. The caller wipes it.
+ */
+export function privacyThumbnail(source: HTMLCanvasElement, maxSide = 40): HTMLCanvasElement {
+  const size = thumbnailSize(source.width, source.height, maxSide);
+  const canvas = document.createElement('canvas');
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const context = canvas.getContext('2d');
+  if (context && source.width && source.height) context.drawImage(source, 0, 0, size.width, size.height);
+  return canvas;
+}
+
 /** Copy pixels before stopping the MediaStream; never retain a video reference
  * for asynchronous OCR. The caller owns and wipes this in-memory canvas. */
 export function snapshotFrame(source: CanvasImageSource, width: number, height: number,

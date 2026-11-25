@@ -60,9 +60,14 @@ export function normalizeMrzLine(raw: string): string {
  * or low-resolution documents OCR reads that filler as K, S or C, which would
  * otherwise end up as extra "names". Two fillers in a row end the given names,
  * so whatever follows is restored to filler.
+ *
+ * `nameStart` is where the name field begins: 5 on the first line of a passport
+ * or TD2 card (document code and issuing state come first), 0 on the third line
+ * of an ID card. Searching from there matters for Germany, whose code is "D<<":
+ * its fillers must not be taken for the end of the surname.
  */
-export function repairNameFiller(line: string): string {
-  const separator = line.indexOf('<<');
+export function repairNameFiller(line: string, nameStart = 0): string {
+  const separator = line.indexOf('<<', nameStart);
   if (separator < 0) return line;
   const namesStart = separator + 2;
   const end = line.indexOf('<<', namesStart);
@@ -92,7 +97,7 @@ export function extractMrzLines(ocrText: string): { format: 'TD1' | 'TD2' | 'TD3
         const lines = near.slice(start, start + rows).map((line) => fit(line, len));
         if (!/^[PIACV]/.test(lines[0])) continue;
         const nameRow = format === 'TD1' ? 2 : 0;
-        lines[nameRow] = repairNameFiller(lines[nameRow]);
+        lines[nameRow] = repairNameFiller(lines[nameRow], format === 'TD1' ? 0 : 5);
         return { format, lines };
       }
     }
