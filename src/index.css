@@ -414,7 +414,15 @@ All colors MUST be HSL.
    The shared AssignedRoomCard is used by every hotel and both daily/checkout
    flows. Native emoji avoids the iOS/PWA regression where Lucide SVGs can
    disappear while their coloured circular wrappers remain visible. */
-[data-training="room-work-tools"] .grid > button > span:first-child > svg {
+/* Only hide SVGs for actions with a corresponding emoji below. New
+   checklist tools must not silently lose their icon. */
+[data-training="room-work-tools"] :is(
+  [data-training="room-photos-button"],
+  [data-training="dnd-button"],
+  [data-training="dirty-linen-button"],
+  [data-training="lost-found-button"],
+  [data-training="maintenance-button"]
+) > span:first-child > svg {
   display: none;
 }
 
