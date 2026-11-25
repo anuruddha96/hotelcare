@@ -529,7 +529,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             </div>
             <div hidden={hideExtracted('nationality')}>
               <Label className="text-xs">{t('pms.guest.nationality')}</Label>{fieldTag('nationality')}
-              <Input data-viza-field="nationality" aria-invalid={!!requirements && !requirements['nationality']?.ok} className="h-11 bg-background/70 uppercase text-foreground" maxLength={3} value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder={t('reception.home.nationalityExample')} />
+              <Input data-viza-field="nationality" aria-invalid={!!requirements && !requirements['nationality']?.ok} className="h-11 bg-background/70 uppercase text-foreground" maxLength={3} value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder={t('pms.guest.nationalityPlaceholder')} />
               {mark('nationality')}
               {knownNationality && <p className="text-xs text-muted-foreground">{new Intl.DisplayNames([language || 'en', 'en'], {type:'region'}).of(knownNationality)} ({knownNationality})</p>}
             </div>
