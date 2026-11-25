@@ -210,3 +210,40 @@ describe('Always-visible rate calendar controls', () => {
     expect(component).not.toContain('calendarToolsOpen');
   });
 });
+
+
+describe('Default calendar visibility and non-overlapping navigation', () => {
+  const component = readFileSync('src/components/revenue/RateStrategyGrid.tsx', 'utf8');
+
+  it('starts both panes at the first date and includes the three historical days in fit mode', () => {
+    const reset = component.split('const lastViewportKeyRef')[1]?.split('const scrollToToday')[0] ?? '';
+    expect(reset).toContain('grid.scrollLeft = 0;');
+    expect(reset).toContain('headerScrollRef.current.scrollLeft = 0;');
+    expect(reset).not.toContain('RATE_HISTORY_DAYS * CELL_W');
+    expect(component).toContain('30 + RATE_HISTORY_DAYS');
+    expect(component).toContain('calendarWindow(today, monthFilter, historyRevealed)');
+    expect(component).toContain('previous 3 days shown (read-only)');
+  });
+
+  it('keeps navigation buttons in the toolbar and removes date-covering gradients', () => {
+    const toolbar = component.split('data-rate-calendar-navigation-controls="true"')[1]
+      ?.split('{/* Explicit navigation:')[0] ?? '';
+    expect(toolbar).toContain('aria-label="Show earlier dates"');
+    expect(toolbar).toContain('aria-label="Show later dates"');
+    expect(toolbar).toContain('disabled={!edges.left}');
+    expect(toolbar).toContain('disabled={!edges.right}');
+    expect(component).not.toContain('style={{ left: LEFT_W + 6 }}');
+    expect(component).not.toContain('bg-gradient-to-r from-background to-transparent');
+    expect(component).not.toContain('bg-gradient-to-l from-background to-transparent');
+    expect(component).not.toContain('behavior: "smooth"');
+  });
+
+  it('measures the viewport after the grid loads and handles narrow Today navigation', () => {
+    expect(component).toContain('}, [hasGridRows]);');
+    const todayAction = component.split('const scrollToToday =')[1]?.split('/* ---- Free cell-range')[0] ?? '';
+    expect(todayAction).toContain('body.scrollLeft = 0;');
+    expect(todayAction).toContain('header.scrollLeft = 0;');
+    expect(todayAction).toContain('todayCell.getBoundingClientRect().right');
+    expect(todayAction).toContain('Math.max(0, Math.ceil(overflow))');
+  });
+});
