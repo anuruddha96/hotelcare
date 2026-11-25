@@ -366,7 +366,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       id: user.id,
       full_name: user.full_name,
       nickname: user.nickname || '',
-      email: user.email,
+      email: user.email || '',
       password: '',
       phone_number: user.phone_number || '',
       role: user.role,
@@ -424,6 +424,10 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const handleUpdateUser = async () => {
     if (!editUserData.id || !editingOriginal || !canEditTarget(editingOriginal) || loading) return;
     setEditError('');
+    if (editingOriginal.email && !editUserData.email.trim()) {
+      setEditError('Email cannot be removed from an existing login. Enter a valid email address.');
+      return;
+    }
     if (!editUserData.full_name.trim() || !editUserData.assigned_hotel) {
       setEditError('Enter a full name and select a hotel or All Hotels.');
       return;
