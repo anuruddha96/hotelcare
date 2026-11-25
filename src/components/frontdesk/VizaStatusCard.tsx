@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Copy, Landmark, Loader2, Settings2, TriangleAlert, WifiOff } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 
 /**
  * VIZA reporting health in Reception. The THF spec requires the unsent and
@@ -61,14 +62,6 @@ async function callViza(body: Record<string, unknown>) {
 }
 
 const zone = 'Europe/Budapest';
-const dayFormat = new Intl.DateTimeFormat('en-GB', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' });
-const timeFormat = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
-function budapestTime(value: string) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return '—';
-  const day = dayFormat.format(date);
-  return (day === dayFormat.format(new Date()) ? '' : day + ' ') + timeFormat.format(date);
-}
 const knownFlags = new Set(['VIZA-OFFLINE', 'KM-OFFLINE', 'OUTOFKEYS', 'RA-OFFLINE', 'CERT-WARNING', 'CERT-EXPIRED', 'CERT-RENEWED', 'RESTART-THF', 'DATA-REJECTED']);
 type ListKind = 'NEMBEKULDOTT' | 'HIBAS';
 type MessageList = { eredmenyKod?: string | null; fault?: string | null; items: Record<string, string>[] };
@@ -96,6 +89,7 @@ function exportRows(lists: MessageLists) {
 }
 function ThfListsDialog({ hotelId, open, onOpenChange }: { hotelId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat(zone);
   const [lists, setLists] = useState<MessageLists | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -117,9 +111,7 @@ function ThfListsDialog({ hotelId, open, onOpenChange }: { hotelId: string; open
   };
   const download = () => {
     if (!lists) return;
-    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
-    const part = (type: string) => parts.find(p => p.type === type)?.value ?? '';
-    const stamp = part('year') + part('month') + part('day') + '-' + part('hour') + part('minute');
+    const stamp = locale.formatFileTimestamp(new Date());
     const url = URL.createObjectURL(new Blob(['\uFEFF', exportRows(lists).map(row => row.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
     a.href = url; a.download = 'viza-thf-lists-' + hotelId + '-' + stamp + '.csv';
@@ -162,6 +154,7 @@ function Receipt({ id }: { id: string }) {
 
 export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; report?: boolean }) {
   const { t } = useTranslation();
+  const { formatRecentTime: budapestTime } = useLocaleFormat(zone);
   const [failed, setFailed] = useState(false);
   const [status, setStatus] = useState<VizaStatus | null>(null);
   const [queueFailures, setQueueFailures] = useState<VizaQueueFailure[]>([]);
@@ -265,7 +258,7 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
           <span className="text-muted-foreground">{t('pms.viza.notConfigured')}</span>
         ) : (
           <>
-            <Badge variant={statusTone} className={`text-[10px] ${warning ? 'border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : ''}`}>{!s.enabled ? 'OFF' : unreachable ? t('pms.viza.notReachable') : code || '—'}</Badge>
+            <Badge variant={statusTone} className={`text-[10px] ${warning ? 'border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : ''}`}>{!s.enabled ? t('labels.state.disabled') : unreachable ? t('pms.viza.notReachable') : code || '—'}</Badge>
             {!status.configured && s.enabled && <span className="text-amber-700 dark:text-amber-400">{t('pms.viza.waitingCerts')}</span>}
             <span>{t('pms.viza.queued')}: <strong>{status.queued}</strong></span>
             <span>{t('pms.viza.unsent')}: <strong>{s.last_status_at ? s.unsent_count : '—'}</strong></span>
