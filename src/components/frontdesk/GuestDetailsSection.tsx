@@ -602,7 +602,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             </div>}
             <div>
               <Label className="text-xs">{t('pms.guest.birthPlace')}</Label>{fieldTag('birth_place')}
-              <Input data-viza-field="birth_place" aria-invalid={!!requirements && !requirements['birth_place']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.birth_place ?? ''} onChange={(e) => set('birth_place', e.target.value)} />
+              <Input data-viza-field="birth_place" aria-invalid={!!requirements && !requirements['birth_place']?.ok} className="h-11 bg-background/70 text-foreground" maxLength={200} value={guest.birth_place ?? ''} onChange={(e) => set('birth_place', e.target.value)} />
                   {mark('birth_place')}
                   {guest.id_document_type==='passport' && requirements && <p className="text-xs text-muted-foreground">{t('pms.guest.requirement.birthHint')}</p>}
                   {absent('birth_place_absent')}

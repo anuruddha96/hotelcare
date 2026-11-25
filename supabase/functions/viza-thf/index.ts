@@ -10,7 +10,10 @@
  * Fixed-IP egress: VIZA_EGRESS_PROXY_URL/_USER/_PASSWORD, else the NTAK proxy.
  *
  * Actions:
- *   worker (x-worker-secret, cron):  status poll + drain arrival/departure queues
+ *   worker (x-worker-secret, cron):  status poll + drain arrival/departure queues + 1-hour support alerts
+ *   desk_send_now (JWT, reception):  send right away after check-in, check-out or a correction (guide 6.2),
+ *                                    and return each guest's result for the live note / correction popup
+ *   desk_status / desk_retry:        rejected guests to correct, and the outage summary, for reception
  *   status (JWT, hotel staff):       settings + counters + recent events for the UI
  *   save_settings (JWT, managers):   per-hotel VIZA identity and enable switch
  *   retry (JWT, reception staff):    send a failed or rejected guest again (after correcting the data)
@@ -28,6 +31,8 @@ import { guestToVizaGroups } from "../_shared/viza/mapGuest.ts";
 import { vizaArrivalExtras } from "../_shared/viza/fieldRules.ts";
 import { isDue, NEEDS_CORRECTION, nextAttemptAt, readSubmissionOutcome } from "../_shared/viza/outcome.ts";
 import { b64encode, importRsaKey, pemToDer, signEllenorzoString } from "../_shared/viza/wssec.ts";
+import { correctionAlertEmail, correctionCutoff, decideProblem, problemAlertEmail, problemFromStatus, problemResolvedEmail, SUPPORT_INBOX, type ProblemKind, type ProblemState } from "../_shared/viza/alerts.ts";
+import { loadEmailSettings, sendEmail } from "../_shared/emailSender.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -158,28 +163,181 @@ function dueNow(rows: DueRow[] | null | undefined): DueRow[] {
     .slice(0, BATCH);
 }
 
-async function runWorker(db: Db): Promise<Record<string, unknown>> {
-  const report: Record<string, unknown> = {};
-  const { data: hotels } = await db.from("viza_settings").select("*").eq("enabled", true)
-    .not("adatszolgaltatasi_azonosito", "is", null);
-  for (const cfg of (hotels ?? []) as Settings[]) {
-    const line: Record<string, unknown> = {};
-    report[cfg.hotel_id] = line;
-    try {
-      const creds = await hotelCredentials(db, cfg.hotel_id);
-      if (!creds) {
-        line.skipped = "no NTAK certificate for this hotel";
-        await db.from("viza_settings").update({ last_error: "No NTAK certificate installed for this hotel", updated_at: new Date().toISOString() }).eq("hotel_id", cfg.hotel_id);
-        continue;
-      }
-      const signer = await signerFor(creds);
+/** Arrivals then departures that are due now, for one hotel. */
+async function sendDue(db: Db, cfg: Settings, signer: Signer, line: Record<string, unknown>): Promise<{ technicalError: string | null; sent: number }> {
+  let technicalError: string | null = null;
+  let sent = 0;
 
-      // 1. Status poll (spec 4.1) — counters must reach the UI.
+  // Arrivals.
+  const { data: arrivalRows } = await db.from("viza_guest_events")
+    .select("id, reservation_id, erkezes_azonosito, erkezes_ideje, tavozas_varhato_datuma, guest_id, attempts, updated_at, arrival_state")
+    .eq("hotel_id", cfg.hotel_id).in("arrival_state", ["queued", "failed"])
+    .lt("attempts", NEEDS_CORRECTION).order("created_at").limit(BATCH * 5);
+  const arrivals = dueNow(arrivalRows);
+  if (arrivals.length) {
+    const guestIds = arrivals.map((a) => a.guest_id).filter(Boolean);
+    const { data: guestRows } = guestIds.length
+      ? await db.from("guests").select("id, first_name, last_name, birth_last_name, birth_first_name, date_of_birth, birth_place, mother_name, mother_family_name, mother_given_name, gender, nationality, id_document_type, id_document_number, visa_number, entry_date, entry_place, document_scan, viza_review").in("id", guestIds)
+      : { data: [] };
+    const guestById = new Map((guestRows ?? []).map((g: { id: string }) => [g.id, g]));
+    const vizaGuests: VizaArrivalGuest[] = arrivals.map((a) => {
+      const guest = a.guest_id ? guestById.get(a.guest_id as string) : null;
+      const groups = guest ? guestToVizaGroups(guest as never) : { scanned: null, manual: null };
+      return {
+        erkezesAzonosito: String(a.erkezes_azonosito),
+        erkezesIdeje: vizaTimestamp(new Date(String(a.erkezes_ideje))),
+        tavozasVarhatoDatuma: String(a.tavozas_varhato_datuma),
+        scanned: groups.scanned,
+        manual: groups.manual,
+        ...vizaArrivalExtras(guest as Parameters<typeof vizaArrivalExtras>[0], String(a.reservation_id)),
+      };
+    });
+    const bejelentes = vizaTimestamp(new Date());
+    const draft = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signer.certB64 }, vizaGuests);
+    const alairas = await signEllenorzoString(draft.ellenorzoString, signer.validationKey);
+    const { xml } = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signer.certB64 }, vizaGuests);
+    try {
+      const res = await sendToThf(cfg, xml, signer);
+      line.arrivals = { sent: arrivals.length, http: res.status };
+      await markResult(db, arrivals, "arrival", res.body, null);
+      sent += arrivals.length;
+    } catch (err) {
+      technicalError = String(err instanceof Error ? err.message : err);
+      line.arrivals = { sent: arrivals.length, error: technicalError };
+      await markResult(db, arrivals, "arrival", null, technicalError);
+    }
+  }
+
+  // Departures (only after the arrival was accepted).
+  const { data: departureRows } = await db.from("viza_guest_events")
+    .select("id, erkezes_azonosito, tavozas_ideje, attempts, updated_at, departure_state")
+    .eq("hotel_id", cfg.hotel_id).eq("arrival_state", "sent").in("departure_state", ["queued", "failed"])
+    .lt("attempts", NEEDS_CORRECTION).order("updated_at").limit(BATCH * 5);
+  const departures = dueNow(departureRows);
+  if (departures.length) {
+    const bejelentes = vizaTimestamp(new Date());
+    const guests = departures.map((d) => ({
+      erkezesAzonosito: String(d.erkezes_azonosito),
+      tavozasIdeje: vizaTimestamp(new Date(String(d.tavozas_ideje))),
+    }));
+    const draft = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signer.certB64 }, guests);
+    const alairas = await signEllenorzoString(draft.ellenorzoString, signer.validationKey);
+    const { xml } = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signer.certB64 }, guests);
+    try {
+      const res = await sendToThf(cfg, xml, signer);
+      line.departures = { sent: departures.length, http: res.status };
+      await markResult(db, departures, "departure", res.body, null);
+      sent += departures.length;
+    } catch (err) {
+      technicalError = String(err instanceof Error ? err.message : err);
+      line.departures = { sent: departures.length, error: technicalError };
+      await markResult(db, departures, "departure", null, technicalError);
+    }
+  }
+  return { technicalError, sent };
+}
+
+/** Guest reports waiting in HotelCare (queued, or a technical retry pending). */
+async function waitingCount(db: Db, hotelId: string): Promise<number> {
+  const { count } = await db.from("viza_guest_events")
+    .select("id", { count: "exact", head: true })
+    .eq("hotel_id", hotelId).lt("attempts", NEEDS_CORRECTION)
+    .or("arrival_state.in.(queued,failed),departure_state.in.(queued,failed)");
+  return count ?? 0;
+}
+
+/** Branded HotelCare sender for support alerts; sent even if the hotel switched off its own transactional e-mails. */
+async function mailSupport(db: Db, cfg: Settings, mail: { subject: string; html: string; text: string }): Promise<boolean> {
+  try {
+    const base = await loadEmailSettings(db, cfg.organization_slug);
+    const settings = { ...base, organization_slug: cfg.organization_slug, transactional_enabled: true, from_name: "HotelCare.app", from_email: "notifications@updates.hotelcare.app", reply_to: SUPPORT_INBOX };
+    const result = await sendEmail({ admin: db, organizationSlug: cfg.organization_slug, to: [SUPPORT_INBOX], subject: mail.subject, html: mail.html, text: mail.text, kind: "transactional", settings });
+    if (!result.ok) console.warn("VIZA support alert not sent", cfg.hotel_id, result.error);
+    return result.ok;
+  } catch (err) {
+    console.warn("VIZA support alert failed", cfg.hotel_id, err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+/** Record the current problem (or its end) and tell HotelCare support after an hour; a short note when it is over. */
+async function trackProblem(db: Db, cfg: Settings, kind: ProblemKind | null, line: Record<string, unknown>) {
+  const { data: prev } = await db.from("viza_settings")
+    .select("problem_since, problem_kind, problem_alert_sent_at, last_status_code, last_error")
+    .eq("hotel_id", cfg.hotel_id).maybeSingle();
+  if (!prev) return;
+  const now = new Date();
+  const decision = decideProblem(prev as ProblemState, kind, now);
+  const changed = decision.next.problem_since !== prev.problem_since || decision.next.problem_kind !== prev.problem_kind || decision.clearAlert;
+  if (changed) {
+    await db.from("viza_settings").update({ ...decision.next, ...(decision.clearAlert ? { problem_alert_sent_at: null } : {}) }).eq("hotel_id", cfg.hotel_id);
+  }
+  const hotelName = cfg.szallas_nev ?? cfg.hotel_id;
+  if (decision.sendAlert && kind && decision.next.problem_since) {
+    const ok = await mailSupport(db, cfg, problemAlertEmail({
+      hotelName, hotelId: cfg.hotel_id, kind, since: decision.next.problem_since,
+      waiting: await waitingCount(db, cfg.hotel_id), statusCode: prev.last_status_code ?? null, lastError: prev.last_error ?? null,
+    }));
+    if (ok) await db.from("viza_settings").update({ problem_alert_sent_at: now.toISOString() }).eq("hotel_id", cfg.hotel_id);
+    line.alert = ok ? "support notified" : "support alert failed";
+  }
+  if (decision.sendResolved) {
+    await mailSupport(db, cfg, problemResolvedEmail({ hotelName, hotelId: cfg.hotel_id, since: prev.problem_since, now }));
+    line.alert = "support told it is resolved";
+  }
+}
+
+/** Rejected guest reports nobody corrected within the hour: one e-mail per hotel, booking numbers and THF codes only. */
+async function alertUncorrected(db: Db, cfg: Settings, line: Record<string, unknown>) {
+  const { data: rows } = await db.from("viza_guest_events")
+    .select("id, reservation_id, arrival_state, departure_state, last_error, updated_at")
+    .eq("hotel_id", cfg.hotel_id).gte("attempts", NEEDS_CORRECTION).is("correction_alert_sent_at", null)
+    .lt("updated_at", correctionCutoff(new Date()))
+    .or("arrival_state.eq.failed,departure_state.eq.failed").limit(50);
+  if (!rows?.length) return;
+  const reservationIds = [...new Set(rows.map((r: { reservation_id: string }) => r.reservation_id))];
+  const { data: reservations } = await db.from("reservations").select("id, reservation_number").in("id", reservationIds);
+  const numberOf = new Map((reservations ?? []).map((r: { id: string; reservation_number: string | null }) => [r.id, r.reservation_number]));
+  const ok = await mailSupport(db, cfg, correctionAlertEmail({
+    hotelName: cfg.szallas_nev ?? cfg.hotel_id, hotelId: cfg.hotel_id,
+    items: rows.map((r: { reservation_id: string; arrival_state: string; last_error: string | null; updated_at: string }) => ({
+      reservationNumber: numberOf.get(r.reservation_id) ?? null,
+      phase: r.arrival_state === "failed" ? "arrival" : "departure",
+      error: (r.last_error ?? "").split(":")[0] || null,
+      since: r.updated_at,
+    })),
+  }));
+  if (ok) await db.from("viza_guest_events").update({ correction_alert_sent_at: new Date().toISOString() }).in("id", rows.map((r: { id: string }) => r.id));
+  line.correctionAlert = ok ? `${rows.length} reported to support` : "correction alert failed";
+}
+
+/**
+ * One hotel. "worker" (cron, every 10 minutes): status poll, sends, problem tracking, alerts.
+ * "instant" (reception, right after check-in, check-out or a correction): sends only, as
+ * guide 6.2 expects the data at the moment of check-in; a status poll here would add load
+ * without new information (guide 4: 1–60 minutes).
+ */
+async function processHotel(db: Db, cfg: Settings, mode: "worker" | "instant"): Promise<Record<string, unknown>> {
+  const line: Record<string, unknown> = {};
+  try {
+    const creds = await hotelCredentials(db, cfg.hotel_id);
+    if (!creds) {
+      line.skipped = "no NTAK certificate for this hotel";
+      await db.from("viza_settings").update({ last_error: "No NTAK certificate installed for this hotel", updated_at: new Date().toISOString() }).eq("hotel_id", cfg.hotel_id);
+      await trackProblem(db, cfg, "no_certificate", line);
+      return line;
+    }
+    const signer = await signerFor(creds);
+
+    let statusKind: ProblemKind | null = null;
+    if (mode === "worker") {
+      // Status poll (spec 4.1) — counters must reach the UI.
       const statusRes = await callThf(cfg, buildStatusBody(), signer);
       const code = readXmlTag(statusRes.body, "allapotKod");
       const statusProblem = code ? null : `Status call failed: HTTP ${statusRes.status} ${readXmlTag(statusRes.body, "faultstring") ?? ""}`.trim().slice(0, 300);
       line.status = code ?? statusProblem;
       line.thf_time = readXmlTag(statusRes.body, "idoPecset");
+      statusKind = problemFromStatus(code);
       await db.from("viza_settings").update({
         last_status_code: code ?? `HTTP ${statusRes.status}`,
         last_status_at: new Date().toISOString(),
@@ -188,76 +346,107 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
         last_error: statusProblem,
         updated_at: new Date().toISOString(),
       }).eq("hotel_id", cfg.hotel_id);
-
-      // 2. Arrivals.
-      const { data: arrivalRows } = await db.from("viza_guest_events")
-        .select("id, reservation_id, erkezes_azonosito, erkezes_ideje, tavozas_varhato_datuma, guest_id, attempts, updated_at, arrival_state")
-        .eq("hotel_id", cfg.hotel_id).in("arrival_state", ["queued", "failed"])
-        .lt("attempts", NEEDS_CORRECTION).order("created_at").limit(BATCH * 5);
-      const arrivals = dueNow(arrivalRows);
-      if (arrivals.length) {
-        const guestIds = arrivals.map((a) => a.guest_id).filter(Boolean);
-        const { data: guestRows } = guestIds.length
-          ? await db.from("guests").select("id, first_name, last_name, birth_last_name, birth_first_name, date_of_birth, birth_place, mother_name, mother_family_name, mother_given_name, gender, nationality, id_document_type, id_document_number, visa_number, entry_date, entry_place, document_scan, viza_review").in("id", guestIds)
-          : { data: [] };
-        const guestById = new Map((guestRows ?? []).map((g: { id: string }) => [g.id, g]));
-        const vizaGuests: VizaArrivalGuest[] = arrivals.map((a) => {
-          const guest = a.guest_id ? guestById.get(a.guest_id as string) : null;
-          const groups = guest ? guestToVizaGroups(guest as never) : { scanned: null, manual: null };
-          return {
-            erkezesAzonosito: String(a.erkezes_azonosito),
-            erkezesIdeje: vizaTimestamp(new Date(String(a.erkezes_ideje))),
-            tavozasVarhatoDatuma: String(a.tavozas_varhato_datuma),
-            scanned: groups.scanned,
-            manual: groups.manual,
-            ...vizaArrivalExtras(guest as Parameters<typeof vizaArrivalExtras>[0], String(a.reservation_id)),
-          };
-        });
-        const bejelentes = vizaTimestamp(new Date());
-        const draft = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signer.certB64 }, vizaGuests);
-        const alairas = await signEllenorzoString(draft.ellenorzoString, signer.validationKey);
-        const { xml } = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signer.certB64 }, vizaGuests);
-        try {
-          const res = await sendToThf(cfg, xml, signer);
-          line.arrivals = { sent: arrivals.length, http: res.status };
-          await markResult(db, arrivals, "arrival", res.body, null);
-        } catch (err) {
-          line.arrivals = { sent: arrivals.length, error: String(err instanceof Error ? err.message : err) };
-          await markResult(db, arrivals, "arrival", null, String(err instanceof Error ? err.message : err));
-        }
-      }
-
-      // 3. Departures.
-      const { data: departureRows } = await db.from("viza_guest_events")
-        .select("id, erkezes_azonosito, tavozas_ideje, attempts, updated_at, departure_state")
-        .eq("hotel_id", cfg.hotel_id).eq("arrival_state", "sent").in("departure_state", ["queued", "failed"])
-        .lt("attempts", NEEDS_CORRECTION).order("updated_at").limit(BATCH * 5);
-      const departures = dueNow(departureRows);
-      if (departures.length) {
-        const bejelentes = vizaTimestamp(new Date());
-        const guests = departures.map((d) => ({
-          erkezesAzonosito: String(d.erkezes_azonosito),
-          tavozasIdeje: vizaTimestamp(new Date(String(d.tavozas_ideje))),
-        }));
-        const draft = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signer.certB64 }, guests);
-        const alairas = await signEllenorzoString(draft.ellenorzoString, signer.validationKey);
-        const { xml } = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signer.certB64 }, guests);
-        try {
-          const res = await sendToThf(cfg, xml, signer);
-          line.departures = { sent: departures.length, http: res.status };
-          await markResult(db, departures, "departure", res.body, null);
-        } catch (err) {
-          line.departures = { sent: departures.length, error: String(err instanceof Error ? err.message : err) };
-          await markResult(db, departures, "departure", null, String(err instanceof Error ? err.message : err));
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      line.error = message;
-      await db.from("viza_settings").update({ last_error: message.slice(0, 300), updated_at: new Date().toISOString() }).eq("hotel_id", cfg.hotel_id);
     }
+
+    const result = await sendDue(db, cfg, signer, line);
+
+    if (mode === "worker") {
+      if (result.technicalError && !statusKind) {
+        // The status answered but the guest data did not get through: show it like an outage.
+        await db.from("viza_settings").update({ last_error: result.technicalError.slice(0, 300), updated_at: new Date().toISOString() }).eq("hotel_id", cfg.hotel_id);
+      }
+      await trackProblem(db, cfg, result.technicalError ? (statusKind ?? "unreachable") : statusKind, line);
+      await alertUncorrected(db, cfg, line);
+    } else if (result.technicalError) {
+      await db.from("viza_settings").update({ last_error: result.technicalError.slice(0, 300), updated_at: new Date().toISOString() }).eq("hotel_id", cfg.hotel_id);
+      await trackProblem(db, cfg, "unreachable", line);
+    } else if (result.sent > 0) {
+      // A send got through: the THF answers, so an "unreachable" problem is over. WARNING/ERROR stay until the next status poll.
+      const { data: now } = await db.from("viza_settings").select("problem_kind").eq("hotel_id", cfg.hotel_id).maybeSingle();
+      if (now?.problem_kind === "unreachable") {
+        await db.from("viza_settings").update({ last_error: null }).eq("hotel_id", cfg.hotel_id);
+        await trackProblem(db, cfg, null, line);
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    line.error = message;
+    await db.from("viza_settings").update({ last_error: message.slice(0, 300), updated_at: new Date().toISOString() }).eq("hotel_id", cfg.hotel_id);
+    await trackProblem(db, cfg, "unreachable", line);
+  }
+  return line;
+}
+
+/**
+ * Only one sender talks to the THF for a hotel at a time (the cron worker or an
+ * instant send), so the same guest is never sent twice. The worker skips a busy
+ * hotel; an instant send waits a few seconds for the lease.
+ */
+async function withSendLock<T>(db: Db, hotelId: string, waitSeconds: number, run: () => Promise<T>): Promise<{ busy: true } | { busy: false; value: T }> {
+  const deadline = Date.now() + waitSeconds * 1000;
+  for (;;) {
+    const { data: got, error } = await db.rpc("viza_try_send_lock", { _hotel_id: hotelId, _seconds: 90 });
+    if (error) {
+      // The lock itself is unavailable (e.g. database change not applied yet): never let that stop reporting.
+      console.warn("VIZA send lock unavailable; sending without it", hotelId, error.message);
+      return { busy: false, value: await run() };
+    }
+    if (got === true) break;
+    if (Date.now() >= deadline) return { busy: true };
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  try {
+    return { busy: false, value: await run() };
+  } finally {
+    await db.rpc("viza_release_send_lock", { _hotel_id: hotelId });
+  }
+}
+
+async function runWorker(db: Db): Promise<Record<string, unknown>> {
+  const report: Record<string, unknown> = {};
+  const { data: hotels } = await db.from("viza_settings").select("*").eq("enabled", true)
+    .not("adatszolgaltatasi_azonosito", "is", null);
+  for (const cfg of (hotels ?? []) as Settings[]) {
+    const run = await withSendLock(db, cfg.hotel_id, 0, () => processHotel(db, cfg, "worker"));
+    report[cfg.hotel_id] = run.busy ? { skipped: "an instant send is running; next run in 10 minutes" } : run.value;
   }
   return report;
+}
+
+type Outcome = "accepted" | "rejected" | "pending";
+
+/** What happened to one stay's guests, for the reception's live result. */
+async function eventOutcomes(db: Db, hotelId: string, filter: { reservationId: string | null; eventId: string | null }, phase: "arrival" | "departure") {
+  let query = db.from("viza_guest_events")
+    .select("id, reservation_id, guest_id, arrival_state, departure_state, arrival_fogadas_azonosito, departure_fogadas_azonosito, last_error, attempts")
+    .eq("hotel_id", hotelId);
+  query = filter.eventId ? query.eq("id", filter.eventId) : query.eq("reservation_id", filter.reservationId);
+  const { data: rows } = await query.limit(20);
+  const events = (rows ?? []) as Array<Record<string, string | number | null>>;
+  const guestIds = [...new Set(events.map((e) => e.guest_id).filter(Boolean))] as string[];
+  const reservationIds = [...new Set(events.map((e) => e.reservation_id).filter(Boolean))] as string[];
+  const [guests, reservations] = await Promise.all([
+    guestIds.length ? db.from("guests").select("id, first_name, last_name").in("id", guestIds) : { data: [] },
+    reservationIds.length ? db.from("reservations").select("id, reservation_number").eq("hotel_id", hotelId).in("id", reservationIds) : { data: [] },
+  ]);
+  const nameOf = new Map((guests.data ?? []).map((g: { id: string; first_name: string | null; last_name: string | null }) => [g.id, `${g.last_name ?? ""} ${g.first_name ?? ""}`.trim()]));
+  const numberOf = new Map((reservations.data ?? []).map((r: { id: string; reservation_number: string | null }) => [r.id, r.reservation_number]));
+  return events.map((e) => {
+    // A rejected arrival also blocks the departure, so the arrival decides first.
+    const arrivalRejected = e.arrival_state === "failed" && Number(e.attempts) >= NEEDS_CORRECTION;
+    const state = phase === "departure" && !arrivalRejected ? e.departure_state : e.arrival_state;
+    const rejected = state === "failed" && Number(e.attempts) >= NEEDS_CORRECTION;
+    const outcome: Outcome = state === "sent" ? "accepted" : rejected ? "rejected" : "pending";
+    return {
+      event_id: e.id,
+      phase: phase === "departure" && !arrivalRejected ? "departure" : "arrival",
+      outcome,
+      receipt: outcome === "accepted" ? (phase === "departure" && !arrivalRejected ? e.departure_fogadas_azonosito : e.arrival_fogadas_azonosito) : null,
+      error: outcome === "rejected" ? e.last_error : null,
+      guest_name: e.guest_id ? nameOf.get(String(e.guest_id)) ?? null : null,
+      reservation_number: numberOf.get(String(e.reservation_id)) ?? null,
+    };
+  });
 }
 
 Deno.serve(async (req) => {
@@ -279,14 +468,32 @@ Deno.serve(async (req) => {
   const canManage = caller.isSuperAdmin || ["admin", "top_management", "top_management_manager"].includes(caller.role);
   // Operational repair is deliberately separate from leadership-only reports/settings.
   // No raw authority XML, settings, identifiers or certificate information are returned.
-  if (action === "desk_status" || action === "desk_retry") {
+  if (action === "desk_status" || action === "desk_retry" || action === "desk_send_now") {
     const { data: allowed } = await db.rpc("can_access_pms_hotel", {
       _uid: caller.userId, _hotel_id: hotelId, _org_slug: caller.organizationSlug,
     });
     if (!canManage && allowed !== true) return json({ ok: false, error: "Forbidden" }, 403);
-    const { data: cfg, error: cfgError } = await db.from("viza_settings").select("enabled").eq("hotel_id", hotelId).maybeSingle();
+    const { data: cfg, error: cfgError } = await db.from("viza_settings").select("*").eq("hotel_id", hotelId).maybeSingle();
     if (cfgError) return json({ ok: false, error: "Cannot load VIZA repair tasks" }, 500);
-    if (!cfg?.enabled) return json({ ok: true, enabled: false, events: [], total: 0 });
+    if (!cfg?.enabled) return json({ ok: true, enabled: false, events: [], total: 0, results: [] });
+    if (action === "desk_send_now") {
+      // Guide 6.2: the data is expected at the moment of check-in. Reception calls this in the
+      // background; it never blocks the desk, and the 10-minute worker remains the safety net.
+      if (!cfg.adatszolgaltatasi_azonosito) return json({ ok: true, enabled: false, results: [] });
+      const reservationId = payload.reservation_id ? String(payload.reservation_id) : null;
+      const eventId = payload.event_id ? String(payload.event_id) : null;
+      if (!reservationId && !eventId) return json({ ok: false, error: "reservation_id or event_id is required" }, 400);
+      const phase = payload.phase === "departure" ? "departure" : "arrival";
+      const run = await withSendLock(db, hotelId, 12, () => processHotel(db, cfg as Settings, "instant"));
+      const results = await eventOutcomes(db, hotelId, { reservationId, eventId }, phase);
+      const { data: after } = await db.from("viza_settings").select("last_error, updated_at, problem_alert_sent_at").eq("hotel_id", hotelId).maybeSingle();
+      const unreachable = !!after?.last_error;
+      return json({
+        ok: true, enabled: true, busy: run.busy, results, unreachable,
+        next_try_at: unreachable && after?.updated_at ? new Date(Date.parse(after.updated_at) + 10 * 60_000).toISOString() : null,
+        support_notified_at: after?.problem_alert_sent_at ?? null,
+      });
+    }
     if (action === "desk_retry") {
       const eventId = String(payload.event_id ?? "");
       const { data: event, error: eventError } = await db.from("viza_guest_events")
@@ -297,7 +504,7 @@ Deno.serve(async (req) => {
       const { error: incomplete } = await db.rpc("pms_assert_viza_arrival_data", {_reservation_id:event.reservation_id,_guest_ids:[event.guest_id],_day:day});
       if (incomplete) return json({ ok: false, error: incomplete.message }, 400);
       const { data: updated, error } = await db.from("viza_guest_events").update({
-        arrival_state: "queued", attempts: 0, last_error: null, updated_at: new Date().toISOString(),
+        arrival_state: "queued", attempts: 0, last_error: null, correction_alert_sent_at: null, updated_at: new Date().toISOString(),
       }).eq("hotel_id",hotelId).eq("id",event.id).eq("arrival_state","failed").gte("attempts",NEEDS_CORRECTION).select("id").maybeSingle();
       if (error || !updated) return json({ ok:false,error:"Repair task changed; refresh and try again" },409);
       return json({ ok:true });
@@ -318,7 +525,15 @@ Deno.serve(async (req) => {
     ]);
     const numberOf=new Map((reservations.data??[]).map((x:{id:string;reservation_number:string})=>[x.id,x.reservation_number]));
     const nameOf=new Map((guests.data??[]).map((x:{id:string;first_name:string;last_name:string})=>[x.id,`${x.last_name??""} ${x.first_name??""}`.trim()]));
-    return json({ok:true,enabled:true,total:count??events.length,events:events.map((e:{id:string;reservation_id:string;guest_id:string|null})=>({
+    // Reception also sees, in plain words, when the THF cannot be reached (case 2.6).
+    const outage = cfg.last_error ? {
+      since: cfg.problem_since ?? null,
+      last_attempt_at: cfg.updated_at ?? null,
+      next_try_at: cfg.updated_at ? new Date(Date.parse(cfg.updated_at) + 10 * 60_000).toISOString() : null,
+      waiting: await waitingCount(db, hotelId),
+      support_notified_at: cfg.problem_alert_sent_at ?? null,
+    } : null;
+    return json({ok:true,enabled:true,outage,total:count??events.length,events:events.map((e:{id:string;reservation_id:string;guest_id:string|null})=>({
       ...e,reservation_number:numberOf.get(e.reservation_id)??null,guest_name:e.guest_id?nameOf.get(e.guest_id)??null:null,
     }))});
   }
@@ -383,7 +598,7 @@ Deno.serve(async (req) => {
       const { error } = await db.from("viza_guest_events").update({
         arrival_state: event.arrival_state === "failed" ? "queued" : event.arrival_state,
         departure_state: event.departure_state === "failed" ? "queued" : event.departure_state,
-        attempts: 0, last_error: null, updated_at: new Date().toISOString(),
+        attempts: 0, last_error: null, correction_alert_sent_at: null, updated_at: new Date().toISOString(),
       }).eq("hotel_id", hotelId).eq("id", eventId);
       if (error) return json({ ok: false, error: error.message }, 400);
       return json({ ok: true });

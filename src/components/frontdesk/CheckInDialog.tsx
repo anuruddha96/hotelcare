@@ -26,6 +26,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { vizaArrivalDay } from '@/lib/idScan/guestVizaChecks';
 import { formatVizaArrivalError, firstVizaArrivalFailure } from '@/lib/idScan/vizaArrivalError';
+import { startVizaInstantSend } from '@/lib/viza/instantSend';
 
 interface CheckInDialogProps {
   reservation: any;
@@ -144,6 +145,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
         roster.perGuestLifecycle ? roster.selectedIds : null);
       toast.success(`${reservationGuestLabel(reservation)} ${t('pms.checkIn.checkedIn')} · ${t('pms.res.room')} ${result.room_number ?? ''}`);
       onSuccess();
+      // Guide 6.2: report at the moment of check-in. Runs in the background; the result appears as a note.
+      if (vizaRequired) void startVizaInstantSend({ hotelId: reservation.hotel_id, reservationId: reservation.id, phase: 'arrival', t });
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
       const registrationError = formatVizaArrivalError((err as Error).message ?? '', t);

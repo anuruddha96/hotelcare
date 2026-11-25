@@ -99,6 +99,13 @@ describe('VIZA validation report', () => {
       vi.useRealTimers();
     }
   });
+  it('shows when HotelCare support was told about a long outage', async () => {
+    mocks.invoke.mockResolvedValue({ data: reportFixture({ last_error: 'Connection failed', problem_alert_sent_at: '2026-11-24T23:14:05Z' }), error: null });
+    render(<VizaStatusCard hotelId="hotel-01" report />);
+    const alert = (await screen.findByText('pms.viza.outageTitle')).closest('[role="alert"]') as HTMLElement;
+    expect(alert).toHaveTextContent('pms.viza.supportNotified');
+    expect(alert).not.toHaveTextContent('pms.viza.outageAction');
+  });
   it('says nothing is waiting and hides a next try that is long past', async () => {
     mocks.invoke.mockResolvedValue({ data: reportFixture({ last_error: 'Connection failed', updated_at: '2020-01-01T00:00:00Z' }), error: null });
     render(<VizaStatusCard hotelId="hotel-01" report />);
@@ -109,10 +116,10 @@ describe('VIZA validation report', () => {
   it('explains warning flags and tells staff to notify the operator', async () => {
     mocks.invoke.mockResolvedValue({ data: reportFixture({ last_status_code: 'WARNING|VIZA-OFFLINE|FUTURE-FLAG' }), error: null });
     render(<VizaStatusCard hotelId="hotel-01" report />);
-    expect(await screen.findByText('WARNING')).toBeInTheDocument();
+    expect(await screen.findByText('pms.viza.statusWord.WARNING · WARNING')).toBeInTheDocument();
     expect(screen.getByText('pms.viza.flag.VIZA-OFFLINE')).toBeInTheDocument();
     expect(screen.getByText('FUTURE-FLAG')).toBeInTheDocument();
-    expect(screen.getByText('pms.viza.notifyOperator')).toBeInTheDocument();
+    expect(screen.getByText('pms.viza.notifyOperatorAuto')).toBeInTheDocument();
   });
   it('loads both lists, renders extra fields and empty list, then displays a refresh error', async () => {
     const status = reportFixture();
@@ -134,6 +141,15 @@ describe('VIZA validation report', () => {
     expect(await screen.findByText('THF unavailable')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'pms.fd.refresh' })).toBeEnabled());
   });
+  it('says all clear in plain words when both THF lists are empty', async () => {
+    const status = reportFixture();
+    mocks.invoke.mockImplementation(async (_name, { body }) => body.action === 'status'
+      ? { data: status, error: null }
+      : { data: { ok: true, lists: { NEMBEKULDOTT: { eredmenyKod: 'OK', items: [] }, HIBAS: { eredmenyKod: 'OK', items: [] } } }, error: null });
+    render(<VizaStatusCard hotelId="hotel-01" report />);
+    fireEvent.click(await screen.findByRole('button', { name: 'pms.viza.messageLists' }));
+    expect(await screen.findByText('pms.viza.listsAllClear')).toBeInTheDocument();
+  });
   it('shows booking, arrival/departure times and distinct full receipt IDs', async () => {
     mocks.invoke.mockResolvedValue({ data: reportFixture({}, [{
       id: 'event', guest_name: 'Test Guest', reservation_number: 'RES-123', arrival_state: 'sent', departure_state: 'sent',
@@ -142,8 +158,8 @@ describe('VIZA validation report', () => {
     }]), error: null });
     render(<VizaStatusCard hotelId="hotel-01" report />);
     expect(await screen.findByText('RES-123 · Test Guest')).toBeInTheDocument();
-    expect(screen.getByText(/pms.rep.arrivals.*21:00:01/)).toBeInTheDocument();
-    expect(screen.getByText(/pms.rep.departures.*22:00:02/)).toBeInTheDocument();
+    expect(screen.getByText(/pms.viza.arrival · pms.viza.state.sent.*21:00:01/)).toBeInTheDocument();
+    expect(screen.getByText(/pms.viza.departure · pms.viza.state.sent.*22:00:02/)).toBeInTheDocument();
     expect(screen.getByTitle('arrival-12345678')).toHaveTextContent('arrival-…');
     expect(screen.getByTitle('departure-12345678')).toHaveTextContent('departur…');
     expect(screen.getAllByRole('button', { name: 'pms.viza.copyReceipt' })).toHaveLength(2);
@@ -151,7 +167,7 @@ describe('VIZA validation report', () => {
   it('does not expose the lists button to non-managers', async () => {
     mocks.invoke.mockResolvedValue({ data: reportFixture({}, [], false), error: null });
     render(<VizaStatusCard hotelId="hotel-01" report />);
-    expect(await screen.findByText('OK')).toBeInTheDocument();
+    expect(await screen.findByText('pms.viza.statusWord.OK · OK')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'pms.viza.messageLists' })).not.toBeInTheDocument();
   });
 });

@@ -12,6 +12,8 @@ import { toast } from 'sonner';
 import { CheckCircle2, Clock, Copy, Info, Landmark, Loader2, RefreshCw, Settings2, TriangleAlert, WifiOff } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLocaleFormat } from '@/lib/i18n/localeFormat';
+import { vizaRejectionReason } from '@/lib/viza/vizaReason';
+import { vizaSendNow } from '@/lib/viza/vizaDesk';
 
 /**
  * VIZA reporting health in Reception. The THF spec requires the unsent and
@@ -38,6 +40,7 @@ interface VizaStatus {
     szolgaltato_adoszam: string | null; szolgaltato_nev: string | null;
     last_status_code: string | null; last_status_at: string | null;
     unsent_count: number; failed_count: number; last_error: string | null; updated_at?: string | null;
+    problem_since?: string | null; problem_kind?: string | null; problem_alert_sent_at?: string | null;
   } | null;
   events: Array<{
     id: string; updated_at: string; arrival_state: string; departure_state: string | null; last_error: string | null; attempts: number;
@@ -123,6 +126,11 @@ function ThfListsDialog({ hotelId, open, onOpenChange }: { hotelId: string; open
       <DialogHeader><DialogTitle>{t('pms.viza.messageLists')}</DialogTitle><DialogDescription>{t('pms.viza.listSupport')}</DialogDescription></DialogHeader>
       {loading && <Loader2 className="h-5 w-5 animate-spin" aria-label={t('pms.fd.refresh')} />}
       {error && <p role="alert" className="text-sm text-destructive break-words">{error}</p>}
+      {lists && listKinds.every(kind => !lists[kind].items.length && !lists[kind].fault && (lists[kind].eredmenyKod ?? 'OK') === 'OK') && (
+        <p role="status" className="flex items-start gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{t('pms.viza.listsAllClear')}
+        </p>
+      )}
       {lists && listKinds.map(kind => {
         const list = lists[kind];
         const columns = columnsFor(list.items);
@@ -150,6 +158,11 @@ function Receipt({ id }: { id: string }) {
     catch { toast.error(t('pms.viza.copyFailed')); }
   };
   return <span className="inline-flex items-center gap-1 text-muted-foreground" title={id}>{t('pms.viza.receipt')}: {id.length > 8 ? id.slice(0, 8) + '…' : id}<Button type="button" size="icon" variant="ghost" className="h-6 w-6" aria-label={t('pms.viza.copyReceipt')} onClick={() => void copy()}><Copy className="h-3 w-3" /></Button></span>;
+}
+
+/** A technical failure is retried automatically: say so instead of "failed". */
+function stateWord(event: { needs_correction?: boolean }, state: string | null): string {
+  return state === 'failed' && !event.needs_correction ? 'retrying' : String(state);
 }
 
 export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; report?: boolean }) {
@@ -221,10 +234,15 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
     }
   };
 
-  const retry = async (eventId: string) => {
+  const retry = async (eventId: string, phase: 'arrival' | 'departure') => {
     try {
       await callViza({ action: 'retry', hotel_id: hotelId, event_id: eventId });
-      toast.success(t('pms.viza.queuedAgain'));
+      // Send at once instead of waiting for the 10-minute run, then show the outcome.
+      const res = await vizaSendNow({ hotelId, eventId, phase }).catch(() => null);
+      const outcome = res?.results?.[0]?.outcome;
+      if (outcome === 'accepted') toast.success(t(phase === 'departure' ? 'pms.viza.instant.acceptedDeparture' : 'pms.viza.instant.acceptedArrival'));
+      else if (outcome === 'rejected') toast.error(t('pms.viza.instant.rejected'), { description: vizaRejectionReason(res?.results?.[0]?.error, t) });
+      else toast.success(t('pms.viza.queuedAgain'));
       await refresh();
     } catch (err) {
       toast.error((err as Error).message);
@@ -263,11 +281,11 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
           <span className="text-muted-foreground">{t('pms.viza.notConfigured')}</span>
         ) : (
           <>
-            <Badge variant={statusTone} className={`text-[10px] ${warning ? 'border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : ''}`}>{!s.enabled ? t('labels.state.disabled') : unreachable ? t('pms.viza.notReachable') : code || '—'}</Badge>
+            <Badge variant={statusTone} title={s.last_status_code ?? undefined} className={`text-[10px] ${warning ? 'border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : ''}`}>{!s.enabled ? t('labels.state.disabled') : unreachable ? t('pms.viza.notReachable') : code && ['OK', 'WARNING', 'ERROR'].includes(code) ? `${t('pms.viza.statusWord.' + code)} · ${code}` : code || '—'}</Badge>
             {!status.configured && s.enabled && <span className="text-amber-700 dark:text-amber-400">{t('pms.viza.waitingCerts')}</span>}
-            <span>{t('pms.viza.queued')}: <strong>{status.queued}</strong></span>
-            <span>{t('pms.viza.unsent')}: <strong>{s.last_status_at ? s.unsent_count : '—'}</strong></span>
-            <span className={s.failed_count > 0 ? 'text-destructive font-semibold' : ''}>{t('pms.viza.rejected')}: <strong>{s.last_status_at ? s.failed_count : '—'}</strong></span>
+            <span title={t('pms.viza.queuedTip')}>{t('pms.viza.queued')}: <strong>{status.queued}</strong></span>
+            <span title={t('pms.viza.unsentTip')}>{t('pms.viza.unsent')}: <strong>{s.last_status_at ? s.unsent_count : '—'}</strong></span>
+            <span title={t('pms.viza.rejectedTip')} className={s.failed_count > 0 ? 'text-destructive font-semibold' : ''}>{t('pms.viza.rejected')}: <strong>{s.last_status_at ? s.failed_count : '—'}</strong></span>
             <span className="text-muted-foreground">{t('pms.viza.lastSuccessfulCheck')}: {s.last_status_at ? budapestTime(s.last_status_at) : '—'}</span>
             {unreachable && <span className="text-destructive">{t('pms.viza.lastAttempt')}: {s.updated_at ? budapestTime(s.updated_at) : '—'} – {t('ntak.vizaState.failed')}</span>}
           </>
@@ -281,7 +299,7 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
       </div>
       {s?.enabled && (flags.length > 0 || code === 'WARNING' || code === 'ERROR') && <div className="mt-2 space-y-1 text-xs text-muted-foreground">
         {flags.map((flag, index) => <p key={flag + index}>{knownFlags.has(flag) ? t('pms.viza.flag.' + flag) : flag}</p>)}
-        {(code === 'WARNING' || code === 'ERROR') && <p className="font-medium">{t('pms.viza.notifyOperator')}</p>}
+        {(code === 'WARNING' || code === 'ERROR') && <p className="font-medium">{s.problem_alert_sent_at ? t('pms.viza.supportNotified').replace('{time}', formatTime(s.problem_alert_sent_at)) : t('pms.viza.notifyOperatorAuto')}</p>}
       </div>}
       {/* The THF cannot be reached (validation case 2.6). Plain words first: the desk keeps working,
           nothing is lost, when the next automatic try is and what to do; the raw error stays visible
@@ -297,7 +315,7 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
               {status.queued > 0 ? t('pms.viza.outageQueued').replace('{count}', String(status.queued)) : t('pms.viza.outageNothingQueued')}
             </p>
             {nextTry && <p className="flex items-start gap-1.5 font-medium"><RefreshCw className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />{t('pms.viza.outageNextTryAt').replace('{time}', formatTime(nextTry))}</p>}
-            <p className="flex items-start gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />{t('pms.viza.outageAction')}</p>
+            <p className="flex items-start gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />{s.problem_alert_sent_at ? t('pms.viza.supportNotified').replace('{time}', formatTime(s.problem_alert_sent_at)) : t('pms.viza.outageAction')}</p>
             <p className="mt-1.5 break-words border-t border-amber-200 pt-1.5 text-[11px] opacity-80 dark:border-amber-800">
               <span className="font-medium">{t('pms.viza.technicalDetails')}:</span> {s.last_error}
             </p>
@@ -331,13 +349,13 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
             <div key={e.id} className="flex items-center gap-2 rounded-md border border-destructive/30 px-2 py-1 text-[11px]">
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{e.guest_name || '—'}</p>
-                <p className="truncate text-destructive" title={e.last_error ?? ''}>{e.last_error ?? t('ntak.vizaState.failed')}</p>
+                <p className="truncate text-destructive" title={e.last_error ?? ''}>{e.needs_correction ? vizaRejectionReason(e.last_error, t) : (e.last_error ?? t('ntak.vizaState.failed'))}</p>
                 <p className="text-muted-foreground">
                   {e.needs_correction ? t('pms.viza.needsFix')
                     : e.next_attempt_at ? `${t('pms.viza.nextTry')}: ${budapestTime(e.next_attempt_at)}` : ''}
                 </p>
               </div>
-              <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 text-[11px]" onClick={() => retry(e.id)}>{t('pms.viza.sendAgain')}</Button>
+              <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 text-[11px]" onClick={() => retry(e.id, e.arrival_state === 'failed' ? 'arrival' : 'departure')}>{t('pms.viza.sendAgain')}</Button>
             </div>
           ))}
         </div>
@@ -351,16 +369,18 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
                 <span className="font-medium">{[event.reservation_number, event.guest_name].filter(Boolean).join(' · ') || '—'}</span>
                 <time className="ml-auto text-muted-foreground" dateTime={event.updated_at}>{budapestTime(event.updated_at)}</time>
                 <div className="basis-full flex flex-wrap items-center gap-x-2">
-                  <span>{t('pms.rep.arrivals')} · {t(`ntak.vizaState.${event.arrival_state}`)}{event.erkezes_ideje && ' · ' + budapestTime(event.erkezes_ideje)}</span>
+                  <span>{t('pms.viza.arrival')} · {t(`pms.viza.state.${stateWord(event, event.arrival_state)}`)}{event.erkezes_ideje && ' · ' + budapestTime(event.erkezes_ideje)}</span>
                   {event.arrival_state === 'sent' && event.arrival_fogadas_azonosito && <Receipt id={event.arrival_fogadas_azonosito} />}
                 </div>
                 {event.departure_state && <div className="basis-full flex flex-wrap items-center gap-x-2">
-                  <span>{t('pms.rep.departures')} · {t(`ntak.vizaState.${event.departure_state}`)}{event.tavozas_ideje && ' · ' + budapestTime(event.tavozas_ideje)}</span>
+                  <span>{t('pms.viza.departure')} · {t(`pms.viza.state.${stateWord(event, event.departure_state)}`)}{event.tavozas_ideje && ' · ' + budapestTime(event.tavozas_ideje)}</span>
                   {event.departure_state === 'sent' && event.departure_fogadas_azonosito && <Receipt id={event.departure_fogadas_azonosito} />}
                 </div>}
-                {event.last_error && <span className="basis-full break-words text-destructive">{event.last_error}</span>}
+                {event.needs_correction && <span className="basis-full font-medium text-destructive">{vizaRejectionReason(event.last_error, t)}</span>}
+                {!event.needs_correction && event.next_attempt_at && <span className="basis-full text-muted-foreground">{t('pms.viza.nextTry')}: {budapestTime(event.next_attempt_at)}</span>}
+                {event.last_error && <span className="basis-full break-words text-[11px] text-muted-foreground">{t(event.needs_correction ? 'pms.viza.fix.thfAnswer' : 'pms.viza.technicalDetails')}: {event.last_error}</span>}
                 {event.needs_correction && <span className="basis-full text-muted-foreground">{t('pms.viza.needsFix')}</span>}
-                {(event.arrival_state === 'failed' || event.departure_state === 'failed') && <Button size="sm" variant="outline" onClick={() => retry(event.id)}>{t('pms.viza.sendAgain')}</Button>}
+                {(event.arrival_state === 'failed' || event.departure_state === 'failed') && <Button size="sm" variant="outline" onClick={() => retry(event.id, event.arrival_state === 'failed' ? 'arrival' : 'departure')}>{t('pms.viza.sendAgain')}</Button>}
               </li>)}</ul>}
       </div>}
       {report && status.can_manage && <ThfListsDialog key={hotelId} hotelId={hotelId} open={listsOpen} onOpenChange={setListsOpen} />}
