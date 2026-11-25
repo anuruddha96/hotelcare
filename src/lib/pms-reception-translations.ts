@@ -463,7 +463,6 @@ const rows: Record<string, Row> = {
 // Newer keys translated for the reception languages in daily use (en, hu, es).
 // The other languages show the English text until they are translated.
 const partialRows: Record<string, readonly [string, ...string[]]> = {
-  'pms.workspace.dateSpan': ["{from} to {to}","{from} – {to}","{from} a {to}"],
   'pms.workspace.readOnlySnapshot': ["read-only snapshot","csak olvasható pillanatkép","instantánea de solo lectura"],
   'pms.workspace.roomConflict': ["room conflict","szobaütközés","conflicto de habitación"],
   'pms.account.invalidCharge': ["Enter a valid service, quantity and price.","Adj meg érvényes szolgáltatást, mennyiséget és árat.","Introduce un servicio, una cantidad y un precio válidos."],
@@ -591,7 +590,7 @@ const partialRows: Record<string, readonly [string, ...string[]]> = {
   'reception.home.tools': ["Reception tools","Recepciós eszközök","Herramientas de recepción"],
   'reception.home.section': ["Reception","Recepció","Recepción"],
   'reception.home.documentId': ["ID:","Okmány:","Documento:"],
-  'reception.home.nationalityExample': ["HU / DE / USA…","pl. HUN, DEU, USA…","p. ej. HUN, DEU, USA…"],
+  'pms.guest.nationalityPlaceholder': ["HU / DE / USA…","pl. HUN, DEU, USA…","p. ej. HUN, DEU, USA…"],
   'reception.home.stayPax': ["{nights}N · {adults}A {children}","{nights} éjszaka · {adults} felnőtt{children}","{nights} noches · {adults} adultos{children}"],
   'reception.home.stayChildren': ["{count}C"," · {count} gyerek"," · {count} niños"],
   'reception.home.detailPax': ["{adults}A{children}","{adults} felnőtt{children}","{adults} adultos{children}"],
