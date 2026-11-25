@@ -19,6 +19,8 @@ import { getSessionSuspension, observeSessionSuspension } from "@/lib/clientSess
 import { canAccessChannelManager, canAccessLegacyModules } from "@/lib/roleAccess";
 import { usePurchaseInvoiceAccess } from "@/hooks/usePurchaseInvoiceAccess";
 import { effectiveAccessRole } from "@/lib/accessPolicy";
+import { canSeeWinterSnow } from "@/lib/winterSeason";
+import { WinterSnow } from "@/components/layout/WinterWorkspace";
 
 // Lazy load all pages to keep initial bundle small
 const Index = lazy(() => import("./pages/Index"));
@@ -148,6 +150,7 @@ const PurchaseInvoicesGate = ({ fallback }: { fallback: string }) => {
 };
 
 const TenantRouter = () => {
+  const location = useLocation();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { user, profile, loading, bootstrapProgress } = useAuth();
 
@@ -167,6 +170,7 @@ const TenantRouter = () => {
 
   return (
     <TenantProvider organizationSlug={organizationSlug}>
+      {user && profile && canSeeWinterSnow(profile) && !/\/(?:auth|reset-password)(?:\/|$)/.test(location.pathname) && <WinterSnow />}
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/" element={<Index />} />

@@ -27,6 +27,7 @@ import { AnnouncementsBell } from '@/components/system/AnnouncementsBell';
 import { ReputationAlertsBell } from '@/components/reputation/ReputationAlertsBell';
 import { Building2, CreditCard, FileText, LogOut, Settings, ShieldCheck, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
+import { WinterLogoHat } from './WinterWorkspace';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { isExecutiveRole } from '@/lib/roleAccess';
 import { ACCESS_ROLE_LABEL, effectiveAccessRole } from '@/lib/accessPolicy';
@@ -124,11 +125,14 @@ export function Header() {
         {/* Logo Section - More space on mobile */}
         <div className="flex w-full min-w-0 items-center justify-between gap-3 sm:w-auto sm:shrink-0">
           <div className="flex min-w-0 items-center gap-2 rounded-xl bg-secondary/60 p-1.5 ring-1 ring-border transition hover:ring-primary/40 sm:gap-3 sm:p-2">
-            <img
-              src={hotelcareLogo}
-              alt="Hotel Care Logo"
-              className="h-8 sm:h-10 w-auto object-contain shrink-0"
-            />
+            <div className="relative shrink-0">
+              <img
+                src={hotelcareLogo}
+                alt="Hotel Care Logo"
+                className="h-8 sm:h-10 w-auto object-contain block"
+              />
+              {user && profile && <WinterLogoHat />}
+            </div>
             <div className="flex flex-col leading-tight min-w-0">
               <span className="text-sm sm:text-base font-semibold tracking-tight truncate">Hotel Care</span>
               {hotelDisplayName && (
