@@ -48,7 +48,7 @@ export function NtakBookingFieldsGroup({initial,patch,setPatch,source,guestCount
       <Label>{tr('Sales channel','Értékesítési csatorna')}<select className={selectClass} value={values.ntak_sales_channel??AUTO} onChange={e=>set('ntak_sales_channel',e.target.value||null)}><option value="">{automatic}{channel?' · '+tr(channel[1],channel[2]):''}</option>{CHANNELS.map(([code,en,h])=><option key={code} value={code}>{tr(en,h)}</option>)}</select></Label>
       <Label>{tr("Booker's country","Foglaló országa")}<select className={selectClass} value={values.booker_country??AUTO} onChange={e=>set('booker_country',e.target.value||null)}><option value="">{automatic}</option><option value="EGYEBKULFOLDI">{tr('Other foreign','Egyéb külföldi')}</option>{COUNTRIES.map(code=><option key={code} value={code}>{code}</option>)}</select></Label>
       <Label>{tr('Expected guests','Várható vendégek')}<Input type="number" min={1} max={99} step={1} placeholder={String(guestCount)} value={values.expected_guests??''} onChange={e=>set('expected_guests',e.target.value===''?null:Number(e.target.value))}/></Label>
-      <Label>{tr('Booking ID','Foglalási azonosító')}<Input maxLength={255} disabled={!initial.can_edit_booking_no} placeholder={automatic} value={values.ntak_booking_no??''} onChange={e=>set('ntak_booking_no',e.target.value||null)}/></Label>
+      {initial.can_edit_booking_no && <Label>{tr('Booking ID','Foglalási azonosító')}<Input maxLength={255} placeholder={automatic} value={values.ntak_booking_no??''} onChange={e=>set('ntak_booking_no',e.target.value||null)}/></Label>}
     </div>
   </details>;
 }

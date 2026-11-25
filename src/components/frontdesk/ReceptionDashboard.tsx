@@ -153,7 +153,7 @@ export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardPr
       fetchAll();
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
-      toast.error(key ? t(key) : (err as Error).message);
+      toast.error(key ? t(key) : t('pms.stayGuest.actionFailed'));
     } finally {
       setNoShowBusy(false);
     }
