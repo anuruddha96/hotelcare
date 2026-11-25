@@ -14,7 +14,7 @@ vi.mock('sonner', () => ({
     mobileOffset?: string;
     closeButton?: boolean;
     visibleToasts?: number;
-    style?: { zIndex?: number };
+    style?: Record<string, string | number | undefined>;
   }) => (
     <div
       data-testid="notification-toaster"
@@ -24,6 +24,10 @@ vi.mock('sonner', () => ({
       data-close-button={String(closeButton)}
       data-visible-toasts={String(visibleToasts)}
       data-z-index={String(style?.zIndex)}
+      data-offset-bottom={String(style?.['--offset-bottom'])}
+      data-offset-left={String(style?.['--offset-left'])}
+      data-mobile-offset-bottom={String(style?.['--mobile-offset-bottom'])}
+      data-mobile-offset-left={String(style?.['--mobile-offset-left'])}
     />
   ),
   toast: vi.fn(),
@@ -41,5 +45,15 @@ describe('global notification placement', () => {
     expect(toaster.getAttribute('data-visible-toasts')).toBe('1');
     // Dialogs remain above non-critical background notifications.
     expect(toaster.getAttribute('data-z-index')).toBe('40');
+  });
+
+  it('sets the per-side offsets so a newer sonner stylesheet cannot push toasts off screen', () => {
+    render(<Toaster />);
+
+    const toaster = screen.getByTestId('notification-toaster');
+    expect(toaster.getAttribute('data-offset-bottom')).toBe('20px');
+    expect(toaster.getAttribute('data-offset-left')).toBe('20px');
+    expect(toaster.getAttribute('data-mobile-offset-bottom')).toBe('16px');
+    expect(toaster.getAttribute('data-mobile-offset-left')).toBe('16px');
   });
 });
