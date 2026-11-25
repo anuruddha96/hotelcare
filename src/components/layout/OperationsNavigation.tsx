@@ -1,6 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  CalendarDays, CarFront, Clock, DoorOpen, Home, Radio, Receipt,
+  CalendarDays, CarFront, ChevronLeft, ChevronRight, Clock, DoorOpen, Home, Radio, Receipt,
   Settings, TabletSmartphone, Tags, Ticket, TrendingUp, Users, MessageSquareText, FileText, GraduationCap,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -57,7 +58,7 @@ function moduleFromLocation(pathname: string, search: string, basePath: string):
 export function OperationsNavigation({ current, onDashboardTabChange, className }: OperationsNavigationProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { profile } = useAuth();
   const basePath = `/${organizationSlug || profile?.organization_slug || 'rdhotels'}`;
@@ -77,6 +78,54 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
   // Native rates & availability exists only where HotelCare is the PMS (Channex sandbox for now).
   const nativePms = organizationSlug === 'channex';
   const active = current || moduleFromLocation(location.pathname, location.search, basePath);
+  const scroller = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState({ left: false, right: false });
+  const scrollLabels = {
+    en: ['Scroll modules left', 'Scroll modules right'],
+    hu: ['Modulok görgetése balra', 'Modulok görgetése jobbra'],
+    es: ['Desplazar módulos a la izquierda', 'Desplazar módulos a la derecha'],
+    vi: ['Cuộn mô-đun sang trái', 'Cuộn mô-đun sang phải'],
+    mn: ['Модулиудыг зүүн тийш гүйлгэх', 'Модулиудыг баруун тийш гүйлгэх'],
+    uk: ['Прокрутити модулі ліворуч', 'Прокрутити модулі праворуч'],
+  };
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const update = () => {
+      const left = el.scrollLeft > 1;
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      setOverflow((old) => old.left === left && old.right === right ? old : { left, right });
+    };
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(el);
+    if (el.firstElementChild) observer?.observe(el.firstElementChild);
+    window.addEventListener('resize', update);
+    el.addEventListener('scroll', update, { passive: true });
+    update();
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+      el.removeEventListener('scroll', update);
+    };
+  }, [profile?.role, profile?.access_role]);
+
+  useEffect(() => {
+    const el = scroller.current;
+    const selected = el?.querySelector('[aria-current="page"]');
+    if (!el || !selected) return;
+    const viewport = el.getBoundingClientRect();
+    const tab = selected.getBoundingClientRect();
+    if (tab.left < viewport.left) el.scrollLeft += tab.left - viewport.left;
+    else if (tab.right > viewport.right) el.scrollLeft += tab.right - viewport.right;
+  }, [active, language]);
+
+  const scrollModules = (direction: number) => {
+    const el = scroller.current;
+    if (!el) return;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollBy({ left: direction * Math.max(120, el.clientWidth * 0.7), behavior: reducedMotion ? 'auto' : 'smooth' });
+  };
 
   const openTab = (tab: DashboardTab) => {
     if (onDashboardTabChange) onDashboardTabChange(tab);
@@ -104,7 +153,7 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     ...(invoiceAccess.hasAccess ? [
       { key: 'invoices' as const, label: 'nav.invoices', icon: Receipt, click: () => navigate(`${basePath}/purchase-invoices`) },
     ] : []),
-    ...(legacy && manager ? [
+    ...(legacy && role === 'admin' ? [
       { key: 'parking' as const, label: 'nav.parking', icon: CarFront, click: () => navigate(`${basePath}/parking-tickets`) },
     ] : []),
     ...(role === 'admin' ? [{ key: 'admin' as const, label: 'nav.admin', icon: Settings, click: () => openTab('admin'), training: 'admin-tab' }] : []),
@@ -123,39 +172,48 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
   const items = hrOrder.length ? hrOrder.flatMap(key => hrItems.filter(item => item.key === key)) : generalItems;
   if (!items.length) return null;
 
+  const [scrollLeftLabel, scrollRightLabel] = scrollLabels[language as keyof typeof scrollLabels] || scrollLabels.en;
   return (
     <TooltipProvider delayDuration={350}>
-      <nav aria-label="Hotel modules" className={cn('w-full overflow-x-auto scrollbar-hide', className)}>
-        <div className="inline-flex min-w-max h-10 sm:h-12 items-center gap-1 rounded-md bg-muted p-1" data-training="main-tabs">
-          {items.map((item) => {
-            const Icon = item.icon;
-            const selected = active === item.key;
-            return (
-              <Tooltip key={item.key}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={item.click}
-                    aria-disabled={item.disabled || undefined}
-                    disabled={item.disabled}
-                    aria-current={selected ? 'page' : undefined}
-                    data-training={item.training}
-                    className={cn(
-                      'inline-flex shrink-0 items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium whitespace-nowrap transition-colors disabled:opacity-50',
-                      selected
-                        ? 'bg-primary text-primary-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-background/60',
-                    )}
-                  >
-                    <Icon className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
-                    <span>{t(item.label)}</span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-[240px] text-xs">{t(`${item.label}.tip`)}</TooltipContent>
-              </Tooltip>
-            );
-          })}
+      <nav aria-label="Hotel modules" className={cn('flex w-full min-w-0 items-center gap-1 rounded-xl border border-sky-200/70 bg-sky-50/80 p-1 shadow-sm dark:border-border dark:bg-card', className)}>
+        {(overflow.left || overflow.right) && <button type="button" disabled={!overflow.left} onClick={() => scrollModules(-1)}
+          className="grid size-9 shrink-0 place-items-center rounded-lg text-foreground hover:bg-background focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-30"
+          aria-label={scrollLeftLabel}><ChevronLeft className="size-4" aria-hidden="true" /></button>}
+        <div ref={scroller} className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain scrollbar-hide">
+          <div className="inline-flex min-w-max items-center gap-1 p-0.5" data-training="main-tabs">
+            {items.map((item) => {
+              const Icon = item.icon;
+              const selected = active === item.key;
+              return (
+                <Tooltip key={item.key}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={item.click}
+                      aria-disabled={item.disabled || undefined}
+                      disabled={item.disabled}
+                      aria-current={selected ? 'page' : undefined}
+                      data-training={item.training}
+                      className={cn(
+                        'inline-flex shrink-0 items-center justify-center gap-1 sm:gap-2 min-h-10 rounded-lg px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:opacity-50',
+                        selected
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-background/60',
+                      )}
+                    >
+                      <Icon className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
+                      <span>{t(item.label)}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[240px] text-xs">{t(`${item.label}.tip`)}</TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </div>
         </div>
+        {(overflow.left || overflow.right) && <button type="button" disabled={!overflow.right} onClick={() => scrollModules(1)}
+          className="grid size-9 shrink-0 place-items-center rounded-lg text-foreground hover:bg-background focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-30"
+          aria-label={scrollRightLabel}><ChevronRight className="size-4" aria-hidden="true" /></button>}
       </nav>
     </TooltipProvider>
   );

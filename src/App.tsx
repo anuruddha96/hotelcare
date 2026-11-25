@@ -203,7 +203,7 @@ const TenantRouter = () => {
           <Route path="/admin/invoicing" element={<InvoicingSettings />} />
           <Route path="/admin/session-protection" element={<SessionProtectionAdmin />} />
           <Route path="/insuite" element={<InSuiteStaff />} />
-          <Route path="/parking-tickets" element={canUseLegacyModules ? <ParkingTickets /> : <Navigate to={legacyFallback} replace />} />
+          <Route path="/parking-tickets" element={profile?.role === "admin" && canUseLegacyModules ? <ParkingTickets /> : <Navigate to={legacyFallback} replace />} />
         </Routes>
         <AssistantLauncher />
       </Suspense>
