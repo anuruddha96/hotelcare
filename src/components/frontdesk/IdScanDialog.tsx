@@ -14,7 +14,7 @@ import { agreePrinted, parsePrintedText, printedGuestFields, type PrintedRead } 
 import { guideCrop, snapshotFrame, type SourceRect } from '@/lib/idScan/frameCapture';
 import { OcrSession } from '@/lib/idScan/ocrSession';
 import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRows, needsHungarianPrintedFallback, rowHasLabel } from '@/lib/idScan/hungarianCard';
-import { shouldAdvanceFront, confidenceTone, printedRegion } from '@/lib/idScan/stillCapture';
+import { shouldAdvanceFront, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
 import { opticalGuestFields, guestScanPatch, extractOpticalGuestFields, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { assessReadiness, type Readiness } from '@/lib/idScan/autoCapture';
@@ -1008,8 +1008,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         )}
         {phase === 'front_preview' && preview && (
           <div className="space-y-3"><StillPreview image={preview} label={t('pms.scan.capturedPreview')} />
-            <div className="rounded-lg border p-3 text-sm"><div className="flex justify-between font-semibold"><span>{t('pms.scan.ocrConfidence')}</span><span>{frontConfidence === null ? '—' : `${scanConfidence(frontConfidence)}%`}</span></div>
-            <p className="mt-2 text-muted-foreground">{t('pms.scan.frontPreviewHint')}</p></div>
+            <div className="rounded-lg border p-3 text-sm"><p className="text-muted-foreground">{t('pms.scan.frontPreviewHint')}</p></div>
           </div>
         )}
 
@@ -1038,7 +1037,6 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               {expired && <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-300">{t('pms.scan.expired')}</Badge>}
             </div>
             {expired && <p role="status" className="text-sm text-amber-700 dark:text-amber-300">{t('pms.guest.requirement.expiredWarning').replace('{date}',result.fields.expiryDate ?? '')}</p>}
-            <div className="rounded-lg border p-3 space-y-1.5"><div className="flex justify-between text-sm font-semibold"><span>{t('pms.scan.ocrConfidence')} (MRZ)</span><span>{confidence === null ? t('pms.scan.confidenceUnavailable') : `${confidence}%`}</span></div>{confidence !== null && <div role="progressbar" aria-label={t('pms.scan.ocrConfidence')} aria-valuenow={confidence} aria-valuemin={0} aria-valuemax={100} className="h-2 rounded-full bg-muted overflow-hidden"><div className={`h-full rounded-full ${confidenceTone(confidence) === 'high' && result.valid && !numberReview.needsReview ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${confidence}%` }}/></div>}{result.fields.documentType === 'id_card' && frontConfidence !== null && <div className="flex justify-between gap-2 text-xs text-muted-foreground"><span>{t('pms.scan.frontConfidence')}</span><span>{scanConfidence(frontConfidence)}%</span></div>}<p className="text-[11px] text-muted-foreground">{t('pms.scan.confidenceHint')}</p></div>
             <DocumentReviewPreview documentType={result.fields.documentType}>
             <dl className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-x-3 gap-y-2 text-sm [&_dd]:min-w-0 [&_dd]:break-words">
               <dt className="text-muted-foreground">{t('pms.guest.familyName')}</dt><dd className="font-semibold">{proposed?.last_name || '—'}</dd>
