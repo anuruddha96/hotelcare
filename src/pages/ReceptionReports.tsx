@@ -139,9 +139,9 @@ export default function ReceptionReports() {
       <div className="print:hidden"><Header /></div>
       <main className="container mx-auto px-4 py-6">
         <div className="print:hidden">
-          <OperationalPageHeading section="Reception" />
+          <OperationalPageHeading section={t('reception.home.section')} />
           <div className="mt-4 mb-6"><OperationsNavigation current="reception" /></div>
-          <div className="mb-3 flex items-center gap-1.5 overflow-x-auto scrollbar-hide" aria-label="Reception tools">
+          <div className="mb-3 flex items-center gap-1.5 overflow-x-auto scrollbar-hide" aria-label={t('reception.home.tools')}>
             <Link to={`${basePath}/reception`}><Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground">🛎️ {t('pms.rep.navCalendar')}</Button></Link>
             <Link to={`${basePath}/guests`}><Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground">👥 {t('pms.rep.navGuests')}</Button></Link>
             <Button type="button" size="sm" className="h-8 shrink-0 gap-1.5">📊 {t('pms.rep.title')}</Button>
