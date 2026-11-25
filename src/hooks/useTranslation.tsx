@@ -4164,7 +4164,7 @@ const flattenBundle = (
   return out;
 };
 
-const getStaticTranslationBundle = (lang: Language): Record<string, string> => ({
+export const getStaticTranslationBundle = (lang: Language): Record<string, string> => ({
   ...flattenBundle(generatedTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(translations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(additionalTranslations[lang] as Record<string, unknown> | undefined),
