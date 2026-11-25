@@ -56,7 +56,10 @@ const reportingKeys: Record<string, string> = {
   processing: 'labels.state.processing', success: 'labels.state.success',
 };
 
-export const reservationStatusLabel = (code: Code, t: Translate) => label(code, t, reservationKeys);
+export const reservationStatusLabel = (code: Code, t: Translate, style: 'calendar' | 'reservation' = 'calendar') => {
+  const detailKeys: Record<string, string> = { confirmed: 'pms.reservations.confirmed', pending: 'pms.reservations.pending', checkedin: 'pms.reservations.checkedIn', checkedout: 'pms.reservations.checkedOut' };
+  return label(code, t, style === 'reservation' ? { ...reservationKeys, ...detailKeys } : reservationKeys);
+};
 export const bookingSourceLabel = (code: Code, t: Translate) => label(code, t, sourceKeys);
 export const documentTypeLabel = (code: Code, t: Translate) => label(code, t, documentKeys);
 export const roomStatusLabel = (code: Code, t: Translate) => label(code, t, roomKeys);
