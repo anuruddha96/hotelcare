@@ -99,6 +99,19 @@ describe('VIZA validation report', () => {
       vi.useRealTimers();
     }
   });
+  it('keeps the next try on the worker schedule when a check-in fails in between', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-24T22:18:20Z'));
+    try {
+      // A check-in at 23:18:13 tried at once and failed; the worker still runs at 23:24, not 23:28.
+      mocks.invoke.mockResolvedValue({ data: { ...reportFixture({ last_error: 'Connection failed', updated_at: '2026-11-24T22:18:13Z' }), queued: 1 }, error: null });
+      render(<VizaStatusCard hotelId="hotel-01" report />);
+      const alert = (await screen.findByText('pms.viza.outageTitle')).closest('[role="alert"]') as HTMLElement;
+      expect(alert).toHaveTextContent('pms.viza.outageNextTryAt 23:24');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('shows when HotelCare support was told about a long outage', async () => {
     mocks.invoke.mockResolvedValue({ data: reportFixture({ last_error: 'Connection failed', problem_alert_sent_at: '2026-11-24T23:14:05Z' }), error: null });
     render(<VizaStatusCard hotelId="hotel-01" report />);

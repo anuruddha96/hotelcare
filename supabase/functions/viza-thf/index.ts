@@ -29,7 +29,7 @@ import { importSigningKey, signEnvelope } from "../_shared/ntak/wssec.ts";
 import { firstCertificatePem, normalizePrivateKeyPem } from "../_shared/ntak/x509.ts";
 import { guestToVizaGroups } from "../_shared/viza/mapGuest.ts";
 import { vizaArrivalExtras } from "../_shared/viza/fieldRules.ts";
-import { isDue, NEEDS_CORRECTION, nextAttemptAt, readSubmissionOutcome } from "../_shared/viza/outcome.ts";
+import { isDueFor, NEEDS_CORRECTION, nextSendAt, readSubmissionOutcome, workerRunAtOrAfter } from "../_shared/viza/outcome.ts";
 import { b64encode, importRsaKey, pemToDer, signEllenorzoString } from "../_shared/viza/wssec.ts";
 import { correctionAlertEmail, correctionCutoff, decideProblem, problemAlertEmail, problemFromStatus, problemResolvedEmail, SUPPORT_INBOX, type ProblemKind, type ProblemState } from "../_shared/viza/alerts.ts";
 import { loadEmailSettings, sendEmail } from "../_shared/emailSender.ts";
@@ -155,16 +155,20 @@ async function markResult(db: Db, rows: QueueRow[], kind: "arrival" | "departure
 
 type DueRow = QueueRow & Record<string, unknown> & { attempts: number; updated_at: string };
 
-/** Queued guests (no failed send yet) go out at once; failed sends wait for their place in the retry schedule. */
-function dueNow(rows: DueRow[] | null | undefined): DueRow[] {
+/**
+ * Queued guests (no failed send yet) go out at once; failed sends wait for their place in the retry
+ * schedule. An instant send takes only guests never tried, so it cannot use up the retry steps of
+ * older reports during an outage (see isDueFor).
+ */
+function dueNow(rows: DueRow[] | null | undefined, mode: "worker" | "instant"): DueRow[] {
   const now = new Date();
   return (rows ?? [])
-    .filter((row) => isDue(row.attempts, row.updated_at, now))
+    .filter((row) => isDueFor(mode, row.attempts, row.updated_at, now))
     .slice(0, BATCH);
 }
 
 /** Arrivals then departures that are due now, for one hotel. */
-async function sendDue(db: Db, cfg: Settings, signer: Signer, line: Record<string, unknown>): Promise<{ technicalError: string | null; sent: number }> {
+async function sendDue(db: Db, cfg: Settings, signer: Signer, line: Record<string, unknown>, mode: "worker" | "instant"): Promise<{ technicalError: string | null; sent: number }> {
   let technicalError: string | null = null;
   let sent = 0;
 
@@ -173,7 +177,7 @@ async function sendDue(db: Db, cfg: Settings, signer: Signer, line: Record<strin
     .select("id, reservation_id, erkezes_azonosito, erkezes_ideje, tavozas_varhato_datuma, guest_id, attempts, updated_at, arrival_state")
     .eq("hotel_id", cfg.hotel_id).in("arrival_state", ["queued", "failed"])
     .lt("attempts", NEEDS_CORRECTION).order("created_at").limit(BATCH * 5);
-  const arrivals = dueNow(arrivalRows);
+  const arrivals = dueNow(arrivalRows, mode);
   if (arrivals.length) {
     const guestIds = arrivals.map((a) => a.guest_id).filter(Boolean);
     const { data: guestRows } = guestIds.length
@@ -213,7 +217,7 @@ async function sendDue(db: Db, cfg: Settings, signer: Signer, line: Record<strin
     .select("id, erkezes_azonosito, tavozas_ideje, attempts, updated_at, departure_state")
     .eq("hotel_id", cfg.hotel_id).eq("arrival_state", "sent").in("departure_state", ["queued", "failed"])
     .lt("attempts", NEEDS_CORRECTION).order("updated_at").limit(BATCH * 5);
-  const departures = dueNow(departureRows);
+  const departures = dueNow(departureRows, mode);
   if (departures.length) {
     const bejelentes = vizaTimestamp(new Date());
     const guests = departures.map((d) => ({
@@ -348,7 +352,7 @@ async function processHotel(db: Db, cfg: Settings, mode: "worker" | "instant"): 
       }).eq("hotel_id", cfg.hotel_id);
     }
 
-    const result = await sendDue(db, cfg, signer, line);
+    const result = await sendDue(db, cfg, signer, line, mode);
 
     if (mode === "worker") {
       if (result.technicalError && !statusKind) {
@@ -490,7 +494,8 @@ Deno.serve(async (req) => {
       const unreachable = !!after?.last_error;
       return json({
         ok: true, enabled: true, busy: run.busy, results, unreachable,
-        next_try_at: unreachable && after?.updated_at ? new Date(Date.parse(after.updated_at) + 10 * 60_000).toISOString() : null,
+        // The next worker run: it checks the connection and sends what is waiting.
+        next_try_at: unreachable ? workerRunAtOrAfter(new Date()).toISOString() : null,
         support_notified_at: after?.problem_alert_sent_at ?? null,
       });
     }
@@ -529,7 +534,8 @@ Deno.serve(async (req) => {
     const outage = cfg.last_error ? {
       since: cfg.problem_since ?? null,
       last_attempt_at: cfg.updated_at ?? null,
-      next_try_at: cfg.updated_at ? new Date(Date.parse(cfg.updated_at) + 10 * 60_000).toISOString() : null,
+      // The next worker run, while the worker shows it is running (it marks every failed run).
+      next_try_at: cfg.updated_at && Date.now() - Date.parse(cfg.updated_at) < 20 * 60_000 ? workerRunAtOrAfter(new Date()).toISOString() : null,
       waiting: await waitingCount(db, hotelId),
       support_notified_at: cfg.problem_alert_sent_at ?? null,
     } : null;
@@ -564,7 +570,7 @@ Deno.serve(async (req) => {
           guest_name: e.guest_id ? nameOf.get(e.guest_id as string) ?? null : null,
           // The guest's data was refused: staff must correct it, no automatic retry.
           needs_correction: failed && attempts >= NEEDS_CORRECTION,
-          next_attempt_at: failed && attempts < NEEDS_CORRECTION ? nextAttemptAt(attempts, String(e.updated_at))?.toISOString() ?? null : null,
+          next_attempt_at: failed && attempts < NEEDS_CORRECTION ? nextSendAt(attempts, String(e.updated_at))?.toISOString() ?? null : null,
         };
       });
       const { count: queued } = await db.from("viza_guest_events")
