@@ -14,7 +14,7 @@ export function AppearanceMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon" className="h-8 w-8 shrink-0 sm:h-9 sm:w-9" aria-label={labels.title} title={labels.title}>
+        <Button variant="outline" size="icon" className="h-11 w-11 shrink-0 sm:h-9 sm:w-9" aria-label={labels.title} title={labels.title}>
           <Icon className="h-4 w-4" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
