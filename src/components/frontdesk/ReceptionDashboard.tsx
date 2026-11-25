@@ -16,6 +16,8 @@ import {
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
+import { reservationStatusLabel } from '@/lib/i18n/receptionLabels';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
 import { useReservationSearch, mergeSearchResults } from '@/hooks/useReservationSearch';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
@@ -36,7 +38,8 @@ interface ReceptionDashboardProps {
 }
 
 export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const locale = useLocaleFormat();
   const navigate = useNavigate();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
@@ -158,7 +161,7 @@ export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardPr
 
   const StatusBadge = ({ status }: { status: string }) => (
     <Badge className={RESERVATION_STATUS_COLORS[status] || 'bg-muted text-muted-foreground'}>
-      {t(`pms.reservations.${status === 'no_show' ? 'noShow' : status === 'checked_in' ? 'checkedIn' : status === 'checked_out' ? 'checkedOut' : status}`)}
+      {language === 'hu' ? reservationStatusLabel(status, t) : t(`pms.reservations.${status === 'no_show' ? 'noShow' : status === 'checked_in' ? 'checkedIn' : status === 'checked_out' ? 'checkedOut' : status}`)}
     </Badge>
   );
 
@@ -193,13 +196,13 @@ export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardPr
             <ReadinessChip r={r} />
             {balance > 0 && (
               <Badge variant="outline" className="text-[10px] text-amber-700 dark:text-amber-400">
-                {formatMoney(balance, r.currency)}
+                {(language === 'hu' ? locale.formatMoney : formatMoney)(balance, r.currency)}
               </Badge>
             )}
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
             <span className="font-mono">{r.reservation_number}</span>
-            <span>{r.check_in_date} → {r.check_out_date}</span>
+            <span>{locale.formatDate(r.check_in_date)} → {locale.formatDate(r.check_out_date)}</span>
             <span>{r.adults}A{r.children > 0 ? ` ${r.children}C` : ''}</span>
             {r.special_requests && (
               <span className="text-amber-600 flex items-center gap-0.5">
@@ -344,7 +347,7 @@ export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardPr
                     <span className="text-sm font-medium">{reservationGuestLabel(r)}</span>
                     <span className="text-xs text-muted-foreground ml-2 font-mono">{r.reservation_number}</span>
                     <div className="text-xs text-muted-foreground">
-                      {r.check_in_date} → {r.check_out_date}
+                      {locale.formatDate(r.check_in_date)} → {locale.formatDate(r.check_out_date)}
                       {r.rooms?.room_number ? ` · ${t('pms.res.room')} ${r.rooms.room_number}` : ''}
                     </div>
                   </div>
@@ -471,7 +474,7 @@ export function ReceptionDashboard({ breakfastUploadPath }: ReceptionDashboardPr
           {noShowRes && (
             <div className="space-y-3">
               <p className="text-sm">
-                <strong>{reservationGuestLabel(noShowRes)}</strong> · {noShowRes.check_in_date} → {noShowRes.check_out_date}
+                <strong>{reservationGuestLabel(noShowRes)}</strong> · {locale.formatDate(noShowRes.check_in_date)} → {locale.formatDate(noShowRes.check_out_date)}
               </p>
               <Textarea
                 placeholder={t('pms.res.noShowReason')}
