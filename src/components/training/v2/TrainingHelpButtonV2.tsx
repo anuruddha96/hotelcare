@@ -109,7 +109,7 @@ export function TrainingHelpButtonV2() {
           ref={btnRef}
           variant="ghost"
           size="icon"
-          className="relative min-h-11 min-w-11"
+          className="relative h-11 w-11 shrink-0 border border-border/60 bg-background sm:border-transparent sm:bg-transparent"
           aria-label={txt(TXT.ariaLabel, lang)}
           data-training="help-button"
           data-training-has-guide={unfinishedHere ? 'true' : undefined}
