@@ -118,6 +118,17 @@ export default {
 					'0%': { transform: 'translateY(6px)', opacity: '0' },
 					'100%': { transform: 'translateY(0)', opacity: '1' },
 				},
+				/* Document scan in progress: a light band sweeps over the card outline. */
+				'scan-sweep': {
+					'0%': { transform: 'translateY(-40%)', opacity: '0' },
+					'15%': { opacity: '1' },
+					'85%': { opacity: '1' },
+					'100%': { transform: 'translateY(420%)', opacity: '0' },
+				},
+				'scan-shimmer': {
+					'0%': { transform: 'translateX(-100%)' },
+					'100%': { transform: 'translateX(100%)' },
+				},
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
@@ -128,6 +139,8 @@ export default {
 				'rate-flash': 'rate-flash 0.35s ease-out',
 				'rate-confirm': 'rate-confirm 0.4s ease-out',
 				'rate-rise': 'rate-rise 0.18s ease-out',
+				'scan-sweep': 'scan-sweep 2.2s ease-in-out infinite',
+				'scan-shimmer': 'scan-shimmer 1.6s ease-in-out infinite',
 
 			}
 

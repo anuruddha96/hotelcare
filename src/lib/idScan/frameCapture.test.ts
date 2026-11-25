@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { guideCrop, snapshotFrame } from './frameCapture';
+import { guideCrop, privacyThumbnail, snapshotFrame, thumbnailSize } from './frameCapture';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -53,5 +53,24 @@ describe('object-cover guide crop', () => {
     const copied = snapshotFrame(video, 1080, 1920, r);
     expect(drawImage).toHaveBeenCalledWith(video, r.x, r.y, r.width, r.height, 0, 0, copied.width, copied.height);
     expect(() => guideCrop(1080, 1920, 0, 200)).toThrow();
+  });
+});
+
+describe('processing background', () => {
+  it('keeps the blurred background at 40 px or less, whatever the capture size', () => {
+    expect(thumbnailSize(2400, 1520)).toEqual({ width: 40, height: 25 });
+    expect(thumbnailSize(1080, 1920)).toEqual({ width: 23, height: 40 });
+    expect(thumbnailSize(20, 10)).toEqual({ width: 20, height: 10 });
+    expect(thumbnailSize(0, 10)).toEqual({ width: 1, height: 1 });
+  });
+
+  it('draws the capture into the tiny canvas only', () => {
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D);
+    const source = document.createElement('canvas');
+    source.width = 2400; source.height = 1520;
+    const tiny = privacyThumbnail(source);
+    expect([tiny.width, tiny.height]).toEqual([40, 25]);
+    expect(drawImage).toHaveBeenCalledExactlyOnceWith(source, 0, 0, 40, 25);
   });
 });
