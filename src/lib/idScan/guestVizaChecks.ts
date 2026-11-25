@@ -137,7 +137,8 @@ export function vizaFieldRequirements(guest: GuestVizaValues | null | undefined,
   checkPair('birth_last_name','birth_first_name',review.birth_name_absent);
   checkPair('mother_family_name','mother_given_name',review.mother_name_absent);
   const birthPlaceholder = isVizaPlaceholder(g.birth_place);
-  put('birth_place',printedState,filled(g.birth_place) ? !birthPlaceholder : !noExceptions && review.birth_place_absent === true,birthPlaceholder);
+  // THF limit (guide v700, EF0051): at most 200 characters and 254 bytes in UTF-8.
+  put('birth_place',printedState,filled(g.birth_place) ? !birthPlaceholder && fits(g.birth_place,200,254) : !noExceptions && review.birth_place_absent === true,birthPlaceholder);
   put('nationality','required',ISO2.has(iso3ToIso2(g.nationality) ?? ''));
   const oldest = new Date(day); oldest.setUTCFullYear(oldest.getUTCFullYear() - 110);
   put('date_of_birth','required',validDate(g.date_of_birth) && String(g.date_of_birth) >= isoDay(oldest) && String(g.date_of_birth) <= isoDay(day));

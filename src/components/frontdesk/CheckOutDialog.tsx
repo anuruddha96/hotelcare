@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { LogOut, AlertCircle, BedDouble, FileText, Loader2, Wallet } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { addFolioItem, checkOutReservation, LifecycleError } from '@/lib/pmsLifecycle';
+import { startVizaInstantSend } from '@/lib/viza/instantSend';
 import { formatMoney, reservationGuestLabel } from '@/lib/reservations';
 import { InvoiceDialog } from '@/components/frontdesk/InvoiceDialog';
 import { BusinessMomentField, useBusinessMoment } from '@/components/frontdesk/BusinessMomentField';
@@ -123,6 +124,8 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
         roster.enabled ? roster.selectedIds : null);
       toast.success(`${reservationGuestLabel(reservation)} ${t('pms.checkOut.checkedOut')}`);
       onSuccess();
+      // Report the departure right away too; hotels without VIZA get no note (the call returns nothing to send).
+      if (reservation.hotel_id) void startVizaInstantSend({ hotelId: reservation.hotel_id, reservationId: reservation.id, phase: 'departure', t });
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
       toast.error(key ? t(key) : t('pms.checkOut.failedCheckOut'));
