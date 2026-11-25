@@ -413,7 +413,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <span className="ml-auto text-[11px] underline underline-offset-2">{t('pms.fd.details')}</span>
         </summary>
         <div className="mt-2 pl-6 text-muted-foreground">
-          {importStale ? `Latest reservation import: ${importHistory?.created_at ? locale.formatDateTime(importHistory.created_at) : t('pms.workspace.notRecorded')} (${importHistory?.sync_status ?? t('pms.workspace.unknown')}). ` : ''}
+          {importStale ? t('pms.workspace.latestImport').replace('{date}', importHistory?.created_at ? locale.formatDateTime(importHistory.created_at) : t('pms.workspace.notRecorded')).replace('{state}', importHistory?.sync_status ? reportingStateLabel(importHistory.sync_status, t) : t('pms.workspace.unknown')) : ''}
           {snapshotReservations.length > 0 ? t('pms.workspace.unmatched').replace('{count}', String(snapshotReservations.length)) : ''}
           {(snapshotAudit?.ambiguousRooms ?? 0) > 0 ? t('pms.workspace.ambiguous').replace('{count}', String(snapshotAudit?.ambiguousRooms)) : ''}
           {hiddenNotInPrevio > 0 ? `${hiddenNotInPrevio} ${t('pms.fd.hiddenNotInPrevio')} ` : ''}
@@ -494,7 +494,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         {newOnline.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.newOnline')} icon={Sparkles} items={newOnline} onOpen={openReservation} />}
         {expiringOptions.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.expiringOptions')} icon={Hourglass} items={expiringOptions} onOpen={openReservation} />}
         {waitingList.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.waitingList')} icon={ListOrdered} items={waitingList} onOpen={openReservation} />}
-        {isOttofiori && <SideSection signals={guestSignals} title={`Tomorrow check-ins · ${tomorrow}${importStale ? ' · unverified' : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
+        {isOttofiori && <SideSection signals={guestSignals} title={`${t('reception.shell.tomorrow')} · ${locale.formatDate(tomorrow)}${importStale ? ' · ' + t('reception.shell.unverified') : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
         <SideSection signals={guestSignals} title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
       </aside>
     </div>}
