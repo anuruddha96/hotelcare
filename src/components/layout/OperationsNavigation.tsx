@@ -125,7 +125,7 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
 
   return (
     <TooltipProvider delayDuration={350}>
-      <nav aria-label="Hotel modules" className={cn('w-full overflow-x-auto scrollbar-hide', className)}>
+      <nav aria-label={t('reception.shell.hotelModules')} className={cn('w-full overflow-x-auto scrollbar-hide', className)}>
         <div className="inline-flex min-w-max h-10 sm:h-12 items-center gap-1 rounded-md bg-muted p-1" data-training="main-tabs">
           {items.map((item) => {
             const Icon = item.icon;
