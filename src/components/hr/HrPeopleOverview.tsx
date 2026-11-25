@@ -5,6 +5,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useWorkforce } from '@/hooks/useWorkforce';
 import { todayBudapest } from '@/lib/budapestTime';
 import { hotelName, matchesStaffSearch, type WorkforceStaff } from '@/lib/workforce/model';
+import { HrPersonnelDocuments } from './HrPersonnelDocuments';
 import { WorkforceStaffDialog } from '@/components/workforce/WorkforceStaffDialog';
 import { WorkforceAnalytics } from '@/components/workforce/WorkforceAnalytics';
 import { Button } from '@/components/ui/button';
@@ -62,6 +63,7 @@ function EmployeeDirectory() {
           {[[tr('Department','Részleg'),dept(current)],[tr('Position','Munkakör'),role(current)],[tr('Base property','Telephely'),hotelName(current.hotel_id)],[tr('Employment','Foglalkoztatás'),current.employment_type.replace('_',' ')],[tr('Daily hours','Napi órák'),String(current.daily_hours)],[tr('Start date','Kezdés'),current.start_date],[tr('End date','Befejezés'),current.end_date],[tr('Annual leave','Éves szabadság'),current.annual_leave_days == null ? null : String(current.annual_leave_days)],[tr('Phone','Telefon'),current.phone],[tr('Email','E-mail'),current.email]].map(([label,value]) => <div key={label}><dt className="text-muted-foreground">{label}</dt><dd className="font-medium break-words">{value || '—'}</dd></div>)}
         </dl>
       </CardContent></Card>
+      <HrPersonnelDocuments key={current.id} staffId={current.id} />
     </> : <>
       <div className="grid gap-3 sm:grid-cols-3">{[[tr('Active employees','Aktív munkatársak'),active.length],[tr('Linked accounts','Kapcsolt fiókok'),active.filter(s=>s.profile_id).length],[tr('Accounts to link','Kapcsolandó fiókok'),active.filter(s=>!s.profile_id).length]].map(([label,value])=><Card key={label}><CardContent className="pt-4"><p className="text-sm text-muted-foreground">{label}</p><p className="text-2xl font-semibold tabular-nums">{value}</p></CardContent></Card>)}</div>
       <div className="flex flex-wrap gap-2">
