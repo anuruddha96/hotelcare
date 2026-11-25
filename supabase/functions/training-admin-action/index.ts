@@ -58,6 +58,44 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const action = String(body.action || '');
+    // Read-only HR analytics: derive organization from the authenticated caller,
+    // never from request parameters or the legacy organization-wide views.
+    if (action === 'hr_analytics') {
+      const respond = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), {
+        status, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      });
+      if (!isHR || !profile.organization_slug) return respond({ error: 'Forbidden' }, 403);
+      const employees = [];
+      for (let offset = 0; ; offset += 500) {
+        const { data: rows, error } = await admin.from('profiles')
+          .select('id,full_name,role,access_role,assigned_hotel,is_super_admin')
+          .eq('organization_slug', profile.organization_slug).is('deleted_at', null)
+          .order('id').range(offset, offset + 499);
+        if (error) throw error;
+        employees.push(...(rows || []).filter(target => target.id !== callerId && !target.is_super_admin &&
+          !['admin','top_management','top_management_manager','hr','control_finance'].includes(String(target.role)) &&
+          !['admin','top_management','controlling','hr'].includes(effectiveAccessRole(target))));
+        if (!rows || rows.length < 500) break;
+      }
+      const progress = [];
+      const states = [];
+      for (let start = 0; start < employees.length; start += 50) {
+        const ids = employees.slice(start,start+50).map(row => row.id);
+        for (let offset = 0; ; offset += 500) {
+          const { data: rows, error } = await admin.from('user_tour_progress')
+            .select('user_id,tour_key,status,current_step,completed_at,updated_at')
+            .in('user_id', ids).order('user_id').order('tour_key').range(offset,offset+499);
+          if (error) throw error;
+          progress.push(...(rows || []));
+          if (!rows || rows.length < 500) break;
+        }
+        const { data: rows, error } = await admin.from('user_training_state')
+          .select('user_id,dismissed_until,paused_at').in('user_id',ids);
+        if (error) throw error;
+        states.push(...(rows || []));
+      }
+      return respond({ ok: true, employees, progress, states });
+    }
     const userIds: string[] = Array.isArray(body.userIds) ? body.userIds : [];
     const curriculumSlugs: string[] = Array.isArray(body.curriculumSlugs)
       ? body.curriculumSlugs

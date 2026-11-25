@@ -290,7 +290,8 @@ export function miraScopesFor(subject: AccessSubject): MiraScope[] {
   if (!caps.mira) return [];
   switch (caps.accessRole) {
     case "hr":
-      return [];
+      // Preserve existing non-operational entitlements pending owner review.
+      return ["revenue", "finance"];
     case "housekeeping_manager":
     case "housekeeping_supervisor":
       return ["housekeeping", "maintenance"];
