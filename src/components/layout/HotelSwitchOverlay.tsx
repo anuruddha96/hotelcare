@@ -1,3 +1,4 @@
+import { useTranslation } from '@/hooks/useTranslation';
 import { Building2, Loader2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
@@ -12,6 +13,7 @@ interface HotelSwitchOverlayProps {
  * surface so nothing from the previous property stays readable.
  */
 export function HotelSwitchOverlay({ hotelName }: HotelSwitchOverlayProps) {
+  const { t } = useTranslation();
   if (typeof document === 'undefined') return null;
 
   return createPortal(
@@ -29,11 +31,11 @@ export function HotelSwitchOverlay({ hotelName }: HotelSwitchOverlayProps) {
         </div>
         <div className="space-y-1">
           <p className="text-lg font-semibold text-foreground">
-            Switching to {hotelName || 'your hotel'}
+            {t('reception.shell.switching')} {hotelName || t('reception.shell.yourHotel')}
           </p>
           <p className="text-sm text-muted-foreground flex items-center justify-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Loading this property&apos;s data…
+            {t('reception.shell.loadingHotel')}
           </p>
         </div>
       </div>
