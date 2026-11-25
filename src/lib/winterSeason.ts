@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { effectiveAccessRole, type AccessSubject } from "@/lib/accessPolicy";
+import type { AccessSubject } from "@/lib/accessPolicy";
 
 // A one-off 2026 campaign, using Budapest midnight regardless of device timezone.
 export const WINTER_START = Date.parse("2026-11-25T00:00:00+01:00");
@@ -9,15 +9,10 @@ export function isWinterSeason(now = Date.now()): boolean {
   return now >= WINTER_START && now < WINTER_END;
 }
 
+/** Decorative only; every signed-in staff profile is eligible. The tenant
+ * router independently requires authentication and excludes auth screens. */
 export function canSeeWinterSnow(profile: AccessSubject): boolean {
-  if (!profile) return false;
-  const role = effectiveAccessRole(profile);
-  if (profile.is_super_admin || ["admin", "top_management", "controlling", "hr", "manager", "housekeeping_manager"].includes(role)) return true;
-  // These legacy permission names distinguish managers from ordinary reception
-  // and maintenance staff, even when the effective job role is shared.
-  return (role === "reception" && profile.role === "reception_manager")
-    || (role === "maintenance" && profile.role === "maintenance_manager")
-    || (role === "other" && ["front_office_manager", "back_office_manager", "marketing_manager"].includes(profile.role ?? ""));
+  return !!profile;
 }
 
 /** Also expires in an already-open tab; resynchronizes after sleep or tab restore. */
