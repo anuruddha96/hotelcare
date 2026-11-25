@@ -94,7 +94,7 @@ const literalAllow = new Map<string, string>([
   ...identical,
   ['(MRZ)', 'Document standard abbreviation'], ['NTAK / VIZA', 'Names of authorities'],
   ['HUF', 'ISO currency'], ['EUR', 'ISO currency'], ['USD', 'ISO currency'],
-  ['HU', 'ISO country code'], ['MET', 'Weather data provider'], ['CC BY 4.0', 'Required licence attribution'],
+  ['HU', 'ISO country code'], ['MET', 'Weather data provider'], ['MET Norway · CC BY 4.0 ·', 'Required MET Norway licence credit'], ['CC BY 4.0', 'Required licence attribution'],
   ['FOGL_01', 'Official example booking identifier'],
   ['CN=', 'Certificate subject prefix'], ['-----BEGIN CERTIFICATE-----', 'PEM header'],
   ['-----BEGIN PRIVATE KEY-----', 'PEM header'], ['feldolgozasAzonosito:', 'Official XML field name'],
