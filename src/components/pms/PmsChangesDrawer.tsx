@@ -1,3 +1,5 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
+import { useTranslation } from '@/hooks/useTranslation';
 import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
@@ -30,11 +32,11 @@ export interface PmsChangeEvent {
 }
 
 const TYPE_META: Record<string, { icon: any; label: string }> = {
-  checkout_confirmed: { icon: LogOut, label: "Guest checked out" },
-  checkout_cleared:   { icon: Info,    label: "Checkout flag cleared" },
-  status_changed:     { icon: RefreshCw, label: "Room status changed" },
-  occupancy_changed:  { icon: Users,   label: "Guest count changed" },
-  room_newly_occupied:{ icon: UserCheck, label: "Room newly occupied" },
+  checkout_confirmed: { icon: LogOut, label: t('pms.pmsChanges.checkoutConfirmed') },
+  checkout_cleared:   { icon: Info,    label: t('pms.pmsChanges.checkoutCleared') },
+  status_changed:     { icon: RefreshCw, label: t('pms.pmsChanges.roomStatusChanged') },
+  occupancy_changed:  { icon: Users,   label: t('pms.pmsChanges.guestCountChanged') },
+  room_newly_occupied:{ icon: UserCheck, label: t('pms.pmsChanges.newlyOccupied') },
 };
 
 interface Props {
@@ -44,6 +46,8 @@ interface Props {
 }
 
 export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
+  const { t } = useTranslation();
+  const locale = useLocaleFormat();
   const [events, setEvents] = useState<PmsChangeEvent[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -58,7 +62,7 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
       .limit(200);
     setLoading(false);
     if (error) {
-      toast.error(`Failed to load PMS changes: ${error.message}`);
+      toast.error(`${t('pms.pmsChanges.loadFailed')} ${error.message}`);
       return;
     }
     setEvents((data as any[]) ?? []);
@@ -88,7 +92,7 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
         .update({ pms_hold: false, pms_hold_reason: null, pms_hold_event_id: null, updated_at: new Date().toISOString() } as any)
         .eq("id", evt.conflicts_with_assignment_id);
     }
-    toast.success("Change acknowledged");
+    toast.success(t('pms.pmsChanges.acknowledged'));
     setEvents((prev) => prev.map((e) => e.id === evt.id ? { ...e, acknowledged_at: new Date().toISOString(), resolution } : e));
   };
 
@@ -102,26 +106,26 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
             <Icon className={`h-4 w-4 shrink-0 ${evt.is_conflict ? "text-destructive" : "text-muted-foreground"}`} />
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">
-                Room {evt.room_label || "?"} · {meta.label}
+                {t('common.room')} {evt.room_label || "?"} · {t(({checkout_confirmed:'pms.pmsChanges.checkoutConfirmed',checkout_cleared:'pms.pmsChanges.checkoutCleared',status_changed:'pms.pmsChanges.roomStatusChanged',occupancy_changed:'pms.pmsChanges.guestCountChanged',room_newly_occupied:'pms.pmsChanges.newlyOccupied'} as Record<string,string>)[evt.event_type] ?? 'labels.other')}
                 {evt.change_kind && <span className="text-muted-foreground font-normal"> · {evt.change_kind.replace(/_/g, " ")}</span>}
               </div>
               <div className="text-[11px] text-muted-foreground">
-                {formatDistanceToNow(new Date(evt.detected_at))} ago · {evt.source}
+                {formatDistanceToNow(new Date(evt.detected_at), { locale: locale.dateFnsLocale, addSuffix: true })} · {evt.source}
               </div>
             </div>
           </div>
           {evt.is_conflict && !evt.acknowledged_at && (
-            <Badge variant="destructive" className="h-5 text-[10px]">Needs approval</Badge>
+            <Badge variant="destructive" className="h-5 text-[10px]">{t('pms.pmsChanges.approval')}</Badge>
           )}
           {evt.category === "safe" && evt.auto_applied && (
-            <Badge variant="secondary" className="h-5 text-[10px]">Auto-applied</Badge>
+            <Badge variant="secondary" className="h-5 text-[10px]">{t('pms.pmsChanges.autoApplied')}</Badge>
           )}
           {evt.category === "safe" && !evt.auto_applied && !evt.acknowledged_at && (
-            <Badge variant="outline" className="h-5 text-[10px]">Safe</Badge>
+            <Badge variant="outline" className="h-5 text-[10px]">{t('pms.pmsChanges.safe')}</Badge>
           )}
           {evt.acknowledged_at && (
             <Badge variant="outline" className="h-5 text-[10px] gap-1">
-              <CheckCircle2 className="h-3 w-3" /> {evt.resolution || "resolved"}
+              <CheckCircle2 className="h-3 w-3" /> {t(({released:'pms.pmsChanges.released',kept_as_stayover:'pms.pmsChanges.kept',dismissed:'pms.pmsChanges.dismissed'} as Record<string,string>)[evt.resolution || ''] ?? 'pms.pmsChanges.resolvedLower')}
             </Badge>
           )}
         </div>
@@ -136,15 +140,15 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
               <>
                 <Button size="sm" variant="outline" className="h-7 text-xs"
                   onClick={() => resolve(evt, "released")}
-                >Release assignment</Button>
+                >{t('pms.pmsChanges.release')}</Button>
                 <Button size="sm" variant="outline" className="h-7 text-xs"
                   onClick={() => resolve(evt, "kept_as_stayover", true)}
-                >Keep as stayover</Button>
+                >{t('pms.pmsChanges.keep')}</Button>
               </>
             )}
             <Button size="sm" variant="ghost" className="h-7 text-xs"
               onClick={() => resolve(evt, "dismissed")}
-            >Dismiss</Button>
+            >{t('common.dismiss')}</Button>
           </div>
         )}
       </div>
@@ -157,10 +161,10 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
         <SheetHeader className="px-4 pt-4 pb-2 border-b">
           <SheetTitle className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-500" />
-            PMS changes
+            {t('pms.pmsChanges.title')}
             <Button size="sm" variant="ghost" className="ml-auto h-7 px-2 gap-1" onClick={() => void load()} disabled={loading}>
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              <span className="text-xs">Reload</span>
+              <span className="text-xs">{t('pms.pmsChanges.reload')}</span>
             </Button>
           </SheetTitle>
         </SheetHeader>
@@ -169,7 +173,7 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
             {grouped.conflicts.length > 0 && (
               <section>
                 <div className="text-xs font-semibold text-destructive uppercase tracking-wide mb-2">
-                  Conflicts ({grouped.conflicts.length})
+                  {t('pms.pmsChanges.conflicts')} ({grouped.conflicts.length})
                 </div>
                 <div className="space-y-2">{grouped.conflicts.map(row)}</div>
               </section>
@@ -177,7 +181,7 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
             {grouped.updates.length > 0 && (
               <section>
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                  Updates ({grouped.updates.length})
+                  {t('pms.pmsChanges.updates')} ({grouped.updates.length})
                 </div>
                 <div className="space-y-2">{grouped.updates.map(row)}</div>
               </section>
@@ -185,14 +189,14 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
             {grouped.resolved.length > 0 && (
               <section>
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                  Resolved ({grouped.resolved.length})
+                  {t('pms.pmsChanges.resolved')} ({grouped.resolved.length})
                 </div>
                 <div className="space-y-2 opacity-70">{grouped.resolved.slice(0, 30).map(row)}</div>
               </section>
             )}
             {!loading && events.length === 0 && (
               <div className="text-center text-sm text-muted-foreground py-10">
-                No PMS changes detected yet.
+                {t('pms.pmsChanges.empty')}
               </div>
             )}
           </div>
