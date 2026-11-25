@@ -13,6 +13,7 @@ export const stayGuestLabels: Record<string, [string,string]> = {
   'pms.stayGuest.repairBirthPlace':['Place of birth is too long. Check the correct place of birth on the document.','A születési hely túl hosszú. Ellenőrizd a pontos születési helyet az okmányon.'],
   'pms.stayGuest.repairUnknown':['Check the guest details against the document. If the problem remains, contact your manager.','Ellenőrizd a vendégadatokat az okmány alapján. Ha a hiba továbbra is fennáll, jelezd a vezetődnek.'],
   'pms.stayGuest.repairRetryFailed':['Could not send the corrected details. Check the saved information and try again, or contact your manager.','A javított adatok küldése sikertelen. Ellenőrizd a mentett adatokat, próbáld újra, vagy jelezd a vezetődnek.'],
+  'pms.stayGuest.rosterLoadFailed':['Could not load the guest details. Refresh and try again, or contact your manager.','A vendégadatok betöltése sikertelen. Frissítsd az oldalt és próbáld újra, vagy jelezd a vezetődnek.'],
   'pms.stayGuest.actionFailed':['The change could not be saved. Refresh and try again. If the problem remains, contact your manager.','A módosítás mentése sikertelen. Frissítsd az oldalt és próbáld újra. Ha a hiba fennmarad, jelezd a vezetődnek.'],
   'pms.stayGuest.details':['Details','Adatok'],
   'pms.stayGuest.undoArrival':['Undo check-in','Bejelentkezés visszavonása'],

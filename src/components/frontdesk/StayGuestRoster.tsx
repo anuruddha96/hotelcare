@@ -43,6 +43,8 @@ export function useStayGuestRoster(
   reservationId: string, hotelId: string | null, open: boolean,
   mode: 'arrive' | 'depart', roomId?: string | null, vizaRequired = false, occurredAt?: string | null,
 ): GuestRosterControl {
+  const { t } = useTranslation();
+  const loadErrorMessage = t('pms.stayGuest.rosterLoadFailed');
   const [enabled, setEnabled] = useState(false);
   const [perGuestLifecycle, setPerGuestLifecycle] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -77,9 +79,9 @@ export function useStayGuestRoster(
       setPerGuestLifecycle(true);
       setGuests([]);
       setSelectedIds([]);
-      toast.error(t('pms.stayGuest.actionFailed'));
+      toast.error(loadErrorMessage);
     } finally { setLoading(false); }
-  }, [hotelId,mode,open,reservationId,roomId,vizaRequired]);
+  }, [hotelId,mode,open,reservationId,roomId,vizaRequired,loadErrorMessage]);
   useEffect(() => { void refresh(); }, [refresh]);
   const eligible = useMemo(() => guests.filter((g) => g.stay_state === (mode === 'arrive' ? 'expected' : 'in_house')), [guests,mode]);
   const incompleteSelected = useMemo(() => guests.filter((g) => perGuestLifecycle ? selectedIds.includes(g.guest_id) : g.stay_state !== 'void')
