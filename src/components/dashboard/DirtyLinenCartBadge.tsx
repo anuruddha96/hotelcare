@@ -211,14 +211,14 @@ export function DirtyLinenCartBadge() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
+        <Button variant="ghost" size="icon" aria-label={`${t('linen.myCart')} (${totalItems})`} className="relative h-11 w-11 shrink-0 border border-border/60 bg-background sm:h-10 sm:w-10 sm:border-transparent sm:bg-transparent">
           <ShoppingCart className="h-5 w-5" />
           {totalItems > 0 && (
             <Badge 
-              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
+              className="pointer-events-none absolute top-0 right-0 h-5 min-w-5 flex items-center justify-center px-1 py-0 text-[10px] leading-none tabular-nums ring-2 ring-background"
               variant="destructive"
             >
-              {totalItems}
+              {totalItems > 999 ? '999+' : totalItems}
             </Badge>
           )}
         </Button>
