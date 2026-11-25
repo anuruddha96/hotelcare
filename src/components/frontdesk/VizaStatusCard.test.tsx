@@ -14,8 +14,13 @@ vi.mock('@/integrations/supabase/client', () => ({
     from: mocks.from,
   },
 }));
+// Keys come back as themselves; the two texts with placeholders keep them so the filled values can be checked.
+const templates: Record<string, string> = {
+  'pms.viza.outageQueued': 'pms.viza.outageQueued {count}',
+  'pms.viza.outageNextTryAt': 'pms.viza.outageNextTryAt {time}',
+};
 vi.mock('@/hooks/useTranslation', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string) => templates[key] ?? key }),
 }));
 
 describe('VizaStatusCard failed enqueue recovery', () => {
@@ -73,13 +78,33 @@ function reportFixture(settings: Record<string, unknown> = {}, events: Record<st
 }
 describe('VIZA validation report', () => {
   it('shows current connection failure instead of stale OK, with Budapest times', async () => {
-    mocks.invoke.mockResolvedValue({ data: reportFixture({ last_error: 'Connection failed' }), error: null });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-24T22:15:00Z'));
+    try {
+      mocks.invoke.mockResolvedValue({ data: { ...reportFixture({ last_error: 'Connection failed' }), queued: 2 }, error: null });
+      render(<VizaStatusCard hotelId="hotel-01" report />);
+      expect(await screen.findByText('pms.viza.notReachable')).toBeInTheDocument();
+      expect(screen.queryByText('OK')).not.toBeInTheDocument();
+      expect(screen.getByText(/pms.viza.lastSuccessfulCheck: .*23:04:01/)).toBeInTheDocument();
+      expect(screen.getByText(/pms.viza.lastAttempt: .*23:14:01.*ntak.vizaState.failed/)).toBeInTheDocument();
+      // Plain words first: desk keeps working, how many reports wait, next automatic try, what to do.
+      const alert = screen.getByText('pms.viza.outageTitle').closest('[role="alert"]') as HTMLElement;
+      expect(alert).toHaveTextContent('pms.viza.outageDesk');
+      expect(alert).toHaveTextContent('pms.viza.outageQueued 2');
+      expect(alert).toHaveTextContent('pms.viza.outageNextTryAt 23:24');
+      expect(alert).toHaveTextContent('pms.viza.outageAction');
+      // The technical error stays visible for support.
+      expect(alert).toHaveTextContent('pms.viza.technicalDetails: Connection failed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('says nothing is waiting and hides a next try that is long past', async () => {
+    mocks.invoke.mockResolvedValue({ data: reportFixture({ last_error: 'Connection failed', updated_at: '2020-01-01T00:00:00Z' }), error: null });
     render(<VizaStatusCard hotelId="hotel-01" report />);
-    expect(await screen.findByText('pms.viza.notReachable')).toBeInTheDocument();
-    expect(screen.queryByText('OK')).not.toBeInTheDocument();
-    expect(screen.getByText(/pms.viza.lastSuccessfulCheck: .*23:04:01/)).toBeInTheDocument();
-    expect(screen.getByText(/pms.viza.lastAttempt: .*23:14:01.*ntak.vizaState.failed/)).toBeInTheDocument();
-    expect(screen.getByText('pms.viza.unreachable')).toBeInTheDocument();
+    const alert = (await screen.findByText('pms.viza.outageTitle')).closest('[role="alert"]') as HTMLElement;
+    expect(alert).toHaveTextContent('pms.viza.outageNothingQueued');
+    expect(alert).not.toHaveTextContent('pms.viza.outageNextTryAt');
   });
   it('explains warning flags and tells staff to notify the operator', async () => {
     mocks.invoke.mockResolvedValue({ data: reportFixture({ last_status_code: 'WARNING|VIZA-OFFLINE|FUTURE-FLAG' }), error: null });

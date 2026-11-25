@@ -9,7 +9,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Copy, Landmark, Loader2, Settings2, TriangleAlert, WifiOff } from 'lucide-react';
+import { CheckCircle2, Clock, Copy, Info, Landmark, Loader2, RefreshCw, Settings2, TriangleAlert, WifiOff } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 
@@ -154,7 +154,7 @@ function Receipt({ id }: { id: string }) {
 
 export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; report?: boolean }) {
   const { t } = useTranslation();
-  const { formatRecentTime: budapestTime } = useLocaleFormat(zone);
+  const { formatRecentTime: budapestTime, formatTime } = useLocaleFormat(zone);
   const [failed, setFailed] = useState(false);
   const [status, setStatus] = useState<VizaStatus | null>(null);
   const [queueFailures, setQueueFailures] = useState<VizaQueueFailure[]>([]);
@@ -246,6 +246,11 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
 
   const [code, ...flags] = (s?.last_status_code ?? '').split('|').map(value => value.trim()).filter(Boolean);
   const unreachable = !!(s?.enabled && s.last_error);
+  // The worker runs every 10 minutes; the last failed attempt is the settings row's updated_at.
+  // Show the next try only while it is still ahead (or just due), never a time long past.
+  const lastAttemptMs = unreachable && s?.updated_at ? Date.parse(s.updated_at) : NaN;
+  const nextTry = Number.isFinite(lastAttemptMs) && lastAttemptMs + 10 * 60_000 > Date.now() - 60_000
+    ? new Date(lastAttemptMs + 10 * 60_000) : null;
   const warning = !!s?.enabled && !unreachable && code === 'WARNING';
   const statusTone = !s?.enabled ? 'secondary' : unreachable ? 'destructive'
     : code === 'OK' ? 'default' : warning ? 'outline' : code ? 'destructive' : 'outline';
@@ -278,13 +283,24 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
         {flags.map((flag, index) => <p key={flag + index}>{knownFlags.has(flag) ? t('pms.viza.flag.' + flag) : flag}</p>)}
         {(code === 'WARNING' || code === 'ERROR') && <p className="font-medium">{t('pms.viza.notifyOperator')}</p>}
       </div>}
-      {/* The THF cannot be reached: say so in plain words, and that nothing is lost (validation case 2.6). */}
+      {/* The THF cannot be reached (validation case 2.6). Plain words first: the desk keeps working,
+          nothing is lost, when the next automatic try is and what to do; the raw error stays visible
+          underneath for support. While the THF is down the worker sends nothing, so queued reports keep
+          no back-off and go out at the first run after the connection is back. */}
       {s?.enabled && s.last_error && (
-        <div role="alert" className="mt-1.5 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200" data-training="fd-viza-unreachable">
-          <WifiOff className="mt-px h-4 w-4 shrink-0" />
-          <div className="min-w-0">
-            <p className="font-medium">{t('pms.viza.unreachable')}</p>
-            <p className="truncate opacity-80" title={s.last_error}>{s.last_error}</p>
+        <div role="alert" className="mt-1.5 flex items-start gap-2.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200" data-training="fd-viza-unreachable">
+          <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-semibold">{t('pms.viza.outageTitle')}</p>
+            <p className="flex items-start gap-1.5"><CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />{t('pms.viza.outageDesk')}</p>
+            <p className="flex items-start gap-1.5"><Clock className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {status.queued > 0 ? t('pms.viza.outageQueued').replace('{count}', String(status.queued)) : t('pms.viza.outageNothingQueued')}
+            </p>
+            {nextTry && <p className="flex items-start gap-1.5 font-medium"><RefreshCw className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />{t('pms.viza.outageNextTryAt').replace('{time}', formatTime(nextTry))}</p>}
+            <p className="flex items-start gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />{t('pms.viza.outageAction')}</p>
+            <p className="mt-1.5 break-words border-t border-amber-200 pt-1.5 text-[11px] opacity-80 dark:border-amber-800">
+              <span className="font-medium">{t('pms.viza.technicalDetails')}:</span> {s.last_error}
+            </p>
           </div>
         </div>
       )}
