@@ -21,7 +21,7 @@ import { setTabHotel } from '@/lib/tabHotel';
 
 
 export function HotelSwitcher({ mode = 'compact' }: { mode?: 'compact' | 'banner' }) {
-  const { language } = useTranslation();
+  const { t } = useTranslation();
   const { profile, applyAssignedHotel } = useAuth();
   const { hotels } = useTenant();
   const navigate = useNavigate();
@@ -37,11 +37,7 @@ export function HotelSwitcher({ mode = 'compact' }: { mode?: 'compact' | 'banner
 
   const staffRole = !!profile && ['maintenance', 'maintenance_manager', 'housekeeping'].includes(profile.role);
   const banner = staffRole && mode === 'banner';
-  const labels = language === 'es'
-    ? { change: 'Cambiar hotel', current: 'Hotel de trabajo', choose: 'Elija su hotel de trabajo', scope: 'Solo hoteles de su organización' }
-    : language === 'hu'
-      ? { change: 'Hotelváltás', current: 'Jelenlegi munkahely', choose: 'Válasszon hotelt', scope: 'Csak a saját szervezetének hoteljei' }
-      : { change: 'Change hotel', current: 'Current work hotel', choose: 'Choose your work hotel', scope: 'Hotels in your organization only' };
+  const labels = { change: t('reception.shell.changeHotel'), current: t('reception.shell.workHotel'), choose: t('reception.shell.chooseHotel'), scope: t('reception.shell.hotelScope') };
   // Operational staff can switch work venues, but never organizations.
   if (!profile || !['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager', 'maintenance', 'maintenance_manager', 'housekeeping'].includes(profile.role)) {
     return null;
@@ -58,7 +54,7 @@ export function HotelSwitcher({ mode = 'compact' }: { mode?: 'compact' | 'banner
     if (hotels.some(h => h.hotel_id === hotelId && (currentHotel === h.hotel_id || currentHotel === h.hotel_name))) return;
     const selectedHotelData = hotels.find(h => h.hotel_id === hotelId);
     const hotelName = selectedHotelData?.hotel_name || hotelId;
-    if (!selectedHotelData) { toast.error('Hotel is not available in your organization'); return; }
+    if (!selectedHotelData) { toast.error(t('reception.shell.hotelUnavailable')); return; }
 
     // Curtain first: the visible numbers belong to the previous property and
     // must disappear before anything else happens.
@@ -68,7 +64,7 @@ export function HotelSwitcher({ mode = 'compact' }: { mode?: 'compact' | 'banner
     // to leave people staring at "Loading this property's data…" forever.
     const safety = window.setTimeout(() => {
       setSwitchingTo(null);
-      toast.error('Switching is taking longer than usual — please try again');
+      toast.error(t('reception.shell.switchSlow'));
     }, 8000);
 
     // Remember the choice for THIS tab only, so a second window can stay on a
@@ -99,7 +95,7 @@ export function HotelSwitcher({ mode = 'compact' }: { mode?: 'compact' | 'banner
 
       setCurrentHotel(hotelId);
       applyAssignedHotel(hotelId);
-      toast.success(`Switched to ${hotelName}`);
+      toast.success(t('reception.shell.switched').replace('{name}', hotelName));
       if (staffRole) window.dispatchEvent(new Event('hotelcare:staff-work-venue-switched'));
 
       // A hotel-scoped revenue detail route still points at the OLD property,
@@ -117,7 +113,7 @@ export function HotelSwitcher({ mode = 'compact' }: { mode?: 'compact' | 'banner
       window.clearTimeout(safety);
       setSwitchingTo(null);
       if (!staffRole) setTabHotel(organizationSlug, currentHotel);
-      toast.error(error?.message || 'Failed to switch hotel');
+      toast.error(error?.message || t('reception.shell.switchHotelFailed'));
       console.error(error);
     }
   };
@@ -166,7 +162,7 @@ export function HotelSwitcher({ mode = 'compact' }: { mode?: 'compact' | 'banner
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={6} className={banner ? "w-[min(92vw,340px)]" : "w-64 max-w-[92vw]"}>
-        <DropdownMenuLabel>{staffRole ? labels.choose : 'Switch Hotel'}</DropdownMenuLabel>
+        <DropdownMenuLabel>{staffRole ? labels.choose : t('reception.shell.switchHotel')}</DropdownMenuLabel>
         {staffRole && <p className="px-2 pb-1 text-xs text-muted-foreground">{labels.scope}</p>}
         <DropdownMenuSeparator />
         {hotels.map((hotel) => (
