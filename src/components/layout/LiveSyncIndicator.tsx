@@ -1,3 +1,5 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
+import { useTranslation } from '@/hooks/useTranslation';
 import { useEffect, useState } from "react";
 import { CheckCircle2, AlertTriangle, XCircle, Loader2, Radio, RefreshCw, Info } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -8,13 +10,15 @@ import { useLiveSync, type TaskName } from "@/contexts/LiveSyncContext";
 import { cn } from "@/lib/utils";
 
 const TASK_LABELS: Record<TaskName, string> = {
-  pms: "PMS rooms",
-  revenue: "Revenue rates",
-  checkouts: "Auto-release checkouts",
+  pms: translate('pms.pmsSync.taskRooms'),
+  revenue: translate('pms.pmsSync.taskRates'),
+  checkouts: translate('pms.pmsSync.taskCheckouts'),
   pms_changes: "PMS changes",
 };
 
 export function LiveSyncIndicator() {
+  const { t: translate } = useTranslation();
+  const locale = useLocaleFormat();
   const { enabled, tasks, refresh, openChangesDrawer } = useLiveSync();
   const [, setTick] = useState(0);
 
@@ -46,26 +50,26 @@ export function LiveSyncIndicator() {
   let Icon = Radio;
   let pillClass = "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400";
   if (anySyncing) {
-    label = "Syncing…";
+    label = translate('pms.pmsSync.syncingUpper');
     Icon = Loader2;
     dotClass = "bg-primary animate-pulse";
     pillClass = "border-primary/30 bg-primary/5 text-primary";
   } else if (anyError) {
-    label = "Sync failed";
+    label = translate('pms.pmsSync.failed');
     Icon = XCircle;
     dotClass = "bg-destructive";
     pillClass = "border-destructive/30 bg-destructive/5 text-destructive";
   } else if (anyPartial) {
-    label = "Partial sync";
+    label = translate('pms.pmsSync.partial');
     Icon = AlertTriangle;
     dotClass = "bg-amber-500";
     pillClass = "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400";
   } else if (lastAt > 0) {
-    label = `Live · ${formatDistanceToNow(new Date(lastAt))} ago`;
+    label = `${translate('pms.pmsSync.live')} · ${formatDistanceToNow(new Date(lastAt), { locale: locale.dateFnsLocale, addSuffix: true })}`;
     Icon = CheckCircle2;
     dotClass = "bg-emerald-500";
   } else {
-    label = "Live · ready";
+    label = translate('pms.pmsSync.ready');
     dotClass = "bg-muted-foreground/50";
     pillClass = "border-border bg-muted/30 text-muted-foreground";
   }
@@ -90,7 +94,7 @@ export function LiveSyncIndicator() {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-2">
         <div className="px-2 pt-1 pb-2 flex items-center justify-between">
-          <div className="text-sm font-semibold">Live data sync</div>
+          <div className="text-sm font-semibold">{translate('pms.pmsSync.liveTitle')}</div>
           <Button
             size="sm"
             variant="ghost"
@@ -99,7 +103,7 @@ export function LiveSyncIndicator() {
             disabled={anySyncing}
           >
             <RefreshCw className={cn("h-3.5 w-3.5", anySyncing ? "animate-spin" : "")} />
-            <span className="text-xs">Refresh all</span>
+            <span className="text-xs">{translate('pms.pmsSync.refreshAll')}</span>
           </Button>
         </div>
         <div className="space-y-1">
@@ -142,15 +146,15 @@ export function LiveSyncIndicator() {
                 <div className="flex items-center gap-2 min-w-0">
                   <TaskIcon className={cn("h-3.5 w-3.5 shrink-0", colorClass, isSync ? "animate-spin" : "")} />
                   <div className="min-w-0">
-                    <div className="text-xs font-medium truncate">{TASK_LABELS[t.key]}</div>
+                    <div className="text-xs font-medium truncate">{translate(({pms:'pms.pmsSync.taskRooms',revenue:'pms.pmsSync.taskRates',checkouts:'pms.pmsSync.taskCheckouts',pms_changes:'pms.pmsChanges.title'} as const)[t.key])}</div>
                     <div className="text-[10px] text-muted-foreground truncate">
                       {isSync
-                        ? "syncing…"
+                        ? translate('pms.pmsSync.syncingLower')
                         : isUnsupported
-                        ? "not available in Previo"
+                        ? translate('pms.pmsSync.unsupported')
                         : t.lastAt
-                        ? `${formatDistanceToNow(t.lastAt)} ago`
-                        : "not synced yet"}
+                        ? formatDistanceToNow(t.lastAt, { locale: locale.dateFnsLocale, addSuffix: true })
+                        : translate('pms.pmsSync.notSynced')}
                       {isErr && t.message ? ` · ${t.message}` : ""}
                     </div>
                   </div>
@@ -158,12 +162,12 @@ export function LiveSyncIndicator() {
                 <div className="flex items-center gap-1 shrink-0">
                   {t.key === "pms" && t.meta?.checkouts != null && (
                     <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-                      {t.meta.checkouts} checkouts
+                      {translate('pms.pmsSync.checkoutCount').replace('{count}', String(t.meta.checkouts))}
                     </Badge>
                   )}
                   {t.key === "checkouts" && t.meta?.marked != null && (
                     <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-                      {t.meta.marked} released
+                      {translate('pms.pmsSync.releaseCount').replace('{count}', String(t.meta.marked))}
                     </Badge>
                   )}
                   {!isUnsupported && (
@@ -173,7 +177,7 @@ export function LiveSyncIndicator() {
                       className="h-6 w-6 p-0"
                       onClick={() => void refresh(t.key)}
                       disabled={isSync}
-                      title="Refresh"
+                      title={translate('pms.fd.refresh')}
                     >
                       <RefreshCw className={cn("h-3 w-3", isSync ? "animate-spin" : "")} />
                     </Button>
