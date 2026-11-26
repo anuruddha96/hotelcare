@@ -46,7 +46,7 @@ export function passportBirthplaceCandidates(text:string): string[] {
       if(candidate) found.add(candidate);
       continue;
     }
-    let next=lines[i+1]??'';
+    const next=lines[i+1]??'';
     // Some OCR engines split the translated header onto its own line.
     if(placeLabel.test(fold(next)) && !otherHeader.test(fold(next))) continue; // handled independently
     if(composite && !/^(?:M|F|X|<)(?:\s*[/|]\s*(?:M|F|X))?\s+/i.test(next)) continue;
