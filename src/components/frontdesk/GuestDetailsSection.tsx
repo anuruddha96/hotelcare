@@ -665,7 +665,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
           {draft && <Button type="button" size="sm" variant="ghost" className="min-h-10 w-full text-muted-foreground" disabled={saving} onClick={onCancelDraft}>{t('common.cancel')}</Button>}
         </div>
       )}
-      <IdScanDialog open={scanOpen} onOpenChange={setScanOpen} onApply={applyScan} />
+      <IdScanDialog open={scanOpen} onOpenChange={setScanOpen} onApply={applyScan} previousDocumentType={guest?.id_document_type} />
     </section>
   );
 }
