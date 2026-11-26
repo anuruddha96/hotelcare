@@ -174,7 +174,7 @@ serve(async (req) => {
     }
     // A queued notification is not a delivered push. The board may query its
     // own receipt status asynchronously, without slowing the next room mark.
-    return json(200, { ok: true, id: data.id, housekeeping_informed: false, ...(undoToken ? { undo_token: undoToken } : {}) });
+    return json(200, { ok: true, id: data.id, housekeeping_informed: false, ...(undoToken ? { undo_token: undoToken, undo_expires_at: new Date(Date.parse(data.created_at) + 60_000).toISOString() } : {}) });
   } catch (e: any) {
     return json(200, { ok: false, error: e?.message ?? String(e) });
   }
