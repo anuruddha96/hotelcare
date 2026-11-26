@@ -582,7 +582,7 @@ export function HousekeepingStaffView() {
                 <div key={assignment.id} id={`housekeeping-assignment-${assignment.id}`} className="scroll-mt-4" data-training="assigned-room-card" data-training-room-status={assignment.status}>
                 {(() => {
                   const signal = breakfastSignalForAssignment(assignment, breakfast.signals.get(assignment.room_id), breakfast.now);
-                  return signal ? <HousekeepingBreakfastNotice key={signal.id} signal={signal} now={breakfast.now} onClosed={breakfast.refresh} /> : null;
+                  return signal ? <HousekeepingBreakfastNotice key={signal.id} signal={signal} roomNumber={assignment.rooms?.room_number ?? ''} now={breakfast.now} onClosed={breakfast.refresh} /> : null;
                 })()}
                 <div data-training={assignment.status === 'in_progress' ? 'active-assigned-room' : undefined}>
                 <ErrorBoundary
@@ -591,9 +591,9 @@ export function HousekeepingStaffView() {
                   fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
                 >
                   {isHotelMemoriesBudapest(assignment.rooms?.hotel) ? (
-                    <HotelMemoriesRoomGate assignment={assignment} onStatusUpdate={handleStatusUpdate} />
+                    <HotelMemoriesRoomGate assignment={assignment} onStatusUpdate={handleStatusUpdate} breakfastKnockReminder={activeSignals.has(assignment.room_id)} />
                   ) : (
-                    <AssignedRoomCard assignment={assignment} onStatusUpdate={handleStatusUpdate} />
+                    <AssignedRoomCard assignment={assignment} onStatusUpdate={handleStatusUpdate} breakfastKnockReminder={activeSignals.has(assignment.room_id)} />
                   )}
                 </ErrorBoundary>
                 </div>
