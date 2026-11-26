@@ -3,12 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GuestDetailsSection, type GuestVizaRow } from './GuestDetailsSection';
 import { useStayGuestRoster } from './StayGuestRoster';
 
-const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn(), apply: vi.fn() }));
+const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn(), apply: vi.fn(), language: 'en' }));
 import type { MrzReadResult } from '@/lib/idScan/mrz';
 import type { ScanApplyOutcome } from './IdScanDialog';
 import type { OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 vi.mock('@/integrations/supabase/client', () => ({ supabase: mocks }));
-vi.mock('@/hooks/useTranslation', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('@/hooks/useTranslation', () => ({ useTranslation: () => ({
+  language: mocks.language,
+  t: (key: string) => key === 'pms.guests.email' ? (mocks.language === 'hu' ? 'E-mail' : 'Email') : key,
+}) }));
 vi.mock('@/components/frontdesk/IdScanDialog', () => ({ IdScanDialog: ({ onApply }: { onApply: (result: MrzReadResult, optical?: OpticalGuestFields, confirmNameChange?: boolean) => ScanApplyOutcome | void }) => { mocks.apply.mockImplementation(onApply); return null; } }));
 vi.mock('@/components/guests/GuestSearchSelect', () => ({ GuestSearchSelect: () => null }));
 vi.mock('@/lib/pmsLifecycle', () => ({ addStayGuest: vi.fn(), guestTransitionReservation: vi.fn() }));
@@ -29,7 +32,7 @@ const getNationality = () => {
 };
 const findNationality = () => waitFor(getNationality);
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); mocks.language = 'en'; });
 
 describe('in-dialog guest registration repair', () => {
   it('opens an incomplete guest form, saves the repair and keeps the editor accessible', async () => {
@@ -423,11 +426,17 @@ describe('verified duplicate profile selection', () => {
       { guest_id: 'guest-a', first_name: 'Eva', last_name: 'Or', date_of_birth: '1990-01-01', email: 'existing@example.com', linked: false },
       { guest_id: 'guest-b', first_name: 'Éva', last_name: 'Őr', date_of_birth: '1990-01-01', email: null, linked: false },
     ] });
-    render(<GuestDetailsSection guestId={null} vizaReservationId="res-1" occurredAt="2026-11-24T10:00:00Z" draft={{ result: readResult('TEST123'), optical: manualBirth }} onRegister={onRegister} />);
+    const draft = { result: readResult('TEST123'), optical: manualBirth };
+    const props = { guestId: null, vizaReservationId: 'res-1', occurredAt: '2026-11-24T10:00:00Z', draft, onRegister };
+    const { rerender } = render(<GuestDetailsSection {...props} />);
     fireEvent.click(await screen.findByRole('checkbox', { name: 'pms.express.verify' }));
     fireEvent.click(screen.getByRole('button', { name: 'pms.express.confirmGuest' }));
-    expect(await screen.findByRole('button', { name: /existing@example.com/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Email: existing@example.com/ })).toBeInTheDocument();
+    mocks.language = 'hu';
+    rerender(<GuestDetailsSection {...props} />);
+    expect(screen.getByRole('button', { name: /E-mail: existing@example.com/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /pms.express.noContactEmail/ })).toBeInTheDocument();
+    expect(onRegister).toHaveBeenCalledTimes(1);
   });
 
   it('requires an explicit choice and sends only the selected profile and optional updated contact', async () => {
