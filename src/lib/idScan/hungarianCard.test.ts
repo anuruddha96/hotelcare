@@ -26,9 +26,9 @@ describe('Hungarian ID specimen printed regions',()=>{
     expect(rowHasLabel('mother_name',"Mother ’ s maiden name")).toBe(true);
     expect(rowHasLabel('mother_name','Anyja születési neve')).toBe(true);
   });
-  it('does not invent a split for ambiguous names',()=>{
-    expect(parsePrintedRow('birth_pair','MINTA ÉVA ANNA')).toEqual({});
-    expect(parsePrintedRow('mother_name','ANNA')).toEqual({});
+  it('offers a reviewable split for verified Hungarian name rows',()=>{
+    expect(parsePrintedRow('birth_pair','MINTA ÉVA ANNA')).toEqual({birth_last_name:'Minta',birth_first_name:'Éva Anna'});
+    expect(parsePrintedRow('mother_name','ANNA')).toEqual({mother_name:'Anna'});
     expect(rowHasLabel('mother_name','Date of birth')).toBe(false);
   });
   it('locates a card on a dark border and maps rows inside it',()=>{
