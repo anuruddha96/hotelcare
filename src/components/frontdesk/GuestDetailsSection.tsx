@@ -274,7 +274,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       const normalizeNumber = (value?: string | null) => value?.trim().toUpperCase() || '';
       const number = normalizeNumber(result.fields.documentNumber);
       const previous = [normalizeNumber(scan?.fields.okmanyAzonositoSzam), normalizeNumber(g.id_document_number)].filter(Boolean);
-      const changedDocument = !!number && previous.length > 0 && !previous.includes(number) && !previous.includes(normalizeNumber(patch.id_document_number));
+      const changedDocument = (!!number && previous.length > 0 && !previous.includes(number) && !previous.includes(normalizeNumber(patch.id_document_number))) || (!!g.id_document_type && g.id_document_type !== result.fields.documentType && previous.length > 0);
       const mother = proposals.mother_name?.trim().split(/\s+/);
       const currentReview = g.viza_review?.reservation_id === vizaReservationId ? g.viza_review : {};
       const updated: GuestVizaRow = {
