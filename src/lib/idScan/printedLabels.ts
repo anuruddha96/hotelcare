@@ -45,8 +45,8 @@ function cleanValue(raw:string,field:PrintedLabel):string|undefined {
   if(!s||mrz(s)||hits(s).length||/^(?:NA|N\/A|NONE|UNKNOWN|M|F|X)$/i.test(s)||ISO3_TO_ISO2[s])return;
   if(s.replace(/[^\p{L}]/gu,'').length<2)return;
   if(field==='birth_place') {
-    if(!/^[\p{L}\p{M}][\p{L}\p{M}\d ,.'’()/\-–]{1,199}$/u.test(s))return;
-  } else if(!/^[\p{L}\p{M}][\p{L}\p{M} .,'’/\-]{1,79}$/u.test(s))return;
+    if(!/^[\p{L}\p{M}][\p{L}\p{M}\d ,.'’()/–-]{1,199}$/u.test(s))return;
+  } else if(!/^[\p{L}\p{M}][\p{L}\p{M} .,'’/-]{1,79}$/u.test(s))return;
   return s;
 }
 export type PrintedCandidate={field:PrintedLabel;value:string;rule:'inline'|'next-line'|'composite'};
