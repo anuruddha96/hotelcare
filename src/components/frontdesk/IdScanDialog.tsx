@@ -17,6 +17,7 @@ import { OcrSession } from '@/lib/idScan/ocrSession';
 import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRows, needsHungarianPrintedFallback, rowHasLabel, corroboratedMotherName, mergeHungarianFallback } from '@/lib/idScan/hungarianCard';
 import { shouldAdvanceFront, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
+import { suggestPassportAbsences, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
 import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { assessReadiness, type Readiness } from '@/lib/idScan/autoCapture';
 import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
@@ -59,7 +60,7 @@ export type ScanApplyOutcome = 'applied' | 'identity-mismatch' | 'confirm-name-c
 interface IdScanDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onApply: (result: MrzReadResult, optical?: OpticalGuestFields, confirmNameChange?: boolean) => ScanApplyOutcome | void;
+  onApply: (result: MrzReadResult, optical?: OpticalGuestFields, confirmNameChange?: boolean, confirmedAbsences?: PassportAbsences) => ScanApplyOutcome | void;
 }
 
 type Phase = 'camera' | 'reading' | 'front_preview' | 'review' | 'failed';
@@ -254,6 +255,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [flipPrompt, setFlipPrompt] = useState(false);
   const [confidence, setConfidence] = useState<number | null>(null);
   const [opticalFields, setOpticalFields] = useState<OpticalGuestFields>({});
+  const [passportAbsences, setPassportAbsences] = useState<PassportAbsences>({});
   const [opticalReading, setOpticalReading] = useState(false);
   const [opticalIssue, setOpticalIssue] = useState(false);
   const [numberReview, setNumberReview] = useState<{ needsReview: boolean; printed: string | null }>({ needsReview: false, printed: null });
@@ -376,7 +378,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setConfidence(null);
     setFrontConfidence(null);
     clearBackdrop();
-    setOpticalFields({});
+    setOpticalFields({}); setPassportAbsences({});
     setOpticalReading(false);
     setOpticalIssue(false);
     setNumberReview({ needsReview: false, printed: null });
@@ -429,7 +431,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   // Passports are recognised from their bio-page code lines (TD3), so the
   // first capture is enough. ID cards require a front capture BEFORE TD1/TD2
   // code lines on the back. Never accept the back as scan step one.
-  const readPrinted = async (session: OcrSession, frame: HTMLCanvasElement, idBack: boolean, run: number) => {
+  const readPrinted = async (session: OcrSession, frame: HTMLCanvasElement, idBack: boolean, run: number, passport = false) => {
     const texts: string[] = [];
     let score: number | null = null;
     let positiveScore: number | null = null;
@@ -449,7 +451,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           score = Math.max(score ?? 0, reading.confidence);
           if (looksLikeIdFront(reading.text)) positiveScore = Math.max(positiveScore ?? 0, reading.confidence);
         }
-        if (!idBack && positiveScore !== null && positiveScore > 90) break;
+        if (!passport && !idBack && positiveScore !== null && positiveScore > 90) break;
         // Read both passes on a Hungarian back so fallback values can be corroborated.
       } catch { /* retain any earlier successful pass */ }
       finally { wipe(canvas); }
@@ -547,6 +549,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       return;
     }
     setResult(parsed);
+    setPassportAbsences({});
     setConfidence(scanConfidence(ocrConfidence));
     setNumberReview(documentNumberReview(parsed, front.text));
     setFlipPrompt(false);
@@ -593,7 +596,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           ? await readPrintedZone(copy, geometry, hungarian, parsed.fields.mrzFirstName, run) : null;
         // Agreed readings of the located rows stand on their own: a single
         // whole-picture reading must not overwrite or complete them.
-        const { texts } = located ? { texts: ['located'] } : await readPrinted(frontSession, copy, hungarian, run);
+        const { texts, score } = located ? { texts: ['located'], score: null } : await readPrinted(frontSession, copy, hungarian, run, action === 'passport_complete');
         let extracted = located
           ? { ...opticalGuestFields(parsed, frontText, ''), ...located }
           : hungarian
@@ -613,6 +616,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         }
         if (scanRunRef.current === run) {
           setOpticalFields(extracted);
+          setPassportAbsences(suggestPassportAbsences(parsed, extracted, texts, score));
           setOpticalIssue(!texts.length || (hungarian && !complete(extracted)));
           setReviewAcknowledged(false);
         }
@@ -958,7 +962,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setRevealed(true);
     mrzSession.reset();
     setResult(null); clearFront(); clearBackdrop(); setFrontAssessment(null);
-    setFlipPrompt(false); setConfidence(null); setFrontConfidence(null); setOpticalFields({}); setOpticalReading(false); setOpticalIssue(false); setNumberReview({ needsReview: false, printed: null });
+    setFlipPrompt(false); setConfidence(null); setFrontConfidence(null); setOpticalFields({}); setPassportAbsences({}); setOpticalReading(false); setOpticalIssue(false); setNumberReview({ needsReview: false, printed: null });
     setFrontCaptureAttempted(false); setReviewAcknowledged(false);
     setSide('front'); setSource('camera'); setTyped(''); setFailReason(null);
     setPhase('camera');
@@ -982,7 +986,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setReviewAcknowledged(false);
     setPhase('camera');
   };
+  const hasPassportAbsences = PASSPORT_ABSENCE_KEYS.some(key => passportAbsences[key]);
   const needsReviewAcknowledgement = !!result && (
+    hasPassportAbsences ||
     !result.valid || result.unknownCountry || numberReview.needsReview || (confidence !== null && confidence <= 90) || Object.keys(opticalFields).length > 0 ||
     (result.fields.documentType === 'id_card' && frontAssessment?.status !== 'matched')
   );
@@ -1119,6 +1125,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               <dt className="text-muted-foreground">{t('pms.scan.expiry')}</dt><dd>{result.fields.expiryDate ?? '—'}</dd>
             </dl>
             </DocumentReviewPreview>
+            {hasPassportAbsences && !opticalReading && <div className="rounded-md border border-border bg-muted/30 p-2.5 text-xs space-y-1.5">
+              <p className="font-medium">{t('pms.scan.absenceSuggested')}</p>
+              {PASSPORT_ABSENCE_KEYS.filter(key => passportAbsences[key]).map(key => <label key={key} className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={true} onCheckedChange={() => { setPassportAbsences(current => { const next = {...current}; delete next[key]; return next; }); setReviewAcknowledged(false); }} />
+                <span>{t(({birth_name_absent:'pms.guest.birthNameGroup',mother_name_absent:'pms.guest.motherNameGroup',birth_place_absent:'pms.guest.birthPlace'})[key])}</span>
+              </label>)}
+            </div>}
             {opticalIssue && !opticalReading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{t('pms.scan.printedIncomplete')}</p>}
             {opticalReading && <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin"/>{t('pms.scan.readingPrintedFields')}</p>}
             <p className="text-[11px] text-muted-foreground">{t('pms.scan.reviewHint')}</p>
@@ -1131,7 +1144,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           {phase === 'review' && result && revealed && (needsReviewAcknowledgement && (
               <label className="flex cursor-pointer items-start gap-2 rounded-md border border-amber-200 p-2.5 text-xs">
                 <Checkbox checked={reviewAcknowledged} onCheckedChange={(value) => setReviewAcknowledged(value === true)} className="mt-0.5 shrink-0" />
-                <span>{t('pms.scan.manualReviewConfirm')}</span>
+                <span>{t(hasPassportAbsences ? 'pms.scan.confirmPassportAbsences' : 'pms.scan.manualReviewConfirm')}</span>
               </label>
             ))}
           {phase === 'camera' && side === 'mrz' && source === 'bridge' && (
@@ -1163,7 +1176,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
                 {t(applyIssue === 'confirm-name-change' ? 'pms.scan.confirmNameChange' : applyIssue === 'identity-mismatch' ? 'pms.express.identityMismatch' : 'pms.scan.applyUnavailable')}
               </p>}
               <Button type="button" className="w-full" disabled={confirmRestart || opticalReading || (result.fields.documentType === 'id_card' && !frontAssessment) || (needsReviewAcknowledgement && !reviewAcknowledged)} onClick={() => {
-                const outcome = onApply(result, opticalFields, applyIssue === 'confirm-name-change');
+                const outcome = onApply(result, opticalFields, applyIssue === 'confirm-name-change', reviewAcknowledged ? passportAbsences : {});
                 if (outcome && outcome !== 'applied') { setApplyIssue(outcome); return; }
                 clearBackdrop();
                 onOpenChange(false);
