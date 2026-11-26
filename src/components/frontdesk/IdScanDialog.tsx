@@ -17,7 +17,7 @@ import { OcrSession } from '@/lib/idScan/ocrSession';
 import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRows, needsHungarianPrintedFallback, rowHasLabel, corroboratedMotherName, mergeHungarianFallback } from '@/lib/idScan/hungarianCard';
 import { shouldAdvanceFront, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
-import { recoverPassportBirthplace, hasPassportBirthplaceLabel, numberedUkBirthplaceRegions, numberedBirthplaceLabel, recoverNumberedBirthplace, type BirthplaceRowRead } from '@/lib/idScan/passportBirthPlace';
+import { recoverPassportBirthplace, hasPassportBirthplaceLabel, numberedUkBirthplaceRegions, numberedGreekBirthplaceRegions, numberedBirthplaceLabel, passportBirthplaceKey, recoverNumberedBirthplace, type BirthplaceRowRead } from '@/lib/idScan/passportBirthPlace';
 import { sampleUkRegion, ukLegacyRegions, localPassportContrast, passportOtsu, verifiedLegacyBirthplace } from '@/lib/idScan/ukPassportVisual';
 import { suggestPassportAbsences, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
 import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
@@ -465,7 +465,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
 
   // A passport's MRZ does not carry birthplace. Re-read the visual zone
   // with sparse-text segmentation, then the complete page if needed.
-  const readPassportBirthplace = async (frame: HTMLCanvasElement, geometry: CodeGeometry | null, run: number, reads: string[]) => {
+  const readPassportBirthplace = async (frame: HTMLCanvasElement, geometry: CodeGeometry | null, run: number, reads: string[], issuingState: string) => {
     const extra: string[] = [];
     const scan = async (canvas: HTMLCanvasElement, mode: '6' | '11') => {
       try {
@@ -482,10 +482,10 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         } finally { gray.data.fill(0); }
       }
     }
-    if (!recoverPassportBirthplace([...reads, ...extra]) && scanRunRef.current === run) {
+    if (!recoverPassportBirthplace([...reads, ...extra], issuingState) && scanRunRef.current === run) {
       await scan(printedCanvas(frame, false, true), '11');
     }
-    if (!recoverPassportBirthplace([...reads, ...extra]) && scanRunRef.current === run && geometry && geometry.lines === 2) {
+    if (!recoverPassportBirthplace([...reads, ...extra], issuingState) && scanRunRef.current === run && geometry && geometry.lines === 2) {
       const gray = frameGray(frame);
       if (gray) {
         try { await scan(grayCanvas(printedZone(gray, geometry, 1600)), '6'); }
@@ -495,11 +495,11 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     return extra;
   };
 
-  // The legacy numbered UK passport has a small coloured label above a
-  // much larger birthplace. Isolate that row and read the value separately
+  // Legacy numbered UK and Greek passports have separate label and value
+  // columns or lines. Isolate the row and read the value separately
   // rather than requiring whole-page OCR to preserve column order.
-  const readNumberedUkBirthplace = async (frame: HTMLCanvasElement, geometry: CodeGeometry | null, issuingState: string, run: number) => {
-    const regions = geometry && numberedUkBirthplaceRegions(geometry, issuingState);
+  const readNumberedPassportBirthplace = async (frame: HTMLCanvasElement, geometry: CodeGeometry | null, issuingState: string, run: number) => {
+    const regions = geometry && (numberedUkBirthplaceRegions(geometry, issuingState) ?? numberedGreekBirthplaceRegions(geometry, issuingState));
     if (!geometry || !regions || scanRunRef.current !== run) return {birthplace: undefined, labelSeen: false};
     const gray = frameGray(frame);
     if (!gray) return {birthplace: undefined, labelSeen: false};
@@ -527,15 +527,15 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     };
     try {
       const row=await scan(regions.row,gray,'6',true,1200);
-      const direct=recoverPassportBirthplace([row.text]);
+      const direct=recoverPassportBirthplace([row.text], issuingState);
       const labelRead=await scan(regions.label,red??gray,'11',true,1350);
       const label=[row.text,labelRead.text].find(numberedBirthplaceLabel)??'';
       if(!label) return {birthplace:undefined,labelSeen:false};
       const first=await scan(regions.value,gray,'7',false,950);
       const second=await scan(regions.value,red??gray,'7',true,1200);
-      const birthplace=recoverNumberedBirthplace(label,[first,second]);
+      const birthplace=recoverNumberedBirthplace(label,[first,second],issuingState);
       // Disagreement with a labeled complete-row read stays unresolved.
-      return {birthplace:birthplace && (!direct || direct.normalize('NFD').toLowerCase()===birthplace.normalize('NFD').toLowerCase())?birthplace:undefined,labelSeen:true};
+      return {birthplace:birthplace && (!direct || (issuingState === 'GRC' && /^\p{Script=Greek}/u.test(direct)) || passportBirthplaceKey(direct)===passportBirthplaceKey(birthplace))?birthplace:undefined,labelSeen:true};
     } finally { gray.data.fill(0); red?.data.fill(0); }
   };
 
@@ -734,22 +734,23 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         let targetedBirthplaceLabel = false;
         if (action === 'passport_complete' && scanRunRef.current === run) {
           // Read each pass separately to avoid joining unrelated headers/values.
-          let birthplace = recoverPassportBirthplace(texts);
+          const issuer = parsed.fields.issuingState;
+          let birthplace = recoverPassportBirthplace(texts, issuer);
           if (!birthplace || !extracted.birth_place) {
-            birthplaceReads = await readPassportBirthplace(copy, geometry, run, texts);
-            birthplace = recoverPassportBirthplace([...texts, ...birthplaceReads]);
+            birthplaceReads = await readPassportBirthplace(copy, geometry, run, texts, issuer);
+            birthplace = recoverPassportBirthplace([...texts, ...birthplaceReads], issuer);
           }
           if (!birthplace && scanRunRef.current === run) {
             birthplace = await readVerifiedUkBirthplace(copy, geometry, parsed, run);
           }
-          if (!birthplace && scanRunRef.current === run) {
-            const targeted = await readNumberedUkBirthplace(copy, geometry, parsed.fields.issuingState, run);
-            birthplace = targeted.birthplace;
+          if ((!birthplace || (issuer === 'GRC' && /^\p{Script=Greek}/u.test(birthplace))) && scanRunRef.current === run) {
+            const targeted = await readNumberedPassportBirthplace(copy, geometry, issuer, run);
+            birthplace = targeted.birthplace ?? birthplace;
             targetedBirthplaceLabel = targeted.labelSeen;
           }
           const candidates = [...texts, ...birthplaceReads];
           if (birthplace) extracted = {...extracted, birth_place: birthplace};
-          else if (targetedBirthplaceLabel || candidates.some(hasPassportBirthplaceLabel)) {
+          else if (issuer === 'GRC' || targetedBirthplaceLabel || candidates.some(hasPassportBirthplaceLabel)) {
             // A detected but unresolved birthplace must not become a guessed value.
             extracted = {...extracted};
             delete extracted.birth_place;
@@ -758,7 +759,8 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         if (scanRunRef.current === run) {
           setOpticalFields(extracted);
           const suggestions = suggestPassportAbsences(parsed, extracted, texts, score);
-          if (targetedBirthplaceLabel || birthplaceReads.some(hasPassportBirthplaceLabel)) delete suggestions.birth_place_absent;
+          if (targetedBirthplaceLabel || birthplaceReads.some(hasPassportBirthplaceLabel) ||
+              (parsed.fields.issuingState === 'GRC' && !extracted.birth_place)) delete suggestions.birth_place_absent;
           setPassportAbsences(suggestions);
           setPassportSuggestions(suggestions);
           setOpticalIssue(!texts.length || (hungarian && !complete(extracted)) || (action === 'passport_complete' && !extracted.birth_place && !suggestions.birth_place_absent));
