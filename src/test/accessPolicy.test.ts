@@ -125,10 +125,13 @@ describe('first screen', () => {
     expect(capabilitiesFor({ role: 'hr' }).peopleManage).toBe(true);
   });
 
-  it('keeps reception on housekeeping while the hotel runs on Previo', () => {
-    expect(landingPathFor({ role: 'manager', access_role: 'reception' }, ctx)).toBeNull();
+  it('opens reception for all reception access roles regardless of PMS provider', () => {
+    for (const subject of [{ role: 'manager', access_role: 'reception' }, { role: 'reception' }, { role: 'front_office' }, { role: 'reception_manager' }]) {
+      expect(landingPathFor(subject, ctx)).toBe('/rdhotels/reception');
+      expect(landingPathFor(subject, { ...ctx, nativePms: true })).toBe('/rdhotels/reception');
+    }
+    // Explicit navigation to the operational dashboard retains its existing tab.
     expect(defaultDashboardTabFor({ role: 'manager', access_role: 'reception' })).toBe('housekeeping');
-    expect(landingPathFor({ role: 'manager', access_role: 'reception' }, { ...ctx, nativePms: true })).toBe('/rdhotels/reception');
   });
 
   it('leaves top management and everyone else on their existing start screen', () => {

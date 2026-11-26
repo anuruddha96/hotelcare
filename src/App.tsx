@@ -19,6 +19,7 @@ import { getSessionSuspension, observeSessionSuspension } from "@/lib/clientSess
 import { canAccessChannelManager, canAccessLegacyModules } from "@/lib/roleAccess";
 import { usePurchaseInvoiceAccess } from "@/hooks/usePurchaseInvoiceAccess";
 import { effectiveAccessRole } from "@/lib/accessPolicy";
+import { useReceptionEntryRedirect } from "@/hooks/useReceptionEntryRedirect";
 import { canSeeWinterSnow } from "@/lib/winterSeason";
 import { WinterSnow } from "@/components/layout/WinterWorkspace";
 
@@ -154,9 +155,19 @@ const TenantRouter = () => {
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { user, profile, loading, bootstrapProgress } = useAuth();
 
-  if (!organizationSlug) return <Navigate to="/auth" replace />;
-
   const heldLoading = useHeldLoading(loading);
+  const receptionEntry = useReceptionEntryRedirect({
+    ready: !loading && !heldLoading && (!user || (!!profile?.organization_slug
+      && (profile.organization_slug === organizationSlug || !!profile.is_super_admin))),
+    userId: user?.id ?? null,
+    profile,
+    organizationSlug: organizationSlug || '',
+    pathname: location.pathname,
+    search: location.search,
+    hash: location.hash,
+  });
+
+  if (!organizationSlug) return <Navigate to="/auth" replace />;
   if (heldLoading) return <WelcomeBackOverlay context="account" step="Opening your workspace…" progress={bootstrapProgress} />;
 
   if (user && !profile?.organization_slug) return <Navigate to="/auth" replace />;
@@ -164,6 +175,8 @@ const TenantRouter = () => {
   if (user && profile?.organization_slug !== organizationSlug && !profile?.is_super_admin) {
     return <Navigate to={`/${profile.organization_slug}`} replace />;
   }
+
+  if (receptionEntry) return <Navigate to={receptionEntry} replace />;
 
   const canUseLegacyModules = canAccessLegacyModules(profile?.nickname);
   const legacyFallback = `/${organizationSlug}`;

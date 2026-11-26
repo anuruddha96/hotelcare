@@ -62,7 +62,7 @@ export const ACCESS_ROLE_DESCRIPTION: Record<AccessRole, string> = {
   manager: "All hotels and operational modules, Mira and review replies. Price list instead of Revenue: no revenue figures.",
   housekeeping_manager: "Housekeeping and maintenance; sees the work schedule of every hotel and plans their own; no review replies.",
   housekeeping_supervisor: "Housekeeping and maintenance; work schedule of their own hotel only; no review replies.",
-  reception: "Everything except Revenue management; lands on Housekeeping while the hotel runs on Previo.",
+  reception: "Everything except Revenue management; lands on Reception’s room planner.",
   housekeeping: "Own rooms and shift. No Mira. Schedule hidden until it goes live.",
   maintenance: "Own tickets and shift. No Mira. Schedule hidden until it goes live.",
   breakfast: "Breakfast lookup only.",
@@ -329,8 +329,7 @@ export function landingPathFor(subject: AccessSubject, context: LandingContext):
     case "hr":
       return `${base}?view=staff-schedule`;
     case "reception":
-      // While the hotel runs on Previo, reception keeps today's start screen.
-      return context.nativePms ? `${base}/reception` : null;
+      return `${base}/reception`;
     default:
       return null;
   }
