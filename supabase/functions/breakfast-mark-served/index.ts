@@ -71,7 +71,36 @@ serve(async (req) => {
       .single();
 
     if (error) return json(200, { ok: false, error: error.message });
-    return json(200, { ok: true, id: data.id });
+    // Attendance is independent of the advisory housekeeping feature. Public
+    // shared-device marks still count, but only verified staff can influence
+    // a housekeeping list. Do not expose staff or assignment data.
+    const housekeepingInformed = false;
+    try {
+      const token = req.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+      if (token && orgSlug && Number.isInteger(count) && count > 0) {
+        const { data: authData } = await supabase.auth.getUser(token);
+        const uid = authData?.user?.id;
+        if (uid) {
+          const { data: staff } = await supabase.from("profiles")
+            .select("role,organization_slug,deleted_at").eq("id", uid).maybeSingle();
+          const permitted = ["breakfast_staff","reception","front_office","reception_manager","manager","housekeeping_manager","supervisor","top_management","top_management_manager","admin"];
+          if (staff && !staff.deleted_at && staff.organization_slug === orgSlug && permitted.includes(staff.role)) {
+            const { data: allowed } = await supabase.rpc("user_can_access_hotel", { _hotel_id: hotel_id, _uid: uid });
+            if (allowed === true) {
+              const { error: signalError } = await supabase.rpc("record_breakfast_signal", {
+                _hotel_id: hotel_id, _room_number: String(room_number).trim(),
+                _served_count: count, _location: location, _attendance_id: data.id,
+              });
+              if (signalError) console.warn("Breakfast signal unavailable", signalError.code);
+              // Phase 2 sets housekeepingInformed only after successful notification.
+            }
+          }
+        }
+      }
+    } catch {
+      console.warn("Breakfast signal unavailable; attendance saved");
+    }
+    return json(200, { ok: true, id: data.id, housekeeping_informed: housekeepingInformed });
   } catch (e: any) {
     return json(200, { ok: false, error: e?.message ?? String(e) });
   }
