@@ -10,14 +10,14 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
-import { codeLineGeometry, printedZone, refineCodeBlock, repairLookAlikes, toGray, type CodeGeometry, type Gray } from '@/lib/idScan/codeLineRefine';
+import { codeLineGeometry, printedZone, refineCodeBlock, repairLookAlikes, toGray, sampleStraight, normalizeText, padWhite, type CodeGeometry, type Gray } from '@/lib/idScan/codeLineRefine';
 import { agreePrinted, parsePrintedText, printedGuestFields, type PrintedRead } from '@/lib/idScan/printedFields';
 import { guideCrop, privacyThumbnail, snapshotFrame, type SourceRect } from '@/lib/idScan/frameCapture';
 import { OcrSession } from '@/lib/idScan/ocrSession';
 import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRows, needsHungarianPrintedFallback, rowHasLabel, corroboratedMotherName, mergeHungarianFallback } from '@/lib/idScan/hungarianCard';
 import { shouldAdvanceFront, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
-import { recoverPassportBirthplace, hasPassportBirthplaceLabel } from '@/lib/idScan/passportBirthPlace';
+import { recoverPassportBirthplace, hasPassportBirthplaceLabel, numberedUkBirthplaceRegions, numberedBirthplaceLabel, recoverNumberedBirthplace, type BirthplaceRowRead } from '@/lib/idScan/passportBirthPlace';
 import { suggestPassportAbsences, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
 import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { assessReadiness, type Readiness } from '@/lib/idScan/autoCapture';
@@ -493,6 +493,50 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     return extra;
   };
 
+  // The legacy numbered UK passport has a small coloured label above a
+  // much larger birthplace. Isolate that row and read the value separately
+  // rather than requiring whole-page OCR to preserve column order.
+  const readNumberedUkBirthplace = async (frame: HTMLCanvasElement, geometry: CodeGeometry | null, issuingState: string, run: number) => {
+    const regions = geometry && numberedUkBirthplaceRegions(geometry, issuingState);
+    if (!geometry || !regions || scanRunRef.current !== run) return {birthplace: undefined, labelSeen: false};
+    const gray = frameGray(frame);
+    if (!gray) return {birthplace: undefined, labelSeen: false};
+    const ctx = frame.getContext('2d', {willReadFrequently:true});
+    let red: Gray | null = null;
+    if (ctx) {
+      const rgba = ctx.getImageData(0,0,frame.width,frame.height);
+      const data = new Uint8ClampedArray(frame.width*frame.height);
+      for (let i=0;i<data.length;i++) data[i]=rgba.data[i*4];
+      rgba.data.fill(0);
+      red={data,width:frame.width,height:frame.height};
+    }
+    const scan = async (region: typeof regions.row, source: Gray, mode: '6'|'7'|'11', enhanced: boolean, width: number): Promise<BirthplaceRowRead> => {
+      if (scanRunRef.current !== run) return {text:'',confidence:null};
+      const crop = sampleStraight(source,geometry.cx,geometry.cy,geometry.angle,region.u0,region.v0,region.u1,region.v1,width);
+      const normalized=enhanced?normalizeText(crop):crop;
+      const padded=padWhite(normalized,30);
+      crop.data.fill(0); normalized.data.fill(0);
+      const canvas=grayCanvas(padded);
+      try {
+        const reading=await frontSession.recognizeWithConfidence(canvas,6500,mode);
+        return scanRunRef.current===run?reading:{text:'',confidence:null};
+      } catch { return {text:'',confidence:null}; }
+      finally { wipe(canvas); }
+    };
+    try {
+      const row=await scan(regions.row,gray,'6',true,1200);
+      const direct=recoverPassportBirthplace([row.text]);
+      const labelRead=await scan(regions.label,red??gray,'11',true,1350);
+      const label=[row.text,labelRead.text].find(numberedBirthplaceLabel)??'';
+      if(!label) return {birthplace:undefined,labelSeen:false};
+      const first=await scan(regions.value,gray,'7',false,950);
+      const second=await scan(regions.value,red??gray,'7',true,1200);
+      const birthplace=recoverNumberedBirthplace(label,[first,second]);
+      // Disagreement with a labeled complete-row read stays unresolved.
+      return {birthplace:birthplace && (!direct || direct.normalize('NFD').toLowerCase()===birthplace.normalize('NFD').toLowerCase())?birthplace:undefined,labelSeen:true};
+    } finally { gray.data.fill(0); red?.data.fill(0); }
+  };
+
   const readHungarianRows = async (frame: HTMLCanvasElement, run: number) => {
     const gray = graySample(frame, {x:0,y:0,width:frame.width,height:frame.height});
     const h = gray.length / 320;
@@ -649,6 +693,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           extracted = mergeHungarianFallback(extracted, agreed);
         }
         let birthplaceReads: string[] = [];
+        let targetedBirthplaceLabel = false;
         if (action === 'passport_complete' && scanRunRef.current === run) {
           // Read each pass separately to avoid joining unrelated headers/values.
           let birthplace = recoverPassportBirthplace(texts);
@@ -656,9 +701,14 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
             birthplaceReads = await readPassportBirthplace(copy, geometry, run, texts);
             birthplace = recoverPassportBirthplace([...texts, ...birthplaceReads]);
           }
+          if (!birthplace && scanRunRef.current === run) {
+            const targeted = await readNumberedUkBirthplace(copy, geometry, parsed.fields.issuingState, run);
+            birthplace = targeted.birthplace;
+            targetedBirthplaceLabel = targeted.labelSeen;
+          }
           const candidates = [...texts, ...birthplaceReads];
           if (birthplace) extracted = {...extracted, birth_place: birthplace};
-          else if (candidates.some(hasPassportBirthplaceLabel)) {
+          else if (targetedBirthplaceLabel || candidates.some(hasPassportBirthplaceLabel)) {
             // A detected but unresolved birthplace must not become a guessed value.
             extracted = {...extracted};
             delete extracted.birth_place;
@@ -667,7 +717,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         if (scanRunRef.current === run) {
           setOpticalFields(extracted);
           const suggestions = suggestPassportAbsences(parsed, extracted, texts, score);
-          if (birthplaceReads.some(hasPassportBirthplaceLabel)) delete suggestions.birth_place_absent;
+          if (targetedBirthplaceLabel || birthplaceReads.some(hasPassportBirthplaceLabel)) delete suggestions.birth_place_absent;
           setPassportAbsences(suggestions);
           setPassportSuggestions(suggestions);
           setOpticalIssue(!texts.length || (hungarian && !complete(extracted)) || (action === 'passport_complete' && !extracted.birth_place && !suggestions.birth_place_absent));
