@@ -682,7 +682,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
       <CardContent className="p-0">
         {/* One scroll area for both axes so the three header rows and the room
             column stay frozen until the last room has scrolled past. */}
-        <div ref={scrollRef} className="w-full overflow-auto overscroll-x-contain max-h-[72vh]" data-training="res-planner-scroll" tabIndex={0} role="region" aria-label={t('pms.workspace.calendarRegion')}>
+        <div ref={scrollRef} className={`w-full overflow-auto overscroll-x-contain ${wideWorkspace ? 'max-h-[70dvh] [scrollbar-gutter:stable]' : 'max-h-[72vh]'}`} data-training="res-planner-scroll" tabIndex={0} role="region" aria-label={t('pms.workspace.calendarRegion')}>
           <div style={{ minWidth: roomWidth + gridWidth }}>
             <div className="flex border-b border-border bg-card sticky top-0 z-30" style={{ height: HEAD_MONTH_H }}>
               <div className={`${stickyLeft} z-40 px-2 flex items-center justify-between gap-1 text-xs font-semibold`} style={{ width: roomWidth }}>
@@ -760,6 +760,10 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
             })}
           </div>
         </div>
+        {wideWorkspace && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <span className="font-medium tabular-nums">{visibleRooms.length}/{rooms.length} {t('pms.cal.rooms')}</span>
+          <span className="tabular-nums">{locale.formatDate(currentStart)} → {locale.formatDate(format(addDays(endDate, -1), 'yyyy-MM-dd'))}</span>
+        </div>}
       </CardContent>
 
       <Dialog open={pending !== null} onOpenChange={(open) => { if (!open && !saving) setPending(null); }}>
