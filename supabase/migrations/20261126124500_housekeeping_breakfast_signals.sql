@@ -54,7 +54,7 @@ for select to authenticated using (
   organization_slug = public.get_user_organization_slug((select auth.uid()))
   and public.get_user_role((select auth.uid()))::text in
     ('manager','housekeeping_manager','supervisor','top_management','top_management_manager','admin')
-  and public.user_can_access_hotel(hotel_id, (select auth.uid()))
+  and public.user_can_access_hotel((select auth.uid()), hotel_id)
 );
 
 -- Return only the service-side eligibility result, never expose it directly to anon.
