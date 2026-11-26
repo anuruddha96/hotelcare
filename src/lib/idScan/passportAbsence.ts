@@ -48,6 +48,36 @@ export function suggestPassportAbsences(
   return proposed;
 }
 
+/** Preselect the two optional name groups for staff's physical-document review.
+ * A recovered visual birthplace also demonstrates that the photo page (not
+ * just the MRZ) was read, even when full-page OCR confidence is low. Never
+ * default birthplace here, and keep any observed name label/value editable.
+ * These are provisional choices; passportAbsenceReview still requires staff
+ * confirmation before persisting them. */
+export function passportNameAbsenceDefaults(
+  result: MrzReadResult, optical: OpticalGuestFields, reads: string[], score: number | null,
+  additionalReads: string[] = [],
+): PassportAbsences {
+  if (result.format !== 'TD3' || result.fields.documentType !== 'passport' ||
+      !result.valid || result.unknownCountry) return {};
+  const suggestions = suggestPassportAbsences(result, optical, reads, score);
+  const photoPageRead = has(optical.birth_place);
+  const allReads = [...reads, ...additionalReads];
+  const extracted = allReads.map(extractOpticalGuestFields);
+  const defaults: PassportAbsences = {};
+  for (const key of ['birth_name_absent', 'mother_name_absent'] as const) {
+    const labelSeen = allReads.some(text => labels[key].test(fold(text)) ||
+      (key === 'birth_name_absent'
+        ? hasPrintedLabel(text, 'birth_pair') || hasPrintedLabel(text, 'birth_last_name') || hasPrintedLabel(text, 'birth_first_name')
+        : hasPrintedLabel(text, 'mother_name')));
+    if ((suggestions[key] || photoPageRead) && !labelSeen &&
+        absenceGroupEmpty(optical, key) && extracted.every(read => absenceGroupEmpty(read, key))) {
+      defaults[key] = true;
+    }
+  }
+  return defaults;
+}
+
 /** Apply only physically confirmed proposals, never overwrite existing data
  * or carry passport exemptions into another document type. */
 export function passportAbsenceReview(

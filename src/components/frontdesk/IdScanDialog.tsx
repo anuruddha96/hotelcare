@@ -21,7 +21,7 @@ import { recoverPassportBirthplace, hasPassportBirthplaceLabel, numberedUkBirthp
 import { sampleUkRegion, ukLegacyRegions, localPassportContrast, passportOtsu, verifiedLegacyBirthplace } from '@/lib/idScan/ukPassportVisual';
 import { hasPrintedLabel, resolvePrintedLabels } from '@/lib/idScan/printedLabels';
 import { agreedGreekBirthplaceCrop, greekLegacyRegions, prioritizeGreekBirthplace, verifiedGreekBirthplace } from '@/lib/idScan/greekPassportVisual';
-import { suggestPassportAbsences, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
+import { suggestPassportAbsences, passportNameAbsenceDefaults, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
 import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { harmonizeNameAccents } from '@/lib/idScan/nameAccents';
 import { assessReadiness, type Readiness } from '@/lib/idScan/autoCapture';
@@ -865,14 +865,19 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         extracted = harmonizeNameAccents(extracted, parsed.fields.nationalityIso3 === 'HUN' || parsed.fields.issuingState === 'HUN');
         if (scanRunRef.current === run) {
           setOpticalFields(extracted);
-          const suggestions = suggestPassportAbsences(parsed, extracted, texts, score);
+          const defaults = passportNameAbsenceDefaults(parsed, extracted, texts, score, birthplaceReads);
+          const suggestions = { ...suggestPassportAbsences(parsed, extracted, texts, score), ...defaults };
           if (targetedBirthplaceLabel || birthplaceReads.some(hasPassportBirthplaceLabel) ||
               (parsed.fields.issuingState === 'GRC' && !extracted.birth_place)) delete suggestions.birth_place_absent;
           const additional = [...texts, ...birthplaceReads];
           if (additional.some(t=>hasPrintedLabel(t,'mother_name'))) delete suggestions.mother_name_absent;
           if (additional.some(t=>hasPrintedLabel(t,'birth_pair')||hasPrintedLabel(t,'birth_last_name')||hasPrintedLabel(t,'birth_first_name'))) delete suggestions.birth_name_absent;
-          // The scanner may suggest absence, but only staff can select it.
-          setPassportAbsences({});
+          // Preselect only the two name groups, after all label vetoes.
+          // The existing physical-document acknowledgement remains mandatory.
+          setPassportAbsences({
+            ...(defaults.birth_name_absent && suggestions.birth_name_absent ? { birth_name_absent: true } : {}),
+            ...(defaults.mother_name_absent && suggestions.mother_name_absent ? { mother_name_absent: true } : {}),
+          });
           setPassportSuggestions(suggestions);
           setOpticalIssue(!texts.length || (hungarian && !complete(extracted)) || (action === 'passport_complete' && !extracted.birth_place && !suggestions.birth_place_absent));
           setReviewAcknowledged(false);
