@@ -88,10 +88,40 @@ export default function Breakfast() {
   const [result, setResult] = useState<any>(null);
   const [served, setServed] = useState(0);
   const [savingMark, setSavingMark] = useState(false);
-  // Shared-device credential stays in memory and is bound to the chosen hotel.
-  const [staffCode, setStaffCode] = useState<{ hotelId: string; value: string } | null>(null);
-  const codeForHotel = selection && staffCode?.hotelId === selection.hotel_id ? staffCode.value : "";
-  useEffect(() => { setStaffCode(null); }, [selection?.hotel_id, orgSlug]);
+  const [housekeepingLink, setHousekeepingLink] = useState<{ hotelId: string; on: boolean } | null>(null);
+  const selectedHotelId = selection?.hotel_id;
+  useEffect(() => {
+    if (!selectedHotelId || hotelCode) return;
+    let active = true;
+    let generation = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      const current = ++generation;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!active || current !== generation) return;
+        if (!sessionData.session) {
+          setHousekeepingLink({ hotelId: selectedHotelId, on: false });
+          return;
+        }
+        const { data, error } = await supabase.functions.invoke("breakfast-mark-served", {
+          body: { action: "housekeeping_status", hotel_id: selectedHotelId },
+        });
+        if (active && current === generation) setHousekeepingLink({ hotelId: selectedHotelId, on: !error && data?.housekeeping_link_on === true });
+      } catch {
+        if (active && current === generation) setHousekeepingLink({ hotelId: selectedHotelId, on: false });
+      }
+    };
+    void refresh();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      generation++;
+      setHousekeepingLink(null);
+      clearTimeout(timer);
+      if (session) timer = setTimeout(() => void refresh(), 0);
+    });
+    window.addEventListener("focus", refresh);
+    return () => { active = false; generation++; clearTimeout(timer); subscription.unsubscribe(); window.removeEventListener("focus", refresh); };
+  }, [selectedHotelId, hotelCode]);
   const [rooms, setRooms] = useState<any[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [dataSource, setDataSource] = useState<string | null>(null);
@@ -262,7 +292,6 @@ export default function Breakfast() {
         room_number: result.room,
         served_count: served,
         guest_names: result.guest_names ?? null,
-        ...(codeForHotel.trim() ? { breakfast_code: codeForHotel.trim() } : {}),
       },
     });
     setSavingMark(false);
@@ -505,14 +534,11 @@ export default function Breakfast() {
           )}
 
           {!hotelCode && selection && tab === "rooms" && (
-            <details className="rounded-md border px-3 py-2 text-sm">
-              <summary className="cursor-pointer text-muted-foreground min-h-8 flex items-center">{tt("housekeepingAccess")}</summary>
-              <p className="text-xs text-muted-foreground mb-2">{tt("housekeepingAccessHint")}</p>
-              <Label htmlFor="bb-housekeeping-code">{tt("housekeepingCode")}</Label>
-              <Input id="bb-housekeeping-code" type="password" autoComplete="off" maxLength={256}
-                value={codeForHotel} onChange={e => setStaffCode({ hotelId: selection.hotel_id, value: e.target.value })}
-                className="mt-1 h-10" />
-            </details>
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+              {housekeepingLink?.hotelId === selection.hotel_id && housekeepingLink.on
+                ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />{tt("housekeepingLinkOn")}</>
+                : tt("housekeepingSignIn")}
+            </p>
           )}
 
           {!hotelCode && selection && tab === "reservations" && (
