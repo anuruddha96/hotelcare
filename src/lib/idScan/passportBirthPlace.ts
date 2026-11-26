@@ -32,7 +32,7 @@ function value(raw:string, composite=false, issuingState?:string): string | unde
 }
 
 export function passportBirthplaceCandidates(text:string, issuingState?:string): string[] {
-  const lines = text.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
+  const lines = text.normalize('NFC').split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
   const found = new Set<string>();
   for(let i=0;i<lines.length;i++){
     const line = lines[i];
@@ -68,7 +68,14 @@ export function passportBirthplaceCandidates(text:string, issuingState?:string):
     if(placeLabel.test(fold(next)) && !otherHeader.test(fold(next))) continue; // handled independently
     if(composite && !/^(?:M|F|X|<)(?:\s*[/|]\s*(?:M|F|X))?\s+/i.test(next)) continue;
     const candidate=value(next,composite,issuingState);
-    if(candidate) found.add(candidate);
+    if(candidate) {
+      // A label-only Greek row can be followed by its Greek value and then
+      // the English label/value. Prefer the explicitly labeled Latin row.
+      const after = lines[i+2] ?? '';
+      const english = /(?:p[l1i]ace\s*(?:of\s*)?b[i1l]r[t7]h|birth\s*place)/iu.exec(after);
+      const latin = english && value(after.slice(english.index+english[0].length).trim() || (lines[i+3] ?? ''),false,issuingState);
+      if (!(issuingState === 'GRC' && /^\p{Script=Greek}/u.test(candidate) && latin && /^\p{Script=Latin}/u.test(latin))) found.add(candidate);
+    }
   }
   return [...found];
 }
@@ -130,7 +137,7 @@ export function numberedGreekBirthplaceRegions(geometry: CodeGeometry, issuingSt
   return {
     row: rect(-.21,-.302,.49,-.226),
     label: rect(-.21,-.301,.025,-.229),
-    value: rect(.145,-.257,.30,-.226),
+    value: rect(.145,-.257,.425,-.226),
   };
 }
 
