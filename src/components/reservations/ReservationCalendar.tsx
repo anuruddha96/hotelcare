@@ -762,7 +762,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
         </div>
         {wideWorkspace && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           <span className="font-medium tabular-nums">{visibleRooms.length}/{rooms.length} {t('pms.cal.rooms')}</span>
-          <span className="tabular-nums">{locale.formatDate(currentStart)} → {locale.formatDate(format(addDays(endDate, -1), 'yyyy-MM-dd'))}</span>
+          <span className="tabular-nums">{locale.formatDate(currentStart)} → {locale.formatDate(format(addDays(endDate, -1), 'yyyy-MM-dd', { locale: locale.dateFnsLocale }))}</span>
         </div>}
       </CardContent>
 
