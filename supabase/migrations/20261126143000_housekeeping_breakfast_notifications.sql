@@ -5,7 +5,7 @@ alter table public.housekeeping_breakfast_signals
 -- Zero is valid only for a fully undone, closed signal; a later mark starts at one again.
 alter table public.housekeeping_breakfast_signals drop constraint housekeeping_breakfast_signals_guests_seen_check;
 alter table public.housekeeping_breakfast_signals add constraint housekeeping_breakfast_signals_guests_seen_check
-  check (guests_seen > 0 or (guests_seen = 0 and closed_reason = 'undone' and closed_at is not null));
+  check (guests_seen > 0 or (guests_seen = 0 and closed_reason is not distinct from 'undone' and closed_at is not null));
 alter table public.housekeeping_automation_settings
   add column breakfast_push_enabled boolean not null default true;
 
@@ -34,6 +34,7 @@ create table public.housekeeping_breakfast_push_outbox (
   attendance_ids uuid[] not null default '{}',
   guests_seen integer,
   guests_expected integer,
+  window_ends_at timestamptz,
   state text not null default 'pending' check (state in ('pending','sending','sent','suppressed','failed')),
   queued_at timestamptz not null default now(),
   claim_token uuid,
@@ -205,7 +206,7 @@ begin
       set state='sending',claim_token=v_claim,claimed_at=now(),
         tag=coalesce(v_tag,'housekeeping-breakfast-room-'||q.signal_id::text),
         assignment_id=c.assignment_id,preferred_language=c.preferred_language,
-        attendance_ids=c.attendance_ids,guests_seen=c.guests_seen,guests_expected=c.guests_expected
+        attendance_ids=c.attendance_ids,guests_seen=c.guests_seen,guests_expected=c.guests_expected,window_ends_at=c.window_ends_at
       from public.breakfast_push_candidates(null) c
       where q.id=any(v_ids) and q.state='pending'
         and c.signal_id=q.signal_id and c.user_id=q.user_id and c.notification_cycle=q.notification_cycle;
@@ -230,7 +231,7 @@ begin
         where c.notification_cycle=q.notification_cycle and c.user_id=q.user_id);
   update public.housekeeping_breakfast_push_outbox q
     set assignment_id=c.assignment_id,preferred_language=c.preferred_language,
-      attendance_ids=c.attendance_ids,guests_seen=c.guests_seen,guests_expected=c.guests_expected
+      attendance_ids=c.attendance_ids,guests_seen=c.guests_seen,guests_expected=c.guests_expected,window_ends_at=c.window_ends_at
     from public.breakfast_push_candidates(null) c
     where q.claim_token=_claim_token and q.id=any(_ids) and q.state='sending' and q.kind='arrival'
       and q.signal_id=c.signal_id and q.notification_cycle=c.notification_cycle and q.user_id=c.user_id;
@@ -251,6 +252,7 @@ returns void language sql security definer set search_path = '' as $$
   from public.housekeeping_breakfast_push_outbox q
   where q.id=_notification_id and q.kind='arrival' and q.state='sent' and q.sent_at is not null
     and _attendance_id=any(q.attendance_ids)
+    and exists(select 1 from public.housekeeping_breakfast_mark_receipts r where r.attendance_id=_attendance_id and r.undone_at is not null)
   on conflict (parent_id,undone_attendance_id) where kind='correction' do nothing;
 $$;
 revoke all on function public.queue_breakfast_push_correction(uuid,uuid) from public,anon,authenticated;
