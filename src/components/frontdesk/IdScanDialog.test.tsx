@@ -161,12 +161,16 @@ describe('document-specific retry controls', () => {
     expect(await screen.findByText('pms.scan.unknownDocumentRetry')).toBeTruthy();
     expect(screen.queryByRole('button',{name:'pms.scan.nextSide'})).toBeNull();
     fireEvent.click(screen.getByRole('button',{name:'pms.scan.confirmIdType'}));
-    expect(await screen.findByText('pms.scan.flipCard')).toBeTruthy();
+    expect((await screen.findAllByText('pms.scan.flipCard')).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('button', { name: /pms.scan.captureBack/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /pms.scan.captureFirst/ })).toBeNull();
   });
   it('continues to request both sides when an actual ID front is recognized', async () => {
     mocks.recognizeWithConfidence.mockResolvedValue({text:'NATIONAL IDENTITY CARD EXAMPLE NAME NUMBER',confidence:95});
     render(<IdScanDialog open onOpenChange={()=>undefined} onApply={()=> 'applied'}/>);
     await captureSyntheticDocument();
-    expect(await screen.findByText('pms.scan.flipCard')).toBeTruthy();
+    expect((await screen.findAllByText('pms.scan.flipCard')).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('button', { name: /pms.scan.captureBack/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /pms.scan.captureFirst/ })).toBeNull();
   });
 });
