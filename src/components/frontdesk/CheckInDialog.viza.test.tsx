@@ -124,7 +124,7 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       // Adding an existing guest automatically opens the document scanner.
       // Close it before editing the underlying guest registration form, as in the real UI.
       fireEvent.click(await screen.findByRole('button', { name: 'Close synthetic scanner' }));
-      const absent = screen.getAllByRole('checkbox', { name: 'pms.guest.notOnDocument' });
+      const absent = screen.getAllByRole('checkbox', { name: /pms\.guest\.notOnDocument/ });
       expect(absent).toHaveLength(3);
       fireEvent.click(absent.find(el => !(el as HTMLInputElement).checked)!);
       expect(confirm()).toBeDisabled();
@@ -143,7 +143,7 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       expect(screen.getByDisplayValue('Synthetic')).toBeInTheDocument();
       expect(screen.getByDisplayValue('Foreign')).toBeInTheDocument();
       expect(screen.getByRole('button',{name:'pms.express.confirmGuest'})).toBeDisabled();
-      screen.getAllByRole('checkbox',{name:'pms.guest.notOnDocument'}).forEach(el=>fireEvent.click(el));
+      screen.getAllByRole('checkbox',{name:/pms\.guest\.notOnDocument/}).forEach(el=>fireEvent.click(el));
       fireEvent.click(screen.getByRole('checkbox',{name:'pms.express.verify'}));
       expect(screen.getByRole('button',{name:'pms.express.confirmGuest'})).toBeEnabled();
       fireEvent.click(screen.getByRole('button',{name:'pms.express.confirmGuest'}));
