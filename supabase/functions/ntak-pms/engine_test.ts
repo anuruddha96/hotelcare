@@ -313,7 +313,7 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     const closure = await queueClosure(db, s, Y, { actor: "u1" });
     assert.ok(closure.ok, JSON.stringify(closure.build.checklist));
     assert.equal(closure.build.classification, "UJ");
-    assert.deepEqual(closure.build.closure.rooms, { total: 2, ooo: 1, oos: 0, rented: 1, available: 0 });
+    assert.deepEqual(closure.build.closure.rooms, { total: 2, ooo: 1, oos: 0, rented: 1, available: 1 });
     const night = closure.build.closure.nights[0];
     assert.equal(night.guests.length, 2);
     assert.equal(night.guests[0].nationality, "HU", "alpha-3 nationality mapped to ISO-2");

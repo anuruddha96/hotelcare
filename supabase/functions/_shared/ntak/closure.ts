@@ -253,11 +253,14 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
   }
 
   const rented = src.closed ? 0 : soldUnitIds.size;
-  // "Available" means sellable and NOT already rented. OOO/OOS and occupied
-  // units are disjoint except where a blocking state_conflict was recorded.
+  // "Kiadható" (available) means sellable: every unit that is not OOO/OOS,
+  // whether or not it is rented that day. NTAK checks osszesSzoba =
+  // kiadhato + OOO + OOS (OsszesSzobaszamEllentmondas) and the same for beds
+  // (FerohelyekEllentmondasa); the test server marked closures VIZSGALANDO
+  // when rented rooms were subtracted (26 Nov 2026, trial days 9-10 Nov).
   const sellable = total - ooo - oos;
   if (rented > sellable) err('rooms', `Rooms rented (${rented}) exceed sellable rooms (${sellable}) (TobbKiadott)`);
-  const available = Math.max(0, sellable - rented);
+  const available = Math.max(0, sellable);
   const soldCap = src.units.filter((u) => soldUnitIds.has(u.roomId)).reduce((a, u) => a + capacityOf(u), 0);
   const oooCap = src.closed ? capTotal : cap((u) => u.state === 'ooo');
   const oosCap = src.closed ? 0 : cap((u) => u.state === 'oos');
@@ -270,7 +273,7 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
     closedAt: src.closedAt,
     closed: src.closed,
     rooms: { total, ooo, oos, rented, available: src.closed ? 0 : available },
-    capacity: { total: capTotal, ooo: oooCap, oos: oosCap, rented: src.closed ? 0 : soldCap, available: src.closed ? 0 : Math.max(0, capTotal - oooCap - oosCap - soldCap) },
+    capacity: { total: capTotal, ooo: oooCap, oos: oosCap, rented: src.closed ? 0 : soldCap, available: src.closed ? 0 : Math.max(0, capTotal - oooCap - oosCap) },
     ifa: s.ifa ? { type: s.ifa.type, rate: s.ifa.type === 'NINCS' ? 0 : s.ifa.rate } : null,
     nights,
     outOfService: src.units.filter((u) => src.closed || u.state !== 'available').map(stripUnit),
