@@ -404,6 +404,32 @@ describe('VIZA case 2.2 frontend follow-up', () => {
 });
 
 describe('verified duplicate profile selection', () => {
+  it('sends an optional guest-confirmed email on first registration', async () => {
+    const onRegister = vi.fn().mockResolvedValue({ status: 'registered', guest_id: 'new-guest' });
+    const onSaved = vi.fn();
+    render(<GuestDetailsSection guestId={null} vizaReservationId="res-1" occurredAt="2026-11-24T10:00:00Z" draft={{ result: readResult('TEST123'), optical: manualBirth }} onRegister={onRegister} onSaved={onSaved} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'pms.express.verify' }));
+    const email = screen.getByLabelText('pms.express.updateContactEmail');
+    fireEvent.change(email, { target: { value: 'bad email' } });
+    expect(screen.getByRole('button', { name: 'pms.express.confirmGuest' })).toBeDisabled();
+    fireEvent.change(email, { target: { value: 'new@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'pms.express.confirmGuest' }));
+    await waitFor(() => expect(onRegister).toHaveBeenCalledWith(expect.objectContaining({ confirmed_contact_email: 'new@example.com' }), null));
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 'new-guest' }));
+  });
+
+  it('keeps returned contact details and explicitly distinguishes missing email', async () => {
+    const onRegister = vi.fn().mockResolvedValue({ status: 'match', guest_id: 'guest-a', candidates: [
+      { guest_id: 'guest-a', first_name: 'Eva', last_name: 'Or', date_of_birth: '1990-01-01', email: 'existing@example.com', linked: false },
+      { guest_id: 'guest-b', first_name: 'Éva', last_name: 'Őr', date_of_birth: '1990-01-01', email: null, linked: false },
+    ] });
+    render(<GuestDetailsSection guestId={null} vizaReservationId="res-1" occurredAt="2026-11-24T10:00:00Z" draft={{ result: readResult('TEST123'), optical: manualBirth }} onRegister={onRegister} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'pms.express.verify' }));
+    fireEvent.click(screen.getByRole('button', { name: 'pms.express.confirmGuest' }));
+    expect(await screen.findByRole('button', { name: /existing@example.com/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /pms.express.noContactEmail/ })).toBeInTheDocument();
+  });
+
   it('requires an explicit choice and sends only the selected profile and optional updated contact', async () => {
     const onSaved = vi.fn();
     const onRegister = vi.fn()
