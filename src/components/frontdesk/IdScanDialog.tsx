@@ -256,6 +256,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [confidence, setConfidence] = useState<number | null>(null);
   const [opticalFields, setOpticalFields] = useState<OpticalGuestFields>({});
   const [passportAbsences, setPassportAbsences] = useState<PassportAbsences>({});
+  const [passportSuggestions, setPassportSuggestions] = useState<PassportAbsences>({});
   const [opticalReading, setOpticalReading] = useState(false);
   const [opticalIssue, setOpticalIssue] = useState(false);
   const [numberReview, setNumberReview] = useState<{ needsReview: boolean; printed: string | null }>({ needsReview: false, printed: null });
@@ -378,7 +379,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setConfidence(null);
     setFrontConfidence(null);
     clearBackdrop();
-    setOpticalFields({}); setPassportAbsences({});
+    setOpticalFields({}); setPassportAbsences({}); setPassportSuggestions({});
     setOpticalReading(false);
     setOpticalIssue(false);
     setNumberReview({ needsReview: false, printed: null });
@@ -549,7 +550,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       return;
     }
     setResult(parsed);
-    setPassportAbsences({});
+    setPassportAbsences({}); setPassportSuggestions({});
     setConfidence(scanConfidence(ocrConfidence));
     setNumberReview(documentNumberReview(parsed, front.text));
     setFlipPrompt(false);
@@ -616,7 +617,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         }
         if (scanRunRef.current === run) {
           setOpticalFields(extracted);
-          setPassportAbsences(suggestPassportAbsences(parsed, extracted, texts, score));
+          const suggestions = suggestPassportAbsences(parsed, extracted, texts, score);
+          setPassportAbsences(suggestions);
+          setPassportSuggestions(suggestions);
           setOpticalIssue(!texts.length || (hungarian && !complete(extracted)));
           setReviewAcknowledged(false);
         }
@@ -962,7 +965,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setRevealed(true);
     mrzSession.reset();
     setResult(null); clearFront(); clearBackdrop(); setFrontAssessment(null);
-    setFlipPrompt(false); setConfidence(null); setFrontConfidence(null); setOpticalFields({}); setPassportAbsences({}); setOpticalReading(false); setOpticalIssue(false); setNumberReview({ needsReview: false, printed: null });
+    setFlipPrompt(false); setConfidence(null); setFrontConfidence(null); setOpticalFields({}); setPassportAbsences({}); setPassportSuggestions({}); setOpticalReading(false); setOpticalIssue(false); setNumberReview({ needsReview: false, printed: null });
     setFrontCaptureAttempted(false); setReviewAcknowledged(false);
     setSide('front'); setSource('camera'); setTyped(''); setFailReason(null);
     setPhase('camera');
@@ -1125,10 +1128,10 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               <dt className="text-muted-foreground">{t('pms.scan.expiry')}</dt><dd>{result.fields.expiryDate ?? '—'}</dd>
             </dl>
             </DocumentReviewPreview>
-            {hasPassportAbsences && !opticalReading && <div className="rounded-md border border-border bg-muted/30 p-2.5 text-xs space-y-1.5">
+            {PASSPORT_ABSENCE_KEYS.some(key => passportSuggestions[key]) && !opticalReading && <div className="rounded-md border border-border bg-muted/30 p-2.5 text-xs space-y-1.5">
               <p className="font-medium">{t('pms.scan.absenceSuggested')}</p>
-              {PASSPORT_ABSENCE_KEYS.filter(key => passportAbsences[key]).map(key => <label key={key} className="flex items-center gap-2 cursor-pointer">
-                <Checkbox checked={true} onCheckedChange={() => { setPassportAbsences(current => { const next = {...current}; delete next[key]; return next; }); setReviewAcknowledged(false); }} />
+              {PASSPORT_ABSENCE_KEYS.filter(key => passportSuggestions[key]).map(key => <label key={key} className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={passportAbsences[key] === true} onCheckedChange={checked => { setPassportAbsences(current => { const next = {...current}; if (checked === true) next[key] = true; else delete next[key]; return next; }); setReviewAcknowledged(false); }} />
                 <span>{t(({birth_name_absent:'pms.guest.birthNameGroup',mother_name_absent:'pms.guest.motherNameGroup',birth_place_absent:'pms.guest.birthPlace'})[key])}</span>
               </label>)}
             </div>}
