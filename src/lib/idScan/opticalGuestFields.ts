@@ -49,7 +49,11 @@ function nationalityValue(value: string): string | null {
   return null;
 }
 
-export function extractOpticalGuestFields(text: string, context?: { givenName?: string; hungarian?: boolean }): OpticalGuestFields {
+export function extractOpticalGuestFields(text: string): OpticalGuestFields {
+  return extractPrintedWithContext(text);
+}
+
+function extractPrintedWithContext(text: string, context?: { givenName?: string; hungarian?: boolean }): OpticalGuestFields {
   const lines = text.split(/\r?\n/).map(x => cleanPassportLabel(x.trim())).filter(Boolean);
   const values = new Map<string, Set<string>>();
   const add = (key: string, value: string | null) => {
@@ -129,8 +133,8 @@ export function extractOpticalGuestFields(text: string, context?: { givenName?: 
 export function opticalGuestFields(result: MrzReadResult, front: string, back: string): OpticalGuestFields {
   const f = result.fields;
   const context = { givenName: f.mrzFirstName, hungarian: f.documentType === 'id_card' && f.issuingState === 'HUN' };
-  const a = extractOpticalGuestFields(front, context);
-  const b = extractOpticalGuestFields(back, context);
+  const a = extractPrintedWithContext(front, context);
+  const b = extractPrintedWithContext(back, context);
   const out: OpticalGuestFields = {};
   for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
     const k = key as keyof OpticalGuestFields;
@@ -139,7 +143,7 @@ export function opticalGuestFields(result: MrzReadResult, front: string, back: s
   }
   // Evaluate optional printed data per independent pass; accents are not conflicts.
   const optional = ['birth_place','birth_last_name','birth_first_name','mother_name'] as const;
-  const passes = [front, back].flatMap(t=>t.split('\n--- OCR PASS ---\n')).filter(t=>t.trim()).map(t=>extractOpticalGuestFields(t,context));
+  const passes = [front, back].flatMap(t=>t.split('\n--- OCR PASS ---\n')).filter(t=>t.trim()).map(t=>extractPrintedWithContext(t,context));
   for (const key of optional) {
     const reads = passes.flatMap(p=>p[key]?[{value:p[key]!}]:[]);
     const chosen = choosePrintedValue(reads);
