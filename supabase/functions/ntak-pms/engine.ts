@@ -706,7 +706,10 @@ async function sentLastHour(db: Db, hotelId: string): Promise<number> {
 }
 
 const now = () => new Date().toISOString();
-const issuesJson = (list: NtakIssue[]) => list.map((i) => ({ field: i.field, value: i.value, key: i.key, message: i.message, hint: i.hint ?? null }));
+const issuesJson = (list: NtakIssue[]) => list.map((i) => ({
+  field: i.field, value: i.value, key: i.key, message: i.message, hint: i.hint ?? null,
+  ...(i.building ? { building: i.building } : {}), ...(i.room ? { room: i.room } : {}), ...(i.bookingNo ? { bookingNo: i.bookingNo } : {}),
+}));
 
 async function exchange(s: Settings, ctx: SendContext, requestXml: string, beforeSend: (envelope: string) => Promise<void>) {
   const envelope = await signEnvelope({ requestXml, certPem: ctx.certPem, key: ctx.key, profile: s.signature_profile });

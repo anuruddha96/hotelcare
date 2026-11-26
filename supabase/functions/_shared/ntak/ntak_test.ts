@@ -294,6 +294,64 @@ Deno.test('event, verification and start-date requests pass the schema', async (
   await assertValid(buildAdatszolgaltatasKezdoDatumRequest(common()));
 });
 
+Deno.test('WSDL of 26 Nov 2026: stay events carry one vendegek list with a vendeg per guest', async () => {
+  const unit = { building: 'A', roomNumber: '101', unitType: 'STANDARD' as const, singleBeds: 0, doubleBeds: 1, extraBeds: 0 };
+  const g = (n: number) => ({ vendegId: vid(n), birthYear: 1980 + n, sex: 'NO' as const, nationality: 'HU', residenceCountry: 'HU', postalCode: '2014', ifaStatus: 'KOTELES' });
+  const xml = buildEsemenyvezereltRequest(common(), [
+    { kind: 'erkezett', at: '2026-11-18T14:02:11Z', bookingNo: 'CHX-1', guests: [g(1), g(2)], unit },
+    { kind: 'lakoegysegetCserelt', at: '2026-11-18T18:00:00Z', bookingNo: 'CHX-1', guests: [g(1), g(2)], from: unit, to: { ...unit, roomNumber: '102' } },
+  ]);
+  await assertValid(xml);
+  assert.equal(xml.split('<v9:vendegek>').length - 1, 2, 'one vendegek list per event');
+  assert.equal(xml.split('<v9:vendeg>').length - 1, 4, 'one vendeg per guest');
+  assert.ok(xml.includes('<v9:foglalasiSzam>CHX-1</v9:foglalasiSzam><v9:vendegek><v9:vendeg><v9:vendegId>'));
+  // The shape of the earlier published schema (repeated vendegek) is refused by the current one.
+  const old = xml.replace(/<v9:vendegek>|<\/v9:vendegek>/g, '').replace(/<v9:vendeg>/g, '<v9:vendegek>').replace(/<\/v9:vendeg>/g, '</v9:vendegek>');
+  const file = await Deno.makeTempFile({ suffix: '.xml' });
+  await Deno.writeTextFile(file, old);
+  assert.notEqual((await run('xmllint', ['--noout', '--schema', XSD, file])).code, 0);
+});
+
+Deno.test('WSDL of 26 Nov 2026: provider names are limited to 255 characters', async () => {
+  await assertValid(buildAdatszolgaltatasKezdoDatumRequest({ ...common(), accommodationName: '  Test   Property  ' }));
+  assert.throws(() => buildAdatszolgaltatasKezdoDatumRequest({ ...common(), accommodationName: 'x'.repeat(256) }), /szallasNev is longer than 255/);
+  assert.throws(() => buildAdatszolgaltatasKezdoDatumRequest({ ...common(), providerName: 'y'.repeat(300) }), /szallashelySzolgaltatoNev is longer than 255/);
+});
+
+Deno.test('WSDL of 26 Nov 2026: start dates come in their own list of the verification answer', async () => {
+  const body = (inner: string) => `<ns2:ellenorzesResponse xmlns:ns2="http://mtu.gov.hu/ntak/v9">${inner}</ns2:ellenorzesResponse>`;
+  const envelope = (inner: string) => `<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Body>${body(inner)}</SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+  const start = `<ns2:adatszolgaltatasKezdoDatumok><ns2:feldolgozasAzonosito>56f0b8bc-bac3-4909-ab59-dfb99e3d56b6</ns2:feldolgozasAzonosito><ns2:elvartAdatszolgaltatasKezdoDatuma>2026-12-01</ns2:elvartAdatszolgaltatasKezdoDatuma></ns2:adatszolgaltatasKezdoDatumok>`;
+  const status = `<ns2:uzenetValaszok><ns2:feldolgozasAzonosito>56f0b8bc-bac3-4909-ab59-dfb99e3d56b6</ns2:feldolgozasAzonosito><ns2:statusz>TELJESEN_SIKERES</ns2:statusz><ns2:figyelmeztetesLista/><ns2:hibaLista/></ns2:uzenetValaszok>`;
+  for (const inner of [start, start + status]) await assertValid(body(inner));
+
+  const onlyDate = parseNtakResponse(envelope(start));
+  assert.equal(onlyDate.kind, 'verification');
+  if (onlyDate.kind !== 'verification') throw new Error();
+  assert.deepEqual(onlyDate.results, [{ processingId: '56f0b8bc-bac3-4909-ab59-dfb99e3d56b6', status: 'TELJESEN_SIKERES', warnings: [], errors: [], expectedStartDate: '2026-12-01' }]);
+
+  const both = parseNtakResponse(envelope(start + status.replace('TELJESEN_SIKERES', 'BEFOGADVA')));
+  if (both.kind !== 'verification') throw new Error();
+  assert.equal(both.results.length, 1);
+  assert.equal(both.results[0].status, 'BEFOGADVA');
+  assert.equal(both.results[0].expectedStartDate, '2026-12-01');
+});
+
+Deno.test('WSDL of 26 Nov 2026: an error may name the building, room and booking it concerns', () => {
+  const hiba = (where: string) => `<ns2:hiba><ns2:mezoNeve>esemenyek.erkezett.lakoegyseg.szobaszam</ns2:mezoNeve><ns2:kuldottErtek>999</ns2:kuldottErtek><ns2:hibaKulcs>ErvenytelenErtek</ns2:hibaKulcs><ns2:hibaUzenet>Hiba</ns2:hibaUzenet>${where}</ns2:hiba>`;
+  const answer = (where: string) => parseNtakResponse(`<ns2:esemenyvezereltAdatkuldesResponse xmlns:ns2="http://mtu.gov.hu/ntak/v9"><ns2:hibaLista>${hiba(where)}</ns2:hibaLista><ns2:figyelmeztetesLista/></ns2:esemenyvezereltAdatkuldesResponse>`);
+  const located = answer('<ns2:epulet>A</ns2:epulet><ns2:szobaszam>999</ns2:szobaszam><ns2:foglalasiSzam>CHX-1</ns2:foglalasiSzam>');
+  if (located.kind !== 'rejected') throw new Error();
+  assert.equal(located.errors[0].building, 'A');
+  assert.equal(located.errors[0].room, '999');
+  assert.equal(located.errors[0].bookingNo, 'CHX-1');
+  const nil = answer('<ns2:epulet xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:nil="true"/><ns2:szobaszam/><ns2:foglalasiSzam></ns2:foglalasiSzam>');
+  if (nil.kind !== 'rejected') throw new Error();
+  assert.equal(nil.errors[0].building, undefined);
+  assert.equal(nil.errors[0].room, undefined);
+  assert.equal(nil.errors[0].bookingNo, undefined);
+});
+
 Deno.test('published spec example needs live-endpoint name fields to validate', async () => {
   const xml = `<v9:foglalasEsemenyRequest xmlns:v9="http://mtu.gov.hu/ntak/v9"><v9:uzenetAdatok><v9:uzenetId>686d1d95-a4b6-45d8-a260-94befe406035</v9:uzenetId><v9:uzenetKuldesIdeje>2025-11-27T12:46:00Z</v9:uzenetKuldesIdeje></v9:uzenetAdatok><v9:szoftverAdatok><v9:szoftverVerzio>v1</v9:szoftverVerzio><v9:szoftverAzonosito>MINTA525252</v9:szoftverAzonosito></v9:szoftverAdatok><v9:szallashely><v9:szallasRegisztraciosSzam>SZ25003491</v9:szallasRegisztraciosSzam><v9:szallashelySzolgaltatoAdoszam>69861195-2-44</v9:szallashelySzolgaltatoAdoszam></v9:szallashely><v9:foglalasEsemeny><v9:foglalasiSzam>11111114</v9:foglalasiSzam><v9:esemenyLetrejotte>2025-11-27T10:58:00Z</v9:esemenyLetrejotte><v9:garantaltFoglalas>false</v9:garantaltFoglalas><v9:lemondva>false</v9:lemondva><v9:vendegKuldoOrszaga>HU</v9:vendegKuldoOrszaga><v9:erkezes>2025-12-05</v9:erkezes><v9:tavozas>2025-12-10</v9:tavozas><v9:foglalasIdopont>2025-11-03T02:36:00Z</v9:foglalasIdopont><v9:ertekesitesiCsatorna>DIREKT_HAGYOMANYOS</v9:ertekesitesiCsatorna><v9:foglalasBruttoOsszege>100000</v9:foglalasBruttoOsszege><v9:foglaltLakoegysegek><v9:foglaltLakoegyseg><v9:tipus>ECONOMY</v9:tipus><v9:ferohelyKapacitas>1</v9:ferohelyKapacitas></v9:foglaltLakoegyseg></v9:foglaltLakoegysegek><v9:piaciSzegmens>UZLETI_EGYENI</v9:piaciSzegmens><v9:vendegszam>1</v9:vendegszam></v9:foglalasEsemeny></v9:foglalasEsemenyRequest>`;
   // The published example omits names; the November 2026 test endpoint requires both.
