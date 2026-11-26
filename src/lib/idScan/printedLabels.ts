@@ -33,8 +33,8 @@ export function stripBirthCountry(value:string):string {
   const m=/\s*(?:\(\s*([A-Z]{3})\s*\)|\s+([A-Z]{3}))$/u.exec(value);
   return m && ISO3_TO_ISO2[m[1]??m[2]] ? value.slice(0,m.index).trim() : value.trim();
 }
-export const titlePrinted = (s:string) => s.split(/(\s+)/u).map(w=>/^(?:[A-Za-z]\.){2,}$/u.test(w)?w.toUpperCase():w.toLowerCase().replace(/(^|[-’'])\p{L}/gu,c=>c.toUpperCase())).join('');
-const mrz=(s:string)=>s.includes('<<')||/^[A-Z0-9<]{25,}$/u.test(s);
+export const titlePrinted = (s:string) => s.split(/(\s+)/u).map(w=>/^(?:[A-Za-z]\.){2,}$/u.test(w)?w.toUpperCase():w.toLowerCase().replace(/(^|[.\-’'])\p{L}/gu,c=>c.toUpperCase())).join('');
+const mrz=(s:string)=>s.includes('<<')||/^--- OCR PASS ---$/u.test(s)||/^[A-Z0-9<]{25,}$/u.test(s);
 const sex=/^[MFX<]$/i;
 const date= /^(?:\d{1,2}\s+[A-Z]{3}(?:\s*\/\s*[A-Z]{3})?\s+\d{2,4}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/i;
 const dateOnly=(s:string)=>{const m=date.exec(s);return !!m&&m[0].length===s.length;};
@@ -56,8 +56,8 @@ export function resolvePrintedLabels(text:string):PrintedCandidate[] {
     const line=lines[i], labels=hits(line), targets=labels.filter(h=>h.field!=='other');
     if(!targets.length||mrz(line))continue;
     const fields=[...new Set(targets.map(h=>h.field))];
-    if(fields.length!==1)continue;
-    const field=fields[0] as PrintedLabel;
+    if(fields.length!==1 && !(fields.length===2 && fields.includes('birth_last_name') && fields.includes('birth_pair') && /[\/|]/u.test(line)))continue;
+    const field=(fields.includes('birth_last_name')?'birth_last_name':fields[0]) as PrintedLabel;
     const others=labels.filter(h=>h.field==='other');
     // Only composite sex/date-of-birth rows have unambiguous removable values.
     if(others.some(h=>! /^(?:sex|sexe|gender|φυλο|date\s*of\s*birth|date\s*de\s*naissance|geburtsdatum)$/i.test(h.text)))continue;
@@ -94,4 +94,31 @@ export function resolvePrintedLabels(text:string):PrintedCandidate[] {
 export function splitPrintedMotherName(value?:string|null):{mother_family_name:string;mother_given_name:string|null}|undefined {
   const words=value?.trim().split(/\s+/).filter(Boolean);
   return words?.length?{mother_family_name:words[0],mother_given_name:words.slice(1).join(' ')||null}:undefined;
+}
+
+export type PrintedValueRead={value:string;confidence?:number|null};
+export function choosePrintedValue(reads:PrintedValueRead[]): {value:string;status:'agreed'|'single reading'}|undefined {
+  const key=(s:string)=>foldPrinted(s).replace(/[^\p{L}\p{N}]/gu,'');
+  const accents=(s:string)=>(s.normalize('NFD').match(/\p{M}/gu)??[]).length;
+  const groups=new Map<string,{value:string;count:number;confidence:number}>();
+  for(const read of reads){
+    const k=key(read.value);
+    if(!k)continue;
+    const prev=groups.get(k);
+    groups.set(k,{value:prev&&accents(prev.value)>=accents(read.value)?prev.value:read.value,count:(prev?.count??0)+1,confidence:Math.max(prev?.confidence??-1,read.confidence??-1)});
+  }
+  const ranked=[...groups.values()].sort((a,b)=>b.count-a.count||b.confidence-a.confidence);
+  if(!ranked.length||ranked.length>1&&ranked[0].count===ranked[1].count&&ranked[0].confidence===ranked[1].confidence)return;
+  return {value:ranked[0].value,status:ranked[0].count>1?'agreed':'single reading'};
+}
+
+export function splitPrintedBirthName(raw:string,givenName?:string,hungarian=false):{birth_last_name:string;birth_first_name:string}|undefined {
+  const pair=raw.split(/\s*,\s*|\s+\/\s+/);
+  if(pair.length===2 && pair.every(s=>s.trim()))return {birth_last_name:titlePrinted(pair[0]),birth_first_name:titlePrinted(pair[1])};
+  const words=raw.trim().split(/\s+/);
+  const known=foldPrinted(givenName??'').replace(/[^a-z ]/g,'').trim();
+  let split=words.findIndex((_,i)=>i>0&&!!known&&foldPrinted(words.slice(i).join(' '))===known);
+  if(split<1)split=words.length===2||hungarian&&words.length>2?1:-1;
+  if(split<1)return;
+  return {birth_last_name:titlePrinted(words.slice(0,split).join(' ')),birth_first_name:titlePrinted(words.slice(split).join(' '))};
 }
