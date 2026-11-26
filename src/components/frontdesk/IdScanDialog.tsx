@@ -930,7 +930,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           // its lighting and read it again; then let the check digits repair
           // a single look-alike character. Names are never altered.
           const layout = bandLayout(frame.width, frame.height, band, live);
-          const located = codeLineGeometry(lines, layout.scale, 0, layout.top);
+          const located = codeLineGeometry(lines, layout.scale, 0, layout.top, parsed?.format === 'TD3' || parsed?.format === 'TD2' ? 2 : parsed?.format === 'TD1' ? 3 : undefined);
           if (located && !(parsed?.valid && !parsed.unknownCountry)) {
             gray ??= frameGray(frame);
             if (gray) {
