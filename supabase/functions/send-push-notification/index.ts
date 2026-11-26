@@ -12,6 +12,8 @@ interface PushRequest {
   url?: string;
   tag?: string;
   eventType?: string;
+  ttlSeconds?: number;
+  urgency?: 'very-low' | 'low' | 'normal' | 'high';
   data?: Record<string, unknown>;
 }
 
@@ -69,6 +71,9 @@ Deno.serve(async (req: Request) => {
     const userIds = [...new Set((input.userIds || []).filter(Boolean))];
     const title = String(input.title || "").trim();
     const body = String(input.body || "").trim();
+    const ttl = typeof input.ttlSeconds === 'number' && Number.isFinite(input.ttlSeconds)
+      ? Math.max(0, Math.min(3600, Math.floor(input.ttlSeconds))) : 3600;
+    const urgency = input.urgency === 'normal' || input.urgency === 'low' || input.urgency === 'very-low' ? input.urgency : 'high';
 
     if (userIds.length === 0) {
       return json({ ok: true, targetedUsers: 0, subscriptions: 0, delivered: 0, removed: 0 });
@@ -121,7 +126,7 @@ Deno.serve(async (req: Request) => {
               keys: { p256dh: row.p256dh, auth: row.auth },
             },
             payload,
-            { TTL: 3600, urgency: "high" },
+            { TTL: ttl, urgency },
           );
           delivered += 1;
         } catch (error) {
