@@ -88,10 +88,74 @@ export default function Breakfast() {
   const [result, setResult] = useState<any>(null);
   const [served, setServed] = useState(0);
   const [savingMark, setSavingMark] = useState(false);
-  // Shared-device credential stays in memory and is bound to the chosen hotel.
-  const [staffCode, setStaffCode] = useState<{ hotelId: string; value: string } | null>(null);
-  const codeForHotel = selection && staffCode?.hotelId === selection.hotel_id ? staffCode.value : "";
-  useEffect(() => { setStaffCode(null); }, [selection?.hotel_id, orgSlug]);
+  const [housekeepingLink, setHousekeepingLink] = useState<{ hotelId: string; on: boolean } | null>(null);
+  const selectedHotelId = selection?.hotel_id;
+  const currentMarkScope = useRef({ hotelId: selectedHotelId, date });
+  currentMarkScope.current = { hotelId: selectedHotelId, date };
+  const pendingHousekeeping = useRef(new Map<string, { hotelId: string; expiresAt: number }>());
+  useEffect(() => {
+    if (!selectedHotelId || hotelCode) return;
+    let active = true;
+    let generation = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      const current = ++generation;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!active || current !== generation) return;
+        if (!sessionData.session) {
+          setHousekeepingLink({ hotelId: selectedHotelId, on: false });
+          return;
+        }
+        const { data, error } = await supabase.functions.invoke("breakfast-mark-served", {
+          body: { action: "housekeeping_status", hotel_id: selectedHotelId },
+        });
+        if (active && current === generation) setHousekeepingLink({ hotelId: selectedHotelId, on: !error && data?.housekeeping_link_on === true });
+      } catch {
+        if (active && current === generation) setHousekeepingLink({ hotelId: selectedHotelId, on: false });
+      }
+    };
+    void refresh();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      generation++;
+      setHousekeepingLink(null);
+      clearTimeout(timer);
+      if (session) timer = setTimeout(() => void refresh(), 0);
+    });
+    window.addEventListener("focus", refresh);
+    return () => { active = false; generation++; clearTimeout(timer); subscription.unsubscribe(); window.removeEventListener("focus", refresh); };
+  }, [selectedHotelId, hotelCode]);
+  // A single batched status check for this board, not one timer per guest.
+  // Never claim housekeeping was informed merely because a signal was queued.
+  useEffect(() => {
+    if (!selectedHotelId || !housekeepingLink?.on || housekeepingLink.hotelId !== selectedHotelId) return;
+    let active = true;
+    let checking = false;
+    const poll = async () => {
+      if (!active || checking) return;
+      const now = Date.now();
+      for (const [id, mark] of pendingHousekeeping.current) {
+        if (mark.expiresAt <= now) pendingHousekeeping.current.delete(id);
+      }
+      const ids = [...pendingHousekeeping.current].filter(([, m]) => m.hotelId === selectedHotelId).map(([id]) => id).slice(0, 50);
+      if (!ids.length) return;
+      checking = true;
+      try {
+        const { data, error } = await supabase.functions.invoke("breakfast-mark-served", {
+          body: { action: "housekeeping_push_status", hotel_id: selectedHotelId, attendance_ids: ids },
+        });
+        if (!active || error || !Array.isArray(data?.marks)) return;
+        for (const mark of data.marks) {
+          if (mark.housekeeping_informed === true && pendingHousekeeping.current.delete(mark.attendance_id)) {
+            toast.success(bbT(language, "housekeepingInformed"));
+          }
+        }
+      } catch { /* ordinary breakfast marking is unaffected */ }
+      finally { checking = false; }
+    };
+    const timer = window.setInterval(() => void poll(), 15_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [selectedHotelId, housekeepingLink, language]);
   const [rooms, setRooms] = useState<any[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [dataSource, setDataSource] = useState<string | null>(null);
@@ -262,7 +326,6 @@ export default function Breakfast() {
         room_number: result.room,
         served_count: served,
         guest_names: result.guest_names ?? null,
-        ...(codeForHotel.trim() ? { breakfast_code: codeForHotel.trim() } : {}),
       },
     });
     setSavingMark(false);
@@ -270,7 +333,42 @@ export default function Breakfast() {
       toast.error((data && (data.error as string)) || error?.message || "Failed");
       return;
     }
-    toast.success(tt("marked", { n: served, room: result.room }));
+    const markId = typeof data?.id === "string" ? data.id : null;
+    const undoToken = typeof data?.undo_token === "string" ? data.undo_token : null;
+    const markedHotel = selection.hotel_id;
+    const markedDate = date;
+    if (markId && data?.housekeeping_informed !== true) {
+      // Only a signed-in, enabled board polls; the server additionally checks
+      // receipt ownership. Keep a short bounded list during a busy service.
+      pendingHousekeeping.current.set(markId, { hotelId: markedHotel, expiresAt: Date.now() + 5 * 60_000 });
+      while (pendingHousekeeping.current.size > 200) {
+        const oldest = pendingHousekeeping.current.keys().next().value;
+        if (!oldest) break;
+        pendingHousekeeping.current.delete(oldest);
+      }
+    }
+    const undoMs = typeof data?.undo_expires_at === "string" ? Date.parse(data.undo_expires_at) - Date.now() : 60_000;
+    const canUndo = !!markId && !!undoToken && Number.isFinite(undoMs) && undoMs > 0;
+    toast.success(tt("marked", { n: served, room: result.room }), canUndo ? {
+      duration: Math.min(60_000, undoMs),
+      action: {
+        label: tt("undoWrongRoom"),
+        onClick: () => {
+          void (async () => {
+            try {
+              const { data: undone, error: undoError } = await supabase.functions.invoke("breakfast-mark-served", {
+                body: { action: "undo", hotel_id: markedHotel, attendance_id: markId, undo_token: undoToken },
+              });
+              if (undoError || undone?.ok !== true) throw new Error("undo failed");
+              pendingHousekeeping.current.delete(markId!);
+              toast.success(tt("undoSaved"));
+              if (currentMarkScope.current.hotelId === markedHotel && currentMarkScope.current.date === markedDate) void loadRooms();
+            } catch { toast.error(tt("undoFailed")); }
+          })();
+        },
+      },
+    } : undefined);
+    if (data?.housekeeping_informed === true) toast.success(tt("housekeepingInformed"));
     setRoom("");
     setResult(null);
     void loadRooms();
@@ -505,14 +603,11 @@ export default function Breakfast() {
           )}
 
           {!hotelCode && selection && tab === "rooms" && (
-            <details className="rounded-md border px-3 py-2 text-sm">
-              <summary className="cursor-pointer text-muted-foreground min-h-8 flex items-center">{tt("housekeepingAccess")}</summary>
-              <p className="text-xs text-muted-foreground mb-2">{tt("housekeepingAccessHint")}</p>
-              <Label htmlFor="bb-housekeeping-code">{tt("housekeepingCode")}</Label>
-              <Input id="bb-housekeeping-code" type="password" autoComplete="off" maxLength={256}
-                value={codeForHotel} onChange={e => setStaffCode({ hotelId: selection.hotel_id, value: e.target.value })}
-                className="mt-1 h-10" />
-            </details>
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+              {housekeepingLink?.hotelId === selection.hotel_id && housekeepingLink.on
+                ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />{tt("housekeepingLinkOn")}</>
+                : tt("housekeepingSignIn")}
+            </p>
           )}
 
           {!hotelCode && selection && tab === "reservations" && (

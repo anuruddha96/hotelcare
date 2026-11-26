@@ -1,5 +1,7 @@
 export const housekeepingBreakfastTranslations = {
   "en": {
+    "hkBreakfast.show": "Show",
+    "hkBreakfast.knock": "Please knock before entering.",
     "hkBreakfast.chip": "Guest at breakfast",
     "hkBreakfast.since": "Since {time}, {minutes} min ago.",
     "hkBreakfast.hint": "Good moment to clean. Please knock before entering.",
@@ -15,6 +17,8 @@ export const housekeepingBreakfastTranslations = {
     "hkBreakfast.followInstructions": "Follow the existing room service instructions."
   },
   "hu": {
+    "hkBreakfast.show": "Mutatás",
+    "hkBreakfast.knock": "Belépés előtt kérjük, kopogjon.",
     "hkBreakfast.chip": "A vendég reggelizik",
     "hkBreakfast.since": "{time} óta, {minutes} perce.",
     "hkBreakfast.hint": "Most jó alkalom a takarításra. Belépés előtt kérjük, kopogjon.",
@@ -30,6 +34,8 @@ export const housekeepingBreakfastTranslations = {
     "hkBreakfast.followInstructions": "Kövesse a meglévő szobatakarítási utasításokat."
   },
   "es": {
+    "hkBreakfast.show": "Mostrar",
+    "hkBreakfast.knock": "Llame a la puerta antes de entrar.",
     "hkBreakfast.chip": "Huésped en el desayuno",
     "hkBreakfast.since": "Desde las {time}, hace {minutes} min.",
     "hkBreakfast.hint": "Buen momento para limpiar. Llame a la puerta antes de entrar.",
@@ -45,6 +51,8 @@ export const housekeepingBreakfastTranslations = {
     "hkBreakfast.followInstructions": "Siga las instrucciones de servicio de la habitación."
   },
   "vi": {
+    "hkBreakfast.show": "Xem",
+    "hkBreakfast.knock": "Vui lòng gõ cửa trước khi vào.",
     "hkBreakfast.chip": "Khách đang ăn sáng",
     "hkBreakfast.since": "Từ {time}, {minutes} phút trước.",
     "hkBreakfast.hint": "Thời điểm phù hợp để dọn phòng. Vui lòng gõ cửa trước khi vào.",
@@ -60,6 +68,8 @@ export const housekeepingBreakfastTranslations = {
     "hkBreakfast.followInstructions": "Hãy làm theo hướng dẫn phục vụ phòng hiện có."
   },
   "mn": {
+    "hkBreakfast.show": "Харах",
+    "hkBreakfast.knock": "Орохын өмнө хаалга тогшино уу.",
     "hkBreakfast.chip": "Зочин өглөөний цай ууж байна",
     "hkBreakfast.since": "{time} цагаас, {minutes} минутын өмнө.",
     "hkBreakfast.hint": "Цэвэрлэхэд тохиромжтой үе. Орохын өмнө хаалга тогшино уу.",
@@ -75,6 +85,8 @@ export const housekeepingBreakfastTranslations = {
     "hkBreakfast.followInstructions": "Өрөөний үйлчилгээний одоогийн зааврыг дагана уу."
   },
   "az": {
+    "hkBreakfast.show": "Göstər",
+    "hkBreakfast.knock": "Daxil olmadan əvvəl qapını döyün.",
     "hkBreakfast.chip": "Qonaq səhər yeməyindədir",
     "hkBreakfast.since": "Saat {time}-dan, {minutes} dəqiqə əvvəl.",
     "hkBreakfast.hint": "Təmizlik üçün münasib vaxtdır. Daxil olmadan əvvəl qapını döyün.",
@@ -90,6 +102,8 @@ export const housekeepingBreakfastTranslations = {
     "hkBreakfast.followInstructions": "Otaq xidməti üzrə mövcud təlimatlara əməl edin."
   },
   "tl": {
+    "hkBreakfast.show": "Ipakita",
+    "hkBreakfast.knock": "Kumatok muna bago pumasok.",
     "hkBreakfast.chip": "Nag-aalmusal ang bisita",
     "hkBreakfast.since": "Mula {time}, {minutes} min ang nakalipas.",
     "hkBreakfast.hint": "Magandang oras para maglinis. Kumatok muna bago pumasok.",
@@ -105,6 +119,8 @@ export const housekeepingBreakfastTranslations = {
     "hkBreakfast.followInstructions": "Sundin ang kasalukuyang mga tagubilin sa paglilinis ng kuwarto."
   },
   "uk": {
+    "hkBreakfast.show": "Показати",
+    "hkBreakfast.knock": "Будь ласка, постукайте перед входом.",
     "hkBreakfast.chip": "Гість на сніданку",
     "hkBreakfast.since": "З {time}, {minutes} хв тому.",
     "hkBreakfast.hint": "Вдалий час для прибирання. Будь ласка, постукайте перед входом.",
@@ -120,6 +136,8 @@ export const housekeepingBreakfastTranslations = {
     "hkBreakfast.followInstructions": "Дотримуйтеся чинних інструкцій з обслуговування номера."
   },
   "ru": {
+    "hkBreakfast.show": "Показать",
+    "hkBreakfast.knock": "Пожалуйста, постучите перед входом.",
     "hkBreakfast.chip": "Гость на завтраке",
     "hkBreakfast.since": "С {time}, {minutes} мин назад.",
     "hkBreakfast.hint": "Подходящий момент для уборки. Пожалуйста, постучите перед входом.",

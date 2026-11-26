@@ -6,9 +6,12 @@ export type BBLang = "en" | "hu" | "es" | "vi" | "mn" | "az" | "tl";
 type Bundle = Record<string, string>;
 
 const en: Bundle = {
-  housekeepingAccess: "Housekeeping access",
-  housekeepingAccessHint: "Sign in as staff or enter your hotel's staff breakfast code once to share eligible arrivals with housekeeping. Breakfast counting works without this.",
-  housekeepingCode: "Staff breakfast code",
+  undoWrongRoom: "Wrong room? Undo",
+  undoSaved: "Breakfast mark corrected",
+  undoFailed: "Could not undo, or the 60-second window has ended.",
+  housekeepingLinkOn: "Housekeeping link on",
+  housekeepingSignIn: "Sign in to inform housekeeping",
+  housekeepingInformed: "Housekeeping informed",
   title: "Breakfast Verification",
   selectHotel: "Select your hotel to begin.",
   selectRestaurant: "Select your restaurant.",
@@ -109,9 +112,12 @@ const en: Bundle = {
 };
 
 const hu: Bundle = {
-  housekeepingAccess: "Takarítási értesítések",
-  housekeepingAccessHint: "Jelentkezzen be dolgozóként, vagy adja meg egyszer a szálloda dolgozói reggelikódját a takarítás tájékoztatásához. A reggeli rögzítése enélkül is működik.",
-  housekeepingCode: "Dolgozói reggelikód",
+  undoWrongRoom: "Rossz szoba? Visszavonás",
+  undoSaved: "A reggeli bejegyzés javítva",
+  undoFailed: "A visszavonás sikertelen, vagy lejárt a 60 másodperc.",
+  housekeepingLinkOn: "Takarítási kapcsolat aktív",
+  housekeepingSignIn: "A takarítás értesítéséhez jelentkezzen be",
+  housekeepingInformed: "A takarítás értesítve",
   title: "Reggeli ellenőrzés",
   selectHotel: "Válassza ki a szállodáját a folytatáshoz.",
   selectRestaurant: "Válassza ki az éttermet.",
@@ -211,9 +217,12 @@ const hu: Bundle = {
 };
 
 const es: Bundle = {
-  housekeepingAccess: "Acceso para limpieza",
-  housekeepingAccessHint: "Inicia sesión como personal o introduce una vez el código de desayuno del hotel para compartir las llegadas aptas con limpieza. El registro del desayuno funciona sin esto.",
-  housekeepingCode: "Código de desayuno del personal",
+  undoWrongRoom: "¿Habitación incorrecta? Deshacer",
+  undoSaved: "Registro de desayuno corregido",
+  undoFailed: "No se pudo deshacer o han pasado los 60 segundos.",
+  housekeepingLinkOn: "Conexión con limpieza activa",
+  housekeepingSignIn: "Inicia sesión para avisar a limpieza",
+  housekeepingInformed: "Limpieza informada",
   title: "Verificación de desayuno",
   selectHotel: "Seleccione su hotel para comenzar.",
   selectRestaurant: "Seleccione su restaurante.",
@@ -283,9 +292,12 @@ const es: Bundle = {
 };
 
 const vi: Bundle = {
-  housekeepingAccess: "Quyền thông báo cho buồng phòng",
-  housekeepingAccessHint: "Đăng nhập bằng tài khoản nhân viên hoặc nhập mã bữa sáng dành cho nhân viên của khách sạn một lần để báo cho bộ phận buồng phòng. Vẫn có thể ghi nhận bữa sáng nếu không làm bước này.",
-  housekeepingCode: "Mã bữa sáng của nhân viên",
+  undoWrongRoom: "Sai phòng? Hoàn tác",
+  undoSaved: "Đã sửa ghi nhận bữa sáng",
+  undoFailed: "Không thể hoàn tác hoặc đã hết 60 giây.",
+  housekeepingLinkOn: "Đã bật kết nối buồng phòng",
+  housekeepingSignIn: "Đăng nhập để thông báo cho buồng phòng",
+  housekeepingInformed: "Đã thông báo cho buồng phòng",
   title: "Xác minh bữa sáng",
   selectHotel: "Chọn khách sạn của bạn để bắt đầu.",
   selectRestaurant: "Chọn nhà hàng của bạn.",
@@ -355,9 +367,12 @@ const vi: Bundle = {
 };
 
 const mn: Bundle = {
-  housekeepingAccess: "Өрөө цэвэрлэгээнд мэдээлэх",
-  housekeepingAccessHint: "Ажилтны бүртгэлээр нэвтрэх эсвэл зочид буудлын ажилтны өглөөний цайны кодыг нэг удаа оруулж, тохирох мэдээллийг цэвэрлэгээний багт дамжуулна. Үүнгүйгээр өглөөний цайг бүртгэж болно.",
-  housekeepingCode: "Ажилтны өглөөний цайны код",
+  undoWrongRoom: "Өрөө андуурсан уу? Буцаах",
+  undoSaved: "Өглөөний цайны бүртгэл засагдлаа",
+  undoFailed: "Буцаах боломжгүй эсвэл 60 секунд өнгөрсөн.",
+  housekeepingLinkOn: "Цэвэрлэгээний холбоос идэвхтэй",
+  housekeepingSignIn: "Цэвэрлэгээнд мэдээлэхийн тулд нэвтэрнэ үү",
+  housekeepingInformed: "Цэвэрлэгээнд мэдээлсэн",
   title: "Өглөөний цайны баталгаажуулалт",
   selectHotel: "Эхлэхийн тулд зочид буудлаа сонгоно уу.",
   selectRestaurant: "Ресторанаа сонгоно уу.",
@@ -427,15 +442,21 @@ const mn: Bundle = {
 };
 
 const az: Bundle = {
-  housekeepingAccess: "Təmizlik şöbəsinə məlumat",
-  housekeepingAccessHint: "Uyğun gəlişləri təmizlik şöbəsinə bildirmək üçün işçi hesabına daxil olun və ya otelin işçi səhər yeməyi kodunu bir dəfə daxil edin. Səhər yeməyi qeydiyyatı bunsuz da işləyir.",
-  housekeepingCode: "İşçi səhər yeməyi kodu",
+  undoWrongRoom: "Səhv otaq? Geri al",
+  undoSaved: "Səhər yeməyi qeydi düzəldildi",
+  undoFailed: "Geri almaq mümkün olmadı və ya 60 saniyə bitib.",
+  housekeepingLinkOn: "Təmizlik əlaqəsi aktivdir",
+  housekeepingSignIn: "Təmizlik şöbəsinə məlumat vermək üçün daxil olun",
+  housekeepingInformed: "Təmizlik şöbəsinə məlumat verildi",
 };
 
 const tl: Bundle = {
-  housekeepingAccess: "Access para sa housekeeping",
-  housekeepingAccessHint: "Mag-sign in bilang staff o ilagay nang isang beses ang breakfast code ng hotel para maibahagi sa housekeeping ang mga angkop na pagdating. Maaari pa ring magtala ng breakfast kahit wala nito.",
-  housekeepingCode: "Breakfast code ng staff",
+  undoWrongRoom: "Maling kuwarto? I-undo",
+  undoSaved: "Naitama ang tala ng almusal",
+  undoFailed: "Hindi ma-undo o lumipas na ang 60 segundo.",
+  housekeepingLinkOn: "Aktibo ang koneksyon sa housekeeping",
+  housekeepingSignIn: "Mag-sign in para maabisuhan ang housekeeping",
+  housekeepingInformed: "Naabisuhan ang housekeeping",
   title: "Breakfast Verification",
   selectHotel: "Pumili ng iyong hotel para magsimula.",
   selectRestaurant: "Pumili ng restawran.",

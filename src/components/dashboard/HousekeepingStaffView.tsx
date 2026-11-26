@@ -1,3 +1,4 @@
+import { useBreakfastAssignmentDeepLink } from '@/hooks/useBreakfastAssignmentDeepLink';
 import { useHousekeepingBreakfastSignals } from '@/hooks/useHousekeepingBreakfastSignals';
 import { HousekeepingBreakfastBanner, HousekeepingBreakfastNotice } from './HousekeepingBreakfastNotice';
 import { activeBreakfastSignal, breakfastSignalForAssignment, compareHousekeepingTasks } from '@/lib/housekeepingTaskOrder';
@@ -331,6 +332,8 @@ export function HousekeepingStaffView() {
   const visibleAssignments = [...filteredAssignments].sort((a, b) =>
     compareHousekeepingTasks(a, b, 'desktop', breakfast.now, activeSignals));
   const breakfastAssignments = visibleAssignments.filter(a => activeSignals.has(a.room_id));
+  useBreakfastAssignmentDeepLink({ enabled: !!user?.id && !isMobile, visibleIds: visibleAssignments.map(a => a.id), selectedDate,
+    clearFilters: () => { setWorkFilter('all'); setStatusFilter(null); }, setSelectedDate });
   const visiblePublicTasks = workFilter === 'checkout' || workFilter === 'daily' ? [] : openPublicTasks;
   const workloadFilters = (
     <HousekeeperWorkloadFilters
@@ -546,7 +549,7 @@ export function HousekeepingStaffView() {
           )}
         </div>
         
-        <HousekeepingBreakfastBanner count={breakfastAssignments.length} onShow={() => {
+        <HousekeepingBreakfastBanner count={breakfastAssignments.length} roomNumbers={breakfastAssignments.map(a => a.rooms?.room_number ?? '').filter(Boolean)} onShow={() => {
           const first = breakfastAssignments[0];
           if (first) document.getElementById(`housekeeping-assignment-${first.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }} />
