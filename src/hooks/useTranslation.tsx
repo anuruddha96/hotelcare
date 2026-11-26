@@ -16,6 +16,7 @@ import { generatedTranslations } from '@/lib/generated-translations';
 import { pendingTranslations } from '@/lib/pending-translations';
 import { publicAreaTaskTranslations } from '@/lib/public-area-task-translations';
 import { gozsduRoomTranslations } from '@/lib/gozsdu-room-translations';
+import { housekeepingBreakfastTranslations } from '@/lib/housekeeping-breakfast-translations';
 
 const translations = {
   en: {
@@ -4184,6 +4185,7 @@ export const getStaticTranslationBundle = (lang: Language): Record<string, strin
   ...flattenBundle(pendingTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(publicAreaTaskTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle((gozsduRoomTranslations as any)[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(housekeepingBreakfastTranslations[lang]),
 });
 
 const getCachedTranslationBundle = (lang: Language): Record<string, string> => {
