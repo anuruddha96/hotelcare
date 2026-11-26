@@ -912,6 +912,8 @@ const partialRows: Record<string, readonly [string, ...string[]]> = {
   'pms.express.chooseProfile': ['Select the verified guest profile to reuse', 'Válassza ki a használni kívánt ellenőrzött vendégprofilt', 'Seleccione el perfil verificado que desea reutilizar'],
   'pms.express.linkedProfile': ['Already on this reservation — update this guest', 'Már szerepel a foglalásban — vendég adatainak frissítése', 'Ya está en esta reserva — actualizar huésped'],
   'pms.express.updateContactEmail': ['Updated email (optional)', 'Új e-mail-cím (opcionális)', 'Correo actualizado (opcional)'],
+  'pms.express.noContactEmail': ['No email saved', 'Nincs mentett e-mail-cím', 'No hay correo guardado'],
+  'pms.express.optionalContactEmail': ['Optional. Enter only the email address confirmed by this guest.', 'Opcionális. Csak a vendég által megerősített e-mail-címet adja meg.', 'Opcional. Introduzca solo el correo confirmado por este huésped.'],
   'pms.express.keepContactEmail': ['Leave blank to keep the selected profile’s current email. Only change it if the guest confirms.', 'Hagyja üresen a jelenlegi e-mail-cím megtartásához. Csak a vendég megerősítésével módosítsa.', 'Deje en blanco para mantener el correo actual. Cámbielo solo si el huésped lo confirma.'],
   'pms.express.confirmMatch': ['Confirm existing guest', 'Meglévő vendég megerősítése', 'Confirmar huésped existente'],
   'pms.guest.autosaving': ['Saving changes…', 'Változtatások mentése…', 'Guardando cambios…'],
