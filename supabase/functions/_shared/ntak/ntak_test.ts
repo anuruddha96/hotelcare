@@ -697,12 +697,14 @@ Deno.test('National IFA status set is exact; im7 and municipal codes are refused
   src.stays[0].guests = [guest(1,{ifaStatus:'im7'})];
   assert.ok(assembleClosure(src, settings).checklist.some(c => c.code === 'ifa_unverified' && c.level === 'error'));
 });
-Deno.test('EU_02B uses technical correction code, and UJ omits reason and has empty record ID', async () => {
+Deno.test('EU_02B uses technical correction code, and UJ omits reason and record ID', async () => {
   const src = closureSource();
   const fixed: ClosureSettings = {...settings, ifa:{type:'TETELES',rate:400}, ifaVat:0};
   const newClosure = assembleClosure(src,fixed);
   const newXml = buildNapiZarasRequest(common(),newClosure.closure);
-  assert.ok(newXml.includes('<v9:jegyzokonyvAzonosito></v9:jegyzokonyvAzonosito>'));
+  // NTAK rejects an empty record ID on a new closure (NemKuldendoElem), so the element is left out.
+  assert.ok(!newXml.includes('jegyzokonyvAzonosito'));
+  assert.ok(newXml.includes('<v9:napiZarasBesorolas><v9:besorolas>UJ</v9:besorolas></v9:napiZarasBesorolas>'));
   assert.ok(!newXml.includes('<v9:indoklas>'));
   await assertValid(newXml);
   src.protocolId = 'invalid-on-UJ'; src.reason = 'EGYEB';
