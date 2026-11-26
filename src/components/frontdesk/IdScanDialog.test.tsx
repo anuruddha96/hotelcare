@@ -127,7 +127,6 @@ describe('IdScanDialog at the desk', () => {
     await waitFor(() => expect(mocks.acquireCamera).toHaveBeenCalled());
     mocks.releaseCamera.mockClear();
     rerender(<IdScanDialog open={false} onOpenChange={() => undefined} onApply={() => 'applied'} />);
-    fireEvent.click(screen.getByRole('button', { name: /pms.guest.docPassport/ }));
     expect(mocks.releaseCamera).toHaveBeenCalled();
   });
 
@@ -168,13 +167,23 @@ describe('document-specific retry controls', () => {
     expect(await screen.findByText('pms.scan.passportPhotoOnly')).toBeTruthy();
     expect(screen.queryByRole('button',{name:/pms.scan.captureBack/})).toBeNull();
   });
-  it('uses the existing passport type when the re-scan is unreadable', async () => {
+  it('keeps the selected passport type when OCR is unreadable', async () => {
     render(<IdScanDialog open previousDocumentType="passport" onOpenChange={()=>undefined} onApply={()=> 'applied'}/>);
     fireEvent.click(screen.getByRole('button', { name: /pms.guest.docPassport/ }));
     await captureSyntheticDocument();
     expect(await screen.findByText('pms.scan.passportSelectedRetry')).toBeTruthy();
     expect(screen.queryByRole('button',{name:'pms.scan.nextSide'})).toBeNull();
     expect(screen.queryByRole('button',{name:'pms.scan.confirmIdType'})).toBeNull();
+  });
+  it('rejects positive passport evidence when ID was selected and allows a different choice', async () => {
+    mocks.recognizeWithConfidence.mockResolvedValue({text:'PASSPORT / PASSEPORT',confidence:78});
+    render(<IdScanDialog open onOpenChange={()=>undefined} onApply={()=> 'applied'}/>);
+    fireEvent.click(screen.getByRole('button', { name: /pms.guest.docIdCard/ }));
+    await captureSyntheticDocument();
+    expect(await screen.findByText('pms.scan.differentDocument')).toBeTruthy();
+    expect(screen.queryByRole('button',{name:'pms.scan.nextSide'})).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'pms.scan.changeDocument'}));
+    expect(screen.getByText('pms.scan.selectDocument')).toBeTruthy();
   });
   it('uses the selected ID type when front classification is inconclusive', async () => {
     render(<IdScanDialog open onOpenChange={()=>undefined} onApply={()=> 'applied'}/>);

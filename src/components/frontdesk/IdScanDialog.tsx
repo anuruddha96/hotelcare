@@ -432,6 +432,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   useEffect(() => {
     if (!open || source !== 'camera') { stopCamera(); return; }
     if (phase === 'camera' && !document.hidden) void startCamera();
+    else if (phase === 'select') stopCamera();
     else pauseCamera();
   }, [open, source, phase, startCamera, stopCamera, pauseCamera]);
 
@@ -1232,7 +1233,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setTyped('');
     setFailReason(null);
     // A failed second scan keeps the successfully captured first ID side.
-    if (side === 'front') { setResult(null); clearFront(); setCaptureKind(selectedType ?? 'unknown'); }
+    if (side === 'front') { setResult(null); clearFront(); passportEvidenceRef.current = false; setCaptureKind(selectedType ?? 'unknown'); }
     setFrontAssessment(null);
     setFrontConfidence(null);
     setReviewAcknowledged(false);
@@ -1354,7 +1355,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
         {phase === 'camera' && source === 'camera' && (
           <div className="space-y-2">
-            <p className="text-xs">{side === 'front' ? t(selectedType === 'passport' ? 'pms.scan.passportPhotoOnly' : 'pms.scan.idFrontOnly') : t('pms.scan.idBackHint')}</p>
+            {side === 'mrz' && <p className="text-xs">{t('pms.scan.idBackHint')}</p>}
             {cameraOk !== false ? (
               <div className="relative mx-auto w-full max-h-[34dvh] overflow-hidden rounded-lg bg-black aspect-[1.58/1]">
                 <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover object-center" />
