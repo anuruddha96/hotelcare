@@ -41,7 +41,7 @@ export function estimateCardRect(gray: Uint8Array, width: number, height: number
 }
 /** A located OCR result can be partial (including an empty object). */
 export function needsHungarianPrintedFallback(confirmedHungarian: boolean, fields: OpticalGuestFields): boolean {
-  return confirmedHungarian && !(fields.birth_place && fields.birth_last_name && fields.birth_first_name && fields.mother_name);
+  return confirmedHungarian && !(fields.birth_place && fields.birth_last_name && fields.birth_first_name && fields.mother_name?.trim().split(/\s+/).length === 2);
 }
 
 export function rowHasLabel(row: PrintedRow, text: string): boolean {
@@ -64,9 +64,47 @@ export function parsePrintedRow(row: PrintedRow, text: string): OpticalGuestFiel
 
 /** Require an independently read Hungarian identity and two matching labels
  * in their expected rows; each proposed field must have its own label. */
-export function mergeHungarianRows(confirmedHungarian: boolean, rows: Array<{row:PrintedRow; label:string; value:string; confidence:number|null}>): OpticalGuestFields {
+export type HungarianRowRead = {row:PrintedRow; label:string; value:string; confidence:number|null};
+
+export function mergeHungarianRows(confirmedHungarian: boolean, rows: HungarianRowRead[]): OpticalGuestFields {
   if (!confirmedHungarian || new Set(rows.filter(r=>rowHasLabel(r.row,r.label)).map(r=>r.row)).size<2) return {};
   const out: OpticalGuestFields={};
-  for(const r of rows) if(rowHasLabel(r.row,r.label) && r.confidence!==null && r.confidence>=65) Object.assign(out,parsePrintedRow(r.row,r.value));
+  for (const row of HUNGARIAN_BACK_ROWS) {
+    const candidates = rows.filter(r => r.row === row && rowHasLabel(row,r.label) && r.confidence !== null && r.confidence >= 65)
+      .map(r => parsePrintedRow(row,r.value)).filter(v => Object.keys(v).length > 0);
+    if (candidates.length && candidates.every(v => fold(JSON.stringify(v)) === fold(JSON.stringify(candidates[0])))) {
+      const accents = (v: OpticalGuestFields) => (JSON.stringify(v).normalize('NFD').match(/[\u0300-\u036f]/g) ?? []).length;
+      Object.assign(out, candidates.reduce((best,v) => accents(v) > accents(best) ? v : best));
+    }
+  }
+  return out;
+}
+
+/** A spacing correction must be independently corroborated by two targeted
+ * reads of the labeled mother's row, not inferred from the number of words. */
+export function corroboratedMotherName(rows: HungarianRowRead[]): string | undefined {
+  const candidates = rows.filter(r => r.row === 'mother_name' && rowHasLabel(r.row,r.label) && r.confidence !== null && r.confidence >= 65)
+    .map(r => parsePrintedRow('mother_name',r.value).mother_name).filter((v): v is string => !!v);
+  if (candidates.length < 2 || !candidates.every(v => fold(v) === fold(candidates[0]))) return undefined;
+  return candidates.reduce((best,v) => v.normalize('NFD').length > best.normalize('NFD').length ? v : best);
+}
+
+/** Preserve located evidence, fill a missing birth-name pair atomically,
+ * and repair OCR word segmentation only when the letters agree. Truly
+ * ambiguous compound names remain for physical-document review. */
+export function mergeHungarianFallback(
+  located: OpticalGuestFields, fallback: OpticalGuestFields, confirmedMother?: string,
+): OpticalGuestFields {
+  const out = { ...located };
+  if (!out.birth_place && fallback.birth_place) out.birth_place = fallback.birth_place;
+  if (!out.birth_last_name && !out.birth_first_name && fallback.birth_last_name && fallback.birth_first_name) {
+    out.birth_last_name = fallback.birth_last_name;
+    out.birth_first_name = fallback.birth_first_name;
+  }
+  if (!out.mother_name && fallback.mother_name) out.mother_name = fallback.mother_name;
+  const compact = (v: string) => fold(v).replace(/\s+/g,'');
+  if (out.mother_name && confirmedMother && compact(out.mother_name) === compact(confirmedMother)) {
+    out.mother_name = confirmedMother;
+  }
   return out;
 }
