@@ -67,6 +67,7 @@ type MemoriesAssignment = {
 
 interface HotelMemoriesRoomGateProps {
   assignment: MemoriesAssignment;
+  breakfastKnockReminder?: boolean;
   onStatusUpdate: (assignmentId: string, newStatus: AssignmentStatus) => void;
 }
 
@@ -78,7 +79,7 @@ interface HotelMemoriesRoomGateProps {
  * All other properties, checkouts, and already-triggered daily rooms fall
  * straight through to the normal AssignedRoomCard unchanged.
  */
-export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemoriesRoomGateProps) {
+export function HotelMemoriesRoomGate({ assignment, onStatusUpdate, breakfastKnockReminder }: HotelMemoriesRoomGateProps) {
   const { language } = useTranslation();
   const initialGreenRequest = hasMemoriesGreenBoardRequest(assignment.notes);
   const [greenBoardReleased, setGreenBoardReleased] = useState(initialGreenRequest);
@@ -368,7 +369,7 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
       <div className="space-y-3">
         {guestRequestPanel}
         {carryForwardBanner}
-        <AssignedRoomCard assignment={releasedAssignment} onStatusUpdate={onStatusUpdate} />
+        <AssignedRoomCard assignment={releasedAssignment} onStatusUpdate={onStatusUpdate} breakfastKnockReminder={breakfastKnockReminder} />
       </div>
     );
   }

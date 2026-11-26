@@ -6,6 +6,9 @@ export type BBLang = "en" | "hu" | "es" | "vi" | "mn" | "az" | "tl";
 type Bundle = Record<string, string>;
 
 const en: Bundle = {
+  housekeepingAccess: "Housekeeping access",
+  housekeepingAccessHint: "Sign in as staff or enter your hotel's staff breakfast code once to share eligible arrivals with housekeeping. Breakfast counting works without this.",
+  housekeepingCode: "Staff breakfast code",
   title: "Breakfast Verification",
   selectHotel: "Select your hotel to begin.",
   selectRestaurant: "Select your restaurant.",
@@ -106,6 +109,9 @@ const en: Bundle = {
 };
 
 const hu: Bundle = {
+  housekeepingAccess: "Takarítási értesítések",
+  housekeepingAccessHint: "Jelentkezzen be dolgozóként, vagy adja meg egyszer a szálloda dolgozói reggelikódját a takarítás tájékoztatásához. A reggeli rögzítése enélkül is működik.",
+  housekeepingCode: "Dolgozói reggelikód",
   title: "Reggeli ellenőrzés",
   selectHotel: "Válassza ki a szállodáját a folytatáshoz.",
   selectRestaurant: "Válassza ki az éttermet.",
@@ -205,6 +211,9 @@ const hu: Bundle = {
 };
 
 const es: Bundle = {
+  housekeepingAccess: "Acceso para limpieza",
+  housekeepingAccessHint: "Inicia sesión como personal o introduce una vez el código de desayuno del hotel para compartir las llegadas aptas con limpieza. El registro del desayuno funciona sin esto.",
+  housekeepingCode: "Código de desayuno del personal",
   title: "Verificación de desayuno",
   selectHotel: "Seleccione su hotel para comenzar.",
   selectRestaurant: "Seleccione su restaurante.",
@@ -274,6 +283,9 @@ const es: Bundle = {
 };
 
 const vi: Bundle = {
+  housekeepingAccess: "Quyền thông báo cho buồng phòng",
+  housekeepingAccessHint: "Đăng nhập bằng tài khoản nhân viên hoặc nhập mã bữa sáng dành cho nhân viên của khách sạn một lần để báo cho bộ phận buồng phòng. Vẫn có thể ghi nhận bữa sáng nếu không làm bước này.",
+  housekeepingCode: "Mã bữa sáng của nhân viên",
   title: "Xác minh bữa sáng",
   selectHotel: "Chọn khách sạn của bạn để bắt đầu.",
   selectRestaurant: "Chọn nhà hàng của bạn.",
@@ -343,6 +355,9 @@ const vi: Bundle = {
 };
 
 const mn: Bundle = {
+  housekeepingAccess: "Өрөө цэвэрлэгээнд мэдээлэх",
+  housekeepingAccessHint: "Ажилтны бүртгэлээр нэвтрэх эсвэл зочид буудлын ажилтны өглөөний цайны кодыг нэг удаа оруулж, тохирох мэдээллийг цэвэрлэгээний багт дамжуулна. Үүнгүйгээр өглөөний цайг бүртгэж болно.",
+  housekeepingCode: "Ажилтны өглөөний цайны код",
   title: "Өглөөний цайны баталгаажуулалт",
   selectHotel: "Эхлэхийн тулд зочид буудлаа сонгоно уу.",
   selectRestaurant: "Ресторанаа сонгоно уу.",
@@ -412,9 +427,15 @@ const mn: Bundle = {
 };
 
 const az: Bundle = {
+  housekeepingAccess: "Təmizlik şöbəsinə məlumat",
+  housekeepingAccessHint: "Uyğun gəlişləri təmizlik şöbəsinə bildirmək üçün işçi hesabına daxil olun və ya otelin işçi səhər yeməyi kodunu bir dəfə daxil edin. Səhər yeməyi qeydiyyatı bunsuz da işləyir.",
+  housekeepingCode: "İşçi səhər yeməyi kodu",
 };
 
 const tl: Bundle = {
+  housekeepingAccess: "Access para sa housekeeping",
+  housekeepingAccessHint: "Mag-sign in bilang staff o ilagay nang isang beses ang breakfast code ng hotel para maibahagi sa housekeeping ang mga angkop na pagdating. Maaari pa ring magtala ng breakfast kahit wala nito.",
+  housekeepingCode: "Breakfast code ng staff",
   title: "Breakfast Verification",
   selectHotel: "Pumili ng iyong hotel para magsimula.",
   selectRestaurant: "Pumili ng restawran.",

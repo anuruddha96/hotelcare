@@ -1,0 +1,32 @@
+name: Breakfast housekeeping scratch database
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261126124500_housekeeping_breakfast_signals.sql'
+      - 'supabase/tests/housekeeping_breakfast_signals_scratch.sql'
+      - '.github/workflows/housekeeping-breakfast-scratch.yml'
+permissions:
+  contents: read
+jobs:
+  scratch-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: scratch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d scratch"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run migration, real role isolation checks and rollback on scratch PostgreSQL
+        env:
+          PGPASSWORD: postgres
+        run: psql -X -h localhost -U postgres -d scratch -v ON_ERROR_STOP=1 -f supabase/tests/housekeeping_breakfast_signals_scratch.sql

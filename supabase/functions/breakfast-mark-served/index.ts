@@ -41,7 +41,7 @@ serve(async (req) => {
     const body = await req.json().catch(() => null);
     if (!body) return json(200, { ok: false, error: "Invalid JSON body" });
 
-    const { hotel_id, location, stay_date, room_number, served_count, guest_names, served_by } = body;
+    const { hotel_id, location, stay_date, room_number, served_count, guest_names, served_by, breakfast_code } = body;
     if (!hotel_id || !location || !room_number) return json(200, { ok: false, error: "Missing required fields (hotel_id, location, room_number)" });
     const count = Number(served_count);
     if (!Number.isFinite(count) || count < 0 || count > 50) return json(200, { ok: false, error: "Invalid served_count" });
@@ -71,7 +71,48 @@ serve(async (req) => {
       .single();
 
     if (error) return json(200, { ok: false, error: error.message });
-    return json(200, { ok: true, id: data.id });
+    // Attendance remains independent. Only a verified staff session or a
+    // valid, active code scoped to this hotel and tenant may create signals.
+    // Never return credential validity, guest or assignment information.
+    const housekeepingInformed = false;
+    try {
+      if (orgSlug && Number.isInteger(count) && count > 0) {
+        let authorized = false;
+        const code = typeof breakfast_code === "string" ? breakfast_code.trim() : "";
+        if (code && code.length <= 256) {
+          const { data: codeRow, error: codeError } = await supabase
+            .from("hotel_breakfast_codes").select("hotel_id")
+            .eq("code", code).eq("hotel_id", hotel_id)
+            .eq("organization_slug", orgSlug).eq("is_active", true).maybeSingle();
+          authorized = !codeError && !!codeRow;
+        }
+        const token = req.headers.get("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+        if (!authorized && token) {
+          const { data: authData } = await supabase.auth.getUser(token);
+          const uid = authData?.user?.id;
+          if (uid) {
+            const { data: staff } = await supabase.from("profiles")
+              .select("role,organization_slug,deleted_at").eq("id", uid).maybeSingle();
+            const permitted = ["breakfast_staff","reception","front_office","reception_manager","manager","housekeeping_manager","supervisor","top_management","top_management_manager","admin"];
+            if (staff && !staff.deleted_at && staff.organization_slug === orgSlug && permitted.includes(staff.role)) {
+              const { data: allowed, error: accessError } = await supabase.rpc("user_can_access_hotel", { _hotel_id: hotel_id, _uid: uid });
+              authorized = !accessError && allowed === true;
+            }
+          }
+        }
+        if (authorized) {
+          const { error: signalError } = await supabase.rpc("record_breakfast_signal", {
+            _hotel_id: hotel_id, _room_number: String(room_number).trim(),
+            _served_count: count, _location: location, _attendance_id: data.id,
+          });
+          if (signalError) console.warn("Breakfast signal unavailable", signalError.code);
+          // Phase 2 sets housekeepingInformed only after successful notification.
+        }
+      }
+    } catch {
+      console.warn("Breakfast signal unavailable; attendance saved");
+    }
+    return json(200, { ok: true, id: data.id, housekeeping_informed: housekeepingInformed });
   } catch (e: any) {
     return json(200, { ok: false, error: e?.message ?? String(e) });
   }

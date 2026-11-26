@@ -1,3 +1,6 @@
+import { useHousekeepingBreakfastSignals } from '@/hooks/useHousekeepingBreakfastSignals';
+import { HousekeepingBreakfastBanner, HousekeepingBreakfastNotice } from './HousekeepingBreakfastNotice';
+import { activeBreakfastSignal, breakfastSignalForAssignment, compareHousekeepingTasks } from '@/lib/housekeepingTaskOrder';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,12 +23,9 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useNotifications } from '@/hooks/useNotifications';
 import { PerformanceRaceGame } from './PerformanceRaceGame';
 import { getLocalDateString } from '@/lib/utils';
-import { parseRoomFlags } from '@/lib/room-service-flags';
-import { getMemoriesCarryForwardService, hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
-import { todayBudapest } from '@/lib/budapestTime';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { getDndRetryWindow } from '@/lib/dndRetryPolicy';
-import { getHousekeepingCarryForward, isPortfolioCarryForwardHotel } from '@/lib/housekeepingCarryForward';
 
 interface Assignment {
   id: string;
@@ -169,7 +169,8 @@ export function HousekeepingStaffView() {
             guest_nights_stayed,
             towel_change_required,
             linen_change_required,
-            notes
+            is_checkout_room,
+            is_dnd
           )
         `)
         .eq('assigned_to', user.id)
@@ -199,7 +200,7 @@ export function HousekeepingStaffView() {
       if (missingRoomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
-          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, notes, pms_metadata, guest_nights_stayed, towel_change_required, linen_change_required')
+          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, notes, pms_metadata, guest_nights_stayed, towel_change_required, linen_change_required, is_checkout_room, is_dnd')
           .in('id', missingRoomIds);
         if (!roomsError && roomRows) {
           const roomMap = Object.fromEntries(roomRows.map((r: any) => [r.id, r]));
@@ -234,67 +235,7 @@ export function HousekeepingStaffView() {
 
 
       // Sort with unified priority: in_progress > high priority > ready checkouts (by floor) > daily (by floor) > waiting checkouts > completed
-      assignmentsData.sort((a, b) => {
-        // Helper to get sort bucket
-        const getBucket = (x: any): number => {
-          if (x.status === 'in_progress') return 0;
-          if (x.status === 'completed') return 6;
-          if (x.status === 'cancelled') return 7;
-          if (x.status === 'dnd_pending_retry') {
-            // Unlocked retries sit just above waiting checkouts; locked retries at the very bottom
-            return x.dnd_retry_unlocked_at ? 4 : 5;
-          }
-
-          if (isHotelMemoriesBudapest(x.rooms?.hotel)) {
-            const meta = x.rooms?.pms_metadata || {};
-            const fresh = meta?.pmsSyncDate === todayBudapest();
-            const pmsCheckout = !!x.rooms?.is_checkout_room || meta?.scheduledDepartureToday === true;
-            const checkout = fresh ? pmsCheckout : x.assignment_type === 'checkout_cleaning' || pmsCheckout;
-            const flags = parseRoomFlags(x.rooms?.notes ?? null);
-            const greenBoardRequest = hasMemoriesGreenBoardRequest(x.notes);
-            const carryForward = !checkout
-              ? getMemoriesCarryForwardService(x.previous_day_context)
-              : null;
-
-            if (checkout && x.ready_to_clean) return 1;
-            if (!checkout && (x.rooms?.towel_change_required || carryForward?.serviceType === 'towel_change')) return 2;
-            if (!checkout && (flags.roomCleaning || greenBoardRequest || carryForward?.serviceType === 'full_clean')) return 3;
-            if (!checkout && x.assignment_type === 'daily_cleaning') return 4;
-            if (checkout && !x.ready_to_clean) return 5;
-            return 4;
-          }
-
-          if (isPortfolioCarryForwardHotel(x.rooms?.hotel)) {
-            const meta = x.rooms?.pms_metadata || {};
-            const fresh = meta?.pmsSyncDate === todayBudapest();
-            const pmsCheckout = !!x.rooms?.is_checkout_room || meta?.scheduledDepartureToday === true;
-            const checkout = fresh ? pmsCheckout : x.assignment_type === 'checkout_cleaning' || pmsCheckout;
-            const carryForward = !checkout ? getHousekeepingCarryForward(x.previous_day_context) : null;
-            if (checkout && x.ready_to_clean) return 1;
-            if (carryForward?.serviceType === 'full_clean') return 2;
-            if (carryForward?.serviceType === 'towel_change') return 2;
-            if (checkout && !x.ready_to_clean) return 4;
-          }
-
-          if ((x.priority ?? 1) >= 3) return 1; // high priority
-          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2;
-          if (x.assignment_type === 'daily_cleaning') return 3;
-          if (x.assignment_type === 'checkout_cleaning' && !x.ready_to_clean) return 4;
-          return 3;
-        };
-
-        const bucketDiff = getBucket(a) - getBucket(b);
-        if (bucketDiff !== 0) return bucketDiff;
-
-        // Within same bucket, group by floor then room number
-        const aFloor = a.rooms?.floor_number ?? 999;
-        const bFloor = b.rooms?.floor_number ?? 999;
-        if (aFloor !== bFloor) return aFloor - bFloor;
-
-        const aRoomNum = parseInt(a.rooms?.room_number?.replace(/\D/g, '') || '999');
-        const bRoomNum = parseInt(b.rooms?.room_number?.replace(/\D/g, '') || '999');
-        return aRoomNum - bRoomNum;
-      });
+      assignmentsData.sort((a, b) => compareHousekeepingTasks(a, b, 'desktop', now));
 
       // Store all assignments for DND/NS counting
       setAllAssignments(assignmentsData);
@@ -375,13 +316,21 @@ export function HousekeepingStaffView() {
   const checkoutCount = roomWorkload.filter((a: any) => a.assignment_type === 'checkout_cleaning').length;
   const dailyCount = roomWorkload.length - checkoutCount;
   const openPublicTasks = publicTasks.filter((task: any) => task.status !== 'cancelled');
-  const visibleAssignments = workFilter === 'public'
+  const breakfast = useHousekeepingBreakfastSignals(user?.id, profile?.organization_slug, selectedDate, allAssignments.map(a => a.room_id));
+  const filteredAssignments = workFilter === 'public'
     ? []
     : workFilter === 'checkout'
       ? assignments.filter((a: any) => a.assignment_type === 'checkout_cleaning')
       : workFilter === 'daily'
         ? assignments.filter((a: any) => a.assignment_type !== 'checkout_cleaning')
         : assignments;
+  const activeSignals = new Map(filteredAssignments.flatMap(a => {
+    const signal = activeBreakfastSignal(a, breakfast.signals.get(a.room_id), breakfast.now);
+    return signal ? [[a.room_id, signal] as const] : [];
+  }));
+  const visibleAssignments = [...filteredAssignments].sort((a, b) =>
+    compareHousekeepingTasks(a, b, 'desktop', breakfast.now, activeSignals));
+  const breakfastAssignments = visibleAssignments.filter(a => activeSignals.has(a.room_id));
   const visiblePublicTasks = workFilter === 'checkout' || workFilter === 'daily' ? [] : openPublicTasks;
   const workloadFilters = (
     <HousekeeperWorkloadFilters
@@ -597,6 +546,10 @@ export function HousekeepingStaffView() {
           )}
         </div>
         
+        <HousekeepingBreakfastBanner count={breakfastAssignments.length} onShow={() => {
+          const first = breakfastAssignments[0];
+          if (first) document.getElementById(`housekeeping-assignment-${first.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }} />
         {visibleAssignments.length === 0 ? (
           <Card className="text-center py-8">
             <CardContent>
@@ -626,7 +579,11 @@ export function HousekeepingStaffView() {
           <div className="space-y-3">
             {visibleAssignments
               .map((assignment) => (
-                <div key={assignment.id} data-training="assigned-room-card" data-training-room-status={assignment.status}>
+                <div key={assignment.id} id={`housekeeping-assignment-${assignment.id}`} className="scroll-mt-4" data-training="assigned-room-card" data-training-room-status={assignment.status}>
+                {(() => {
+                  const signal = breakfastSignalForAssignment(assignment, breakfast.signals.get(assignment.room_id), breakfast.now);
+                  return signal ? <HousekeepingBreakfastNotice key={signal.id} signal={signal} roomNumber={assignment.rooms?.room_number ?? ''} now={breakfast.now} onClosed={breakfast.refresh} /> : null;
+                })()}
                 <div data-training={assignment.status === 'in_progress' ? 'active-assigned-room' : undefined}>
                 <ErrorBoundary
                   context={`AssignedRoomCard:${assignment.id}`}
@@ -634,9 +591,9 @@ export function HousekeepingStaffView() {
                   fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
                 >
                   {isHotelMemoriesBudapest(assignment.rooms?.hotel) ? (
-                    <HotelMemoriesRoomGate assignment={assignment} onStatusUpdate={handleStatusUpdate} />
+                    <HotelMemoriesRoomGate assignment={assignment} onStatusUpdate={handleStatusUpdate} breakfastKnockReminder={activeSignals.has(assignment.room_id)} />
                   ) : (
-                    <AssignedRoomCard assignment={assignment} onStatusUpdate={handleStatusUpdate} />
+                    <AssignedRoomCard assignment={assignment} onStatusUpdate={handleStatusUpdate} breakfastKnockReminder={activeSignals.has(assignment.room_id)} />
                   )}
                 </ErrorBoundary>
                 </div>

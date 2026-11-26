@@ -1,3 +1,6 @@
+import { useHousekeepingBreakfastSignals } from '@/hooks/useHousekeepingBreakfastSignals';
+import { HousekeepingBreakfastBanner, HousekeepingBreakfastNotice } from './HousekeepingBreakfastNotice';
+import { activeBreakfastSignal, breakfastSignalForAssignment, compareHousekeepingTasks, isCheckoutAssignment } from '@/lib/housekeepingTaskOrder';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -19,12 +22,8 @@ import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getLocalDateString } from '@/lib/utils';
-import { parseRoomFlags } from '@/lib/room-service-flags';
-import { getMemoriesCarryForwardService, hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
-import { todayBudapest } from '@/lib/budapestTime';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { getDndRetryWindow } from '@/lib/dndRetryPolicy';
-import { getHousekeepingCarryForward, isPortfolioCarryForwardHotel } from '@/lib/housekeepingCarryForward';
 
 interface Assignment {
   id: string;
@@ -62,14 +61,7 @@ interface Summary {
   pending: number;
 }
 
-const isCheckoutAssignment = (assignment: any): boolean => {
-  const pmsMeta = assignment.rooms?.pms_metadata;
-  const hasFreshPms = pmsMeta?.pmsSyncDate === todayBudapest();
-  const pmsSaysCheckout = !!assignment.rooms?.is_checkout_room || pmsMeta?.scheduledDepartureToday === true;
-  return hasFreshPms
-    ? pmsSaysCheckout
-    : assignment.assignment_type === 'checkout_cleaning' || pmsSaysCheckout;
-};
+
 
 export function MobileHousekeepingView() {
   const { user, profile } = useAuth();
@@ -178,7 +170,7 @@ export function MobileHousekeepingView() {
       if (roomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
-          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, notes, pms_metadata, towel_change_required, linen_change_required, guest_nights_stayed, is_checkout_room')
+          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, notes, pms_metadata, towel_change_required, linen_change_required, guest_nights_stayed, is_checkout_room, is_dnd')
           .in('id', roomIds);
           
         console.log('Rooms fetch result:', { roomRows, roomsError });
@@ -223,58 +215,7 @@ export function MobileHousekeepingView() {
           : item.dnd_retry_unlocked_at,
       }));
 
-      assignmentsData.sort((a, b) => {
-        const getBucket = (x: any): number => {
-          if (x.status === 'in_progress') return 0;
-          if (x.status === 'completed') return 8;
-          if (x.status === 'cancelled') return 9;
-          if (x.status === 'dnd_pending_retry') {
-            return x.dnd_retry_unlocked_at ? 6 : 7;
-          }
-
-          if (isHotelMemoriesBudapest(x.rooms?.hotel)) {
-            const checkout = isCheckoutAssignment(x);
-            const flags = parseRoomFlags(x.rooms?.notes ?? null);
-            const greenBoardRequest = hasMemoriesGreenBoardRequest(x.notes);
-            const carryForward = !checkout
-              ? getMemoriesCarryForwardService(x.previous_day_context)
-              : null;
-
-            if (checkout && x.ready_to_clean) return 1;
-            if (!checkout && (x.rooms?.towel_change_required || carryForward?.serviceType === 'towel_change')) return 2;
-            if (!checkout && (flags.roomCleaning || greenBoardRequest || carryForward?.serviceType === 'full_clean')) return 3;
-            if (!checkout && x.assignment_type === 'daily_cleaning') return 4;
-            if (checkout && !x.ready_to_clean) return 5;
-            return 4;
-          }
-
-          if (isPortfolioCarryForwardHotel(x.rooms?.hotel)) {
-            const checkout = isCheckoutAssignment(x);
-            const carryForward = !checkout ? getHousekeepingCarryForward(x.previous_day_context) : null;
-            if (checkout && x.ready_to_clean) return 1;
-            if (carryForward?.serviceType === 'full_clean') return 2;
-            if (carryForward?.serviceType === 'towel_change') return 2;
-            if (checkout && !x.ready_to_clean) return 4;
-          }
-
-          if ((x.priority ?? 1) >= 3) return 1;
-          if (isCheckoutAssignment(x) && x.ready_to_clean) return 2;
-          if (!isCheckoutAssignment(x)) return 3;
-          if (isCheckoutAssignment(x) && !x.ready_to_clean) return 4;
-          return 3;
-        };
-
-        const bucketDiff = getBucket(a) - getBucket(b);
-        if (bucketDiff !== 0) return bucketDiff;
-
-        const aFloor = a.rooms?.floor_number ?? 999;
-        const bFloor = b.rooms?.floor_number ?? 999;
-        if (aFloor !== bFloor) return aFloor - bFloor;
-
-        const aRoomNum = parseInt(a.rooms?.room_number?.replace(/\D/g, '') || '999');
-        const bRoomNum = parseInt(b.rooms?.room_number?.replace(/\D/g, '') || '999');
-        return aRoomNum - bRoomNum;
-      });
+      assignmentsData.sort((a, b) => compareHousekeepingTasks(a, b, 'mobile', nowD));
 
       // Store all assignments for DND/NS counting
       setAllAssignments(assignmentsData);
@@ -355,13 +296,21 @@ export function MobileHousekeepingView() {
   const checkoutCount = roomWorkload.filter((a: any) => isCheckoutAssignment(a)).length;
   const dailyCount = roomWorkload.length - checkoutCount;
   const openPublicTasks = publicTasks.filter((task: any) => task.status !== 'cancelled');
-  const visibleAssignments = workFilter === 'public'
+  const breakfast = useHousekeepingBreakfastSignals(user?.id, profile?.organization_slug, selectedDate, allAssignments.map(a => a.room_id));
+  const filteredAssignments = workFilter === 'public'
     ? []
     : workFilter === 'checkout'
       ? assignments.filter((a: any) => isCheckoutAssignment(a))
       : workFilter === 'daily'
         ? assignments.filter((a: any) => !isCheckoutAssignment(a))
         : assignments;
+  const activeSignals = new Map(filteredAssignments.flatMap(a => {
+    const signal = activeBreakfastSignal(a, breakfast.signals.get(a.room_id), breakfast.now);
+    return signal ? [[a.room_id, signal] as const] : [];
+  }));
+  const visibleAssignments = [...filteredAssignments].sort((a, b) =>
+    compareHousekeepingTasks(a, b, 'mobile', breakfast.now, activeSignals));
+  const breakfastAssignments = visibleAssignments.filter(a => activeSignals.has(a.room_id));
   const visiblePublicTasks = workFilter === 'checkout' || workFilter === 'daily' ? [] : openPublicTasks;
   const workloadFilters = (
     <HousekeeperWorkloadFilters
@@ -633,6 +582,10 @@ export function MobileHousekeepingView() {
           </div>
         )}
 
+        <HousekeepingBreakfastBanner count={breakfastAssignments.length} onShow={() => {
+          const first = breakfastAssignments[0];
+          if (first) document.getElementById(`housekeeping-assignment-${first.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }} />
         {visibleAssignments.length === 0 ? (
           <Card className="text-center py-8">
             <CardContent>
@@ -667,6 +620,10 @@ export function MobileHousekeepingView() {
                 data-training="assigned-room-card"
                 className="scroll-mt-4"
               >
+                {(() => {
+                  const signal = breakfastSignalForAssignment(assignment, breakfast.signals.get(assignment.room_id), breakfast.now);
+                  return signal ? <HousekeepingBreakfastNotice key={signal.id} signal={signal} roomNumber={assignment.rooms?.room_number ?? ''} now={breakfast.now} onClosed={breakfast.refresh} /> : null;
+                })()}
                 <div data-training={assignment.status === 'in_progress' ? 'active-assigned-room' : undefined}>
                 <ErrorBoundary
                   context={`AssignedRoomCard:${assignment.id}`}
@@ -676,6 +633,7 @@ export function MobileHousekeepingView() {
                   <HotelMemoriesRoomGate
                     assignment={assignment}
                     onStatusUpdate={handleStatusUpdate}
+                    breakfastKnockReminder={activeSignals.has(assignment.room_id)}
                   />
                 </ErrorBoundary>
                 </div>
