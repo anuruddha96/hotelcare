@@ -287,3 +287,57 @@ BEGIN
     IF refused IS DISTINCT FROM (cardinality(expected)>0) THEN RAISE EXCEPTION 'Assertion mismatch for %',c->>'name'; END IF;
   END LOOP;
 END $v2$;
+
+
+-- Verified duplicate selection: no write on discovery; no name/email-only
+-- match, no cross-property disclosure, no extra occupant on linked reuse.
+ALTER TABLE public.guests ADD COLUMN IF NOT EXISTS email text;
+\ir ../migrations/20261126151000_express_guest_duplicate_resolution.sql
+DO $duplicate_resolution$
+DECLARE
+  res uuid:='00000000-0000-4000-8000-000000000094';
+  a uuid; b uuid; foreign_id uuid;
+  answer jsonb;
+  before_count integer;
+  payload jsonb:='{"first_name":"Same","last_name":"Person","nationality":"DE","gender":"female","date_of_birth":"1992-01-01","id_document_type":"passport","id_document_number":"DUPLICATE-TEST","viza_review":{"birth_name_absent":true,"birth_place_absent":true,"mother_name_absent":true},"document_scan":{"source":"mrz_camera","format":"TD3","valid":true,"fields":{"csaladnev":"PERSON","utonev":"SAME","szuletesiDatum":"1992-01-01","allampolgarsagKod":"DE","nem":"NO","okmanyTipus":"UTLEVEL","okmanyAzonositoSzam":"DUPLICATE-TEST"}}}';
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000091',false);
+  UPDATE public.reservations SET adults=8 WHERE id=res;
+  SELECT count(*) INTO before_count FROM public.reservation_guests WHERE reservation_id=res;
+  INSERT INTO public.guests(first_name,last_name,hotel_id,organization_slug,nationality,date_of_birth,id_document_type,id_document_number,email)
+    VALUES('Same','Person','viza-hotel','fixture','DE','1992-01-01','passport','DUPLICATE-TEST','first@example.com') RETURNING id INTO a;
+  INSERT INTO public.guests(first_name,last_name,hotel_id,organization_slug,nationality,date_of_birth,id_document_type,id_document_number,email)
+    VALUES('Same','Person','viza-hotel','fixture','DE','1992-01-01','passport','DUPLICATE-TEST','second@example.com') RETURNING id INTO b;
+  INSERT INTO public.guests(first_name,last_name,hotel_id,organization_slug,nationality,date_of_birth,id_document_type,id_document_number,email)
+    VALUES('Same','Person','other-hotel','fixture','DE','1992-01-01','passport','DUPLICATE-TEST','private@example.com') RETURNING id INTO foreign_id;
+  answer:=public.pms_register_scanned_stay_guest(res,payload,NULL);
+  IF answer->>'status'<>'match' OR jsonb_array_length(answer->'candidates')<>2
+    OR answer::text LIKE '%private@example.com%' OR answer::text NOT LIKE '%first@example.com%'
+    OR answer::text NOT LIKE '%second@example.com%'
+    OR (SELECT count(*) FROM public.reservation_guests WHERE reservation_id=res)<>before_count
+    THEN RAISE EXCEPTION 'duplicate discovery incorrect'; END IF;
+  BEGIN
+    PERFORM public.pms_register_scanned_stay_guest(res,payload,foreign_id);
+    RAISE EXCEPTION 'foreign selection accepted';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'EXPRESS_IDENTITY_CONFLICT' THEN RAISE; END IF; END;
+  BEGIN
+    PERFORM public.pms_register_scanned_stay_guest(res,payload||'{"date_of_birth":"1993-01-01"}',b);
+    RAISE EXCEPTION 'mismatching DOB accepted';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'EXPRESS_IDENTITY_CONFLICT' THEN RAISE; END IF; END;
+  answer:=public.pms_register_scanned_stay_guest(res,payload||'{"confirmed_contact_email":"updated@example.com"}',b);
+  IF answer->>'status'<>'registered' OR (answer->>'guest_id')::uuid<>b
+    OR (SELECT email FROM public.guests WHERE id=b)<>'updated@example.com'
+    OR (SELECT email FROM public.guests WHERE id=a)<>'first@example.com'
+    OR (SELECT count(*) FROM public.reservation_guests WHERE reservation_id=res)<>before_count+1
+    THEN RAISE EXCEPTION 'selected profile was not reused safely'; END IF;
+  answer:=public.pms_register_scanned_stay_guest(res,payload,NULL);
+  IF jsonb_array_length(answer->'candidates')<>1 OR answer->'candidates'->0->>'linked'<>'true'
+    OR (answer->>'guest_id')::uuid<>b THEN RAISE EXCEPTION 'linked guest was not prioritized'; END IF;
+  answer:=public.pms_register_scanned_stay_guest(res,payload,b);
+  IF answer->>'status'<>'registered' OR (SELECT count(*) FROM public.reservation_guests WHERE reservation_id=res)<>before_count+1
+    THEN RAISE EXCEPTION 'linked guest reuse created extra occupant'; END IF;
+  answer:=public.pms_register_scanned_stay_guest(res,
+    payload||'{"id_document_number":"DIFFERENT-DOCUMENT","email":"updated@example.com"}'
+      ||jsonb_build_object('document_scan',jsonb_set(payload->'document_scan','{fields,okmanyAzonositoSzam}','"DIFFERENT-DOCUMENT"'::jsonb)),NULL);
+  IF answer->>'status'<>'registered' OR (answer->>'guest_id')::uuid=b THEN RAISE EXCEPTION 'name/email-only deduplication occurred'; END IF;
+END $duplicate_resolution$;

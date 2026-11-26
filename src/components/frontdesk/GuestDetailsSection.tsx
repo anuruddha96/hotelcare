@@ -93,7 +93,15 @@ export interface GuestRegistrationDraft {
   optical: OpticalGuestFields;
   confirmedAbsences?: PassportAbsences;
 }
-export type GuestRegistrationResult = { status: 'match' | 'registered'; guest_id: string };
+export interface GuestRegistrationCandidate {
+  guest_id: string;
+  first_name: string;
+  last_name: string;
+  date_of_birth: string | null;
+  email: string | null;
+  linked: boolean;
+}
+export type GuestRegistrationResult = { status: 'match' | 'registered'; guest_id: string; candidates?: GuestRegistrationCandidate[] };
 
 interface GuestDetailsSectionProps {
   focusProblem?: {field:string;attempt:number}|null;
@@ -147,6 +155,9 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const [verified, setVerified] = useState(false);
   const [showAllFields, setShowAllFields] = useState(false);
   const [matchId, setMatchId] = useState<string | null>(null);
+  const [matchCandidates, setMatchCandidates] = useState<GuestRegistrationCandidate[]>([]);
+  const [contactEmail, setContactEmail] = useState('');
+  const contactEmailValid = !contactEmail.trim() || (contactEmail.trim().length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim()));
   const [registerError, setRegisterError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -159,6 +170,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     setVerified(false);
     setShowAllFields(false);
     setMatchId(null);
+    setMatchCandidates([]);
+    setContactEmail('');
     setRegisterError(null);
     if (draft) {
       const patch = draft.result ? guestScanPatch(draft.result, draft.optical) : {};
@@ -216,7 +229,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guestId, loadAttempt, vizaReservationId, draft, autoScan]);
 
-  const invalidateConfirmation = () => { setVerified(false); setMatchId(null); setRegisterError(null); };
+  const invalidateConfirmation = () => { setVerified(false); setMatchId(null); setMatchCandidates([]); setContactEmail(''); setRegisterError(null); };
   const set = (field: Exclude<keyof GuestVizaRow, 'viza_review'>, value: string) => {
     invalidateConfirmation();
     setGuest(g => g ? { ...g, [field]: value || null, ...(vizaReservationId && field === 'visa_number' && value ? {viza_review:{...(g.viza_review?.reservation_id===vizaReservationId ? g.viza_review : {}),reservation_id:vizaReservationId,visa_exempt:false}} : {}) } : g);
@@ -345,9 +358,16 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     };
     if (draft && onRegister) {
       try {
-        const result = await onRegister(payload, matchId);
-        if (result.status === 'match') setMatchId(result.guest_id);
-        else { setDirty(false); onSaved?.({ ...savedGuest, id: result.guest_id }); }
+        setRegisterError(null);
+        if (!verified || !contactEmailValid || (matchCandidates.length > 0 && !matchId)) return;
+        const result = await onRegister({ ...payload, ...(matchId && contactEmail.trim() ? { confirmed_contact_email: contactEmail.trim() } : {}) }, matchId);
+        if (result.status === 'match') {
+          if (revision.current !== savingRevision) return;
+          const choices = result.candidates ?? [];
+          setMatchCandidates(choices);
+          setMatchId(choices.length ? null : result.guest_id);
+          setContactEmail('');
+        } else { setDirty(false); onSaved?.({ ...savedGuest, id: result.guest_id }); }
       } catch (error) {
         setRegisterError(t(expressErrorKey(error)));
       } finally { inFlight.current = false; setSaving(false); }
@@ -657,10 +677,30 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
           </div>
           {draft && <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3">
             <label className="flex cursor-pointer items-start gap-3 text-sm leading-relaxed"><input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} className="!w-5 !h-5 mt-0.5 shrink-0 accent-primary" />{t('pms.express.verify')}</label>
-            {matchId && <p role="status" className="rounded-md bg-primary/10 p-2 text-sm">{t('pms.express.returningMatch')}</p>}
-            {registerError && <p role="alert" className="text-sm text-destructive">{registerError}</p>}
+            {(matchId || matchCandidates.length > 0) && <p role="status" className="rounded-md bg-primary/10 p-2 text-sm">{t('pms.express.returningMatch')}</p>}
+            {matchCandidates.length > 0 && <div className="space-y-2" aria-label={t('pms.express.chooseProfile')}>
+              <p className="text-sm font-semibold">{t('pms.express.chooseProfile')}</p>
+              {matchCandidates.map(candidate => <Button key={candidate.guest_id} type="button" variant={matchId===candidate.guest_id ? 'default' : 'outline'} aria-pressed={matchId===candidate.guest_id} disabled={saving}
+                className="h-auto min-h-11 w-full justify-start whitespace-normal text-left p-3" onClick={()=>{setMatchId(candidate.guest_id);setContactEmail('');setRegisterError(null);}}>
+                <span className="min-w-0 space-y-1">
+                  <span className="block font-semibold break-words">{candidate.first_name} {candidate.last_name}</span>
+                  <span className="block text-xs break-words">{t('pms.guest.birthDate')}: {candidate.date_of_birth ? locale.formatDate(candidate.date_of_birth) : '—'}</span>
+                  <span className="block text-xs break-all">{t('pms.guests.email')}: {candidate.email || '—'}</span>
+                  {candidate.linked && <span className="block text-xs font-medium">{t('pms.express.linkedProfile')}</span>}
+                </span>
+              </Button>)}
+              {matchId && <div className="space-y-1">
+                <Label htmlFor={otherReasonId+'-contact'}>{t('pms.express.updateContactEmail')}</Label>
+                <Input id={otherReasonId+'-contact'} type="email" autoComplete="off" disabled={saving} value={contactEmail} aria-invalid={!contactEmailValid}
+                  placeholder={matchCandidates.find(c=>c.guest_id===matchId)?.email || '—'} onChange={e=>setContactEmail(e.target.value)} />
+                <p className="text-xs text-muted-foreground">{t('pms.express.keepContactEmail')}</p>
+              </div>}
+            </div>}
+            {registerError && <div className="space-y-2"><p role="alert" className="text-sm text-destructive">{registerError}</p>
+              <Button type="button" variant="outline" className="w-full h-auto min-h-11 whitespace-normal" disabled={saving} onClick={()=>setScanOpen(true)}>{t('pms.scan.retry')}</Button>
+            </div>}
           </div>}
-          <Button type="button" size="sm" variant={dirty ? 'default' : 'outline'} className="min-h-11 h-auto w-full whitespace-normal py-2 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100" disabled={!dirty || saving || (!!vizaReservationId && !hasReviewColumns) || (!!draft && (!verified || open > 0))} onClick={save}>
+          <Button type="button" size="sm" variant={dirty ? 'default' : 'outline'} className="min-h-11 h-auto w-full whitespace-normal py-2 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100" disabled={!dirty || saving || (!!vizaReservationId && !hasReviewColumns) || (!!draft && (!verified || open > 0 || !contactEmailValid || (matchCandidates.length > 0 && !matchId)))} onClick={save}>
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t(draft ? matchId ? 'pms.express.confirmMatch' : 'pms.express.confirmGuest' : autosaving ? 'pms.guest.autosaveNow' : 'pms.guest.save')}
           </Button>
           {draft && <Button type="button" size="sm" variant="ghost" className="min-h-10 w-full text-muted-foreground" disabled={saving} onClick={onCancelDraft}>{t('common.cancel')}</Button>}
