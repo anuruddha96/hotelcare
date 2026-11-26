@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {hasPassportBirthplaceLabel,passportBirthplaceCandidates,recoverPassportBirthplace} from './passportBirthPlace';
+import {hasPassportBirthplaceLabel,passportBirthplaceCandidates,recoverPassportBirthplace,numberedUkBirthplaceRegions,numberedBirthplaceLabel,recoverNumberedBirthplace} from './passportBirthPlace';
 import {guestScanPatch} from './opticalGuestFields';
 import type {MrzReadResult} from './mrz';
 
@@ -38,5 +38,33 @@ describe('passport visual-zone birthplace recovery',()=>{
     }};
     const birth_place=recoverPassportBirthplace(['Place of birth\nMÜNCHEN']);
     expect(guestScanPatch(result,{birth_place}).birth_place).toBe('München');
+  });
+});
+
+
+describe('numbered UK/Gibraltar passport visual layout',()=>{
+  // Relative to the MRZ on the photographed specimen, not its screen edges.
+  const geometry={cx:550,cy:826,width:858,height:66,angle:1,lineHeight:24,lines:2,left:121,top:789};
+  it('locates field 6 above the MRZ, separately from the sex and authority fields',()=>{
+    const regions=numberedUkBirthplaceRegions(geometry,'GBR')!;
+    expect(geometry.cx+regions.value.u0).toBeLessThan(500);
+    expect(geometry.cx+regions.value.u1).toBeGreaterThan(650);
+    expect(geometry.cy+regions.value.v0).toBeLessThan(580);
+    expect(geometry.cy+regions.value.v1).toBeGreaterThan(590);
+    expect(geometry.cy+regions.value.v1).toBeLessThan(630);
+    expect(numberedUkBirthplaceRegions(geometry,'DEU')).toBeNull();
+    expect(numberedUkBirthplaceRegions({...geometry,lines:3},'GBR')).toBeNull();
+  });
+  const read=(text:string,confidence=90)=>({text,confidence});
+  it('recovers the birthplace independently from the small bilingual label',()=>{
+    expect(recoverNumberedBirthplace('Place of birth / Lieu de naissance (6)',[read('GIBRALTAR'),read('Gibraltar')])).toBe('Gibraltar');
+    expect(numberedBirthplaceLabel('Lieu de naissnce (6)')).toBe(true);
+    expect(recoverNumberedBirthplace('Lieu de naissnce (6)',[read('GIBRALTAR'),read('GIBRALTAR')])).toBe('Gibraltar');
+  });
+  it('never uses field number, issuer, unconfirmed crop or conflicting reads as evidence',()=>{
+    for(const label of ['GBR','Sex (5)','(6)','Authority (8)']) expect(recoverNumberedBirthplace(label,[read('GIBRALTAR'),read('GIBRALTAR')])).toBeUndefined();
+    expect(recoverNumberedBirthplace('Place of birth',[read('GIBRALTAR'),read('LONDON')])).toBeUndefined();
+    expect(recoverNumberedBirthplace('Place of birth',[read('GIBRALTAR'),read('GIBRALTAR',50)])).toBeUndefined();
+    expect(recoverNumberedBirthplace('Place of birth',[read('Authority'),read('Authority')])).toBeUndefined();
   });
 });
