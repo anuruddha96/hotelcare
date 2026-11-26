@@ -64,6 +64,11 @@ export function parsePrintedText(text: string, hungarianLayout: boolean): Printe
     }
     values.push(value);
     if (field && !out[field]) out[field] = value;
+    else if (field && field !== 'birth_place' && out[field]?.startsWith(value + ' ')) {
+      // On the confirmed Hungarian uppercase layout, retain the leading
+      // name tokens when a noisy read adds trailing mixed-case marks.
+      out[field] = value;
+    }
     field = null;
   }
   // Hungarian card: place of birth "(HUN)", then name at birth, then mother.
