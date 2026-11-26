@@ -10,14 +10,18 @@ function fill(text: string, vars: Record<string, string | number>) {
   return text.replace(/\{(\w+)\}/g, (match, key) => String(vars[key] ?? match));
 }
 
-export function HousekeepingBreakfastBanner({ count, onShow }: { count: number; onShow: () => void }) {
+export function HousekeepingBreakfastBanner({ count, roomNumbers, onShow }: { count: number; roomNumbers: string[]; onShow: () => void }) {
   const { t, language } = useTranslation();
   if (!count) return null;
   const category = new Intl.PluralRules(language === 'tl' ? 'fil' : language).select(count);
   const suffix = category === 'one' ? 'One' : category === 'few' ? 'Few' : category === 'many' ? 'Many' : 'Other';
   return <Button type="button" variant="outline" onClick={onShow} className="w-full h-auto min-h-10 gap-2 whitespace-normal justify-start text-emerald-700 dark:text-emerald-300">
     <Coffee className="h-4 w-4 shrink-0" aria-hidden="true" />
-    {fill(t('hkBreakfast.banner' + suffix), { count })}
+    <span className="min-w-0 flex-1 text-left">
+      <span className="block font-medium">{fill(t('hkBreakfast.banner' + suffix), { count })}</span>
+      <span className="block text-xs text-muted-foreground">{roomNumbers.slice(0, 3).join(', ')}{roomNumbers.length > 3 ? ' +' + (roomNumbers.length - 3) : ''} · {t('hkBreakfast.chip')}. {t('hkBreakfast.knock')}</span>
+    </span>
+    <span className="shrink-0 text-xs font-medium">{t('hkBreakfast.show')}</span>
   </Button>;
 }
 
