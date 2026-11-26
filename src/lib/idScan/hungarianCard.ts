@@ -1,6 +1,6 @@
 import type { OpticalGuestFields } from './opticalGuestFields';
 import type { SourceRect } from './frameCapture';
-import { splitPrintedBirthName, stripBirthCountry, titlePrinted } from './printedLabels';
+import { looksLikeLabelRest, splitPrintedBirthName, stripBirthCountry, titlePrinted } from './printedLabels';
 
 export type PrintedRow = 'birth_place' | 'birth_pair' | 'mother_name';
 const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -54,7 +54,7 @@ export function rowHasLabel(row: PrintedRow, text: string): boolean {
 export function parsePrintedRow(row: PrintedRow, text: string): OpticalGuestFields {
   const clean=text.trim().replace(/[|.,;:]+$/,'').trim();
   const value=row==='birth_place'?stripBirthCountry(clean):clean;
-  if (!/^[\p{L}\p{M}][\p{L}\p{M} .'’\-]{1,79}$/u.test(value)) return {};
+  if (!/^[\p{L}\p{M}][\p{L}\p{M} .'’-]{1,79}$/u.test(value) || looksLikeLabelRest(row, value)) return {};
   if(row==='birth_pair') return splitPrintedBirthName(value,undefined,true) ?? {};
   return {[row]:titlePrinted(value)};
 }

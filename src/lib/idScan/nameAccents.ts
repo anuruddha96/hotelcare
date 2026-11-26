@@ -164,6 +164,22 @@ function officialGivenName(word: string): string {
   return options.length === 1 ? options[0] : word;
 }
 
+/**
+ * Hungarian married names end in "-né", always written with the accent
+ * ("Szépené Kiss", "Nagyné Kovács"). A camera read often misses that accent
+ * on the last letter, so on a Hungarian document the first word of a two-word
+ * family name that ends in "ne" gets it back, once the reading has shown that
+ * the printed name carries accents at all. Short words ("Bene") stay as read.
+ */
+export function marriedNameSuffix(familyName: string): string {
+  const words = familyName.split(' ');
+  if (words.length < 2 || !accents(familyName)) return familyName;
+  const word = words[0];
+  if (fold(word).replace(/[^A-Z]/g, '').length < 5 || !/ne$/i.test(word)) return familyName;
+  words[0] = word.slice(0, -1) + (word.endsWith('E') ? 'É' : 'é');
+  return words.join(' ');
+}
+
 export type DocumentNames = { last_name?: string; first_name?: string };
 
 /**
@@ -191,7 +207,8 @@ export function restoreDocumentNames(mrzLastName: string, mrzFirstName: string, 
   const fromWhole = whole ? { last: whole.split(' ').slice(0, lastWords).join(' '), first: whole.split(' ').slice(lastWords).join(' ') } : null;
   const pick = (a: string | null | undefined, b: string | null | undefined) => (accents(b ?? '') > accents(a ?? '') ? b : a) ?? null;
   const out: DocumentNames = {};
-  const l = pick(fromWhole?.last, lastAlone);
+  let l = pick(fromWhole?.last, lastAlone);
+  if (l && hungarian) l = marriedNameSuffix(l);
   let f = pick(fromWhole?.first, firstAlone);
   if (f && hungarian) f = f.split(' ').map(officialGivenName).join(' ');
   if (l && accents(l) && fold(l) === last) out.last_name = displayName(l);
@@ -216,6 +233,7 @@ export function harmonizeNameAccents<T extends NameFields>(fields: T, hungarian 
   if (out.birth_first_name) out.birth_first_name = sameWords(out.birth_first_name, out.first_name);
   if (out.birth_last_name) out.birth_last_name = sameWords(out.birth_last_name, out.last_name);
   if (hungarian) {
+    if (out.last_name) out.last_name = marriedNameSuffix(out.last_name);
     if (out.birth_first_name) out.birth_first_name = out.birth_first_name.split(/\s+/).map(officialGivenName).join(' ');
     if (out.mother_name) {
       const words = out.mother_name.split(/\s+/);

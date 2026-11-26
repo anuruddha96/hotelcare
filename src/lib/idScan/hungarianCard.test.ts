@@ -72,3 +72,10 @@ describe('partial Hungarian back scan recovery', () => {
     expect(mergeHungarianFallback({}, {birth_last_name:'Minta'})).toEqual({});
   });
 });
+
+describe('Hungarian card row values',()=>{
+  it('does not take a misread English label as the mother\'s name',()=>{
+    expect(parsePrintedRow('mother_name','Moth Aid')).toEqual({});
+    expect(parsePrintedRow('mother_name','KALCSÓ IRMA')).toEqual({mother_name:'Kalcsó Irma'});
+  });
+});

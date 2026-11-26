@@ -57,3 +57,15 @@ describe('shared printed-field resolver',()=>{
     expect(opticalGuestFields(result,'','Geburtsname/Name at birth\nGABLER')).toMatchObject({birth_last_name:'Gabler',birth_first_name:'Anna'});
   });
 });
+
+describe('bilingual label rests and row neighbours',()=>{
+  it('skips a misread English label half and takes the value on the next line',()=>{
+    expect(resolvePrintedLabels('Anyja születési neve Moth Aid\nKALCSÓ IRMA')).toEqual([{field:'mother_name',value:'KALCSÓ IRMA',rule:'next-line'}]);
+  });
+  it('drops the document number printed on the mother\'s-name row of a Hungarian card',()=>{
+    expect(resolvePrintedLabels('Anyja szűletési neve Mothers maiden name.\nKALCSÓ IRMA 000000XX')).toEqual([{field:'mother_name',value:'KALCSÓ IRMA',rule:'next-line'}]);
+  });
+  it('keeps real names that only start like a label word',()=>{
+    expect(resolvePrintedLabels('Anyja születési neve: MOHÁCSI IRMA')).toEqual([{field:'mother_name',value:'MOHÁCSI IRMA',rule:'inline'}]);
+  });
+});

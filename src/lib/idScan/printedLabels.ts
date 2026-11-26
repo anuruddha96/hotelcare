@@ -38,11 +38,23 @@ const mrz=(s:string)=>s.includes('<<')||/^--- OCR PASS ---$/u.test(s)||/^[A-Z0-9
 const sex=/^[MFX<]$/i;
 const date= /^(?:\d{1,2}\s+[A-Z]{3}(?:\s*\/\s*[A-Z]{3})?\s+\d{2,4}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/i;
 const dateOnly=(s:string)=>{const m=date.exec(s);return !!m&&m[0].length===s.length;};
+// The English half of a bilingual label, misread so that it no longer matches
+// the label itself (e.g. "Anyja születési neve / Moth… maiden name"), is not a value.
+const LABEL_REST:Partial<Record<PrintedLabel,RegExp>>={
+  mother_name:/^(?:moth|maiden|marden)|\b(?:maiden|marden)\b/,
+  birth_place:/^(?:p[l1i]ace|of\s+b[i1l]r)/,
+  birth_pair:/^(?:fami|given\s+name|name\s+at\s+b|at\s+b[i1l]r)/,
+  birth_last_name:/^(?:fami|surname|at\s+b[i1l]r)/,
+  birth_first_name:/^(?:given|at\s+b[i1l]r)/,
+};
+export const looksLikeLabelRest=(field:PrintedLabel,value:string)=>!!LABEL_REST[field]?.test(foldPrinted(value.trim()));
 function cleanValue(raw:string,field:PrintedLabel):string|undefined {
   if (mrz(raw.trim())) return;
   let s=raw.trim().replace(/^[\s:;|–—-]+/u,'').replace(/^\(\d{1,2}\)\s*/u,'').trim();
   if (field==='birth_place') s=stripBirthCountry(s);
-  if(!s||mrz(s)||hits(s).length||/^(?:NA|N\/A|NONE|UNKNOWN|M|F|X)$/i.test(s)||ISO3_TO_ISO2[s])return;
+  // A Hungarian card prints the document number on the mother's-name row.
+  else s=s.replace(/(?:\s+\S*\d\S*)+$/u,'').trim();
+  if(!s||looksLikeLabelRest(field,s)||mrz(s)||hits(s).length||/^(?:NA|N\/A|NONE|UNKNOWN|M|F|X)$/i.test(s)||ISO3_TO_ISO2[s])return;
   if(s.replace(/[^\p{L}]/gu,'').length<2)return;
   if(field==='birth_place') {
     if(!/^[\p{L}\p{M}][\p{L}\p{M}\d ,.'’()/–-]{1,199}$/u.test(s))return;
