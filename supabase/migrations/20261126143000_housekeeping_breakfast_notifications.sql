@@ -147,7 +147,10 @@ begin
     where prior.signal_id=c.signal_id and prior.notification_cycle=c.notification_cycle
       and prior.kind='arrival' and prior.user_id<>c.user_id
   )
-  on conflict (signal_id,notification_cycle,user_id) where kind='arrival' do nothing;
+  on conflict (signal_id,notification_cycle,user_id) where kind='arrival' do update set
+    state='pending',queued_at=now(),assignment_id=excluded.assignment_id,
+    preferred_language=excluded.preferred_language,claim_token=null,claimed_at=null
+  where q.state='suppressed';
   get diagnostics n = row_count;
   return n;
 end;
@@ -229,6 +232,11 @@ begin
     where q.claim_token=_claim_token and q.id=any(_ids) and q.state='sending' and q.kind='arrival'
       and not exists(select 1 from public.breakfast_push_candidates(q.signal_id) c
         where c.notification_cycle=q.notification_cycle and c.user_id=q.user_id);
+  -- Corrections reach only a still-active member of the original tenant.
+  update public.housekeeping_breakfast_push_outbox q set state='suppressed'
+    where q.claim_token=_claim_token and q.id=any(_ids) and q.state='sending' and q.kind='correction'
+      and not exists(select 1 from public.profiles p where p.id=q.user_id
+        and p.organization_slug=q.organization_slug and p.deleted_at is null);
   update public.housekeeping_breakfast_push_outbox q
     set assignment_id=c.assignment_id,preferred_language=c.preferred_language,
       attendance_ids=c.attendance_ids,guests_seen=c.guests_seen,guests_expected=c.guests_expected,window_ends_at=c.window_ends_at
