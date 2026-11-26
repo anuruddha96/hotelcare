@@ -360,13 +360,12 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       try {
         setRegisterError(null);
         if (!verified || !contactEmailValid || (matchCandidates.length > 0 && !matchId)) return;
-        const result = await onRegister({ ...payload, ...(matchId && contactEmail.trim() ? { confirmed_contact_email: contactEmail.trim() } : {}) }, matchId);
+        const result = await onRegister({ ...payload, ...(contactEmail.trim() ? { confirmed_contact_email: contactEmail.trim() } : {}) }, matchId);
         if (result.status === 'match') {
           if (revision.current !== savingRevision) return;
           const choices = result.candidates ?? [];
           setMatchCandidates(choices);
           setMatchId(choices.length ? null : result.guest_id);
-          setContactEmail('');
         } else { setDirty(false); onSaved?.({ ...savedGuest, id: result.guest_id }); }
       } catch (error) {
         setRegisterError(t(expressErrorKey(error)));
@@ -681,21 +680,21 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             {matchCandidates.length > 0 && <div className="space-y-2" aria-label={t('pms.express.chooseProfile')}>
               <p className="text-sm font-semibold">{t('pms.express.chooseProfile')}</p>
               {matchCandidates.map(candidate => <Button key={candidate.guest_id} type="button" variant={matchId===candidate.guest_id ? 'default' : 'outline'} aria-pressed={matchId===candidate.guest_id} disabled={saving}
-                className="h-auto min-h-11 w-full justify-start whitespace-normal text-left p-3" onClick={()=>{setMatchId(candidate.guest_id);setContactEmail('');setRegisterError(null);}}>
+                className="h-auto min-h-11 w-full justify-start whitespace-normal text-left p-3" onClick={()=>{setMatchId(candidate.guest_id);setRegisterError(null);}}>
                 <span className="min-w-0 space-y-1">
                   <span className="block font-semibold break-words">{candidate.first_name} {candidate.last_name}</span>
                   <span className="block text-xs break-words">{t('pms.guest.birthDate')}: {candidate.date_of_birth ? locale.formatDate(candidate.date_of_birth) : '—'}</span>
-                  <span className="block text-xs break-all">{t('pms.guests.email')}: {candidate.email || '—'}</span>
+                  <span className="block text-xs break-all">{t('pms.guests.email')}: {candidate.email?.trim() || t('pms.express.noContactEmail')}</span>
                   {candidate.linked && <span className="block text-xs font-medium">{t('pms.express.linkedProfile')}</span>}
                 </span>
               </Button>)}
-              {matchId && <div className="space-y-1">
+            </div>}
+            {(!matchCandidates.length || matchId) && <div className="space-y-1">
                 <Label htmlFor={otherReasonId+'-contact'}>{t('pms.express.updateContactEmail')}</Label>
                 <Input id={otherReasonId+'-contact'} type="email" autoComplete="off" disabled={saving} value={contactEmail} aria-invalid={!contactEmailValid}
                   placeholder={matchCandidates.find(c=>c.guest_id===matchId)?.email || '—'} onChange={e=>setContactEmail(e.target.value)} />
-                <p className="text-xs text-muted-foreground">{t('pms.express.keepContactEmail')}</p>
+                <p className="text-xs text-muted-foreground">{t(matchId ? 'pms.express.keepContactEmail' : 'pms.express.optionalContactEmail')}</p>
               </div>}
-            </div>}
             {registerError && <div className="space-y-2"><p role="alert" className="text-sm text-destructive">{registerError}</p>
               <Button type="button" variant="outline" className="w-full h-auto min-h-11 whitespace-normal" disabled={saving} onClick={()=>setScanOpen(true)}>{t('pms.scan.retry')}</Button>
             </div>}

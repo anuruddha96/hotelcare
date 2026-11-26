@@ -341,3 +341,44 @@ BEGIN
       ||jsonb_build_object('document_scan',jsonb_set(payload->'document_scan','{fields,okmanyAzonositoSzam}','"DIFFERENT-DOCUMENT"'::jsonb)),NULL);
   IF answer->>'status'<>'registered' OR (answer->>'guest_id')::uuid=b THEN RAISE EXCEPTION 'name/email-only deduplication occurred'; END IF;
 END $duplicate_resolution$;
+
+
+-- Production regression: accented Hungarian OCR names and older MRZ spellings
+-- must resolve to the same verified document candidates; email is not identity.
+\ir ../migrations/20261126154000_express_hungarian_duplicate_email.sql
+DO $hungarian_email$
+DECLARE
+  res uuid:='00000000-0000-4000-8000-000000000094';
+  plain_id uuid; accented_id uuid; wrong_id uuid;
+  answer jsonb;
+  payload jsonb:='{"first_name":"Éva","last_name":"Őr","nationality":"HU","gender":"female","date_of_birth":"1992-01-01","id_document_type":"id_card","id_document_number":"HU-ACCENT-TEST","viza_review":{"birth_name_absent":true,"birth_place_absent":true,"mother_name_absent":true},"document_scan":{"source":"mrz_camera","format":"TD1","valid":true,"fields":{"csaladnev":"OR","utonev":"EVA","szuletesiDatum":"1992-01-01","allampolgarsagKod":"HU","nem":"NO","okmanyTipus":"SZEMELYI_IGAZOLVANY","okmanyAzonositoSzam":"HU-ACCENT-TEST"}}}';
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000091',false);
+  UPDATE public.reservations SET adults=20 WHERE id=res;
+  INSERT INTO public.guests(first_name,last_name,hotel_id,organization_slug,nationality,date_of_birth,id_document_type,id_document_number,email)
+    VALUES('Eva','Or','viza-hotel','fixture','HU','1992-01-01','id_card','HU-ACCENT-TEST','existing@example.com') RETURNING id INTO plain_id;
+  INSERT INTO public.guests(first_name,last_name,hotel_id,organization_slug,nationality,date_of_birth,id_document_type,id_document_number,email)
+    VALUES('Éva','Őr','viza-hotel','fixture','HU','1992-01-01','id_card','HU-ACCENT-TEST',NULL) RETURNING id INTO accented_id;
+  INSERT INTO public.guests(first_name,last_name,hotel_id,organization_slug,nationality,date_of_birth,id_document_type,id_document_number,email)
+    VALUES('Éva','Őr','viza-hotel','fixture','HU','1993-01-01','id_card','HU-ACCENT-TEST','wrong@example.com') RETURNING id INTO wrong_id;
+  answer:=public.pms_register_scanned_stay_guest(res,payload,NULL);
+  IF answer->>'status'<>'match' OR jsonb_array_length(answer->'candidates')<>2
+    OR answer->'candidates'->0->>'guest_id'<>plain_id::text
+    OR answer->'candidates'->0->>'email'<>'existing@example.com'
+    OR answer::text LIKE '%wrong@example.com%' THEN RAISE EXCEPTION 'accent-equivalent discovery incorrect'; END IF;
+  answer:=public.pms_register_scanned_stay_guest(res,payload||'{"first_name":"Eva","last_name":"Or"}',NULL);
+  IF jsonb_array_length(answer->'candidates')<>2 OR answer->'candidates'->0->>'email'<>'existing@example.com'
+    THEN RAISE EXCEPTION 'ASCII scan discovery differs'; END IF;
+  BEGIN
+    PERFORM public.pms_register_scanned_stay_guest(res,payload,wrong_id);
+    RAISE EXCEPTION 'wrong DOB selection accepted';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'EXPRESS_IDENTITY_CONFLICT' THEN RAISE; END IF; END;
+  answer:=public.pms_register_scanned_stay_guest(res,payload,plain_id);
+  IF answer->>'status'<>'registered' OR (SELECT email FROM public.guests WHERE id=plain_id) IS DISTINCT FROM 'existing@example.com'
+    THEN RAISE EXCEPTION 'existing contact was lost'; END IF;
+  answer:=public.pms_register_scanned_stay_guest(res,
+    payload||'{"id_document_number":"HU-NEW-EMAIL","confirmed_contact_email":"new@example.com"}'
+      ||jsonb_build_object('document_scan',jsonb_set(payload->'document_scan','{fields,okmanyAzonositoSzam}','"HU-NEW-EMAIL"'::jsonb)),NULL);
+  IF answer->>'status'<>'registered' OR (SELECT email FROM public.guests WHERE id=(answer->>'guest_id')::uuid) IS DISTINCT FROM 'new@example.com'
+    THEN RAISE EXCEPTION 'new guest contact was not saved'; END IF;
+END $hungarian_email$;
