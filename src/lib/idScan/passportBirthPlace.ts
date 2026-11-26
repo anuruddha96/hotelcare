@@ -1,3 +1,5 @@
+import type { CodeGeometry } from './codeLineRefine';
+
 /** Recover a visually printed passport birthplace; never derive it from
  * the issuing state, MRZ, nationality, authority or a free-floating city. */
 const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
@@ -56,14 +58,14 @@ export function passportBirthplaceCandidates(text:string): string[] {
   return [...found];
 }
 
-const key=(s:string)=>fold(s).replace(/[\s,.]+/g,'');
+export const passportBirthplaceKey=(s:string)=>fold(s).replace(/[\s,.]+/g,'');
 /** Require agreement when there are conflicting candidates; a single
  * explicitly labeled reading can be offered for receptionist review. */
 export function recoverPassportBirthplace(reads:string[]): string | undefined {
   const votes = new Map<string,{count:number;value:string}>();
   for(const read of reads){
     const candidates=passportBirthplaceCandidates(read);
-    const unique=new Map(candidates.map(v=>[key(v),v]));
+    const unique=new Map(candidates.map(v=>[passportBirthplaceKey(v),v]));
     for(const [k,v] of unique){
       const old=votes.get(k);
       const accents=(s:string)=>(s.normalize('NFD').match(/[\u0300-\u036f]/g)??[]).length;
@@ -74,4 +76,41 @@ export function recoverPassportBirthplace(reads:string[]): string | undefined {
   if(!ordered.length) return undefined;
   if(ordered.length>1 && (ordered[0].count<2 || ordered[0].count===ordered[1].count)) return undefined;
   return ordered[0].value;
+}
+
+
+/** Legacy numbered UK/Gibraltar passport layout. All offsets are measured
+ * from the actual MRZ rather than the camera guide or screenshot edges.
+ * Positions only propose a crop; the printed birthplace label must verify it. */
+export function numberedUkBirthplaceRegions(geometry: CodeGeometry, issuingState: string) {
+  if (geometry.lines !== 2 || issuingState !== 'GBR' || geometry.width <= 0 ||
+      !Number.isFinite(geometry.width) || geometry.height <= 0) return null;
+  const w=geometry.width;
+  const rect=(u0:number,v0:number,u1:number,v1:number)=>({u0:u0*w,v0:v0*w,u1:u1*w,v1:v1*w});
+  return {
+    row: rect(-.19,-.355,.29,-.245),
+    label: rect(-.10,-.343,.30,-.285),
+    value: rect(-.075,-.310,.28,-.253),
+  };
+}
+
+/** The tiny numbered blue label may be partly read. Require an actual
+ * birthplace label, or its recognizable French fragment plus field (6).
+ * Neither the issuer, the gender, nor the field number alone is sufficient. */
+export function numberedBirthplaceLabel(text:string): boolean {
+  const normalized=fold(text);
+  return hasPassportBirthplaceLabel(text) ||
+    (/\(?\s*6\s*\)?/.test(normalized) && /(?:lieu|plac[e3]|p[l1i]ac[e3])/.test(normalized) &&
+      /(?:naiss[a-z]{2,5}|b[i1l]r[t7]h|birfh)/.test(normalized));
+}
+
+export type BirthplaceRowRead = { text:string; confidence:number|null };
+/** Require two independent agreeing, confidently read value-only crops
+ * and a printed label from the same localized row. */
+export function recoverNumberedBirthplace(label:string, reads:BirthplaceRowRead[]): string|undefined {
+  if(!numberedBirthplaceLabel(label)) return undefined;
+  const candidates=reads.filter(r=>r.confidence!==null && r.confidence>=65)
+    .map(r=>value(r.text.replace(/\s+/g,' '))).filter((v):v is string=>!!v);
+  if(candidates.length<2 || !candidates.every(v=>passportBirthplaceKey(v)===passportBirthplaceKey(candidates[0]))) return undefined;
+  return candidates.reduce((a,b)=>a.normalize('NFD').length>=b.normalize('NFD').length?a:b);
 }
