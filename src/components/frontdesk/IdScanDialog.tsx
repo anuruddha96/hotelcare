@@ -20,6 +20,7 @@ import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
 import { recoverPassportBirthplace, hasPassportBirthplaceLabel, numberedUkBirthplaceRegions, numberedGreekBirthplaceRegions, numberedBirthplaceLabel, passportBirthplaceKey, recoverNumberedBirthplace, type BirthplaceRowRead } from '@/lib/idScan/passportBirthPlace';
 import { sampleUkRegion, ukLegacyRegions, localPassportContrast, passportOtsu, verifiedLegacyBirthplace } from '@/lib/idScan/ukPassportVisual';
 import { hasPrintedLabel, resolvePrintedLabels } from '@/lib/idScan/printedLabels';
+import { greekLegacyRegions, prioritizeGreekBirthplace, verifiedGreekBirthplace } from '@/lib/idScan/greekPassportVisual';
 import { suggestPassportAbsences, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
 import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { harmonizeNameAccents } from '@/lib/idScan/nameAccents';
@@ -576,6 +577,45 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     } finally { gray.data.fill(0); red?.data.fill(0); }
   };
 
+  // A low-resolution full-page reading can miss all the tiny Greek/English
+  // labels. Start with the narrow printed Latin field while the OCR budget
+  // is still available, and verify this physical layout against two MRZ
+  // anchors. Nothing is inferred from the issuing state or nationality.
+  const readVerifiedGreekBirthplace = async (frame: HTMLCanvasElement, geometry: CodeGeometry | null, result: MrzReadResult, run: number) => {
+    if (!geometry || !prioritizeGreekBirthplace(result,geometry) || scanRunRef.current!==run) return undefined;
+    const ctx=frame.getContext('2d',{willReadFrequently:true});
+    if(!ctx)return undefined;
+    const rgba=ctx.getImageData(0,0,frame.width,frame.height);
+    const blue=new Uint8ClampedArray(frame.width*frame.height);
+    const gray=toGray(rgba.data,frame.width,frame.height);
+    for(let i=0;i<blue.length;i++)blue[i]=rgba.data[i*4+2];
+    rgba.data.fill(0);
+    const source={data:blue,width:frame.width,height:frame.height};
+    const scan=async (region:typeof greekLegacyRegions[keyof typeof greekLegacyRegions], method:'contrast'|'otsu', name:string):Promise<BirthplaceRowRead>=>{
+      if(scanRunRef.current!==run||remainingPrintedMs(run,3200)<=0)return {text:'',confidence:null};
+      const crop=sampleUkRegion(method==='contrast'?source:gray,geometry,region);
+      const processed=method==='contrast'?localPassportContrast(crop):passportOtsu(crop);
+      const padded=padWhite(processed,24);
+      crop.data.fill(0);processed.data.fill(0);
+      const canvas=grayCanvas(padded);
+      padded.data.fill(0);
+      try {
+        const read=await frontSession.recognizeWithConfidence(canvas,remainingPrintedMs(run,3200),'7');
+        recordPrintedRead(run,'Greek '+name+' / '+method,read);
+        return scanRunRef.current===run?read:{text:'',confidence:null};
+      }catch{return {text:'',confidence:null};}
+      finally{wipe(canvas);}
+    };
+    try {
+      // Read the small value twice before the expensive whole-page passes.
+      const contrast=await scan(greekLegacyRegions.value,'contrast','birthplace');
+      const binary=await scan(greekLegacyRegions.value,'otsu','birthplace');
+      const surname=await scan(greekLegacyRegions.surname,'contrast','surname anchor');
+      const expiry=await scan(greekLegacyRegions.expiry,'contrast','expiry anchor');
+      return verifiedGreekBirthplace(result,surname,expiry,[contrast,binary]);
+    } finally {blue.fill(0);gray.data.fill(0);}
+  };
+
   // Recover the value even when security printing prevents recognition of
   // the tiny field label, but only on a separately verified legacy layout.
   const readVerifiedUkBirthplace = async (frame: HTMLCanvasElement, geometry: CodeGeometry | null, result: MrzReadResult, run: number) => {
@@ -759,6 +799,9 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         for (const text of accentTexts) recordPrintedRead(run,'ID front accent pass',{text,confidence:null});
         // ID back with located code lines: read the straightened printed
         // rows. The older whole-picture reading remains the fallback.
+        const prioritizedBirthplace = action === 'passport_complete' && prioritizeGreekBirthplace(parsed,geometry)
+          ? await readVerifiedGreekBirthplace(copy,geometry,parsed,run) : undefined;
+        if (scanRunRef.current !== run) return;
         const located = action === 'id_complete' && (parsed.format === 'TD1' || parsed.format === 'TD2') && geometry
           ? await readPrintedZone(copy, geometry, hungarian, parsed.fields.mrzFirstName, run) : null;
         // Agreed readings of the located rows stand on their own: a single
@@ -788,7 +831,18 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
           // Read each pass separately to avoid joining unrelated headers/values.
           const issuer = parsed.fields.issuingState;
           let birthplace = recoverPassportBirthplace(texts, issuer);
-          if ((!birthplace || !extracted.birth_place) && remainingPrintedMs(run,10000)>0) {
+          // A verified, localized Latin reading takes precedence over a
+          // fragmented Greek-script row. A conflicting labeled Latin value
+          // is not silently overridden.
+          if (prioritizedBirthplace) {
+            if (!birthplace || /^\p{Script=Greek}/u.test(birthplace) || passportBirthplaceKey(birthplace)===passportBirthplaceKey(prioritizedBirthplace)) {
+              birthplace=prioritizedBirthplace;
+            } else {
+              birthplace=undefined;
+              delete extracted.birth_place;
+            }
+          }
+          if (!birthplace && remainingPrintedMs(run,10000)>0) {
             birthplaceReads = await readPassportBirthplace(copy, geometry, run, texts, issuer);
             birthplace = recoverPassportBirthplace([...texts, ...birthplaceReads], issuer);
           }
