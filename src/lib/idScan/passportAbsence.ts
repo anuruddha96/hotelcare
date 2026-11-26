@@ -1,4 +1,5 @@
 import { hasPassportBirthplaceLabel } from './passportBirthPlace';
+import { hasPrintedLabel } from './printedLabels';
 import type { MrzReadResult } from './mrz';
 import { extractOpticalGuestFields, type OpticalGuestFields } from './opticalGuestFields';
 import type { GuestVizaValues, VizaReview } from './guestVizaChecks';
@@ -36,10 +37,13 @@ export function suggestPassportAbsences(
   if (!transcripts.every(text => new Set(text.match(visualLabels) ?? []).size >= 2)) return {};
   const independentlyExtracted = reads.map(extractOpticalGuestFields);
   const proposed: PassportAbsences = {};
+  const sharedLabelSeen = (key:PassportAbsenceKey,text:string) => key==='birth_name_absent'
+    ? hasPrintedLabel(text,'birth_pair')||hasPrintedLabel(text,'birth_last_name')||hasPrintedLabel(text,'birth_first_name')
+    : key==='mother_name_absent' ? hasPrintedLabel(text,'mother_name') : hasPrintedLabel(text,'birth_place');
   for (const key of PASSPORT_ABSENCE_KEYS) {
     if (absenceGroupEmpty(optical, key) &&
         independentlyExtracted.every(read => absenceGroupEmpty(read, key)) &&
-        transcripts.every(text => !labels[key].test(text) && (key !== 'birth_place_absent' || !hasPassportBirthplaceLabel(text)))) proposed[key] = true;
+        transcripts.every(text => !labels[key].test(text) && !sharedLabelSeen(key,text) && (key !== 'birth_place_absent' || !hasPassportBirthplaceLabel(text)))) proposed[key] = true;
   }
   return proposed;
 }
