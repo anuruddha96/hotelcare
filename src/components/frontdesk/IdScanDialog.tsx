@@ -14,10 +14,10 @@ import { codeLineGeometry, printedZone, refineCodeBlock, repairLookAlikes, toGra
 import { agreePrinted, parsePrintedText, printedGuestFields, type PrintedRead } from '@/lib/idScan/printedFields';
 import { guideCrop, privacyThumbnail, snapshotFrame, type SourceRect } from '@/lib/idScan/frameCapture';
 import { OcrSession } from '@/lib/idScan/ocrSession';
-import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRows, needsHungarianPrintedFallback, rowHasLabel } from '@/lib/idScan/hungarianCard';
+import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRows, needsHungarianPrintedFallback, rowHasLabel, corroboratedMotherName, mergeHungarianFallback } from '@/lib/idScan/hungarianCard';
 import { shouldAdvanceFront, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
-import { opticalGuestFields, guestScanPatch, extractOpticalGuestFields, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
+import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { assessReadiness, type Readiness } from '@/lib/idScan/autoCapture';
 import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
 import { firstSideAction, nextMrzScanAction } from '@/lib/idScan/documentScanFlow';
@@ -450,10 +450,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           if (looksLikeIdFront(reading.text)) positiveScore = Math.max(positiveScore ?? 0, reading.confidence);
         }
         if (!idBack && positiveScore !== null && positiveScore > 90) break;
-        if (idBack) {
-          const fields = extractOpticalGuestFields(reading.text);
-          if (fields.birth_place && fields.mother_name && fields.birth_first_name && fields.birth_last_name) break;
-        }
+        // Read both passes on a Hungarian back so fallback values can be corroborated.
       } catch { /* retain any earlier successful pass */ }
       finally { wipe(canvas); }
     }
@@ -471,7 +468,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     for (const row of HUNGARIAN_BACK_ROWS) {
       if (scanRunRef.current !== run) break;
       let label = '';
-      for (const valueOnly of [false,true]) {
+      for (const pass of ['label', 'raw', 'enhanced'] as const) {
+        const valueOnly = pass !== 'label';
         if (scanRunRef.current !== run) break;
         if (valueOnly && !rowHasLabel(row,label)) break;
         const region=printedRowRect(card,row,valueOnly);
@@ -484,7 +482,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           if (!ctx) continue;
           ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);
           ctx.drawImage(frame,region.x,region.y,region.width,region.height,16,16,canvas.width-32,canvas.height-32);
-          if (valueOnly) {
+          if (pass === 'enhanced') {
             const pixels=ctx.getImageData(16,16,canvas.width-32,canvas.height-32);
             const d=pixels.data, hist=new Uint32Array(256);
             for(let i=0;i<d.length;i+=4){const v=Math.round(.299*d[i]+.587*d[i+1]+.114*d[i+2]);d[i]=v;hist[v]++;}
@@ -502,7 +500,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         finally { wipe(canvas); }
       }
     }
-    return mergeHungarianRows(true,rows);
+    return { fields: mergeHungarianRows(true,rows), confirmedMother: corroboratedMotherName(rows) };
   };
 
   // Printed rows above the code lines of an ID back, located from the code
@@ -588,7 +586,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       try {
         copy = snapshotFrame(frame, frame.width, frame.height);
         const hungarian = action === 'id_complete' && parsed.format === 'TD1' && (parsed.fields.issuingState === 'HUN' || parsed.fields.nationalityIso3 === 'HUN' || /HUNGARY|MAGYARORSZ[AÁ]G/i.test(frontText));
-        const complete = (v: OpticalGuestFields) => !!(v.birth_place && v.birth_last_name && v.birth_first_name && v.mother_name);
+        const complete = (v: OpticalGuestFields) => !needsHungarianPrintedFallback(true, v);
         // ID back with located code lines: read the straightened printed
         // rows. The older whole-picture reading remains the fallback.
         const located = action === 'id_complete' && parsed.format === 'TD1' && geometry
@@ -598,12 +596,20 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         const { texts } = located ? { texts: ['located'] } : await readPrinted(frontSession, copy, hungarian, run);
         let extracted = located
           ? { ...opticalGuestFields(parsed, frontText, ''), ...located }
-          : opticalGuestFields(parsed, frontText, texts.join('\n--- OCR PASS ---\n'));
+          : hungarian
+            ? mergeHungarianFallback(opticalGuestFields(parsed, frontText, ''),
+              printedGuestFields(agreePrinted(texts.map(text => parsePrintedText(text, true))), parsed.fields.mrzFirstName))
+            : opticalGuestFields(parsed, frontText, texts.join('\n--- OCR PASS ---\n'));
         if (needsHungarianPrintedFallback(hungarian, extracted) && scanRunRef.current === run) {
           const targeted = await readHungarianRows(copy, run);
-          // Even located OCR can omit a printed row. Fill only missing values
-          // from independently labeled, confidence-checked targeted reads.
-          extracted = { ...targeted, ...extracted };
+          extracted = mergeHungarianFallback(extracted, targeted.fields, targeted.confirmedMother);
+        }
+        // A partial located result (including {}) must not suppress the
+        // wider printed-zone OCR. Keep agreed evidence from both passes.
+        if (located && needsHungarianPrintedFallback(hungarian, extracted) && scanRunRef.current === run) {
+          const wider = await readPrinted(frontSession, copy, true, run);
+          const agreed = printedGuestFields(agreePrinted(wider.texts.map(text => parsePrintedText(text, true))), parsed.fields.mrzFirstName);
+          extracted = mergeHungarianFallback(extracted, agreed);
         }
         if (scanRunRef.current === run) {
           setOpticalFields(extracted);
