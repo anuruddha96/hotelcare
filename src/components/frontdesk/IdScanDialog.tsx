@@ -660,8 +660,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           if (birthplace) extracted = {...extracted, birth_place: birthplace};
           else if (candidates.some(hasPassportBirthplaceLabel)) {
             // A detected but unresolved birthplace must not become a guessed value.
-            const {birth_place: _unresolved, ...remaining} = extracted;
-            extracted = remaining;
+            extracted = {...extracted};
+            delete extracted.birth_place;
           }
         }
         if (scanRunRef.current === run) {
