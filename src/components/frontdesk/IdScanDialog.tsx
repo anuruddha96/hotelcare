@@ -1339,14 +1339,14 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
               </label>)}
             </div>}
             {photoTesting && open && !opticalReading && printedDiagnostics.length>0 && <details className="text-xs text-muted-foreground rounded-md border border-border p-2">
-              <summary className="cursor-pointer">Read text (test)</summary>
-              <p className="mt-1">On-device test evidence only. Review proposed fields against the physical document.</p>
+              <summary className="cursor-pointer">{t('pms.scan.testReadText')}</summary>
+              <p className="mt-1">{t('pms.scan.testReadHint')}</p>
               {printedDiagnostics.map((read,index)=><div key={index} className="mt-2 border-t border-border pt-2">
                 <p className="font-medium">{index+1}. {read.source} · {read.confidence===null?'—':Math.round(read.confidence)+'%'}</p>
                 <pre className="whitespace-pre-wrap break-words text-[10px]">{read.text}</pre>
                 {resolvePrintedLabels(read.text).map((candidate,i)=><p key={i}>{candidate.field}: {candidate.value} ({candidate.rule})</p>)}
               </div>)}
-              <p className="mt-2 font-medium">Final proposals (staff review)</p>
+              <p className="mt-2 font-medium">{t('pms.scan.testFinalProposals')}</p>
               {(['birth_place','birth_last_name','birth_first_name','mother_name'] as const).map(field=><p key={field}>{field}: {opticalFields[field] || '—'}</p>)}
             </details>}
             {opticalIssue && !opticalReading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{t('pms.scan.printedIncomplete')}</p>}
