@@ -31,7 +31,7 @@ import { reservationChannel, reservationGuestLabel, reservationSearchText, RESER
 import { floatingState, importFreshness } from '@/lib/receptionAttention';
 import { useGuestSignals } from '@/hooks/useGuestSignals';
 import { GuestSignalBadge } from '@/components/guests/GuestSignalBadge';
-import type { GuestSignal } from '@/lib/guestJourney';
+import { ReceptionSideSection, RECEPTION_TONES } from '@/components/frontdesk/ReceptionSideSection';
 
 const RES_SELECT = '*, guests!reservations_guest_id_fkey(first_name, last_name, email, phone, vip_status, id_document_number), rooms:room_id(id, room_number, room_type, status)';
 type ViewMode = 'planner' | 'list';
@@ -68,48 +68,6 @@ function snapshotStatus(value: string | null): string {
 }
 
 function isSnapshotOnly(row: any): boolean { return row?.snapshotOnly === true; }
-
-function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, signals, actionAnchor }: {
-  title: string;
-  icon: typeof Users;
-  items: any[];
-  onOpen: (row: any) => void;
-  /** Returning-guest / VIP markers per reservation id. */
-  signals?: Map<string, GuestSignal>;
-  /** One-tap action per row (e.g. Check in / Check out) so reception never has to hunt. */
-  actionLabel?: string;
-  actionAnchor?: string;
-  onAction?: (row: Record<string, unknown>) => void;
-}) {
-  const { t } = useTranslation();
-  const locale = useLocaleFormat();
-  return <details open className="border-b border-border last:border-b-0 group">
-    <summary className="list-none cursor-pointer select-none px-3 py-2 bg-muted/45 hover:bg-muted/70 flex items-center justify-between gap-2">
-      <span className="flex items-center gap-2 min-w-0 text-xs font-semibold uppercase tracking-wide"><Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" /><span className="min-w-0 break-words leading-snug">{title}</span></span>
-      <Badge variant="secondary" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">{items.length}</Badge>
-    </summary>
-    <div className="divide-y divide-border/70">
-      {items.length === 0 ? <div className="px-3 py-3 text-xs text-muted-foreground">—</div> : items.slice(0, 12).map((row) =>
-        <div key={row.id} className="flex items-stretch">
-          <button type="button" onClick={() => onOpen(row)} disabled={isSnapshotOnly(row)}
-            className="flex-1 min-w-0 text-left px-3 py-2 hover:bg-accent/40 disabled:hover:bg-transparent transition-colors disabled:cursor-default"
-            title={isSnapshotOnly(row) ? t('pms.unified.snapshotReadOnly') : undefined}>
-            <div className="flex items-start justify-between gap-2"><div className="min-w-0">
-              <div className="flex items-center gap-1 min-w-0"><span className="text-xs font-semibold truncate">{reservationGuestLabel(row)}</span><GuestSignalBadge signal={signals?.get(row.id)} /></div>
-              <div className="text-[10px] text-muted-foreground truncate mt-0.5">{row.rooms?.room_number || row.room_label || t('pms.unified.unassigned')} · {row.check_in_date?.slice(5)} → {row.check_out_date?.slice(5)}</div>
-            </div><span className="text-[10px] text-primary shrink-0 font-medium">{bookingSourceLabel(reservationChannel(row).label, t)}</span></div>
-          </button>
-          {actionLabel && onAction && !isSnapshotOnly(row) && (
-            <button type="button" data-training={actionAnchor} onClick={() => onAction(row)}
-              className="shrink-0 px-2 my-1.5 mr-1.5 rounded-md border border-border text-[11px] font-medium text-primary hover:bg-primary hover:text-primary-foreground transition-colors">
-              {actionLabel}
-            </button>
-          )}
-        </div>,
-      )}
-    </div>
-  </details>;
-}
 
 export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUploadPath?: string }) {
   const { t } = useTranslation();
@@ -432,10 +390,10 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     )}
     <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1" aria-label={t('pms.workspace.recordsOnly')} data-training="fd-today-strip">
       {([
-        { key: 'arrivals' as const, label: `🛬 ${t('pms.fd.arrivalsRemaining')}`, rows: arrivals, tone: 'border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100', active: 'ring-2 ring-emerald-500' },
-        { key: 'departures' as const, label: `🧳 ${t('pms.fd.departuresRemaining')}`, rows: departures, tone: 'border-orange-300 bg-orange-50 text-orange-900 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100', active: 'ring-2 ring-orange-500' },
-        { key: 'inhouse' as const, label: `🛏️ ${t('pms.fd.inHouseNow')}`, rows: inHouse, tone: 'border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100', active: 'ring-2 ring-sky-500' },
-        { key: 'unassigned' as const, label: `${unassignedUrgent ? '❓' : '🌊'} ${floatingTitle}`, rows: unassigned, tone: 'border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100', active: 'ring-2 ring-violet-500' },
+        { key: 'arrivals' as const, label: `🛬 ${t('pms.fd.arrivalsRemaining')}`, rows: arrivals, tone: RECEPTION_TONES.confirmed.surface, active: 'ring-2 ' + RECEPTION_TONES.confirmed.ring },
+        { key: 'departures' as const, label: `🧳 ${t('pms.fd.departuresRemaining')}`, rows: departures, tone: RECEPTION_TONES.departure.surface, active: 'ring-2 ' + RECEPTION_TONES.departure.ring },
+        { key: 'inhouse' as const, label: `🛏️ ${t('pms.fd.inHouseNow')}`, rows: inHouse, tone: RECEPTION_TONES.checkedIn.surface, active: 'ring-2 ' + RECEPTION_TONES.checkedIn.ring },
+        { key: 'unassigned' as const, label: `${unassignedUrgent ? '❓' : '🌊'} ${floatingTitle}`, rows: unassigned, tone: RECEPTION_TONES.pending.surface, active: 'ring-2 ' + RECEPTION_TONES.pending.ring },
       ]).map((stat) => (
         <button key={stat.key} type="button" title={t('pms.fd.todayChipTip')}
           aria-expanded={statPanel === stat.key}
@@ -445,8 +403,9 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         </button>
       ))}
       <div className="h-8 shrink-0 rounded-md border border-dashed border-border px-2.5 flex items-center gap-2 text-[11px] text-muted-foreground" aria-hidden="true">
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />{t('pms.status.checkedIn')}</span>
-        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />{t('pms.status.confirmed')}</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-sky-600" />{t('pms.status.checkedIn')}</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-600" />{t('pms.status.confirmed')}</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />{t('pms.planner.legend_pending')}</span>
         <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-400" />{t('pms.status.checkedOut')}</span>
       </div>
     </div>
@@ -484,18 +443,18 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <td className="px-3 py-2 capitalize" title={isSnapshotOnly(row) ? t('pms.workspace.snapshotCaptured').replace('{date}', locale.formatDateTime(row.captured_at)) : undefined}>{isSnapshotOnly(row) ? t('pms.workspace.snapshot') : bookingSourceLabel(reservationChannel(row).label, t)}</td>
         </tr>)}</tbody></table></div></CardContent></Card>}
     </div>
-      <aside className="min-w-0 border border-border rounded-lg overflow-hidden bg-card xl:sticky xl:top-3 xl:max-h-[72vh] xl:overflow-y-auto xl:overscroll-contain">
-        <SideSection signals={guestSignals} title={unassignedUrgent ? `${floatingTitle} · ${unassignedUrgent} ${t('pms.cal.floatingUrgent')}` : floatingTitle} icon={unassignedUrgent ? AlertTriangle : Waves} items={unassigned} onOpen={openReservation} />
-        <SideSection signals={guestSignals} title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation}
+      <aside aria-label={t('pms.fd.title')} tabIndex={0} className="min-w-0 space-y-3 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:sticky xl:top-20 xl:max-h-[calc(100dvh-11rem)] xl:overflow-y-auto xl:[scrollbar-gutter:stable]">
+        <ReceptionSideSection tone="pending" signals={guestSignals} title={floatingTitle} subtitle={unassignedUrgent ? `${unassignedUrgent} ${t('pms.cal.floatingUrgent')}` : undefined} icon={unassignedUrgent ? AlertTriangle : Waves} items={unassigned} onOpen={openReservation} />
+        <ReceptionSideSection tone="confirmed" signals={guestSignals} title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation}
           actionAnchor="fd-checkin-button" actionLabel={t('pms.checkIn')} onAction={(row) => setActioned({ row, dialog: 'checkin' })} />
-        <SideSection signals={guestSignals} title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation}
+        <ReceptionSideSection tone="departure" signals={guestSignals} title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation}
           actionAnchor="fd-checkout-button" actionLabel={t('pms.checkOut')} onAction={(row) => setActioned({ row, dialog: 'checkout' })} />
-        <SideSection signals={guestSignals} title={t('pms.fd.inHouseNow')} icon={Users} items={inHouse} onOpen={openReservation} />
-        {newOnline.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.newOnline')} icon={Sparkles} items={newOnline} onOpen={openReservation} />}
-        {expiringOptions.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.expiringOptions')} icon={Hourglass} items={expiringOptions} onOpen={openReservation} />}
-        {waitingList.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.waitingList')} icon={ListOrdered} items={waitingList} onOpen={openReservation} />}
-        {isOttofiori && <SideSection signals={guestSignals} title={`${t('reception.shell.tomorrow')} · ${locale.formatDate(tomorrow)}${importStale ? ' · ' + t('reception.shell.unverified') : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
-        <SideSection signals={guestSignals} title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
+        <ReceptionSideSection tone="checkedIn" signals={guestSignals} title={t('pms.fd.inHouseNow')} icon={Users} items={inHouse} onOpen={openReservation} />
+        {newOnline.length > 0 && <ReceptionSideSection tone="upcoming" signals={guestSignals} title={t('pms.fd.newOnline')} icon={Sparkles} items={newOnline} onOpen={openReservation} />}
+        {expiringOptions.length > 0 && <ReceptionSideSection tone="pending" signals={guestSignals} title={t('pms.fd.expiringOptions')} icon={Hourglass} items={expiringOptions} onOpen={openReservation} />}
+        {waitingList.length > 0 && <ReceptionSideSection tone="pending" signals={guestSignals} title={t('pms.fd.waitingList')} icon={ListOrdered} items={waitingList} onOpen={openReservation} />}
+        {isOttofiori && <ReceptionSideSection tone="confirmed" signals={guestSignals} title={`${t('reception.shell.tomorrow')} · ${locale.formatDate(tomorrow)}${importStale ? ' · ' + t('reception.shell.unverified') : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
+        <ReceptionSideSection tone="upcoming" signals={guestSignals} title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
       </aside>
     </div>}
     <Dialog open={!!periodRoom} onOpenChange={(isOpen) => { if (!isOpen) setPeriodRoom(null); }}>
