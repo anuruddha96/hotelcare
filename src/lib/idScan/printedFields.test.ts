@@ -25,6 +25,10 @@ describe('printed ID fields', () => {
     expect(parsePrintedText(unlabeled, true).mother_name).toBe('KALCSÓ IRMA');
     expect(parsePrintedText(unlabeled, false).mother_name).toBeUndefined();
   });
+  it('does not remove the last three letters of a town', () => {
+    expect(parsePrintedText('Születési hely/Place of birth:\nBUDAPEST', true).birth_place).toBe('BUDAPEST');
+    expect(parsePrintedText('Geburtsort/Place of birth\nMÜNCHEN', false).birth_place).toBe('MÜNCHEN');
+  });
   it('proposes a value only when two readings agree', () => {
     const a = { birth_place: 'DEBRECEN', birth_name: 'KISS ROZÁLIA', mother_name: 'KALCSÓ IRMA' };
     const b = { birth_place: 'DEBRECEN', birth_name: 'KISS ROZAÁLA', mother_name: 'KALCSO IRMA' };
