@@ -13,8 +13,8 @@ create table public.hotel_configurations(hotel_id text primary key, hotel_name t
 create table public.housekeeping_automation_settings(organization_slug text, hotel_id text, primary key(organization_slug,hotel_id));
 create table public.rooms(id uuid primary key, organization_slug text, hotel text, room_number text, status text, is_dnd boolean, is_checkout_room boolean, pms_metadata jsonb, notes text);
 create type public.user_role as enum ('housekeeping','housekeeping_manager','manager','supervisor','top_management','top_management_manager','admin','breakfast_staff','reception','front_office','reception_manager');
-create table public.profiles(id uuid primary key, organization_slug text, role public.user_role, deleted_at timestamptz);
-create table public.room_assignments(room_id uuid, organization_slug text, assigned_to uuid, assignment_date date, status text, assignment_type text, is_dnd boolean, pms_hold boolean not null default false, service_result text, notes text);
+create table public.profiles(id uuid primary key, organization_slug text, role public.user_role, deleted_at timestamptz, preferred_language text default 'en');
+create table public.room_assignments(room_id uuid, organization_slug text, assigned_to uuid, assignment_date date, status text, assignment_type text, is_dnd boolean, pms_hold boolean not null default false, service_result text, notes text, id uuid primary key default gen_random_uuid());
 create table public.breakfast_attendance(id uuid primary key, hotel_id text, organization_slug text, stay_date date, room_number text, served_count integer, location text, created_at timestamptz);
 create table public.daily_overview_snapshots(hotel_id text, organization_slug text, business_date date, room_number text, pax integer, source text, captured_at timestamptz);
 create table public.breakfast_roster(hotel_id text, organization_slug text, stay_date date, room_number text, pax integer, uploaded_at timestamptz);
@@ -102,6 +102,114 @@ do $$ begin if (select count(id) from public.housekeeping_breakfast_signals) <> 
 select set_config('request.jwt.claim.sub','20000000-0000-0000-0000-000000000004',false);
 do $$ begin if (select count(id) from public.housekeeping_breakfast_signals) <> 4 then raise exception 'manager access incorrect'; end if; end $$;
 reset role;
+
+-- Phase 2: real-role outbox and undo tests. Age the queue rather than wait
+-- wall-clock minutes; receipt deadlines remain the database clock.
+\ir ../migrations/20261126143000_housekeeping_breakfast_notifications.sql
+update public.housekeeping_breakfast_signals set closed_at=now(),closed_reason='guest_in_room' where closed_at is null;
+update public.profiles set preferred_language='hu' where id='20000000-0000-0000-0000-000000000001';
+insert into public.housekeeping_automation_settings(organization_slug,hotel_id,breakfast_signal_enabled) values ('org-a','hotel-a',true),('org-b','hotel-b',false);
+insert into public.rooms values
+('30000000-0000-0000-0000-000000000201','org-a','Hotel A','201','dirty',false,false,'{}',null),
+('30000000-0000-0000-0000-000000000202','org-a','hotel-a','202','dirty',false,false,'{}',null),
+('30000000-0000-0000-0000-000000000203','org-a','Hotel A','203','dirty',false,false,'{}',null),
+('30000000-0000-0000-0000-000000000204','org-a','Hotel A','204','dirty',true,false,'{}',null),
+('30000000-0000-0000-0000-000000000205','org-a','Hotel A','205','dirty',false,false,'{}',null);
+insert into public.room_assignments(room_id,organization_slug,assigned_to,assignment_date,status,assignment_type,is_dnd)
+select id,'org-a','20000000-0000-0000-0000-000000000001',(now() at time zone 'Europe/Budapest')::date,'assigned','daily_cleaning',is_dnd
+from public.rooms where room_number in ('201','202','203','204') and organization_slug='org-a';
+insert into public.room_assignments(room_id,organization_slug,assigned_to,assignment_date,status,assignment_type,is_dnd)
+values ('30000000-0000-0000-0000-000000000205','org-a','20000000-0000-0000-0000-000000000002',(now() at time zone 'Europe/Budapest')::date,'assigned','daily_cleaning',false);
+insert into public.breakfast_attendance values
+('40000000-0000-0000-0000-000000000201','hotel-a','org-a',(now() at time zone 'Europe/Budapest')::date,'201',1,'main',now()),
+('40000000-0000-0000-0000-000000000202','hotel-a','org-a',(now() at time zone 'Europe/Budapest')::date,'202',1,'main',now()),
+('40000000-0000-0000-0000-000000000203','hotel-a','org-a',(now() at time zone 'Europe/Budapest')::date,'203',1,'main',now()),
+('40000000-0000-0000-0000-000000000204','hotel-a','org-a',(now() at time zone 'Europe/Budapest')::date,'204',1,'main',now()),
+('40000000-0000-0000-0000-000000000205','hotel-a','org-a',(now() at time zone 'Europe/Budapest')::date,'205',1,'main',now()),
+('40000000-0000-0000-0000-000000000206','hotel-a','org-a',(now() at time zone 'Europe/Budapest')::date,'202',1,'other',now()),
+('40000000-0000-0000-0000-000000000207','hotel-b','org-b',(now() at time zone 'Europe/Budapest')::date,'105',1,'main',now());
+insert into public.housekeeping_breakfast_mark_receipts(attendance_id,organization_slug,hotel_id,actor_id,token_hash,created_at)
+select id,organization_slug,hotel_id,'20000000-0000-0000-0000-000000000004',repeat('a',64),created_at
+from public.breakfast_attendance where id::text like '40000000-0000-0000-0000-00000000020%';
+set role service_role;
+do $
+declare v record; ids uuid[]; claim uuid; batch_tag text; n integer;
+begin
+  perform public.record_breakfast_signal('hotel-a','201',1,'main','40000000-0000-0000-0000-000000000201');
+  perform public.record_breakfast_signal('hotel-a','202',1,'main','40000000-0000-0000-0000-000000000202');
+  perform public.record_breakfast_signal('hotel-a','203',1,'main','40000000-0000-0000-0000-000000000203');
+  perform public.record_breakfast_signal('hotel-a','204',1,'main','40000000-0000-0000-0000-000000000204');
+  perform public.record_breakfast_signal('hotel-a','205',1,'main','40000000-0000-0000-0000-000000000205');
+  perform public.record_breakfast_signal('hotel-a','202',1,'other','40000000-0000-0000-0000-000000000206');
+  if exists(select from public.record_breakfast_signal('hotel-b','105',1,'main','40000000-0000-0000-0000-000000000207')) then raise exception 'disabled hotel created signal'; end if;
+  if public.enqueue_breakfast_pushes(null) <> 4 then raise exception 'wrong queue count'; end if;
+  if public.enqueue_breakfast_pushes(null) <> 0 then raise exception 'duplicate queue rows'; end if;
+  if exists(select from public.housekeeping_breakfast_push_outbox where room_number='204') then raise exception 'DND queued'; end if;
+  if exists(select from public.claim_breakfast_pushes(10)) then raise exception 'push sent before batching window'; end if;
+  if exists(select from public.breakfast_mark_push_status('20000000-0000-0000-0000-000000000004','hotel-a','org-a',array['40000000-0000-0000-0000-000000000201']::uuid[]) where housekeeping_informed) then raise exception 'queued is not delivered'; end if;
+  update public.housekeeping_breakfast_push_outbox set queued_at=now()-interval '3 minutes' where user_id='20000000-0000-0000-0000-000000000001';
+  select array_agg(q.id),min(q.claim_token::text)::uuid,min(q.tag),count(distinct q.tag) into ids,claim,batch_tag,n from public.claim_breakfast_pushes(10) q;
+  if cardinality(ids)<>3 or n<>1 or batch_tag not like 'housekeeping-breakfast-batch-%' then raise exception 'burst did not combine'; end if;
+  if exists(select from public.claim_breakfast_pushes(10)) then raise exception 'claim duplicated in-flight rows'; end if;
+  if (select count(*) from public.revalidate_breakfast_pushes(claim,ids))<>3 then raise exception 'unexpected revalidation'; end if;
+  if public.finish_breakfast_pushes(claim,ids,true)<>3 then raise exception 'finish wrong'; end if;
+  if not exists(select from public.breakfast_mark_push_status('20000000-0000-0000-0000-000000000004','hotel-a','org-a',array['40000000-0000-0000-0000-000000000201']::uuid[]) where housekeeping_informed) then raise exception 'delivery receipt missing'; end if;
+  if exists(select from public.breakfast_mark_push_status('20000000-0000-0000-0000-000000000003','hotel-a','org-a',array['40000000-0000-0000-0000-000000000201']::uuid[])) then raise exception 'receipt leaked to other actor'; end if;
+  if public.undo_breakfast_mark('40000000-0000-0000-0000-000000000201',repeat('b',64),'20000000-0000-0000-0000-000000000004','hotel-a','org-a') then raise exception 'wrong undo token accepted'; end if;
+  if public.undo_breakfast_mark('40000000-0000-0000-0000-000000000201',repeat('a',64),'20000000-0000-0000-0000-000000000003','hotel-a','org-a') then raise exception 'wrong actor accepted'; end if;
+  if not public.undo_breakfast_mark('40000000-0000-0000-0000-000000000201',repeat('a',64),'20000000-0000-0000-0000-000000000004','hotel-a','org-a') then raise exception 'undo failed'; end if;
+  if not public.undo_breakfast_mark('40000000-0000-0000-0000-000000000206',repeat('a',64),'20000000-0000-0000-0000-000000000004','hotel-a','org-a') then raise exception 'partial undo failed'; end if;
+  if not exists(select from public.housekeeping_breakfast_signals where room_number='201' and guests_seen=0 and closed_reason='undone') then raise exception 'full undo did not close'; end if;
+  if not exists(select from public.housekeeping_breakfast_signals where room_number='202' and guests_seen=1 and closed_at is null) then raise exception 'partial undo did not recalculate'; end if;
+  if (select count(*) from public.housekeeping_breakfast_push_outbox q where kind='correction' and q.tag=batch_tag and state='pending') <> 2 then raise exception 'correction did not replace original tag'; end if;
+  -- A mark not delivered must not enqueue a correction.
+  if not public.undo_breakfast_mark('40000000-0000-0000-0000-000000000204',repeat('a',64),'20000000-0000-0000-0000-000000000004','hotel-a','org-a') then raise exception 'DND mark undo failed'; end if;
+  if exists(select from public.housekeeping_breakfast_push_outbox where kind='correction' and room_number='204') then raise exception 'correction without original delivery'; end if;
+end $;
+reset role;
+do $
+begin
+  if exists(select 1 from public.breakfast_attendance where id='40000000-0000-0000-0000-000000000201') then raise exception 'undone attendance still exists'; end if;
+  if has_table_privilege('authenticated','public.housekeeping_breakfast_mark_receipts','select') or has_table_privilege('anon','public.housekeeping_breakfast_push_outbox','select') then raise exception 'private queue exposed'; end if;
+  if has_function_privilege('authenticated','public.claim_breakfast_pushes(integer)','execute') or has_function_privilege('anon','public.undo_breakfast_mark(uuid,text,uuid,text,text)','execute') then raise exception 'privileged RPC exposed'; end if;
+end $;
+-- Reassignment to B while the window has more than ten minutes remaining.
+update public.room_assignments set assigned_to='20000000-0000-0000-0000-000000000002' where room_id='30000000-0000-0000-0000-000000000203';
+set role service_role;
+do $
+declare v record; ids uuid[]; claim uuid;
+begin
+  if public.enqueue_breakfast_pushes(null)<>1 then raise exception 'new assignee not queued exactly once'; end if;
+  if not exists(select from public.housekeeping_breakfast_push_outbox where room_number='203' and user_id='20000000-0000-0000-0000-000000000002' and state='pending') then raise exception 'new assignee incorrect'; end if;
+  update public.housekeeping_breakfast_push_outbox set queued_at=now()-interval '3 minutes' where room_number='205' and state='pending';
+  -- Mark the correction(s) and a single independent arrival as failed to
+  -- simulate provider failure, without losing either the mark or signal.
+  for v in select * from public.claim_breakfast_pushes(10) loop
+    perform public.finish_breakfast_pushes(v.claim_token,array[v.id],false);
+  end loop;
+  if exists(select from public.breakfast_mark_push_status('20000000-0000-0000-0000-000000000004','hotel-a','org-a',array['40000000-0000-0000-0000-000000000205']::uuid[]) where housekeeping_informed) then raise exception 'failed push marked informed'; end if;
+  if not exists(select from public.housekeeping_breakfast_signals where room_number='205' and closed_at is null) then raise exception 'push failure lost signal'; end if;
+end $;
+reset role;
+do $ begin if not exists(select from public.breakfast_attendance where id='40000000-0000-0000-0000-000000000205') then raise exception 'push failure lost attendance'; end if; end $;
+-- Phase 2 rollback on scratch only. Remove zero-count fixture rows so the
+-- original stricter count constraint can be restored.
+drop function public.breakfast_mark_push_status(uuid,text,text,uuid[]);
+drop function public.undo_breakfast_mark(uuid,text,uuid,text,text);
+drop function public.finish_breakfast_pushes(uuid,uuid[],boolean);
+drop function public.queue_breakfast_push_correction(uuid,uuid);
+drop function public.revalidate_breakfast_pushes(uuid,uuid[]);
+drop function public.claim_breakfast_pushes(integer);
+drop function public.enqueue_breakfast_pushes(uuid);
+drop function public.breakfast_push_candidates(uuid);
+drop trigger breakfast_notification_cycle on public.housekeeping_breakfast_signals;
+drop function public.breakfast_notification_cycle_trigger();
+drop table public.housekeeping_breakfast_push_outbox,public.housekeeping_breakfast_mark_receipts;
+delete from public.housekeeping_breakfast_signals where guests_seen=0;
+alter table public.housekeeping_breakfast_signals drop constraint housekeeping_breakfast_signals_guests_seen_check;
+alter table public.housekeeping_breakfast_signals add constraint housekeeping_breakfast_signals_guests_seen_check check(guests_seen>0);
+alter table public.housekeeping_breakfast_signals drop column notification_cycle;
+alter table public.housekeeping_automation_settings drop column breakfast_push_enabled;
 
 -- Verify rollback on the disposable database.
 alter publication supabase_realtime drop table public.housekeeping_breakfast_signals;
