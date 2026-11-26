@@ -114,7 +114,7 @@ export function compareHousekeepingTasks(a: HousekeepingOrderAssignment, b: Hous
   const bucketDiff = aBucket - bBucket;
   if (bucketDiff !== 0) return bucketDiff;
   if ((aBucket === 1.5 || aBucket === 2.5) && aSignal && bSignal) {
-    const arrivalDiff = Date.parse(aSignal.first_seen_at) - Date.parse(bSignal.first_seen_at);
+    const arrivalDiff = Date.parse(aSignal.window_ends_at) - Date.parse(bSignal.window_ends_at);
     if (arrivalDiff !== 0) return arrivalDiff;
   }
   const floorDiff = (a.rooms?.floor_number ?? 999) - (b.rooms?.floor_number ?? 999);
