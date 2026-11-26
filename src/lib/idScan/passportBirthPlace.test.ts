@@ -11,15 +11,15 @@ describe('passport visual-zone birthplace recovery',()=>{
     ['Doğum yeri / Place of birth: İSTANBUL','İstanbul'],
     ['Geburtsort\nMÜNCHEN','München'],
     ['Place of birfh: NEW DELHI, INDIA','New Delhi, India'],
-    ['P1ace of b1rth\nBUDAPEST (HUN)','Budapest (Hun)'],
+    ['P1ace of b1rth\nBUDAPEST (HUN)','Budapest'],
     ['Place of birth\nLieu de naissance\nPARIS','Paris'],
+    ['Sex/Sexe Place of birth\nLONDON','London'],
   ])('reads the explicitly printed birthplace: %s',(text,expected)=>{
     expect(recoverPassportBirthplace([text])).toBe(expected);
   });
   it('does not substitute the issuing authority, nationality, or a random place',()=>{
     for(const text of [
       'Place of birth\nAuthority\nLONDON',
-      'Sex/Sexe Place of birth\nLONDON',
       'Place of birth\nDate of issue\nLONDON',
       'Place of birth Authority\nLONDON',
       'Nationality\nDEU\nBERLIN',

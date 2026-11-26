@@ -3,6 +3,7 @@ import type { MrzReadResult } from './mrz';
 import { normalizeVisibleIdText } from './idFront';
 import { printedHungarianIdNumber } from './scanReview';
 import { harmonizeNameAccents, restoreDocumentNames } from './nameAccents';
+import { resolvePrintedLabels, titlePrinted, splitPrintedBirthName, choosePrintedValue } from './printedLabels';
 
 export type OpticalGuestFields = Partial<{
   first_name: string; last_name: string; birth_first_name: string; birth_last_name: string;
@@ -49,6 +50,10 @@ function nationalityValue(value: string): string | null {
 }
 
 export function extractOpticalGuestFields(text: string): OpticalGuestFields {
+  return extractPrintedWithContext(text);
+}
+
+function extractPrintedWithContext(text: string, context?: { givenName?: string; hungarian?: boolean }): OpticalGuestFields {
   const lines = text.split(/\r?\n/).map(x => cleanPassportLabel(x.trim())).filter(Boolean);
   const values = new Map<string, Set<string>>();
   const add = (key: string, value: string | null) => {
@@ -62,8 +67,8 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
     const label = labels.find(([, pattern]) => pattern.test(normalized));
     if (!label || /^[A-Z0-9<]{25,}$/.test(lines[i])) continue;
     const [key, pattern] = label;
-    // Composite passport rows are handled by the dedicated parser below.
-    if (key === 'birth_place' && /\b(?:sex|sexe)\b/.test(normalized)) continue;
+    // Optional printed fields are resolved by the shared label parser below.
+    if (key !== 'nationality' && key !== 'first_name' && key !== 'last_name') continue;
     const match = pattern.exec(normalized)!;
     // Ignore composite fields and crowded multi-column OCR lines rather than
     // assign one person's name or date to a different field.
@@ -87,21 +92,13 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
       tail = next;
     }
     if (key === 'nationality') add(key, nationalityValue(tail));
-    else if (key === 'birth_pair') {
-      // Only split an explicitly separated pair; no guess for multi-part names.
-      const pair = tail.split(/\s*,\s*|\s+\/\s+/);
-      if (pair.length === 2) { add('birth_last_name', name(pair[0])); add('birth_first_name', name(pair[1])); }
-      else if (tail.split(/\s+/).length === 2) {
-        const parts = tail.split(/\s+/);
-        add('birth_last_name', name(parts[0])); add('birth_first_name', name(parts[1]));
-      }
-    } else if (key === 'mother_name') {
-      if (tail.split(/\s+/).length >= 2) add(key, name(tail));
-    } else if (key === 'birth_place') {
-      // Hungarian specimen prints the town followed by (HUN). Keep the
-      // birthplace text, never infer nationality from a birthplace suffix.
-      add(key, name(tail.replace(/\s*\([A-Z]{2,3}\)\s*$/i, '').trim()));
-    } else add(key, name(tail));
+    else add(key, name(tail));
+  }
+  for (const candidate of resolvePrintedLabels(text)) {
+    if (candidate.field === 'birth_pair') {
+      const pair = splitPrintedBirthName(candidate.value, context?.givenName, context?.hungarian);
+      if (pair) { add('birth_last_name', pair.birth_last_name); add('birth_first_name', pair.birth_first_name); }
+    } else add(candidate.field, titlePrinted(candidate.value));
   }
   // Printed birth dates and nationality often share a crowded bilingual
   // line. Read the value only after a recognizable field label, not after
@@ -109,20 +106,6 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
   for (let i=0;i<lines.length;i++) {
     const line=fold(lines[i]);
     if (forbiddenPassportHeader.test(line)) continue;
-    // Passport layouts often put Sex and Place of birth on the same row,
-    // followed by a bilingual label and then a sex marker + printed place.
-    // Never infer the place from the issuing state or MRZ.
-    if (/\b(?:sex|sexe)\b/.test(line) && /\bplace\s+of\s+birth\b/.test(line)) {
-      const placeLabel = /place\s+of\s+birth(?:\s*\/\s*lieu\s+de\s+naissance)?/.exec(line);
-      if (placeLabel) {
-        const rest = lines[i].slice(placeLabel.index + placeLabel[0].length).trim();
-        const next = lines[i + 1] ?? '';
-        // A composite header's next row must start with an explicit sex marker.
-        // Never skip ahead into the issuance/authority row when that value is absent.
-        const candidate = rest || (/^[MFX<]\s+.+/i.test(next) ? next.replace(/^[MFX<]\s+/i, '').trim() : '');
-        if (candidate && !otherLabel.test(fold(candidate)) && !forbiddenPassportHeader.test(fold(candidate)) && !labels.some(([, p]) => p.test(fold(candidate)))) add('birth_place', name(candidate));
-      }
-    }
     const dateLabel=/(?:szuletesi\s*ido|date\s*of\s*birth)/.exec(line);
     if(dateLabel) {
       const tail=line.slice(dateLabel.index+dateLabel[0].length);
@@ -148,15 +131,25 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
 }
 
 export function opticalGuestFields(result: MrzReadResult, front: string, back: string): OpticalGuestFields {
-  const a = extractOpticalGuestFields(front);
-  const b = extractOpticalGuestFields(back);
+  const f = result.fields;
+  const context = { givenName: f.mrzFirstName, hungarian: f.documentType === 'id_card' && f.issuingState === 'HUN' };
+  const a = extractPrintedWithContext(front, context);
+  const b = extractPrintedWithContext(back, context);
   const out: OpticalGuestFields = {};
   for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
     const k = key as keyof OpticalGuestFields;
     if (a[k] && b[k] && a[k] !== b[k]) continue;
     out[k] = a[k] || b[k];
   }
-  const f = result.fields;
+  // Evaluate optional printed data per independent pass; accents are not conflicts.
+  const optional = ['birth_place','birth_last_name','birth_first_name','mother_name'] as const;
+  const passes = [front, back].flatMap(t=>t.split('\n--- OCR PASS ---\n')).filter(t=>t.trim()).map(t=>extractPrintedWithContext(t,context));
+  for (const key of optional) {
+    const reads = passes.flatMap(p=>p[key]?[{value:p[key]!}]:[]);
+    const chosen = choosePrintedValue(reads);
+    if (chosen) out[key] = chosen.value;
+    else delete out[key];
+  }
   // For Hungarian IDs, independently labeled printed number can correct
   // a misread MRZ value, but only as a reviewed form suggestion.
   if (f.documentType === 'id_card' && (f.nationalityIso3 === 'HUN' || f.issuingState === 'HUN')) {
@@ -173,8 +166,12 @@ export function opticalGuestFields(result: MrzReadResult, front: string, back: s
   const hungarian = f.nationalityIso3 === 'HUN' || f.issuingState === 'HUN';
   Object.assign(out, restoreDocumentNames(f.mrzLastName, f.mrzFirstName, [front, back], hungarian,
     [a.last_name, a.first_name, b.last_name, b.first_name].filter((v): v is string => !!v)));
-  // A complete birth-name pair is required by the existing VIZA validator.
-  if (!out.birth_first_name || !out.birth_last_name) {
+  // A partial birth surname is a printed fact. On a valid scan only, offer
+  // the current given name as an editable proposal requiring the normal scan review.
+  if (out.birth_last_name && !out.birth_first_name && result.valid && !result.unknownCountry && f.firstName) {
+    out.birth_first_name = f.firstName;
+  }
+  if ((!out.birth_first_name || !out.birth_last_name) && (!result.valid || result.unknownCountry)) {
     delete out.birth_first_name; delete out.birth_last_name;
   }
   return harmonizeNameAccents(out, hungarian);

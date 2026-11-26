@@ -1,5 +1,6 @@
 import type { OpticalGuestFields } from './opticalGuestFields';
 import type { SourceRect } from './frameCapture';
+import { splitPrintedBirthName, stripBirthCountry, titlePrinted } from './printedLabels';
 
 export type PrintedRow = 'birth_place' | 'birth_pair' | 'mother_name';
 const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -52,14 +53,10 @@ export function rowHasLabel(row: PrintedRow, text: string): boolean {
 }
 export function parsePrintedRow(row: PrintedRow, text: string): OpticalGuestFields {
   const clean=text.trim().replace(/[|.,;:]+$/,'').trim();
-  const value=row==='birth_place'?clean.replace(/\s*\([A-Z]{2,3}\)\s*$/i,'').trim():clean;
+  const value=row==='birth_place'?stripBirthCountry(clean):clean;
   if (!/^[\p{L}\p{M}][\p{L}\p{M} .'’\-]{1,79}$/u.test(value)) return {};
-  const words=value.split(/\s+/);
-  if (row==='birth_pair' && words.length!==2) return {};
-  if (row==='mother_name' && words.length<2) return {};
-  const title=(s:string)=>s.toLowerCase().replace(/(^|[\s\-’'])\p{L}/gu,c=>c.toUpperCase());
-  if(row==='birth_pair') return {birth_last_name:title(words[0]),birth_first_name:title(words[1])};
-  return {[row]:title(value)};
+  if(row==='birth_pair') return splitPrintedBirthName(value,undefined,true) ?? {};
+  return {[row]:titlePrinted(value)};
 }
 
 /** Require an independently read Hungarian identity and two matching labels

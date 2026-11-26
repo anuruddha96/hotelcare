@@ -1,4 +1,5 @@
 import type { CodeGeometry } from './codeLineRefine';
+import { hasPrintedLabel, resolvePrintedLabels, titlePrinted } from './printedLabels';
 
 /** Recover a visually printed passport birthplace; never derive it from
  * the issuing state, MRZ, nationality, authority or a free-floating city. */
@@ -9,7 +10,7 @@ const placeLabel = /(?:\b(?:p[l1i]ace\s*(?:of\s*)?b[i1l]r[t7]h|place\s*of\s*bir[
 const otherHeader = /(?:\b(?:authority|autorite|issuing|issued|issue|expiry|expiration|validity|signature|passport|nationality|citizenship|surname|given\s*names?|family\s*name|date\s*of|sex|sexe|gender|geburtsdatum|ausstellungs|behorde|autoridad|fecha\s*de|nom\b|prenom|nationalite|date\s*de|hatosag|kiallito|ervenyes|allampolgarsag|szuletesi\s*ido|utonev|csaladnev|mother|birth\s*name)\b|(?:ημ\.?\s*)?(?:γεννησης|εκδοσης|ληξης)(?!\p{L})|εκδουσα\s*αρχη|υπηρεσια|επωνυμο|ονομα|ιθαγενεια|φυλο)/iu;
 
 export function hasPassportBirthplaceLabel(text:string): boolean {
-  return placeLabel.test(fold(text));
+  return placeLabel.test(fold(text)) || hasPrintedLabel(text,'birth_place');
 }
 
 function value(raw:string, composite=false, issuingState?:string): string | undefined {
@@ -32,6 +33,7 @@ function value(raw:string, composite=false, issuingState?:string): string | unde
 }
 
 export function passportBirthplaceCandidates(text:string, issuingState?:string): string[] {
+  if (issuingState !== 'GRC') return [...new Set(resolvePrintedLabels(text).filter(c=>c.field==='birth_place').map(c=>titlePrinted(c.value)))];
   const lines = text.normalize('NFC').split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
   const found = new Set<string>();
   for(let i=0;i<lines.length;i++){

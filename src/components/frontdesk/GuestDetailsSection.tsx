@@ -15,6 +15,7 @@ import type { MrzReadResult } from '@/lib/idScan/mrz';
 import { toVizaDocumentScan, type VizaDocumentScan } from '@/lib/idScan/vizaScan';
 import { absenceGroupEmpty, passportAbsenceReview, type PassportAbsences, type PassportAbsenceKey } from '@/lib/idScan/passportAbsence';
 import { guestScanPatch, recognizedNationality, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
+import { splitPrintedMotherName } from '@/lib/idScan/printedLabels';
 import { ENTRY_DETAILS_REASONS, isVizaPlaceholder, validEntryAbsence } from '../../../supabase/functions/_shared/viza/fieldRules';
 import { useTranslation } from '@/hooks/useTranslation';
 import { documentRequired, scanFieldState, vizaMissingFields, vizaProblems, type VizaProblem, type VizaReview, vizaAdmissionFields, vizaFieldRequirements, isHungarianId, thirdCountry, vizaArrivalDay } from '@/lib/idScan/guestVizaChecks';
@@ -161,13 +162,13 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     setRegisterError(null);
     if (draft) {
       const patch = draft.result ? guestScanPatch(draft.result, draft.optical) : {};
-      const mother = draft.optical.mother_name?.trim().split(/\s+/);
+      const mother = splitPrintedMotherName(draft.optical.mother_name);
       const initial: GuestVizaRow = {
         id: 'unsaved', first_name: '', last_name: '', nationality: null, date_of_birth: null,
         birth_last_name: null, birth_first_name: null, birth_place: null, gender: null,
         mother_name: null, mother_family_name: null, mother_given_name: null,
         id_document_type: null, id_document_number: null, visa_number: null, entry_date: null, entry_place: null,
-        ...patch, ...(mother?.length === 2 ? { mother_family_name: mother[0], mother_given_name: mother[1] } : {}),
+        ...patch, ...mother,
         viza_review: { reservation_id: vizaReservationId, scan_reviewed: !!draft.result },
         document_scan: draft.result ? toVizaDocumentScan(draft.result) : null,
       };
@@ -275,7 +276,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       const number = normalizeNumber(result.fields.documentNumber);
       const previous = [normalizeNumber(scan?.fields.okmanyAzonositoSzam), normalizeNumber(g.id_document_number)].filter(Boolean);
       const changedDocument = (!!number && previous.length > 0 && !previous.includes(number) && !previous.includes(normalizeNumber(patch.id_document_number))) || (!!g.id_document_type && g.id_document_type !== result.fields.documentType && previous.length > 0);
-      const mother = proposals.mother_name?.trim().split(/\s+/);
+      const mother = splitPrintedMotherName(proposals.mother_name);
       const currentReview = g.viza_review?.reservation_id === vizaReservationId ? g.viza_review : {};
       const updated: GuestVizaRow = {
         ...g,
@@ -286,8 +287,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
         ...patch,
         ...(vizaReservationId ? {
           document_scan: toVizaDocumentScan(result),
-          ...(mother?.length === 2 ? { mother_family_name: mother[0], mother_given_name: mother[1] } :
-            mother && mother.length > 2 ? { mother_family_name: null, mother_given_name: null } : {}),
+          ...mother,
           viza_review: { ...(changedDocument ? {} : currentReview), reservation_id: vizaReservationId, scan_reviewed: true },
         } : {}),
       };
@@ -428,7 +428,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   };
   // Under each field the reader filled: unchanged from the document, or corrected by hand.
   const mark = (field: Exclude<keyof GuestVizaRow, 'id' | 'viza_review'>) => {
-    const opticalValue = optical[field as keyof OpticalGuestFields];
+    const opticalValue = field === 'mother_family_name' || field === 'mother_given_name'
+      ? splitPrintedMotherName(optical.mother_name)?.[field] : optical[field as keyof OpticalGuestFields];
     if (guest && opticalValue && guest[field] === opticalValue) return <p className="flex items-start gap-1 text-xs leading-snug text-amber-700 dark:text-amber-400"><TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" /> {t('pms.scan.printedFieldsReview')}</p>;
     const state = guest ? scanFieldState(field, guest, scan) : null;
     if (!state) return null;
@@ -609,8 +610,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             )}
             {vizaReservationId ? <>
               {guest.mother_name && !guest.mother_family_name && !guest.mother_given_name && <p className="col-span-2 text-xs text-muted-foreground">{t('pms.guest.motherName')}: {guest.mother_name}</p>}
-              <div hidden={compactAbsent('mother_name_absent')}><Label className="text-xs">{t('pms.guest.motherFamily')}</Label>{fieldTag('mother_family_name')}<Input data-viza-field="mother_family_name" aria-invalid={!!requirements && !requirements['mother_family_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_family_name ?? ''} onChange={e => set('mother_family_name', e.target.value)} /></div>
-              <div hidden={compactAbsent('mother_name_absent')}><Label className="text-xs">{t('pms.guest.motherGiven')}</Label>{fieldTag('mother_given_name')}<Input data-viza-field="mother_given_name" aria-invalid={!!requirements && !requirements['mother_given_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_given_name ?? ''} onChange={e => set('mother_given_name', e.target.value)} /></div>
+              <div hidden={compactAbsent('mother_name_absent')}><Label className="text-xs">{t('pms.guest.motherFamily')}</Label>{fieldTag('mother_family_name')}<Input data-viza-field="mother_family_name" aria-invalid={!!requirements && !requirements['mother_family_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_family_name ?? ''} onChange={e => set('mother_family_name', e.target.value)} />{mark('mother_family_name')}</div>
+              <div hidden={compactAbsent('mother_name_absent')}><Label className="text-xs">{t('pms.guest.motherGiven')}</Label>{fieldTag('mother_given_name')}<Input data-viza-field="mother_given_name" aria-invalid={!!requirements && !requirements['mother_given_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_given_name ?? ''} onChange={e => set('mother_given_name', e.target.value)} />{mark('mother_given_name')}</div>
               {absent('mother_name_absent')}
             </> : <div className="col-span-2">
               <Label className="text-xs">{t('pms.guest.motherName')}</Label>
