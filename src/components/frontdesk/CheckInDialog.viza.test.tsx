@@ -117,8 +117,18 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       await screen.findByText('Synthetic Foreign');
       expect(mocks.add).toHaveBeenCalledWith(resId, foreign.id);
       expect(confirm()).toBeDisabled();
-      expect(screen.getByText('pms.stayGuest.registrationMissing')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'pms.stayGuest.editDetails' })).toBeInTheDocument();
+      const registrationStatus = screen.getByText('pms.stayGuest.registrationMissing');
+      const editDetails = screen.getByRole('button', { name: 'pms.stayGuest.editDetails' });
+      const scan = screen.getByRole('button', { name: 'pms.express.scan' });
+      expect(registrationStatus).toBeInTheDocument();
+      expect(editDetails).toBeInTheDocument();
+      // Keep the translated status out of the action row at narrow widths.
+      expect(registrationStatus).toHaveClass('max-w-full', 'whitespace-normal', 'rounded-md');
+      expect(editDetails.parentElement).toHaveClass('basis-full', 'w-full', 'flex-wrap');
+      expect(editDetails.parentElement).not.toContainElement(registrationStatus);
+      expect(editDetails.parentElement).toContainElement(scan);
+      expect(editDetails).toHaveClass('min-h-11', 'whitespace-normal');
+      expect(scan).toHaveClass('min-h-11', 'whitespace-normal');
       expect(screen.queryByRole('checkbox', { name: /pms.stayGuest.arrivingNow/ })).not.toBeInTheDocument();
       await waitFor(() => expect(document.querySelector('[data-viza-field="nationality"]')).toBeInTheDocument());
       // Adding an existing guest automatically opens the document scanner.
