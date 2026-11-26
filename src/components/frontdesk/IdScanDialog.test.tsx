@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   releaseCamera: vi.fn(),
   holdCamera: vi.fn(),
   setTorch: vi.fn(),
+  recognizeDetailed: vi.fn(),
+  recognizeWithConfidence: vi.fn(),
+  ready: false,
 }));
 
 vi.mock('@/hooks/useTranslation', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -18,7 +21,13 @@ vi.mock('@/lib/idScan/ocrSession', () => ({
   OcrSession: class {
     warm = vi.fn(async () => ({}));
     reset = vi.fn();
+    recognizeDetailed = mocks.recognizeDetailed;
+    recognizeWithConfidence = mocks.recognizeWithConfidence;
   },
+}));
+vi.mock('@/lib/idScan/autoCapture', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/idScan/autoCapture')>(),
+  assessReadiness: () => mocks.ready ? 'ready' : 'moveCloser',
 }));
 vi.mock('@/lib/idScan/cameraSession', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/idScan/cameraSession')>();
@@ -41,6 +50,9 @@ beforeEach(() => {
   mocks.profile = { role: 'reception', organization_slug: 'rdhotels' };
   mocks.torch = false;
   mocks.torchOn = false;
+  mocks.ready = false;
+  mocks.recognizeDetailed.mockReset().mockResolvedValue({text:'',confidence:30,lines:[]});
+  mocks.recognizeWithConfidence.mockReset().mockResolvedValue({text:'',confidence:30});
   mocks.acquireCamera.mockReset().mockResolvedValue(fakeStream);
   mocks.releaseCamera.mockReset();
   mocks.holdCamera.mockReset();
@@ -107,5 +119,54 @@ describe('IdScanDialog at the desk', () => {
     expect(await screen.findByText('pms.scan.noCamera')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'pms.scan.retry' }));
     await waitFor(() => expect(mocks.acquireCamera).toHaveBeenCalledTimes(2));
+  });
+});
+
+
+async function captureSyntheticDocument() {
+  mocks.ready = true;
+  const capture = await screen.findByRole('button', { name: /pms.scan.captureFirst/ });
+  const video = document.querySelector('video')!;
+  Object.defineProperties(video, { videoWidth: { value: 320, configurable:true }, videoHeight: { value: 220, configurable:true } });
+  vi.spyOn(video,'getBoundingClientRect').mockReturnValue({width:320,height:220,x:0,y:0,top:0,left:0,right:320,bottom:220,toJSON:()=>({})});
+  vi.mocked(HTMLCanvasElement.prototype.getContext).mockImplementation(function(this: HTMLCanvasElement) {
+    return {drawImage:vi.fn(), clearRect:vi.fn(), putImageData:vi.fn(),
+      getImageData: (_x:number,_y:number,w:number,h:number)=>({data:new Uint8ClampedArray(w*h*4)})} as unknown as CanvasRenderingContext2D;
+  });
+  fireEvent.click(capture);
+}
+
+describe('document-specific retry controls', () => {
+  it('does not ask for the back when passport text is detected but code lines cannot be read', async () => {
+    mocks.recognizeWithConfidence.mockResolvedValue({text:'PASSPORT / PASSEPORT',confidence:78});
+    render(<IdScanDialog open onOpenChange={()=>undefined} onApply={()=> 'applied'}/>);
+    await captureSyntheticDocument();
+    expect(await screen.findByText('pms.scan.passportRetry')).toBeTruthy();
+    expect(screen.queryByRole('button',{name:'pms.scan.nextSide'})).toBeNull();
+    expect(screen.queryByRole('button',{name:'pms.scan.confirmIdType'})).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'pms.scan.retry'}));
+    expect(await screen.findByText('pms.scan.passportPhotoOnly')).toBeTruthy();
+    expect(screen.queryByRole('button',{name:/pms.scan.captureBack/})).toBeNull();
+  });
+  it('uses the existing passport type when the re-scan is unreadable', async () => {
+    render(<IdScanDialog open previousDocumentType="passport" onOpenChange={()=>undefined} onApply={()=> 'applied'}/>);
+    await captureSyntheticDocument();
+    expect(await screen.findByText('pms.scan.passportRetry')).toBeTruthy();
+    expect(screen.queryByRole('button',{name:'pms.scan.nextSide'})).toBeNull();
+    expect(screen.queryByRole('button',{name:'pms.scan.confirmIdType'})).toBeNull();
+  });
+  it('requires explicit ID type confirmation before offering the back of an unidentified front', async () => {
+    render(<IdScanDialog open onOpenChange={()=>undefined} onApply={()=> 'applied'}/>);
+    await captureSyntheticDocument();
+    expect(await screen.findByText('pms.scan.unknownDocumentRetry')).toBeTruthy();
+    expect(screen.queryByRole('button',{name:'pms.scan.nextSide'})).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'pms.scan.confirmIdType'}));
+    expect(await screen.findByText('pms.scan.flipCard')).toBeTruthy();
+  });
+  it('continues to request both sides when an actual ID front is recognized', async () => {
+    mocks.recognizeWithConfidence.mockResolvedValue({text:'NATIONAL IDENTITY CARD EXAMPLE NAME NUMBER',confidence:95});
+    render(<IdScanDialog open onOpenChange={()=>undefined} onApply={()=> 'applied'}/>);
+    await captureSyntheticDocument();
+    expect(await screen.findByText('pms.scan.flipCard')).toBeTruthy();
   });
 });
