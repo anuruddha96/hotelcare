@@ -6,14 +6,20 @@
  */
 import { ERROR_KEYS } from './codes.ts';
 
-export interface NtakIssue { field: string; value: string | null; key: string; message: string; hint?: string }
+export interface NtakIssue {
+  field: string; value: string | null; key: string; message: string; hint?: string;
+  /** Where NTAK located the problem (HibaType epulet / szobaszam / foglalasiSzam), when it says. */
+  building?: string; room?: string; bookingNo?: string;
+}
 
 export interface NtakVerification {
   processingId: string;
   status: string;
   warnings: NtakIssue[];
   errors: NtakIssue[];
-  /** Only in answers to adatszolgaltatasKezdoDatum (7.3.3). */
+  /** Only for adatszolgaltatasKezdoDatum queries: from the separate
+   * adatszolgaltatasKezdoDatumok list of ellenorzesResponse (or, in older
+   * examples, inside uzenetValaszok). */
   expectedStartDate: string | null;
 }
 
@@ -57,12 +63,19 @@ const withHint = (i: Omit<NtakIssue, 'hint'>): NtakIssue => (ERROR_KEYS[i.key] ?
 /** <hiba><mezoNeve/>..</hiba> items of a list element. */
 function issuesFromList(listXml: string | undefined): NtakIssue[] {
   if (!listXml) return [];
-  return innerOf(listXml, 'hiba').map((h) => withHint({
-    field: first(h, 'mezoNeve') ?? 'GLOBAL',
-    value: first(h, 'kuldottErtek'),
-    key: first(h, 'hibaKulcs') ?? 'UNKNOWN',
-    message: first(h, 'hibaUzenet') ?? '',
-  }));
+  return innerOf(listXml, 'hiba').map((h) => {
+    const issue: NtakIssue = withHint({
+      field: first(h, 'mezoNeve') ?? 'GLOBAL',
+      value: first(h, 'kuldottErtek'),
+      key: first(h, 'hibaKulcs') ?? 'UNKNOWN',
+      message: first(h, 'hibaUzenet') ?? '',
+    });
+    const building = first(h, 'epulet'), room = first(h, 'szobaszam'), bookingNo = first(h, 'foglalasiSzam');
+    if (building) issue.building = building;
+    if (room) issue.room = room;
+    if (bookingNo) issue.bookingNo = bookingNo;
+    return issue;
+  });
 }
 
 /** <error hibaKulcs=".." hibaUzenet=".." kuldottErtek=".." mezoNeve=".."/> inside a Fault detail. */
@@ -100,18 +113,31 @@ export function parseNtakResponse(xml: string): NtakResponse {
     };
   }
 
+  // ellenorzesResponse: adatszolgaltatasKezdoDatumok (start dates) and
+  // uzenetValaszok (statuses) are two optional lists keyed by processing id.
+  const startDates = new Map<string, string | null>();
+  for (const d of innerOf(text, 'adatszolgaltatasKezdoDatumok')) {
+    startDates.set(first(d, 'feldolgozasAzonosito') ?? '', first(d, 'elvartAdatszolgaltatasKezdoDatuma'));
+  }
   const answers = innerOf(text, 'uzenetValaszok');
-  if (answers.length) {
-    return {
-      kind: 'verification',
-      results: answers.map((a) => ({
-        processingId: first(a, 'feldolgozasAzonosito') ?? '',
+  if (answers.length || startDates.size) {
+    const results: NtakVerification[] = answers.map((a) => {
+      const processingId = first(a, 'feldolgozasAzonosito') ?? '';
+      return {
+        processingId,
         status: first(a, 'statusz') ?? 'UNKNOWN',
         warnings: issuesFromList(innerOf(a, 'figyelmeztetesLista')[0]),
         errors: issuesFromList(innerOf(a, 'hibaLista')[0]),
-        expectedStartDate: first(a, 'elvartAdatszolgaltatasKezdoDatuma'),
-      })),
-    };
+        expectedStartDate: startDates.get(processingId) ?? first(a, 'elvartAdatszolgaltatasKezdoDatuma'),
+      };
+    });
+    // A start date returned without a status line means the query was processed.
+    for (const [processingId, expectedStartDate] of startDates) {
+      if (!results.some((r) => r.processingId === processingId)) {
+        results.push({ processingId, status: 'TELJESEN_SIKERES', warnings: [], errors: [], expectedStartDate });
+      }
+    }
+    return { kind: 'verification', results };
   }
 
   const processingId = first(text, 'feldolgozasAzonosito');

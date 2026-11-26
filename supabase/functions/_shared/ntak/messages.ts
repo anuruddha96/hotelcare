@@ -1,6 +1,7 @@
 /**
- * NTAK PMS interface v9 request builders (element order follows the published
- * v9 WSDL schemas exactly). Pure functions: plain objects in, request XML out.
+ * NTAK PMS interface v9 request builders (element order follows the v9 WSDL
+ * schemas NTAK sent on ticket 150439, see testdata/wsdl). Pure functions:
+ * plain objects in, request XML out.
  *
  * Output is shaped like exclusive-c14n output (namespace declared on the root
  * request element, no whitespace between tags, no self-closing tags, text
@@ -135,11 +136,18 @@ export function xsDateTime(value: Date | string): string {
 
 const root = (name: string, inner: string) => `<${P}${name} xmlns:v9="${NTAK_NS}">${inner}</${P}${name}>`;
 
+/** Max255LengthStringType (whitespace collapsed): longer values are refused before sending. */
+function max255(field: string, value: unknown): string {
+  const text = cleanText(value);
+  if (text.length > 255) throw new Error(`${field} is longer than 255 characters`);
+  return text;
+}
+
 function header(c: NtakCommon): string {
   return el('uzenetAdatok', txt('uzenetId', c.uzenetId) + el('uzenetKuldesIdeje', xsDateTime(c.sentAt)))
     + el('szoftverAdatok', txt('szoftverVerzio', c.softwareVersion) + txt('szoftverAzonosito', c.softwareId))
     + el('szallashely', txt('szallasRegisztraciosSzam', c.registrationNumber) + txt('szallashelySzolgaltatoAdoszam', c.taxNumber)
-      + txt('szallasNev', c.accommodationName) + txt('szallashelySzolgaltatoNev', c.providerName));
+      + txt('szallasNev', max255('szallasNev', c.accommodationName)) + txt('szallashelySzolgaltatoNev', max255('szallashelySzolgaltatoNev', c.providerName)));
 }
 
 export function unitXml(name: string, u: NtakUnit): string {
@@ -232,7 +240,8 @@ export function buildFoglalasEsemenyRequest(c: NtakCommon, b: NtakBooking): stri
 
 export function buildEsemenyvezereltRequest(c: NtakCommon, events: NtakStayEvent[]): string {
   const part = (kind: NtakStayEvent['kind']) => events.filter((e) => e.kind === kind).map((e) => {
-    const head = el('idopont', xsDateTime(e.at)) + txt('foglalasiSzam', e.bookingNo) + e.guests.map((g) => guestXml('vendegek', g)).join('');
+    // One <vendegek> list with a <vendeg> per guest (VendegekType in the WSDL NTAK sent on 26 Nov 2026).
+    const head = el('idopont', xsDateTime(e.at)) + txt('foglalasiSzam', e.bookingNo) + el('vendegek', e.guests.map((g) => guestXml('vendeg', g)).join(''));
     return el(kind, e.kind === 'lakoegysegetCserelt'
       ? head + unitXml('elhagyottLakoegyseg', e.from) + unitXml('elfoglaltLakoegyseg', e.to)
       : head + unitXml('lakoegyseg', e.unit));
