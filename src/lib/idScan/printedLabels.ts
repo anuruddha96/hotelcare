@@ -30,10 +30,10 @@ export function hasPrintedLabel(text:string,field:PrintedLabel):boolean {
   return hits(text).some(h=>h.field===field);
 }
 export function stripBirthCountry(value:string):string {
-  const m=/\s*(?:\(\s*([A-Z]{3})\s*\)|\s+([A-Z]{3}))$/u.exec(value);
+  const m=/(?:\s*\(\s*([A-Z]{3})\s*\)|\s+([A-Z]{3}))$/u.exec(value);
   return m && ISO3_TO_ISO2[m[1]??m[2]] ? value.slice(0,m.index).trim() : value.trim();
 }
-export const titlePrinted = (s:string) => s.split(/(\s+)/u).map(w=>/^(?:[A-Za-z]\.){2,}$/u.test(w)?w.toUpperCase():w.toLowerCase().replace(/(^|[.\-’'])\p{L}/gu,c=>c.toUpperCase())).join('');
+export const titlePrinted = (s:string) => s.split(/(\s+)/u).map(w=>/^(?:[A-Za-z]\.){2,}$/u.test(w)?w.toUpperCase():w.toLowerCase().replace(/(^|[.\-’'])\p{L}/gu,c=>c.toUpperCase())).join('').normalize('NFC');
 const mrz=(s:string)=>s.includes('<<')||/^--- OCR PASS ---$/u.test(s)||/^[A-Z0-9<]{25,}$/u.test(s);
 const sex=/^[MFX<]$/i;
 const date= /^(?:\d{1,2}\s+[A-Z]{3}(?:\s*\/\s*[A-Z]{3})?\s+\d{2,4}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/i;
