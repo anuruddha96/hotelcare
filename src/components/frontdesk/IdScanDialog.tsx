@@ -68,7 +68,7 @@ interface IdScanDialogProps {
   onApply: (result: MrzReadResult, optical?: OpticalGuestFields, confirmNameChange?: boolean, confirmedAbsences?: PassportAbsences) => ScanApplyOutcome | void;
 }
 
-type Phase = 'camera' | 'reading' | 'front_preview' | 'review' | 'failed';
+type Phase = 'select' | 'camera' | 'reading' | 'front_preview' | 'review' | 'failed';
 type DocumentSide = 'mrz' | 'front'; // 'front' is ALWAYS the initial camera capture.
 
 /** Grayscale + contrast stretch + upscale: OCR reads MRZ much better this way. */
@@ -214,7 +214,7 @@ function printedCanvas(frame: HTMLCanvasElement, idBack: boolean, enhanced = fal
   return canvas;
 }
 
-export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType }: IdScanDialogProps) {
+export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps) {
   const { t } = useTranslation();
   const { profile } = useAuth();
   // Loading a saved photo exists only for specimen tests (VIZA validation) on
@@ -229,7 +229,8 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     return budget?.run === run ? Math.max(0, Math.min(max, budget.deadline-Date.now())) : max;
   };
   const cameraSessionRef = useRef(0);
-  const [phase, setPhase] = useState<Phase>('camera');
+  const [phase, setPhase] = useState<Phase>('select');
+  const [selectedType, setSelectedType] = useState<'passport' | 'id_card' | null>(null);
   const [side, setSide] = useState<DocumentSide>('front');
   const [captureKind, setCaptureKind] = useState<FirstCaptureKind>('unknown');
   const passportEvidenceRef = useRef(false);
@@ -393,7 +394,8 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       setReviewAcknowledged(false);
       return;
     }
-    setPhase('camera');
+    setPhase('select');
+    setSelectedType(null);
     setFlipPrompt(false);
     setConfidence(null);
     setFrontConfidence(null);
@@ -734,12 +736,12 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     setFailReason(null);
     setReviewAcknowledged(false);
     pauseCamera();
-    if (action === 'different_document' || action === 'front_first_required') {
+    if (parsed.fields.documentType !== selectedType || action === 'different_document' || action === 'front_first_required') {
       setResult(null);
       clearFront();
       setFrontAssessment(null);
       setSide('front');
-      setFailReason(action === 'different_document' ? 'different_document' : 'front_first');
+      setFailReason(parsed.fields.documentType !== selectedType || action === 'different_document' ? 'different_document' : 'front_first');
       setPhase('failed');
       return;
     }
@@ -989,12 +991,12 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       frontRef.current.text = reading.texts.join('\n--- OCR PASS ---\n');
     } catch { /* no document type is inferred from a failed OCR pass */ }
     if (scanRunRef.current !== run) return;
-    const kind = passportEvidenceRef.current ? 'passport' : classifyFirstCapture(frontRef.current.text, previousDocumentType === 'passport');
+    const kind = passportEvidenceRef.current ? 'passport' : classifyFirstCapture(frontRef.current.text, selectedType === 'passport');
     setCaptureKind(kind);
     if (kind === 'passport') {
       passportEvidenceRef.current ||= looksLikePassport(frontRef.current.text);
       frontRef.current = { captured: false, positive: false, text: '' };
-      clearBackdrop(); setFailReason('passport_retry'); setPhase('failed'); return;
+      clearBackdrop(); setFailReason(selectedType === 'id_card' ? 'different_document' : 'passport_retry'); setPhase('failed'); return;
     }
     frontRef.current.positive = kind === 'id_card';
     if (kind === 'id_card' && /MAGYARORSZ|HUNGARY/i.test(frontRef.current.text)) {
@@ -1006,6 +1008,9 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         .finally(() => wipe(copy));
     }
     setFrontConfidence(score);
+    // Staff already selected ID. An inconclusive OCR classification is not a second type gate.
+    // Keep positive evidence separate: the back still has to match and be reviewed.
+    if (selectedType === 'id_card' && kind === 'unknown') setCaptureKind('id_card');
     if (shouldAdvanceFront(positiveScore, frontRef.current.positive)) advanceFront(kind);
     else { clearBackdrop(); setPhase('front_preview'); }
   };
@@ -1039,7 +1044,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       quality = assessReadiness(sample, 320, null, false);
       sample.fill(0);
       if (automatic && quality !== 'ready') { setGuidance(quality); return; }
-      if (initial) setCaptureKind('unknown');
+      if (initial) setCaptureKind(selectedType ?? 'unknown');
       // From here on the camera picture is replaced by the progress card.
       showBackdrop(frame);
       setStep('reading');
@@ -1109,11 +1114,11 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         if (partial && (action === 'front_first_required' || action === 'passport_complete')) {
           await completeMrz(partial, run, partialConfidence, frame, geometry);
         } else if (passportEvidenceRef.current) {
-          setCaptureKind('passport'); fail('passport_retry');
+          setCaptureKind(selectedType ?? 'passport'); fail(selectedType === 'id_card' ? 'different_document' : 'passport_retry');
+        } else if (selectedType === 'passport') {
+          setCaptureKind('passport'); fail(completedPass ? 'passport_retry' : 'ocr_unavailable');
         } else if (completedPass && action === 'provisional_front') {
           await acceptFront(frame, run);
-        } else if (previousDocumentType === 'passport') {
-          setCaptureKind('passport'); fail('passport_retry');
         } else fail(completedPass ? 'first_not_recognized' : 'ocr_unavailable');
       } else if (partial) {
         // An imperfect result is never auto-confirmed: review stays required.
@@ -1227,7 +1232,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     setTyped('');
     setFailReason(null);
     // A failed second scan keeps the successfully captured first ID side.
-    if (side === 'front') { setResult(null); clearFront(); setCaptureKind(passportEvidenceRef.current || previousDocumentType === 'passport' ? 'passport' : 'unknown'); }
+    if (side === 'front') { setResult(null); clearFront(); setCaptureKind(selectedType ?? 'unknown'); }
     setFrontAssessment(null);
     setFrontConfidence(null);
     setReviewAcknowledged(false);
@@ -1247,6 +1252,13 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     setFlipPrompt(false); setConfidence(null); setFrontConfidence(null); setPrintedDiagnostics([]); setOpticalFields({}); setPassportAbsences({}); setPassportSuggestions({}); setOpticalReading(false); setOpticalIssue(false); setNumberReview({ needsReview: false, printed: null });
     setReviewAcknowledged(false);
     setSide('front'); setCaptureKind('unknown'); passportEvidenceRef.current = false; setSource('camera'); setTyped(''); setFailReason(null);
+    setSelectedType(null);
+    setPhase('select');
+  };
+
+  const selectDocument = (kind: 'passport' | 'id_card') => {
+    setSelectedType(kind);
+    setCaptureKind(kind);
     setPhase('camera');
   };
 
@@ -1275,10 +1287,26 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-0.5" data-training="fd-id-scan-scroll">
+        {phase === 'select' && (
+          <div className="space-y-3">
+            <p className="text-sm font-semibold">{t('pms.scan.selectDocument')}</p>
+            <Button type="button" className="w-full min-h-14 h-auto justify-start gap-3 whitespace-normal py-3" onClick={() => selectDocument('passport')}>
+              <ScanLine className="h-5 w-5 shrink-0" /><span className="text-left"><span className="block font-semibold">{t('pms.guest.docPassport')}</span><span className="block text-xs font-normal opacity-90">{t('pms.scan.passportPhotoOnly')}</span></span>
+            </Button>
+            <Button type="button" variant="outline" className="w-full min-h-14 h-auto justify-start gap-3 whitespace-normal py-3" onClick={() => selectDocument('id_card')}>
+              <ScanLine className="h-5 w-5 shrink-0" /><span className="text-left"><span className="block font-semibold">{t('pms.guest.docIdCard')}</span><span className="block text-xs font-normal text-muted-foreground">{t('pms.scan.idBothSides')}</span></span>
+            </Button>
+            <details className="rounded-md border p-3 text-xs">
+              <summary className="cursor-pointer font-medium">{t('pms.guest.docDriving')}</summary>
+              <p className="mt-2 text-muted-foreground">{t('pms.scan.drivingLicenceHelp')}</p>
+              <Button type="button" variant="outline" className="mt-2 w-full" onClick={() => onOpenChange(false)}>{t('pms.scan.returnToGuest')}</Button>
+            </details>
+          </div>
+        )}
         {(phase === 'camera' || phase === 'front_preview') && (
           <div className="space-y-2" role="status" aria-live="polite">
             <div className="flex gap-1" aria-hidden="true"><span className="h-1.5 flex-1 rounded-full bg-primary"/>{(side === 'mrz' || captureKind === 'id_card') && <span className={side === 'mrz' ? 'h-1.5 flex-1 rounded-full bg-primary' : 'h-1.5 flex-1 rounded-full bg-muted'}/>}</div>
-            {side === 'front' ? <div className="rounded-md bg-primary/5 px-3 py-2 text-sm font-semibold">{t(captureKind === 'passport' ? 'pms.scan.passportPhotoOnly' : 'pms.scan.firstStep')}</div> : <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 p-3 text-emerald-800 dark:text-emerald-200"><CheckCircle2 className="h-5 w-5 shrink-0"/><div><div className="text-xs">{t('pms.scan.frontCaptured')}</div><div className="text-sm font-bold">{t('pms.scan.flipCard')}</div></div><RotateCw className="ml-auto h-5 w-5 shrink-0 motion-safe:animate-pulse"/></div>}
+            {side === 'front' ? <div className="rounded-md bg-primary/5 px-3 py-2 text-sm font-semibold">{t(selectedType === 'passport' ? 'pms.scan.passportPhotoOnly' : 'pms.scan.idFrontOnly')}</div> : <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 p-3 text-emerald-800 dark:text-emerald-200"><CheckCircle2 className="h-5 w-5 shrink-0"/><div><div className="text-xs">{t('pms.scan.frontCaptured')}</div><div className="text-sm font-bold">{t('pms.scan.flipCard')}</div></div><RotateCw className="ml-auto h-5 w-5 shrink-0 motion-safe:animate-pulse"/></div>}
           </div>
         )}
         {phase === 'camera' && side === 'mrz' && (
@@ -1326,7 +1354,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
 
         {phase === 'camera' && source === 'camera' && (
           <div className="space-y-2">
-            <p className="text-xs">{side === 'front' ? t('pms.scan.firstHint') : t('pms.scan.idBackHint')}</p>
+            <p className="text-xs">{side === 'front' ? t(selectedType === 'passport' ? 'pms.scan.passportPhotoOnly' : 'pms.scan.idFrontOnly') : t('pms.scan.idBackHint')}</p>
             {cameraOk !== false ? (
               <div className="relative mx-auto w-full max-h-[34dvh] overflow-hidden rounded-lg bg-black aspect-[1.58/1]">
                 <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover object-center" />
@@ -1356,12 +1384,12 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
 
         {processing && <ScanProcessing backdrop={backdrop} step={step} />}
         {phase === 'front_preview' && (
-          <div className="rounded-lg border p-3 text-sm"><p className="text-muted-foreground">{t(captureKind === 'id_card' ? 'pms.scan.idFrontRecognized' : 'pms.scan.unknownDocumentRetry')}</p></div>
+          <div className="rounded-lg border p-3 text-sm"><p className="text-muted-foreground">{t(captureKind === 'id_card' ? 'pms.scan.idFrontReady' : 'pms.scan.unknownDocumentRetry')}</p></div>
         )}
 
         {phase === 'failed' && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200">
-            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {failReason === 'passport_retry' || (side === 'front' && captureKind === 'passport') ? t('pms.scan.passportRetry') : failReason === 'front_first' ? t('pms.scan.frontFirstRequired') : failReason === 'first_not_recognized' ? t('pms.scan.unrecognizedRetry') : failReason === 'different_document' ? t('pms.scan.differentDocument') : failReason === 'front_unreadable' ? t('pms.scan.frontUnreadable') : failReason === 'ocr_unavailable' ? t('pms.scan.ocrUnavailable') : failReason === 'unsupported_image' ? t('pms.scan.invalidPhoto') : failReason === 'no_mrz' ? t(side === 'mrz' ? 'pms.scan.idBackRetry' : 'pms.scan.unrecognizedRetry') : failReason && failReason !== 'no_document' ? t('pms.scan.serviceFailed') : t('pms.scan.notFound')}
+            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {failReason === 'passport_retry' ? t('pms.scan.passportSelectedRetry') : failReason === 'front_first' ? t('pms.scan.frontFirstRequired') : failReason === 'first_not_recognized' ? t('pms.scan.unrecognizedRetry') : failReason === 'different_document' ? t('pms.scan.differentDocument') : failReason === 'front_unreadable' ? t('pms.scan.frontUnreadable') : failReason === 'ocr_unavailable' ? t('pms.scan.ocrUnavailable') : failReason === 'unsupported_image' ? t('pms.scan.invalidPhoto') : failReason === 'no_mrz' ? t(side === 'mrz' ? 'pms.scan.idBackRetry' : 'pms.scan.unrecognizedRetry') : failReason && failReason !== 'no_document' ? t('pms.scan.serviceFailed') : t('pms.scan.notFound')}
           </div>
         )}
 
@@ -1450,6 +1478,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
             <Button type="button" variant={captureKind === 'id_card' ? 'outline' : 'default'} className="w-full" onClick={retry}>{t('pms.scan.retry')}</Button>
             {captureKind === 'unknown' && <Button type="button" variant="outline" className="w-full" onClick={manuallyCheckedFront}>{t('pms.scan.confirmIdType')}</Button>}
           </>}
+          {(phase === 'camera' || phase === 'front_preview' || phase === 'failed') && <Button type="button" variant="ghost" className="w-full text-muted-foreground" onClick={restart}>{t('pms.scan.changeDocument')}</Button>}
           {phase === 'failed' && <Button type="button" variant="default" className="w-full" onClick={retry}>{t('pms.scan.retry')}</Button>}
           {phase === 'review' && result && revealed && (
             <>
