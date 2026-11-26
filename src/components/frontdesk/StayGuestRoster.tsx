@@ -216,8 +216,9 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
       {control.guests.filter(g => (!express && control.perGuestLifecycle) || g.stay_state !== 'void').map((g, index) => {
         const canChoose = g.stay_state === (mode === 'arrive' ? 'expected' : 'in_house');
         const complete = vizaRequired ? vizaAdmissionFields(g.guests, reservationId, vizaArrivalDay(occurredAt)).length === 0 : vizaMissingFields(g.guests).length === 0 && vizaProblems(g.guests).length === 0;
-        return <div key={g.guest_id} className="space-y-1">
-          <div className="flex flex-wrap gap-2 items-center rounded-md border border-border/70 p-2">
+        const showRegistrationActions = express && canChoose && !complete;
+        return <div key={g.guest_id} className="min-w-0 space-y-1">
+          <div className="flex min-w-0 flex-wrap gap-2 items-center rounded-md border border-border/70 p-2">
             {control.perGuestLifecycle && <Checkbox disabled={!canChoose || busy} checked={canChoose && control.selectedIds.includes(g.guest_id)}
               aria-label={`${t(mode === 'arrive' ? 'pms.stayGuest.arrivingNow' : 'pms.stayGuest.leavingNow')} ${g.guests?.first_name ?? ''} ${g.guests?.last_name ?? ''}`}
               onCheckedChange={(v) => control.setSelectedIds(v
@@ -227,14 +228,14 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
               {express && <p className="flex items-center gap-1 text-xs text-muted-foreground"><UserRound className="h-3.5 w-3.5" />{t('pms.express.guestNumber').replace('{number}',String(index+1))}</p>}
               <p className="text-sm font-medium break-words">{g.guests?.first_name} {g.guests?.last_name}</p>
               <div className="flex flex-wrap items-center gap-1 mt-1">
-                <Badge variant="outline" className="text-[10px]">{t('pms.stayGuest.state.' + g.stay_state)}</Badge>
-                <Badge className={complete ? 'bg-emerald-600/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20' : 'bg-amber-600/10 text-amber-700 dark:text-amber-300 border-amber-500/20'} variant="outline">
+                <Badge variant="outline" className="max-w-full whitespace-normal break-words text-[10px]">{t('pms.stayGuest.state.' + g.stay_state)}</Badge>
+                <Badge className={`max-w-full whitespace-normal break-words rounded-md ${complete ? 'bg-emerald-600/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20' : 'bg-amber-600/10 text-amber-700 dark:text-amber-300 border-amber-500/20'}`} variant="outline">
                   {t(complete ? 'pms.stayGuest.registrationComplete' : 'pms.stayGuest.registrationMissing')}
                 </Badge>
               </div>
             </button>
-            <div className="flex gap-1 flex-wrap justify-end">
-              {express && canChoose && !complete ? <><Button type="button" size="sm" variant="outline" disabled={savePending} aria-expanded={detailsId === g.guest_id} onClick={() => openExisting(g)}>{t('pms.stayGuest.editDetails')}</Button><Button type="button" size="sm" disabled={savePending} onClick={() => openExisting(g,true)} className="gap-1"><ScanLine className="h-4 w-4"/>{t('pms.express.scan')}</Button></> :
+            <div className={showRegistrationActions ? 'flex w-full min-w-0 basis-full flex-wrap gap-2' : 'flex min-w-0 max-w-full flex-wrap justify-end gap-1'}>
+              {showRegistrationActions ? <><Button type="button" size="sm" variant="outline" disabled={savePending} aria-expanded={detailsId === g.guest_id} onClick={() => openExisting(g)} className="h-auto min-h-11 min-w-0 max-w-full flex-1 basis-auto whitespace-normal break-words py-2 text-center">{t('pms.stayGuest.editDetails')}</Button><Button type="button" size="sm" disabled={savePending} onClick={() => openExisting(g,true)} className="h-auto min-h-11 min-w-0 max-w-full flex-1 basis-auto gap-1 whitespace-normal break-words py-2 text-center"><ScanLine className="h-4 w-4 shrink-0"/>{t('pms.express.scan')}</Button></> :
                 <Button type="button" size="sm" variant="ghost" aria-label={t('pms.stayGuest.details')} aria-expanded={detailsId === g.guest_id} onClick={() => openExisting(g)}><ChevronRight className="h-4 w-4"/></Button>}
               {control.perGuestLifecycle && (g.stay_state==='in_house' || g.stay_state==='departed') && (
                 <Button type="button" variant="outline" size="sm"
