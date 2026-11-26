@@ -50,6 +50,12 @@ export function verifiedGreekBirthplace(
   if((surname.confidence??0)<45 || (expiry.confidence??0)<50 ||
     passportBirthplaceKey(surname.text.trim())!==passportBirthplaceKey(result.fields.mrzLastName) ||
     !expiryMatches(expiry.text,result.fields.expiryDate))return;
+  return agreedGreekBirthplaceCrop(reads);
+}
+
+/** Do not spend the remaining OCR budget checking layout anchors when the
+ * value crops themselves do not provide a usable proposal. */
+export function agreedGreekBirthplaceCrop(reads:BirthplaceRowRead[]):string|undefined {
   const plausible=reads.filter(r=>(r.confidence??0)>=55).map(r=>({value:candidate(r),confidence:r.confidence??0}))
     .filter((r):r is {value:string;confidence:number}=>!!r.value);
   if(plausible.length<2 || !plausible.some(r=>r.confidence>=65))return;
