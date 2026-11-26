@@ -111,11 +111,12 @@ interface AssignedRoomCardProps {
   onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => void;
   /** Manager instructions specific to this room, kept within its card border. */
   roomNotices?: React.ReactNode;
+  breakfastKnockReminder?: boolean;
   /** Optional property-specific action presented with the checklist tools. */
   additionalRoomTool?: React.ReactNode;
 }
 
-export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, additionalRoomTool }: AssignedRoomCardProps) {
+export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, additionalRoomTool, breakfastKnockReminder }: AssignedRoomCardProps) {
   const { t, language } = useTranslation();
   const { user, profile } = useAuth();
   const { toast: showToast } = useToast();
@@ -1351,6 +1352,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, addi
             {/* HoldButton renders its instructions in normal flow. */}
           {(assignment.status === 'assigned' || assignment.status === 'dnd_pending_retry') && !isCheckoutWaiting && (
               <div className="w-full sm:w-auto [&>div]:w-full">
+                {breakfastKnockReminder && <p className="text-xs text-muted-foreground mb-1">{t('hkBreakfast.hint')}</p>}
                 <HoldButton
                   size="lg"
                   holdDuration={2000}
