@@ -983,7 +983,6 @@ const partialRows: Record<string, readonly [string, ...string[]]> = {
   'pms.fd.newOnline': ["New online reservations · 24 h", "Új online foglalások · 24 óra", "Nuevas reservas online · 24 h"],
   'pms.fd.expiringOptions': ["Options (held rooms)", "Opciók (tartott szobák)", "Opciones (habitaciones retenidas)"],
   'pms.fd.waitingList': ["Waiting list", "Várólista", "Lista de espera"],
-  'pms.scan.documentPreview': ["Document data preview", "Okmányadatok előnézete", "Vista previa de datos del documento", "Xem trước dữ liệu giấy tờ", "Баримтын мэдээллийг урьдчилан харах", "Sənəd məlumatlarına ön baxış", "Preview ng datos ng dokumento", "Попередній перегляд даних документа", "Предпросмотр данных документа"],
   'pms.scan.codeLines': ["Code lines read from the document", "Az okmányról beolvasott kódsorok", "Líneas de código leídas del documento"],
   'pms.scan.reviewHint': ["Compare the details with the document. Select Use these details, then correct any mistakes in the guest form.","Vesd össze az adatokat az okmánnyal. Válaszd az adatok használatát, majd javítsd az esetleges hibákat a vendégadatlapon.","Compara los datos con el documento. Selecciona usar estos datos y corrige los errores en la ficha del huésped."],
   'pms.guest.scanPanelTitle': ["Read from the document", "Okmányról beolvasva", "Leído del documento"],
