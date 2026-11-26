@@ -129,7 +129,7 @@ async function captureSyntheticDocument() {
   const video = document.querySelector('video')!;
   Object.defineProperties(video, { videoWidth: { value: 320, configurable:true }, videoHeight: { value: 220, configurable:true } });
   vi.spyOn(video,'getBoundingClientRect').mockReturnValue({width:320,height:220,x:0,y:0,top:0,left:0,right:320,bottom:220,toJSON:()=>({})});
-  vi.mocked(HTMLCanvasElement.prototype.getContext).mockImplementation(function(this: HTMLCanvasElement) {
+  vi.mocked(HTMLCanvasElement.prototype.getContext).mockImplementation(() => {
     return {drawImage:vi.fn(), clearRect:vi.fn(), putImageData:vi.fn(),
       getImageData: (_x:number,_y:number,w:number,h:number)=>({data:new Uint8ClampedArray(w*h*4)})} as unknown as CanvasRenderingContext2D;
   });
