@@ -18,6 +18,7 @@ import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRo
 import { shouldAdvanceFront, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
 import { recoverPassportBirthplace, hasPassportBirthplaceLabel, numberedUkBirthplaceRegions, numberedBirthplaceLabel, recoverNumberedBirthplace, type BirthplaceRowRead } from '@/lib/idScan/passportBirthPlace';
+import { sampleUkRegion, ukLegacyRegions, localPassportContrast, passportOtsu, verifiedLegacyBirthplace } from '@/lib/idScan/ukPassportVisual';
 import { suggestPassportAbsences, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
 import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { assessReadiness, type Readiness } from '@/lib/idScan/autoCapture';
@@ -537,6 +538,39 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     } finally { gray.data.fill(0); red?.data.fill(0); }
   };
 
+  // Recover the value even when security printing prevents recognition of
+  // the tiny field label, but only on a separately verified legacy layout.
+  const readVerifiedUkBirthplace = async (frame: HTMLCanvasElement, geometry: CodeGeometry | null, result: MrzReadResult, run: number) => {
+    if (!geometry || geometry.lines !== 2 || !result.valid || result.unknownCountry || result.fields.issuingState !== 'GBR' || scanRunRef.current !== run) return undefined;
+    const ctx=frame.getContext('2d',{willReadFrequently:true});
+    if(!ctx)return undefined;
+    const rgba=ctx.getImageData(0,0,frame.width,frame.height);
+    const data=new Uint8ClampedArray(frame.width*frame.height);
+    for(let i=0;i<data.length;i++)data[i]=rgba.data[i*4+2];
+    rgba.data.fill(0);
+    const source={data,width:frame.width,height:frame.height};
+    const scan=async (region:typeof ukLegacyRegions[keyof typeof ukLegacyRegions],method:'contrast'|'otsu'):Promise<BirthplaceRowRead>=>{
+      if(scanRunRef.current!==run)return {text:'',confidence:null};
+      const crop=sampleUkRegion(source,geometry,region);
+      const processed=method==='contrast'?localPassportContrast(crop):passportOtsu(crop);
+      const padded=padWhite(processed,24);
+      crop.data.fill(0);processed.data.fill(0);
+      const canvas=grayCanvas(padded);
+      try {
+        const read=await frontSession.recognizeWithConfidence(canvas,6500,'7');
+        return scanRunRef.current===run?read:{text:'',confidence:null};
+      } catch {return {text:'',confidence:null};}
+      finally {wipe(canvas);}
+    };
+    try{
+      const surname=await scan(ukLegacyRegions.surname,'otsu');
+      const expiry=await scan(ukLegacyRegions.expiry,'otsu');
+      const contrast=await scan(ukLegacyRegions.value,'contrast');
+      const binary=await scan(ukLegacyRegions.value,'otsu');
+      return verifiedLegacyBirthplace(result,surname,expiry,[contrast,binary]);
+    }finally{data.fill(0);}
+  };
+
   const readHungarianRows = async (frame: HTMLCanvasElement, run: number) => {
     const gray = graySample(frame, {x:0,y:0,width:frame.width,height:frame.height});
     const h = gray.length / 320;
@@ -700,6 +734,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           if (!birthplace || !extracted.birth_place) {
             birthplaceReads = await readPassportBirthplace(copy, geometry, run, texts);
             birthplace = recoverPassportBirthplace([...texts, ...birthplaceReads]);
+          }
+          if (!birthplace && scanRunRef.current === run) {
+            birthplace = await readVerifiedUkBirthplace(copy, geometry, parsed, run);
           }
           if (!birthplace && scanRunRef.current === run) {
             const targeted = await readNumberedUkBirthplace(copy, geometry, parsed.fields.issuingState, run);
