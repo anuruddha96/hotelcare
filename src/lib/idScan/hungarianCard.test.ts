@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {estimateCardRect,printedRowRect,mergeHungarianRows,rowHasLabel,parsePrintedRow,needsHungarianPrintedFallback} from './hungarianCard';
+import {estimateCardRect,printedRowRect,mergeHungarianRows,rowHasLabel,parsePrintedRow,needsHungarianPrintedFallback,corroboratedMotherName,mergeHungarianFallback} from './hungarianCard';
 import {extractOpticalGuestFields} from './opticalGuestFields';
 
 describe('Hungarian ID specimen printed regions',()=>{
@@ -44,5 +44,31 @@ describe('Hungarian ID specimen printed regions',()=>{
     expect(extractOpticalGuestFields('Születési időate of bith 30 06 1990\nNeme Sex / Allampolgarsag HUN')).toMatchObject({date_of_birth:'1990-06-30',nationality:'HU'});
     expect(extractOpticalGuestFields('HUNGARY\nExpiry date 10 01 2022')).toEqual({});
     expect(extractOpticalGuestFields('Date of birth 31 02 1990')).toEqual({});
+  });
+});
+
+describe('partial Hungarian back scan recovery', () => {
+  const motherRow = {row:'mother_name' as const, label:"Anyja születési neve / Mother's maiden name", confidence:95};
+  const located = {birth_place:'Pécs', mother_name:'Pél Da Anna'};
+  const fallback = {birth_last_name:'Minta', birth_first_name:'Éva', mother_name:'Példa Anna'};
+  it('recovers both birth fields and fixes corroborated OCR-inserted spaces', () => {
+    const reads = [{...motherRow,value:'PÉLDA ANNA'},{...motherRow,value:'PELDA ANNA'}];
+    expect(needsHungarianPrintedFallback(true,located)).toBe(true);
+    const recovered = mergeHungarianFallback(located,fallback,corroboratedMotherName(reads));
+    expect(recovered).toEqual({birth_place:'Pécs',...fallback});
+    expect(needsHungarianPrintedFallback(true,recovered)).toBe(false);
+  });
+  it('retries a split maiden name even when all other fields were extracted', () => {
+    expect(needsHungarianPrintedFallback(true,{...fallback,...located})).toBe(true);
+  });
+  it('does not guess a mother name from a single read, disagreement or different letters', () => {
+    expect(corroboratedMotherName([{...motherRow,value:'PÉLDA ANNA'}])).toBeUndefined();
+    expect(corroboratedMotherName([{...motherRow,value:'PÉLDA ANNA'},{...motherRow,value:'PÉL DA ANNA'}])).toBeUndefined();
+    expect(mergeHungarianFallback(located,fallback,'Másik Anna').mother_name).toBe(located.mother_name);
+    expect(mergeHungarianFallback({mother_name:'Nagy Kiss Anna'},fallback).mother_name).toBe('Nagy Kiss Anna');
+  });
+  it('never combines half a birth name from different evidence', () => {
+    expect(mergeHungarianFallback({birth_last_name:'Másik'},fallback).birth_first_name).toBeUndefined();
+    expect(mergeHungarianFallback({}, {birth_last_name:'Minta'})).toEqual({});
   });
 });

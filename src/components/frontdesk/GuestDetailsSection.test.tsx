@@ -118,6 +118,23 @@ async function saveEditor() {
   fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
 }
 describe('document reader evidence and corrections', () => {
+  it('fills and saves all four printed Hungarian birth and mother name fields without typing', async () => {
+    const query = mockGuest({...guest, nationality:'HU', id_document_type:'id_card'});
+    await openEditor('res-1');
+    const base = readResult('TEST123');
+    const result: MrzReadResult = {...base, format:'TD1', fields:{...base.fields, nationality:'HU', nationalityIso3:'HUN', issuingState:'HUN', documentType:'id_card'}};
+    const printed = {birth_last_name:'Minta', birth_first_name:'Éva', mother_name:'Példa Anna', birth_place:'Pécs'};
+    act(() => mocks.apply(result, printed));
+    await waitFor(() => {
+      expect(document.querySelector('[data-viza-field="birth_last_name"]')).toHaveValue('Minta');
+      expect(document.querySelector('[data-viza-field="birth_first_name"]')).toHaveValue('Éva');
+      expect(document.querySelector('[data-viza-field="mother_family_name"]')).toHaveValue('Példa');
+      expect(document.querySelector('[data-viza-field="mother_given_name"]')).toHaveValue('Anna');
+    });
+    await saveEditor();
+    await waitFor(() => expect(query.update).toHaveBeenCalled());
+    expect(query.update.mock.calls[0][0]).toMatchObject({...printed, mother_family_name:'Példa', mother_given_name:'Anna'});
+  });
   it('preserves scan and all review flags when nationality is corrected', async () => {
     const query = mockGuest();
     await openEditor('res-1');
