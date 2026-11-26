@@ -11,6 +11,7 @@
  * reading: at least two independent readings must agree.
  */
 import type { OpticalGuestFields } from './opticalGuestFields';
+import { resolvePrintedLabels, stripBirthCountry, titlePrinted } from './printedLabels';
 
 export type PrintedField = 'birth_place' | 'birth_name' | 'mother_name';
 export type PrintedRead = Partial<Record<PrintedField, string>>;
@@ -43,6 +44,14 @@ function labelField(line: string): PrintedField | 'stop' | null {
 /** One OCR reading of the printed zone -> labelled values. */
 export function parsePrintedText(text: string, hungarianLayout: boolean): PrintedRead {
   const out: PrintedRead = {};
+  for (const candidate of resolvePrintedLabels(text)) {
+    const field = candidate.field === 'birth_pair' ? 'birth_name' : candidate.field;
+    if (field === 'birth_place' || field === 'birth_name' || field === 'mother_name') {
+      out[field] ??= candidate.value;
+    }
+  }
+  // Retain the old noisy-label/row-order fallback only on the confirmed Hungarian layout.
+  if (!hungarianLayout) return out;
   const values: string[] = [];
   let field: PrintedField | null = null;
   for (const line of text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)) {
@@ -61,10 +70,10 @@ export function parsePrintedText(text: string, hungarianLayout: boolean): Printe
   if (hungarianLayout && values.length >= 3 && /\([A-Z]{3}\)$/.test(values[0])) {
     (['birth_place', 'birth_name', 'mother_name'] as const).forEach((key, i) => { out[key] ??= values[i]; });
   }
-  if (out.birth_place) out.birth_place = out.birth_place.replace(/\s*\(?[A-Z]{3}\)?$/, '').trim();
+  if (out.birth_place) out.birth_place = stripBirthCountry(out.birth_place);
   for (const key of Object.keys(out) as PrintedField[]) {
     const v = out[key]!;
-    if (v.length < 3 || v.length > 80 || (key !== 'birth_place' && v.split(' ').length < 2)) delete out[key];
+    if (v.length < 2 || v.length > (key === 'birth_place' ? 200 : 80)) delete out[key];
   }
   return out;
 }
@@ -98,7 +107,7 @@ export function agreePrinted(reads: PrintedRead[]): PrintedRead {
   return out;
 }
 
-const title = (s: string) => s.toLowerCase().replace(/(^|[\s\-'’])\p{L}/gu, c => c.toUpperCase());
+const title = titlePrinted;
 
 function distance(a: string, b: string): number {
   const row = Array.from({ length: b.length + 1 }, (_, i) => i);
