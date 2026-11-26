@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { dispatchBreakfastPushes } from "./notifications.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -44,6 +45,12 @@ async function verifiedBreakfastStaff(supabase: any, req: Request, hotelId: stri
   return !accessError && allowed === true ? uid : null;
 }
 
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function tokenHash(token: string): Promise<string> {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(bytes), x => x.toString(16).padStart(2, "0")).join("");
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   const json = (status: number, body: unknown) =>
@@ -57,9 +64,16 @@ serve(async (req) => {
     if (!body) return json(200, { ok: false, error: "Invalid JSON body" });
 
     const { hotel_id, location, stay_date, room_number, served_count, guest_names, served_by } = body;
+    const projectUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabase = createClient(projectUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false, autoRefreshToken: false } });
+    if (body.action === "housekeeping_dispatch") {
+      const provided = req.headers.get("x-hotelcare-push-secret");
+      if (!provided) return json(401, { error: "Unauthorized" });
+      const { data: secret, error: secretError } = await supabase.rpc("get_hotelcare_push_secret", { _name: "hotelcare_push_dispatch_key" });
+      if (secretError || !secret || provided !== secret) return json(401, { error: "Unauthorized" });
+      return json(200, { ok: true, ...(await dispatchBreakfastPushes(supabase, projectUrl, secret)) });
+    }
     if (typeof hotel_id !== "string" || !hotel_id) return json(200, { ok: false, error: "Missing hotel_id" });
-
-    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     const { data: hotelRow } = await supabase
       .from("hotel_configurations")
@@ -82,6 +96,33 @@ serve(async (req) => {
         return json(200, { ok: true, housekeeping_link_on: false });
       }
     }
+    if (body.action === "housekeeping_push_status") {
+      try {
+        const uid = await verifiedBreakfastStaff(supabase, req, hotel_id, orgSlug);
+        if (!uid || !orgSlug || !Array.isArray(body.attendance_ids)) return json(200, { ok: true, marks: [] });
+        const ids = [...new Set(body.attendance_ids.filter((id: unknown) => typeof id === "string" && uuid.test(id)))].slice(0, 50);
+        if (!ids.length) return json(200, { ok: true, marks: [] });
+        const { data: marks, error: statusError } = await supabase.rpc("breakfast_mark_push_status", { _actor_id: uid, _hotel_id: hotel_id, _org: orgSlug, _attendance_ids: ids });
+        return json(200, { ok: true, marks: statusError ? [] : marks ?? [] });
+      } catch {
+        return json(200, { ok: true, marks: [] });
+      }
+    }
+    if (body.action === "undo") {
+      try {
+        if (!orgSlug || typeof body.attendance_id !== "string" || !uuid.test(body.attendance_id) ||
+            typeof body.undo_token !== "string" || !uuid.test(body.undo_token)) return json(200, { ok: false });
+        const uid = await verifiedBreakfastStaff(supabase, req, hotel_id, orgSlug);
+        const { data: undone, error: undoError } = await supabase.rpc("undo_breakfast_mark", {
+          _attendance_id: body.attendance_id, _token_hash: await tokenHash(body.undo_token),
+          _actor_id: uid, _hotel_id: hotel_id, _org: orgSlug,
+        });
+        return json(200, { ok: !undoError && undone === true });
+      } catch {
+        return json(200, { ok: false });
+      }
+    }
+    if (body.action && body.action !== "mark") return json(200, { ok: false, error: "Unknown action" });
     if (!location || !room_number) return json(200, { ok: false, error: "Missing required fields (hotel_id, location, room_number)" });
     const count = Number(served_count);
     if (!Number.isFinite(count) || count < 0 || count > 50) return json(200, { ok: false, error: "Invalid served_count" });
@@ -98,27 +139,42 @@ serve(async (req) => {
         guest_names: toGuestArray(guest_names),
         served_by: served_by ?? null,
       })
-      .select("id")
+      .select("id,created_at")
       .single();
 
     if (error) return json(200, { ok: false, error: error.message });
-    // Public breakfast counting stays independent of housekeeping.
-    const housekeepingInformed = false;
+    // Public counting stays independent of receipt/signal/push failures.
+    let uid: string | null = null;
+    let undoToken: string | undefined;
+    try { uid = await verifiedBreakfastStaff(supabase, req, hotel_id, orgSlug); } catch { /* fail closed for signal */ }
+    if (orgSlug) {
+      try {
+        const candidate = crypto.randomUUID();
+        const { error: receiptError } = await supabase.from("housekeeping_breakfast_mark_receipts").insert({
+          attendance_id: data.id, organization_slug: orgSlug, hotel_id, actor_id: uid,
+          token_hash: await tokenHash(candidate), created_at: data.created_at,
+        });
+        if (!receiptError) undoToken = candidate;
+      } catch { /* attendance already saved */ }
+    }
     try {
-      if (orgSlug && Number.isInteger(count) && count > 0) {
-        const uid = await verifiedBreakfastStaff(supabase, req, hotel_id, orgSlug);
-        if (uid) {
-          const { error: signalError } = await supabase.rpc("record_breakfast_signal", {
-            _hotel_id: hotel_id, _room_number: String(room_number).trim(),
-            _served_count: count, _location: location, _attendance_id: data.id,
-          });
-          if (signalError) console.warn("Breakfast signal unavailable", signalError.code);
+      if (uid && Number.isInteger(count) && count > 0) {
+        const { data: signals, error: signalError } = await supabase.rpc("record_breakfast_signal", {
+          _hotel_id: hotel_id, _room_number: String(room_number).trim(),
+          _served_count: count, _location: location, _attendance_id: data.id,
+        });
+        if (signalError) console.warn("Breakfast signal unavailable", signalError.code);
+        else if (signals?.[0]?.signal_id) {
+          const { error: queueError } = await supabase.rpc("enqueue_breakfast_pushes", { _signal_id: signals[0].signal_id });
+          if (queueError) console.warn("Breakfast push queue unavailable", queueError.code);
         }
       }
     } catch {
       console.warn("Breakfast signal unavailable; attendance saved");
     }
-    return json(200, { ok: true, id: data.id, housekeeping_informed: housekeepingInformed });
+    // A queued notification is not a delivered push. The board may query its
+    // own receipt status asynchronously, without slowing the next room mark.
+    return json(200, { ok: true, id: data.id, housekeeping_informed: false, ...(undoToken ? { undo_token: undoToken } : {}) });
   } catch (e: any) {
     return json(200, { ok: false, error: e?.message ?? String(e) });
   }
