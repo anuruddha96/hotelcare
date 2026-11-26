@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   COLUMN_COMPACT, COLUMN_DEFAULT, COLUMN_MAX, COLUMN_MIN, DEFAULT_CALENDAR_OPTIONS,
-  columnWidthFor, groupRoomsByType, parseCalendarOptions,
+  columnWidthFor, groupRoomsByType, initialCalendarDays, parseCalendarOptions,
 } from './receptionCalendarOptions';
 
 describe('calendar options', () => {
@@ -9,6 +9,18 @@ describe('calendar options', () => {
     expect(parseCalendarOptions(null)).toEqual(DEFAULT_CALENDAR_OPTIONS);
     expect(parseCalendarOptions('{not json')).toEqual(DEFAULT_CALENDAR_OPTIONS);
     expect(parseCalendarOptions('{"compact":"yes","groupByType":true,"x":1}')).toEqual({ ...DEFAULT_CALENDAR_OPTIONS, groupByType: true });
+  });
+});
+
+describe('initialCalendarDays', () => {
+  it.each([[0, 14], [390, 7], [639, 7], [640, 14], [1280, 14], [1535, 14], [1536, 21], [1920, 21], [2199, 21], [2200, 31]] as const)(
+    'chooses the reception range at %ipx', (width, expected) => {
+      expect(initialCalendarDays(width, true)).toBe(expected);
+    },
+  );
+  it('keeps the existing defaults for other calendar consumers', () => {
+    expect(initialCalendarDays(390)).toBe(7);
+    expect(initialCalendarDays(2560)).toBe(14);
   });
 });
 
