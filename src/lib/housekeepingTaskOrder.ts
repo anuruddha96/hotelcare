@@ -98,9 +98,9 @@ export function housekeepingTaskBucket(x: HousekeepingOrderAssignment, view: Hou
     if (checkout && !x.ready_to_clean) return 4;
   }
   if ((x.priority ?? 1) >= 3) return 1;
-  const genericCheckout = mobile || breakfastOrdering ? checkout : x.assignment_type === 'checkout_cleaning';
-  if (genericCheckout && x.ready_to_clean) return 2;
-  if (breakfast) return 2.5;
+  const genericCheckout = mobile ? checkout : x.assignment_type === 'checkout_cleaning' || (breakfastOrdering && checkout);
+  if (genericCheckout && x.ready_to_clean) return breakfastOrdering ? 1.25 : 2;
+  if (breakfast) return breakfastOrdering ? 1.5 : 2.5;
   if (genericCheckout && !x.ready_to_clean) return 4;
   return 3;
 }
