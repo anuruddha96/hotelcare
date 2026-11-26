@@ -135,6 +135,15 @@ describe('document reader evidence and corrections', () => {
     fireEvent.click(checkbox);
     expect(document.querySelector('[data-viza-field="birth_place"]')).toBeVisible();
   });
+  it('fills and saves a recovered passport birthplace instead of treating it as absent', async () => {
+    const query = mockGuest({...guest,birth_place:null,nationality:'DE'});
+    await openEditor('res-1');
+    act(() => mocks.apply(readResult('TEST123'),{birth_place:'München'},false,{birth_name_absent:true,mother_name_absent:true}));
+    await waitFor(() => expect(document.querySelector('[data-viza-field="birth_place"]')).toHaveValue('München'));
+    await saveEditor();
+    await waitFor(() => expect(query.update).toHaveBeenCalled());
+    expect(query.update.mock.calls[0][0]).toMatchObject({birth_place:'München',viza_review:{birth_place_absent:false}});
+  });
   it('does not mark a missing place as absent when an MRZ-only scan is applied', async () => {
     mockGuest({...guest,birth_place:null,nationality:'DE'});
     await openEditor('res-1');
