@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accentedFromReadings, harmonizeNameAccents, restoreDocumentNames } from './nameAccents';
+import { accentedFromReadings, harmonizeNameAccents, marriedNameSuffix, restoreDocumentNames } from './nameAccents';
 
 // Real Tesseract output for the VIZA 2.1 specimen card front (Hungarian model
 // unless noted). Each reading alone is imperfect; together with the code-line
@@ -79,5 +79,25 @@ describe('names are not borrowed from other people on the document', () => {
   });
   it('accepts a labeled printed value', () => {
     expect(restoreDocumentNames('TOTH', 'EVA', ['Surname: TÓTH'], true, ['Tóth'])).toEqual({ last_name: 'Tóth' });
+  });
+});
+
+describe('Hungarian married names ("-né")', () => {
+  it('adds the accent of "-né" that a camera read missed', () => {
+    // Live-camera read of the 2.1 card: "SZÉPEN." – first accent seen, last one lost.
+    expect(restoreDocumentNames('SZEPENE KISS', 'ROZALIA', LOW_RES_CARD.split('\n'), true)).toEqual({ last_name: 'Szépené Kiss', first_name: 'Rozália' });
+    expect(harmonizeNameAccents({ last_name: 'Nagyne Kovács', first_name: 'Mária' }, true)).toEqual({ last_name: 'Nagyné Kovács', first_name: 'Mária' });
+  });
+  it('only on a Hungarian document, and only once the reading shows accents', () => {
+    expect(restoreDocumentNames('SZEPENE KISS', 'ROZALIA', LOW_RES_CARD.split('\n'), false).last_name).toBe('Szépene Kiss');
+    expect(restoreDocumentNames('SZEPENE KISS', 'ROZALIA', [MIXED_MODEL_LINE], true)).toEqual({});
+    expect(harmonizeNameAccents({ last_name: 'Szepene Kiss' }, true)).toEqual({ last_name: 'Szepene Kiss' });
+  });
+  it('leaves other names that end in "ne" alone', () => {
+    expect(marriedNameSuffix('Bene Kovács')).toBe('Bene Kovács');
+    expect(marriedNameSuffix('Szépene')).toBe('Szépene');
+    expect(marriedNameSuffix('Kovács Szépene')).toBe('Kovács Szépene');
+    expect(marriedNameSuffix('Szépené Kiss')).toBe('Szépené Kiss');
+    expect(marriedNameSuffix('SZÉPENE KISS')).toBe('SZÉPENÉ KISS');
   });
 });
