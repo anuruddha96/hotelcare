@@ -6,6 +6,9 @@ export type BBLang = "en" | "hu" | "es" | "vi" | "mn" | "az" | "tl";
 type Bundle = Record<string, string>;
 
 const en: Bundle = {
+  undoWrongRoom: "Wrong room? Undo",
+  undoSaved: "Breakfast mark corrected",
+  undoFailed: "Could not undo, or the 60-second window has ended.",
   housekeepingLinkOn: "Housekeeping link on",
   housekeepingSignIn: "Sign in to inform housekeeping",
   housekeepingInformed: "Housekeeping informed",
@@ -109,6 +112,9 @@ const en: Bundle = {
 };
 
 const hu: Bundle = {
+  undoWrongRoom: "Rossz szoba? Visszavonás",
+  undoSaved: "A reggeli bejegyzés javítva",
+  undoFailed: "A visszavonás sikertelen, vagy lejárt a 60 másodperc.",
   housekeepingLinkOn: "Takarítási kapcsolat aktív",
   housekeepingSignIn: "A takarítás értesítéséhez jelentkezzen be",
   housekeepingInformed: "A takarítás értesítve",
@@ -211,6 +217,9 @@ const hu: Bundle = {
 };
 
 const es: Bundle = {
+  undoWrongRoom: "¿Habitación incorrecta? Deshacer",
+  undoSaved: "Registro de desayuno corregido",
+  undoFailed: "No se pudo deshacer o han pasado los 60 segundos.",
   housekeepingLinkOn: "Conexión con limpieza activa",
   housekeepingSignIn: "Inicia sesión para avisar a limpieza",
   housekeepingInformed: "Limpieza informada",
@@ -283,6 +292,9 @@ const es: Bundle = {
 };
 
 const vi: Bundle = {
+  undoWrongRoom: "Sai phòng? Hoàn tác",
+  undoSaved: "Đã sửa ghi nhận bữa sáng",
+  undoFailed: "Không thể hoàn tác hoặc đã hết 60 giây.",
   housekeepingLinkOn: "Đã bật kết nối buồng phòng",
   housekeepingSignIn: "Đăng nhập để thông báo cho buồng phòng",
   housekeepingInformed: "Đã thông báo cho buồng phòng",
@@ -355,6 +367,9 @@ const vi: Bundle = {
 };
 
 const mn: Bundle = {
+  undoWrongRoom: "Өрөө андуурсан уу? Буцаах",
+  undoSaved: "Өглөөний цайны бүртгэл засагдлаа",
+  undoFailed: "Буцаах боломжгүй эсвэл 60 секунд өнгөрсөн.",
   housekeepingLinkOn: "Цэвэрлэгээний холбоос идэвхтэй",
   housekeepingSignIn: "Цэвэрлэгээнд мэдээлэхийн тулд нэвтэрнэ үү",
   housekeepingInformed: "Цэвэрлэгээнд мэдээлсэн",
@@ -427,12 +442,18 @@ const mn: Bundle = {
 };
 
 const az: Bundle = {
+  undoWrongRoom: "Səhv otaq? Geri al",
+  undoSaved: "Səhər yeməyi qeydi düzəldildi",
+  undoFailed: "Geri almaq mümkün olmadı və ya 60 saniyə bitib.",
   housekeepingLinkOn: "Təmizlik əlaqəsi aktivdir",
   housekeepingSignIn: "Təmizlik şöbəsinə məlumat vermək üçün daxil olun",
   housekeepingInformed: "Təmizlik şöbəsinə məlumat verildi",
 };
 
 const tl: Bundle = {
+  undoWrongRoom: "Maling kuwarto? I-undo",
+  undoSaved: "Naitama ang tala ng almusal",
+  undoFailed: "Hindi ma-undo o lumipas na ang 60 segundo.",
   housekeepingLinkOn: "Aktibo ang koneksyon sa housekeeping",
   housekeepingSignIn: "Mag-sign in para maabisuhan ang housekeeping",
   housekeepingInformed: "Naabisuhan ang housekeeping",
