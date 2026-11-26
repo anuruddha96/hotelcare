@@ -120,8 +120,11 @@ Deno.test('category, postal-code and extreme-value rules', () => {
 
 Deno.test('daily closure assembles counts, IFA and passes the v9 schema', async () => {
   const { closure, checklist, totals } = assembleClosure(closureSource(), settings);
-  assert.deepEqual(closure.rooms, { total: 3, ooo: 1, oos: 0, rented: 1, available: 1 });
-  assert.deepEqual(closure.capacity, { total: 5, ooo: 2, oos: 0, rented: 2, available: 1 });
+  assert.deepEqual(closure.rooms, { total: 3, ooo: 1, oos: 0, rented: 1, available: 2 });
+  assert.deepEqual(closure.capacity, { total: 5, ooo: 2, oos: 0, rented: 2, available: 3 });
+  // NTAK: osszesSzoba = kiadhato + OOO + OOS, and the same for beds (rented units stay "kiadható").
+  assert.equal(closure.rooms.total, closure.rooms.available + closure.rooms.ooo + closure.rooms.oos);
+  assert.equal(closure.capacity.total, closure.capacity.available + closure.capacity.ooo + closure.capacity.oos);
   assert.equal(closure.outOfService.length, 1);
   assert.equal(totals.ifa, 1356);
   const night = closure.nights[0];

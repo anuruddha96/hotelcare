@@ -149,7 +149,7 @@ Deno.test('NTAK override wins even with Channex/PMS identifiers and supports res
 });
 
 
-Deno.test('NZ_02 T02 room 103 OOO, 104 OOS: rooms 4/1/1/2/0 and beds 10/3/2/5/0', () => {
+Deno.test('NZ_02 T02 room 103 OOO, 104 OOS: rooms 4/1/1/2/2 and beds 10/3/2/5/5', () => {
   const day = days.T02;
   const source = buildDaySources({
     day, reservations, assignments, lines: [], payments: [],
@@ -163,8 +163,8 @@ Deno.test('NZ_02 T02 room 103 OOO, 104 OOS: rooms 4/1/1/2/0 and beds 10/3/2/5/0'
     day, closedAt: t(day), classification: 'UJ', closed: false, units: datedUnits,
     ...source, otherCharges: [], otherPayments: [],
   }, setting);
-  assert.deepEqual(assembled.closure.rooms, { total: 4, ooo: 1, oos: 1, rented: 2, available: 0 });
-  assert.deepEqual(assembled.closure.capacity, { total: 10, ooo: 3, oos: 2, rented: 5, available: 0 });
+  assert.deepEqual(assembled.closure.rooms, { total: 4, ooo: 1, oos: 1, rented: 2, available: 2 });
+  assert.deepEqual(assembled.closure.capacity, { total: 10, ooo: 3, oos: 2, rented: 5, available: 5 });
   assert.deepEqual(assembled.closure.outOfService.map((u) => u.roomNumber).sort(), ['103', '104']);
   assert.equal(assembled.closure.outOfService.find((u) => u.roomNumber === '104')?.extraBeds, 1, 'extra bed is separate from capacity');
   assert.ok(!assembled.checklist.some((x) => x.code === 'state_conflict'), 'rooms 101 and 102 are the sold units');
@@ -176,10 +176,10 @@ Deno.test('NZ_02 T02 room 103 OOO, 104 OOS: rooms 4/1/1/2/0 and beds 10/3/2/5/0'
   const xml = buildNapiZarasRequest(common, assembled.closure);
   for (const [field, value] of [
     ['osszesSzoba', 4], ['oooSzobak', 1], ['oosSzobak', 1],
-    ['kiadottSzobak', 2], ['kiadhatoSzobak', 0],
+    ['kiadottSzobak', 2], ['kiadhatoSzobak', 2],
     ['osszesFerohelyKapacitas', 10], ['oooFerohelyKapacitas', 3],
     ['oosFerohelyKapacitas', 2], ['kiadottFerohelyKapacitas', 5],
-    ['kiadhatoFerohelyKapacitas', 0],
+    ['kiadhatoFerohelyKapacitas', 5],
   ] as const) assert.ok(xml.includes('<v9:' + field + '>' + value + '</v9:' + field + '>'), field);
   assert.ok(xml.includes('<v9:uzemenKivuliSzobak>'), 'OOS appears under uzemenKivuliSzobak');
 
