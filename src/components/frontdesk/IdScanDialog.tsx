@@ -19,7 +19,7 @@ import { shouldAdvanceFront, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
 import { recoverPassportBirthplace, hasPassportBirthplaceLabel, numberedUkBirthplaceRegions, numberedGreekBirthplaceRegions, numberedBirthplaceLabel, passportBirthplaceKey, recoverNumberedBirthplace, type BirthplaceRowRead } from '@/lib/idScan/passportBirthPlace';
 import { sampleUkRegion, ukLegacyRegions, localPassportContrast, passportOtsu, verifiedLegacyBirthplace } from '@/lib/idScan/ukPassportVisual';
-import { hasPrintedLabel } from '@/lib/idScan/printedLabels';
+import { hasPrintedLabel, resolvePrintedLabels } from '@/lib/idScan/printedLabels';
 import { suggestPassportAbsences, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
 import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { harmonizeNameAccents } from '@/lib/idScan/nameAccents';
@@ -268,6 +268,12 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
   const [flipPrompt, setFlipPrompt] = useState(false);
   const [confidence, setConfidence] = useState<number | null>(null);
   const [opticalFields, setOpticalFields] = useState<OpticalGuestFields>({});
+  const [printedDiagnostics, setPrintedDiagnostics] = useState<Array<{source:string;text:string;confidence:number|null}>>([]);
+  const recordPrintedRead = (run:number, source:string, read:{text:string;confidence:number|null}) => {
+    if (photoTesting && open && scanRunRef.current === run && read.text.trim()) {
+      setPrintedDiagnostics(prev=>[...prev,{source,...read}].slice(-24));
+    }
+  };
   const [passportAbsences, setPassportAbsences] = useState<PassportAbsences>({});
   const [passportSuggestions, setPassportSuggestions] = useState<PassportAbsences>({});
   const [opticalReading, setOpticalReading] = useState(false);
@@ -391,7 +397,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     setConfidence(null);
     setFrontConfidence(null);
     clearBackdrop();
-    setOpticalFields({}); setPassportAbsences({}); setPassportSuggestions({});
+    setPrintedDiagnostics([]); setOpticalFields({}); setPassportAbsences({}); setPassportSuggestions({});
     setOpticalReading(false);
     setOpticalIssue(false);
     setNumberReview({ needsReview: false, printed: null });
@@ -461,6 +467,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         const reading = await session.recognizeWithConfidence(canvas, remainingPrintedMs(run,12000), '6');
         if (scanRunRef.current !== run) break;
         if (reading.text.trim()) texts.push(reading.text);
+        recordPrintedRead(run,passport?'Passport page':idBack?'ID back':'ID front',reading);
         if (reading.confidence !== null) {
           score = Math.max(score ?? 0, reading.confidence);
           if (looksLikeIdFront(reading.text)) positiveScore = Math.max(positiveScore ?? 0, reading.confidence);
@@ -499,6 +506,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       try {
         const reading = await frontSession.recognizeWithConfidence(canvas, remainingPrintedMs(run,10000), mode);
         if (scanRunRef.current === run && reading.text.trim()) extra.push(reading.text);
+        recordPrintedRead(run,'Passport printed zone '+mode,reading);
       } catch { /* retain earlier optical evidence */ }
       finally { wipe(canvas); }
     };
@@ -549,6 +557,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       const canvas=grayCanvas(padded);
       try {
         const reading=await frontSession.recognizeWithConfidence(canvas,remainingPrintedMs(run,6500),mode);
+        recordPrintedRead(run,'Passport targeted crop '+mode,reading);
         return scanRunRef.current===run?reading:{text:'',confidence:null};
       } catch { return {text:'',confidence:null}; }
       finally { wipe(canvas); }
@@ -587,6 +596,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       const canvas=grayCanvas(padded);
       try {
         const read=await frontSession.recognizeWithConfidence(canvas,remainingPrintedMs(run,6500),'7');
+        recordPrintedRead(run,'UK verified layout '+method,read);
         return scanRunRef.current===run?read:{text:'',confidence:null};
       } catch {return {text:'',confidence:null};}
       finally {wipe(canvas);}
@@ -637,6 +647,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
           }
           const reading=await frontSession.recognizeWithConfidence(canvas,remainingPrintedMs(run,6000),valueOnly?'7':'6');
           if (scanRunRef.current!==run) break;
+          recordPrintedRead(run,'Hungarian row '+row+' / '+pass,reading);
           if (!valueOnly) label=reading.text;
           else rows.push({row,label,value:reading.text,confidence:reading.confidence});
         } catch { /* no value is invented after a timeout */ }
@@ -660,8 +671,9 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         if (remainingPrintedMs(run,12000)<=0) break;
         const canvas = grayCanvas(printedZone(gray, geometry, width));
         try {
-          const { text } = await session.recognizeWithConfidence(canvas, remainingPrintedMs(run,12000), '6');
-          reads.push(parsePrintedText(text, hungarian));
+          const reading = await session.recognizeWithConfidence(canvas, remainingPrintedMs(run,3000), '6');
+          recordPrintedRead(run,'Located ID zone '+width,reading);
+          reads.push(parsePrintedText(reading.text, hungarian));
         } catch { /* a timed-out reading simply does not vote */ }
         finally { wipe(canvas); }
         const agreed = agreePrinted(reads);
@@ -744,6 +756,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
           : [];
         if (frontAccentRef.current === frontAccent) frontAccentRef.current = null;
         const frontAll = [frontText, ...accentTexts].filter(t => t.trim()).join('\n--- OCR PASS ---\n');
+        for (const text of accentTexts) recordPrintedRead(run,'ID front accent pass',{text,confidence:null});
         // ID back with located code lines: read the straightened printed
         // rows. The older whole-picture reading remains the fallback.
         const located = action === 'id_complete' && (parsed.format === 'TD1' || parsed.format === 'TD2') && geometry
@@ -1169,7 +1182,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     setRevealed(true);
     mrzSession.reset();
     setResult(null); clearFront(); clearBackdrop(); setFrontAssessment(null);
-    setFlipPrompt(false); setConfidence(null); setFrontConfidence(null); setOpticalFields({}); setPassportAbsences({}); setPassportSuggestions({}); setOpticalReading(false); setOpticalIssue(false); setNumberReview({ needsReview: false, printed: null });
+    setFlipPrompt(false); setConfidence(null); setFrontConfidence(null); setPrintedDiagnostics([]); setOpticalFields({}); setPassportAbsences({}); setPassportSuggestions({}); setOpticalReading(false); setOpticalIssue(false); setNumberReview({ needsReview: false, printed: null });
     setReviewAcknowledged(false);
     setSide('front'); setCaptureKind('unknown'); passportEvidenceRef.current = false; setSource('camera'); setTyped(''); setFailReason(null);
     setPhase('camera');
@@ -1325,6 +1338,17 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
                 <span>{t(({birth_name_absent:'pms.guest.birthNameGroup',mother_name_absent:'pms.guest.motherNameGroup',birth_place_absent:'pms.guest.birthPlace'})[key])}</span>
               </label>)}
             </div>}
+            {photoTesting && open && !opticalReading && printedDiagnostics.length>0 && <details className="text-xs text-muted-foreground rounded-md border border-border p-2">
+              <summary className="cursor-pointer">Read text (test)</summary>
+              <p className="mt-1">On-device test evidence only. Review proposed fields against the physical document.</p>
+              {printedDiagnostics.map((read,index)=><div key={index} className="mt-2 border-t border-border pt-2">
+                <p className="font-medium">{index+1}. {read.source} · {read.confidence===null?'—':Math.round(read.confidence)+'%'}</p>
+                <pre className="whitespace-pre-wrap break-words text-[10px]">{read.text}</pre>
+                {resolvePrintedLabels(read.text).map((candidate,i)=><p key={i}>{candidate.field}: {candidate.value} ({candidate.rule})</p>)}
+              </div>)}
+              <p className="mt-2 font-medium">Final proposals (staff review)</p>
+              {(['birth_place','birth_last_name','birth_first_name','mother_name'] as const).map(field=><p key={field}>{field}: {opticalFields[field] || '—'}</p>)}
+            </details>}
             {opticalIssue && !opticalReading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{t('pms.scan.printedIncomplete')}</p>}
             {opticalReading && <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin"/>{t('pms.scan.readingPrintedFields')}</p>}
             <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">{t('pms.scan.codeLines')}</summary><pre className="mt-1 overflow-x-auto rounded-md bg-muted px-2 py-1.5 font-mono text-[10px] leading-tight">{result.lines.join('\n')}</pre></details>
