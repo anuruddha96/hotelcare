@@ -1,4 +1,6 @@
-import { compareHousekeepingTasks, isCheckoutAssignment } from '@/lib/housekeepingTaskOrder';
+import { useHousekeepingBreakfastSignals } from '@/hooks/useHousekeepingBreakfastSignals';
+import { HousekeepingBreakfastBanner, HousekeepingBreakfastNotice } from './HousekeepingBreakfastNotice';
+import { activeBreakfastSignal, breakfastSignalForAssignment, compareHousekeepingTasks, isCheckoutAssignment } from '@/lib/housekeepingTaskOrder';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -168,7 +170,7 @@ export function MobileHousekeepingView() {
       if (roomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
-          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, notes, pms_metadata, towel_change_required, linen_change_required, guest_nights_stayed, is_checkout_room')
+          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, notes, pms_metadata, towel_change_required, linen_change_required, guest_nights_stayed, is_checkout_room, is_dnd')
           .in('id', roomIds);
           
         console.log('Rooms fetch result:', { roomRows, roomsError });
@@ -294,13 +296,21 @@ export function MobileHousekeepingView() {
   const checkoutCount = roomWorkload.filter((a: any) => isCheckoutAssignment(a)).length;
   const dailyCount = roomWorkload.length - checkoutCount;
   const openPublicTasks = publicTasks.filter((task: any) => task.status !== 'cancelled');
-  const visibleAssignments = workFilter === 'public'
+  const breakfast = useHousekeepingBreakfastSignals(user?.id, profile?.organization_slug, selectedDate, allAssignments.map(a => a.room_id));
+  const filteredAssignments = workFilter === 'public'
     ? []
     : workFilter === 'checkout'
       ? assignments.filter((a: any) => isCheckoutAssignment(a))
       : workFilter === 'daily'
         ? assignments.filter((a: any) => !isCheckoutAssignment(a))
         : assignments;
+  const activeSignals = new Map(filteredAssignments.flatMap(a => {
+    const signal = activeBreakfastSignal(a, breakfast.signals.get(a.room_id), breakfast.now);
+    return signal ? [[a.room_id, signal] as const] : [];
+  }));
+  const visibleAssignments = [...filteredAssignments].sort((a, b) =>
+    compareHousekeepingTasks(a, b, 'mobile', breakfast.now, activeSignals));
+  const breakfastAssignments = visibleAssignments.filter(a => activeSignals.has(a.room_id));
   const visiblePublicTasks = workFilter === 'checkout' || workFilter === 'daily' ? [] : openPublicTasks;
   const workloadFilters = (
     <HousekeeperWorkloadFilters
@@ -572,6 +582,10 @@ export function MobileHousekeepingView() {
           </div>
         )}
 
+        <HousekeepingBreakfastBanner count={breakfastAssignments.length} onShow={() => {
+          const first = breakfastAssignments[0];
+          if (first) document.getElementById(`housekeeping-assignment-${first.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }} />
         {visibleAssignments.length === 0 ? (
           <Card className="text-center py-8">
             <CardContent>
@@ -606,6 +620,10 @@ export function MobileHousekeepingView() {
                 data-training="assigned-room-card"
                 className="scroll-mt-4"
               >
+                {(() => {
+                  const signal = breakfastSignalForAssignment(assignment, breakfast.signals.get(assignment.room_id), breakfast.now);
+                  return signal ? <HousekeepingBreakfastNotice key={signal.id} signal={signal} now={breakfast.now} onClosed={breakfast.refresh} /> : null;
+                })()}
                 <div data-training={assignment.status === 'in_progress' ? 'active-assigned-room' : undefined}>
                 <ErrorBoundary
                   context={`AssignedRoomCard:${assignment.id}`}
