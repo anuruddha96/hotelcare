@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { MrzReadResult } from './mrz';
-import { passportAbsenceReview, suggestPassportAbsences } from './passportAbsence';
+import { passportAbsenceReview, suggestPassportAbsences, passportNameAbsenceDefaults } from './passportAbsence';
 
 const passport: MrzReadResult = {
   format:'TD3', valid:true, unknownCountry:false, lines:[],
@@ -31,5 +31,35 @@ describe('passport printed-field suggestions',()=>{
     expect(passportAbsenceReview({},passport,all)).toEqual(all);
     expect(passportAbsenceReview({birth_place:'Berlin',mother_name:'Example Anna',birth_last_name:'Example'},passport,all)).toEqual({birth_name_absent:false,mother_name_absent:false,birth_place_absent:false});
     expect(passportAbsenceReview({}, {...passport,valid:false}, all)).toEqual({});
+  });
+});
+
+describe('passport name checkbox defaults', () => {
+  const names = {birth_name_absent:true,mother_name_absent:true};
+  const greek = {...passport,fields:{...passport.fields,issuingState:'GRC'}};
+  it('preselects only the two name groups on a readable passport photo', () => {
+    expect(passportNameAbsenceDefaults(passport,{},[visual,visual],92)).toEqual(names);
+  });
+  it('handles the Greek passport regression: birthplace recovered despite weak full-page OCR', () => {
+    expect(passportNameAbsenceDefaults(greek,{birth_place:'Sparti'},['SPARTI','SPARTI'],59)).toEqual(names);
+    expect(passportNameAbsenceDefaults(greek,{birth_place:'Sparti'},['SPARTI'],54)).toEqual(names);
+  });
+  it('never preselects a group with an extracted name or a label in any printed pass', () => {
+    expect(passportNameAbsenceDefaults(greek,{birth_place:'Sparti',birth_last_name:'Example'},['SPARTI'],59)).toEqual({mother_name_absent:true});
+    expect(passportNameAbsenceDefaults(greek,{birth_place:'Sparti',mother_name:'Anna Example'},['SPARTI'],59)).toEqual({birth_name_absent:true});
+    expect(passportNameAbsenceDefaults(greek,{birth_place:'Sparti'},['SPARTI'],59,['Mother\'s name','Name at birth'])).toEqual({});
+  });
+  it('does not default from MRZ-only, unreadable scans, invalid passports or ID cards', () => {
+    expect(passportNameAbsenceDefaults(passport,{},[],null)).toEqual({});
+    expect(passportNameAbsenceDefaults(passport,{},[visual,visual],55)).toEqual({});
+    expect(passportNameAbsenceDefaults({...passport,valid:false},{birth_place:'Berlin'},[visual],99)).toEqual({});
+    expect(passportNameAbsenceDefaults({...passport,unknownCountry:true},{birth_place:'Berlin'},[visual],99)).toEqual({});
+    expect(passportNameAbsenceDefaults({...passport,format:'TD1',fields:{...passport.fields,documentType:'id_card'}},{birth_place:'Berlin'},[visual],99)).toEqual({});
+  });
+  it('still requires staff confirmation and preserves names already on the guest record', () => {
+    const defaults = passportNameAbsenceDefaults(greek,{birth_place:'Sparti'},['SPARTI'],59);
+    expect(passportAbsenceReview({birth_place:'Sparti'},greek)).toEqual({birth_place_absent:false});
+    expect(passportAbsenceReview({birth_place:'Sparti'},greek,defaults)).toEqual({...names,birth_place_absent:false});
+    expect(passportAbsenceReview({birth_place:'Sparti',mother_name:'Anna Example'},greek,defaults)).toEqual({birth_name_absent:true,mother_name_absent:false,birth_place_absent:false});
   });
 });
