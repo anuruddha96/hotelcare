@@ -1,3 +1,4 @@
+import { hasPassportBirthplaceLabel } from './passportBirthPlace';
 import type { MrzReadResult } from './mrz';
 import { extractOpticalGuestFields, type OpticalGuestFields } from './opticalGuestFields';
 import type { GuestVizaValues, VizaReview } from './guestVizaChecks';
@@ -38,7 +39,7 @@ export function suggestPassportAbsences(
   for (const key of PASSPORT_ABSENCE_KEYS) {
     if (absenceGroupEmpty(optical, key) &&
         independentlyExtracted.every(read => absenceGroupEmpty(read, key)) &&
-        transcripts.every(text => !labels[key].test(text))) proposed[key] = true;
+        transcripts.every(text => !labels[key].test(text) && (key !== 'birth_place_absent' || !hasPassportBirthplaceLabel(text)))) proposed[key] = true;
   }
   return proposed;
 }
