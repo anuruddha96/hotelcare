@@ -88,6 +88,10 @@ export default function Breakfast() {
   const [result, setResult] = useState<any>(null);
   const [served, setServed] = useState(0);
   const [savingMark, setSavingMark] = useState(false);
+  // Shared-device credential stays in memory and is bound to the chosen hotel.
+  const [staffCode, setStaffCode] = useState<{ hotelId: string; value: string } | null>(null);
+  const codeForHotel = selection && staffCode?.hotelId === selection.hotel_id ? staffCode.value : "";
+  useEffect(() => { setStaffCode(null); }, [selection?.hotel_id, orgSlug]);
   const [rooms, setRooms] = useState<any[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [dataSource, setDataSource] = useState<string | null>(null);
@@ -258,6 +262,7 @@ export default function Breakfast() {
         room_number: result.room,
         served_count: served,
         guest_names: result.guest_names ?? null,
+        ...(codeForHotel.trim() ? { breakfast_code: codeForHotel.trim() } : {}),
       },
     });
     setSavingMark(false);
@@ -497,6 +502,17 @@ export default function Breakfast() {
                 {tt("tabRecipes")}
               </button>
             </div>
+          )}
+
+          {!hotelCode && selection && tab === "rooms" && (
+            <details className="rounded-md border px-3 py-2 text-sm">
+              <summary className="cursor-pointer text-muted-foreground min-h-8 flex items-center">{tt("housekeepingAccess")}</summary>
+              <p className="text-xs text-muted-foreground mb-2">{tt("housekeepingAccessHint")}</p>
+              <Label htmlFor="bb-housekeeping-code">{tt("housekeepingCode")}</Label>
+              <Input id="bb-housekeeping-code" type="password" autoComplete="off" maxLength={256}
+                value={codeForHotel} onChange={e => setStaffCode({ hotelId: selection.hotel_id, value: e.target.value })}
+                className="mt-1 h-10" />
+            </details>
           )}
 
           {!hotelCode && selection && tab === "reservations" && (
