@@ -22,7 +22,7 @@ import { ReservationHoverDetails } from '@/components/reservations/ReservationHo
 import { toast } from 'sonner';
 import { todayBudapest } from '@/lib/budapestTime';
 import { floatingState, needsAction, nightlyOccupancy, reservationAttention, topSeverity, type AttentionFlag } from '@/lib/receptionAttention';
-import { columnWidthFor, groupRoomsByType, loadCalendarOptions, saveCalendarOptions, type CalendarOptions } from '@/lib/receptionCalendarOptions';
+import { columnWidthFor, groupRoomsByType, initialCalendarDays, loadCalendarOptions, saveCalendarOptions, type CalendarOptions, type CalendarWindowDays } from '@/lib/receptionCalendarOptions';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { bookingSourceLabel, reservationStatusLabel, roomStatusLabel } from '@/lib/i18n/receptionLabels';
@@ -47,6 +47,8 @@ interface ReservationCalendarProps {
   reservations: any[];
   basePath: string;
   showUnassigned?: boolean;
+  /** Full-width reception route; other calendar consumers retain their defaults. */
+  wideWorkspace?: boolean;
   /** Allow drag-to-move / edge-resize with a confirmation dialog (native PMS hotels). */
   editable?: boolean;
   /** Called after a confirmed drag/resize change is saved, so the caller can refetch. */
@@ -72,8 +74,8 @@ const ROOM_STATUS_STYLE: Record<string, { pill: string; dot: string }> = {
 };
 const ROOM_STATUS_FALLBACK = { pill: 'bg-muted text-muted-foreground border-border', dot: 'bg-muted-foreground/40' };
 
-type WindowDays = 7 | 14 | 21 | 31;
 const ROOM_WIDTH = 216;
+const ROOM_WIDTH_WIDE_WORKSPACE = 184;
 const ROOM_WIDTH_COLLAPSED = 104;
 /** Fixed header heights so the three frozen rows stack exactly. */
 const HEAD_MONTH_H = 28;
@@ -125,12 +127,12 @@ const nightsBetween = (from: string, to: string) =>
   Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 86400000));
 
 /** Read-only snapshot bookings are displayed separately from editable HotelCare records. */
-export function ReservationCalendar({ rooms, reservations, basePath, showUnassigned = true, editable = false, onChanged, onQuickAction, pmsName = null, onRoomStatusChange, onRoomPeriodManage }: ReservationCalendarProps) {
+export function ReservationCalendar({ rooms, reservations, basePath, showUnassigned = true, editable = false, onChanged, onQuickAction, pmsName = null, onRoomStatusChange, onRoomPeriodManage, wideWorkspace = false }: ReservationCalendarProps) {
   const { t } = useTranslation();
   const locale = useLocaleFormat();
   const navigate = useNavigate();
-  // A phone shows a week by default; everything wider shows two.
-  const [days, setDays] = useState<WindowDays>(() => (typeof window !== 'undefined' && window.innerWidth > 0 && window.innerWidth < 640 ? 7 : 14));
+  // Prefer a longer range on spacious reception workstations without resetting manual choices.
+  const [days, setDays] = useState<CalendarWindowDays>(() => initialCalendarDays(typeof window === 'undefined' ? 0 : window.innerWidth, wideWorkspace));
   const [startDate, setStartDate] = useState(startNearToday);
   const [roomSearch, setRoomSearch] = useState('');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
@@ -156,7 +158,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const today = todayBudapest();
-  const roomWidth = roomsCollapsed ? ROOM_WIDTH_COLLAPSED : ROOM_WIDTH;
+  const roomWidth = roomsCollapsed ? ROOM_WIDTH_COLLAPSED : wideWorkspace ? ROOM_WIDTH_WIDE_WORKSPACE : ROOM_WIDTH;
   const columnWidth = columnWidthFor(options, containerWidth - roomWidth, days);
   const columnRef = useRef(columnWidth);
   columnRef.current = columnWidth;
@@ -512,7 +514,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
       : <><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} aria-hidden="true" /><span className="truncate">{text}</span></>;
     const pillClass = roomsCollapsed
       ? 'h-6 w-6 shrink-0 grid place-items-center rounded-full'
-      : `shrink-0 max-w-[112px] inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${style.pill}`;
+      : `shrink-0 ${wideWorkspace ? 'max-w-[92px]' : 'max-w-[112px]'} inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${style.pill}`;
     if (!onRoomStatusChange) return <span className={pillClass} title={text} data-room-status={status}>{face}</span>;
     const choose = async (next: RoomStatus) => {
       setStatusMenuRoom(null);
@@ -568,7 +570,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
       <div className={`${stickyLeft} ${roomsCollapsed ? "px-1.5 gap-1.5" : "px-2.5 gap-2"} flex items-center ${dropTarget ? 'bg-primary/10' : ''}`} style={{ width: roomWidth, minHeight: roomHeight }}>
         <div className="min-w-0 flex-1">
           <div className="flex gap-1.5 items-center text-xs font-semibold">
-            <span className="truncate">{room.room_number}</span>
+            <span className="truncate" title={room.room_number}>{room.room_number}</span>
             {conflict && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('pms.cal.conflictHelp')}><title>{t('pms.cal.conflictHelp')}</title></AlertTriangle>}
             <span className="ml-auto shrink-0">{renderRoomStatus(room)}</span>
           </div>
@@ -612,7 +614,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
             <Button type="button" size="sm" variant="secondary" className="h-8 px-2.5 font-semibold" onClick={() => setStartDate(startNearToday())}>📍 {t('pms.planner.today')}</Button>
             <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => setStartDate((current) => addDays(current, 7))} aria-label={t('pms.workspace.nextWeek')}><ChevronRight className="h-4 w-4" /></Button>
             <div className="flex overflow-hidden rounded-md border border-border" role="group" aria-label={t('pms.workspace.dateRange')}>
-              {([7, 14, 21, 31] as WindowDays[]).map((count) => <Button key={count} type="button" size="sm" variant={count === days ? 'default' : 'ghost'} className="rounded-none h-8 px-2 text-xs" aria-pressed={count === days} onClick={() => setDays(count)}>{t('pms.workspace.rangeDays').replace('{count}', String(count))}</Button>)}
+              {([7, 14, 21, 31] as CalendarWindowDays[]).map((count) => <Button key={count} type="button" size="sm" variant={count === days ? 'default' : 'ghost'} className="rounded-none h-8 px-2 text-xs" aria-pressed={count === days} onClick={() => setDays(count)}>{t('pms.workspace.rangeDays').replace('{count}', String(count))}</Button>)}
             </div>
             <Popover>
               <PopoverTrigger asChild>

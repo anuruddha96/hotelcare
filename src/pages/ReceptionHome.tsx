@@ -27,9 +27,9 @@ export default function ReceptionHome() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <main className="container mx-auto px-4 py-6">
+      <main className="w-full min-w-0 px-3 py-4 sm:px-4 lg:px-6">
         <OperationalPageHeading section={t('reception.home.section')} />
-        <div className="mt-4 mb-6">
+        <div className="mt-3 mb-4">
           <OperationsNavigation current="reception" />
         </div>
         <div className="mb-3 flex items-center gap-1.5 overflow-x-auto scrollbar-hide" aria-label={t('reception.home.tools')}>

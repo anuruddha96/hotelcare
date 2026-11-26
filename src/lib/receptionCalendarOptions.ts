@@ -53,6 +53,16 @@ export function saveCalendarOptions(options: CalendarOptions): void {
   }
 }
 
+export type CalendarWindowDays = 7 | 14 | 21 | 31;
+
+/** Initial range only: resizing must not override a receptionist's manual selection. */
+export function initialCalendarDays(viewportWidth: number, wideWorkspace = false): CalendarWindowDays {
+  if (viewportWidth > 0 && viewportWidth < 640) return 7;
+  if (wideWorkspace && viewportWidth >= 2200) return 31;
+  if (wideWorkspace && viewportWidth >= 1536) return 21;
+  return 14;
+}
+
 export const COLUMN_DEFAULT = 88;
 export const COLUMN_COMPACT = 64;
 export const COLUMN_MIN = 46;
