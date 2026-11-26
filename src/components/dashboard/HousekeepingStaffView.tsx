@@ -1,3 +1,4 @@
+import { compareHousekeepingTasks } from '@/lib/housekeepingTaskOrder';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,12 +21,9 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useNotifications } from '@/hooks/useNotifications';
 import { PerformanceRaceGame } from './PerformanceRaceGame';
 import { getLocalDateString } from '@/lib/utils';
-import { parseRoomFlags } from '@/lib/room-service-flags';
-import { getMemoriesCarryForwardService, hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
-import { todayBudapest } from '@/lib/budapestTime';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { getDndRetryWindow } from '@/lib/dndRetryPolicy';
-import { getHousekeepingCarryForward, isPortfolioCarryForwardHotel } from '@/lib/housekeepingCarryForward';
 
 interface Assignment {
   id: string;
@@ -234,67 +232,7 @@ export function HousekeepingStaffView() {
 
 
       // Sort with unified priority: in_progress > high priority > ready checkouts (by floor) > daily (by floor) > waiting checkouts > completed
-      assignmentsData.sort((a, b) => {
-        // Helper to get sort bucket
-        const getBucket = (x: any): number => {
-          if (x.status === 'in_progress') return 0;
-          if (x.status === 'completed') return 6;
-          if (x.status === 'cancelled') return 7;
-          if (x.status === 'dnd_pending_retry') {
-            // Unlocked retries sit just above waiting checkouts; locked retries at the very bottom
-            return x.dnd_retry_unlocked_at ? 4 : 5;
-          }
-
-          if (isHotelMemoriesBudapest(x.rooms?.hotel)) {
-            const meta = x.rooms?.pms_metadata || {};
-            const fresh = meta?.pmsSyncDate === todayBudapest();
-            const pmsCheckout = !!x.rooms?.is_checkout_room || meta?.scheduledDepartureToday === true;
-            const checkout = fresh ? pmsCheckout : x.assignment_type === 'checkout_cleaning' || pmsCheckout;
-            const flags = parseRoomFlags(x.rooms?.notes ?? null);
-            const greenBoardRequest = hasMemoriesGreenBoardRequest(x.notes);
-            const carryForward = !checkout
-              ? getMemoriesCarryForwardService(x.previous_day_context)
-              : null;
-
-            if (checkout && x.ready_to_clean) return 1;
-            if (!checkout && (x.rooms?.towel_change_required || carryForward?.serviceType === 'towel_change')) return 2;
-            if (!checkout && (flags.roomCleaning || greenBoardRequest || carryForward?.serviceType === 'full_clean')) return 3;
-            if (!checkout && x.assignment_type === 'daily_cleaning') return 4;
-            if (checkout && !x.ready_to_clean) return 5;
-            return 4;
-          }
-
-          if (isPortfolioCarryForwardHotel(x.rooms?.hotel)) {
-            const meta = x.rooms?.pms_metadata || {};
-            const fresh = meta?.pmsSyncDate === todayBudapest();
-            const pmsCheckout = !!x.rooms?.is_checkout_room || meta?.scheduledDepartureToday === true;
-            const checkout = fresh ? pmsCheckout : x.assignment_type === 'checkout_cleaning' || pmsCheckout;
-            const carryForward = !checkout ? getHousekeepingCarryForward(x.previous_day_context) : null;
-            if (checkout && x.ready_to_clean) return 1;
-            if (carryForward?.serviceType === 'full_clean') return 2;
-            if (carryForward?.serviceType === 'towel_change') return 2;
-            if (checkout && !x.ready_to_clean) return 4;
-          }
-
-          if ((x.priority ?? 1) >= 3) return 1; // high priority
-          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2;
-          if (x.assignment_type === 'daily_cleaning') return 3;
-          if (x.assignment_type === 'checkout_cleaning' && !x.ready_to_clean) return 4;
-          return 3;
-        };
-
-        const bucketDiff = getBucket(a) - getBucket(b);
-        if (bucketDiff !== 0) return bucketDiff;
-
-        // Within same bucket, group by floor then room number
-        const aFloor = a.rooms?.floor_number ?? 999;
-        const bFloor = b.rooms?.floor_number ?? 999;
-        if (aFloor !== bFloor) return aFloor - bFloor;
-
-        const aRoomNum = parseInt(a.rooms?.room_number?.replace(/\D/g, '') || '999');
-        const bRoomNum = parseInt(b.rooms?.room_number?.replace(/\D/g, '') || '999');
-        return aRoomNum - bRoomNum;
-      });
+      assignmentsData.sort((a, b) => compareHousekeepingTasks(a, b, 'desktop', now));
 
       // Store all assignments for DND/NS counting
       setAllAssignments(assignmentsData);
