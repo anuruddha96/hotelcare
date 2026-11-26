@@ -2,6 +2,7 @@ import { ISO3_TO_ISO2, iso3ToIso2 } from '../../../supabase/functions/_shared/vi
 import type { MrzReadResult } from './mrz';
 import { normalizeVisibleIdText } from './idFront';
 import { printedHungarianIdNumber } from './scanReview';
+import { harmonizeNameAccents, restoreDocumentNames } from './nameAccents';
 
 export type OpticalGuestFields = Partial<{
   first_name: string; last_name: string; birth_first_name: string; birth_last_name: string;
@@ -166,11 +167,17 @@ export function opticalGuestFields(result: MrzReadResult, front: string, back: s
   for (const [key, mrz] of [['first_name', f.mrzFirstName], ['last_name', f.mrzLastName]] as const) {
     if (out[key] && normalizeVisibleIdText(out[key]!) !== normalizeVisibleIdText(mrz)) delete out[key];
   }
+  // The printed name anywhere on the document (e.g. the Hungarian card's
+  // "Családi és utónév" line) adds the accents the code lines cannot carry.
+  // The code-line letters stay; see nameAccents.ts.
+  const hungarian = f.nationalityIso3 === 'HUN' || f.issuingState === 'HUN';
+  Object.assign(out, restoreDocumentNames(f.mrzLastName, f.mrzFirstName, [front, back], hungarian,
+    [a.last_name, a.first_name, b.last_name, b.first_name].filter((v): v is string => !!v)));
   // A complete birth-name pair is required by the existing VIZA validator.
   if (!out.birth_first_name || !out.birth_last_name) {
     delete out.birth_first_name; delete out.birth_last_name;
   }
-  return out;
+  return harmonizeNameAccents(out, hungarian);
 }
 
 /** Form population only: do not mutate or enrich the frozen MRZ payload. */
