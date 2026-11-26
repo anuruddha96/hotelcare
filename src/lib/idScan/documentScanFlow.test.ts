@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readMrz } from './mrz';
-import { firstSideAction, nextMrzScanAction } from './documentScanFlow';
+import { firstSideAction, nextMrzScanAction, classifyFirstCapture, looksLikePassport, canAdvanceToIdBack } from './documentScanFlow';
 
 // ICAO specimen passport and ID card. The classification comes from the
 // machine-readable code, not the receptionist's selection or a guessed shape.
@@ -42,7 +42,7 @@ describe('first side decision table', () => {
   });
   it('does not require a heading or OCR text on a sharp first side', () => {
     expect(firstSideAction(null, true)).toBe('provisional_front');
-    expect(firstSideAction({ ...validPassport, valid: false }, true)).toBe('provisional_front');
+    expect(firstSideAction({ ...validPassport, valid: false }, true)).toBe('passport_complete');
     expect(firstSideAction(null, false)).toBe('retry');
     expect(firstSideAction({ ...validId, valid: false }, false)).toBe('retry');
   });
@@ -51,5 +51,33 @@ describe('first side decision table', () => {
     expect(nextMrzScanAction(validPassport, true, true)).toBe('different_document');
     expect(nextMrzScanAction(validId, true, false)).toBe('id_complete');
     expect(nextMrzScanAction(validId, false, false)).toBe('front_first_required');
+  });
+});
+
+describe('single-page passport vs two-sided ID routing', () => {
+  it('recognizes a passport despite a failed MRZ checksum or unknown country', () => {
+    expect(firstSideAction({ ...passport, valid: false, unknownCountry: true }, false)).toBe('passport_complete');
+    expect(firstSideAction({ ...passport, valid: false }, true)).toBe('passport_complete');
+  });
+  it.each(['PASSPORT / PASSEPORT', 'P<GBRSPECIMEN<<A<<<', 'P < GBR SPECIMEN << A', 'Útlevél', 'Pasaporte'])('recognizes a partial passport heading or code: %s', text => {
+    expect(looksLikePassport(text)).toBe(true);
+    expect(classifyFirstCapture(text)).toBe('passport');
+    expect(canAdvanceToIdBack(classifyFirstCapture(text), true, true)).toBe(false);
+  });
+  it('uses a prior passport type only as fallback when the current image is unclear', () => {
+    expect(classifyFirstCapture('blurred', true)).toBe('passport');
+    expect(classifyFirstCapture('NATIONAL IDENTITY CARD EXAMPLE NAME NUMBER', true)).toBe('id_card');
+    expect(classifyFirstCapture('PASSPORT NATIONAL IDENTITY CARD EXAMPLE NAME')).toBe('passport');
+  });
+  it('does not treat sharpness or absence of code lines as evidence of an ID', () => {
+    expect(classifyFirstCapture('')).toBe('unknown');
+    expect(canAdvanceToIdBack('unknown', true)).toBe(false);
+    expect(canAdvanceToIdBack('unknown', true, true)).toBe(true);
+    expect(canAdvanceToIdBack('unknown', false, true)).toBe(false);
+  });
+  it('permits back-side capture only after an actual ID front capture', () => {
+    expect(canAdvanceToIdBack('id_card', true)).toBe(true);
+    expect(canAdvanceToIdBack('id_card', false)).toBe(false);
+    expect(canAdvanceToIdBack('passport', true)).toBe(false);
   });
 });
