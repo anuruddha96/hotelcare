@@ -174,6 +174,31 @@ describe('document reader evidence and corrections', () => {
     await waitFor(() => expect(query.update).toHaveBeenCalled());
     expect(query.update.mock.calls[0][0]).toMatchObject({...printed, mother_family_name:'Példa', mother_given_name:'Anna'});
   });
+  it('fills and saves compound printed names in the existing guest form', async () => {
+    const query = mockGuest({...guest, nationality:'HU', id_document_type:'id_card'});
+    await openEditor('res-1');
+    const base=readResult('TEST123');
+    const result:MrzReadResult={...base,format:'TD1',fields:{...base.fields,nationality:'HU',nationalityIso3:'HUN',issuingState:'HUN',documentType:'id_card'}};
+    const printed={birth_last_name:'Kovács',birth_first_name:'Anna Mária',mother_name:'Nagy Éva Mária',birth_place:'Budapest'};
+    act(()=>mocks.apply(result,printed));
+    await waitFor(()=>{
+      for(const [field,value] of Object.entries({birth_last_name:'Kovács',birth_first_name:'Anna Mária',mother_family_name:'Nagy',mother_given_name:'Éva Mária',birth_place:'Budapest'})) {
+        expect(document.querySelector('[data-viza-field="'+field+'"]')).toHaveValue(value);
+      }
+    });
+    await saveEditor();
+    await waitFor(()=>expect(query.update).toHaveBeenCalled());
+    expect(query.update.mock.calls[0][0]).toMatchObject({...printed,mother_family_name:'Nagy',mother_given_name:'Éva Mária'});
+  });
+  it('populates compound printed names in the express draft', async () => {
+    const optical={birth_last_name:'Kovács',birth_first_name:'Anna Mária',mother_name:'Nagy Éva Mária',birth_place:'Budapest'};
+    render(<GuestDetailsSection guestId={null} vizaReservationId="res-1" occurredAt="2026-11-24T10:00:00Z" draft={{result:readResult('TEST123'),optical}} onRegister={vi.fn()}/>);
+    await waitFor(()=>{
+      for(const [field,value] of Object.entries({birth_last_name:'Kovács',birth_first_name:'Anna Mária',mother_family_name:'Nagy',mother_given_name:'Éva Mária',birth_place:'Budapest'})) {
+        expect(document.querySelector('[data-viza-field="'+field+'"]')).toHaveValue(value);
+      }
+    });
+  });
   it('preserves scan and all review flags when nationality is corrected', async () => {
     const query = mockGuest();
     await openEditor('res-1');
