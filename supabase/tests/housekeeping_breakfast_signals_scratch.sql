@@ -132,7 +132,7 @@ insert into public.housekeeping_breakfast_mark_receipts(attendance_id,organizati
 select id,organization_slug,hotel_id,'20000000-0000-0000-0000-000000000004',repeat('a',64),created_at
 from public.breakfast_attendance where id::text like '40000000-0000-0000-0000-00000000020%';
 set role service_role;
-do $
+do $$
 declare v record; ids uuid[]; claim uuid; batch_tag text; n integer;
 begin
   perform public.record_breakfast_signal('hotel-a','201',1,'main','40000000-0000-0000-0000-000000000201');
@@ -165,18 +165,18 @@ begin
   -- A mark not delivered must not enqueue a correction.
   if not public.undo_breakfast_mark('40000000-0000-0000-0000-000000000204',repeat('a',64),'20000000-0000-0000-0000-000000000004','hotel-a','org-a') then raise exception 'DND mark undo failed'; end if;
   if exists(select from public.housekeeping_breakfast_push_outbox where kind='correction' and room_number='204') then raise exception 'correction without original delivery'; end if;
-end $;
+end $$;
 reset role;
-do $
+do $$
 begin
   if exists(select 1 from public.breakfast_attendance where id='40000000-0000-0000-0000-000000000201') then raise exception 'undone attendance still exists'; end if;
   if has_table_privilege('authenticated','public.housekeeping_breakfast_mark_receipts','select') or has_table_privilege('anon','public.housekeeping_breakfast_push_outbox','select') then raise exception 'private queue exposed'; end if;
   if has_function_privilege('authenticated','public.claim_breakfast_pushes(integer)','execute') or has_function_privilege('anon','public.undo_breakfast_mark(uuid,text,uuid,text,text)','execute') then raise exception 'privileged RPC exposed'; end if;
-end $;
+end $$;
 -- Reassignment to B while the window has more than ten minutes remaining.
 update public.room_assignments set assigned_to='20000000-0000-0000-0000-000000000002' where room_id='30000000-0000-0000-0000-000000000203';
 set role service_role;
-do $
+do $$
 declare v record; ids uuid[]; claim uuid;
 begin
   if public.enqueue_breakfast_pushes(null)<>1 then raise exception 'new assignee not queued exactly once'; end if;
@@ -189,9 +189,9 @@ begin
   end loop;
   if exists(select from public.breakfast_mark_push_status('20000000-0000-0000-0000-000000000004','hotel-a','org-a',array['40000000-0000-0000-0000-000000000205']::uuid[]) where housekeeping_informed) then raise exception 'failed push marked informed'; end if;
   if not exists(select from public.housekeeping_breakfast_signals where room_number='205' and closed_at is null) then raise exception 'push failure lost signal'; end if;
-end $;
+end $$;
 reset role;
-do $ begin if not exists(select from public.breakfast_attendance where id='40000000-0000-0000-0000-000000000205') then raise exception 'push failure lost attendance'; end if; end $;
+do $$ begin if not exists(select from public.breakfast_attendance where id='40000000-0000-0000-0000-000000000205') then raise exception 'push failure lost attendance'; end if; end $$;
 -- Phase 2 rollback on scratch only. Remove zero-count fixture rows so the
 -- original stricter count constraint can be restored.
 drop function public.breakfast_mark_push_status(uuid,text,text,uuid[]);
