@@ -20,7 +20,7 @@ import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
 import { recoverPassportBirthplace, hasPassportBirthplaceLabel, numberedUkBirthplaceRegions, numberedGreekBirthplaceRegions, numberedBirthplaceLabel, passportBirthplaceKey, recoverNumberedBirthplace, type BirthplaceRowRead } from '@/lib/idScan/passportBirthPlace';
 import { sampleUkRegion, ukLegacyRegions, localPassportContrast, passportOtsu, verifiedLegacyBirthplace } from '@/lib/idScan/ukPassportVisual';
 import { hasPrintedLabel, resolvePrintedLabels } from '@/lib/idScan/printedLabels';
-import { greekLegacyRegions, prioritizeGreekBirthplace, verifiedGreekBirthplace } from '@/lib/idScan/greekPassportVisual';
+import { agreedGreekBirthplaceCrop, greekLegacyRegions, prioritizeGreekBirthplace, verifiedGreekBirthplace } from '@/lib/idScan/greekPassportVisual';
 import { suggestPassportAbsences, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
 import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { harmonizeNameAccents } from '@/lib/idScan/nameAccents';
@@ -610,6 +610,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       // Read the small value twice before the expensive whole-page passes.
       const contrast=await scan(greekLegacyRegions.value,'contrast','birthplace');
       const binary=await scan(greekLegacyRegions.value,'otsu','birthplace');
+      if(!agreedGreekBirthplaceCrop([contrast,binary]))return undefined;
       const surname=await scan(greekLegacyRegions.surname,'contrast','surname anchor');
       const expiry=await scan(greekLegacyRegions.expiry,'contrast','expiry anchor');
       return verifiedGreekBirthplace(result,surname,expiry,[contrast,binary]);
@@ -831,6 +832,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
           // Read each pass separately to avoid joining unrelated headers/values.
           const issuer = parsed.fields.issuingState;
           let birthplace = recoverPassportBirthplace(texts, issuer);
+          let greekBirthplaceConflict = false;
           // A verified, localized Latin reading takes precedence over a
           // fragmented Greek-script row. A conflicting labeled Latin value
           // is not silently overridden.
@@ -839,17 +841,18 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
               birthplace=prioritizedBirthplace;
             } else {
               birthplace=undefined;
+              greekBirthplaceConflict=true;
               delete extracted.birth_place;
             }
           }
-          if (!birthplace && remainingPrintedMs(run,10000)>0) {
+          if (!greekBirthplaceConflict && !birthplace && remainingPrintedMs(run,10000)>0) {
             birthplaceReads = await readPassportBirthplace(copy, geometry, run, texts, issuer);
             birthplace = recoverPassportBirthplace([...texts, ...birthplaceReads], issuer);
           }
-          if (!birthplace && scanRunRef.current === run && remainingPrintedMs(run,6500)>0) {
+          if (!greekBirthplaceConflict && !birthplace && scanRunRef.current === run && remainingPrintedMs(run,6500)>0) {
             birthplace = await readVerifiedUkBirthplace(copy, geometry, parsed, run);
           }
-          if ((!birthplace || (issuer === 'GRC' && /^\p{Script=Greek}/u.test(birthplace))) && scanRunRef.current === run && remainingPrintedMs(run,6500)>0) {
+          if (!greekBirthplaceConflict && (!birthplace || (issuer === 'GRC' && /^\p{Script=Greek}/u.test(birthplace))) && scanRunRef.current === run && remainingPrintedMs(run,6500)>0) {
             const targeted = await readNumberedPassportBirthplace(copy, geometry, issuer, run);
             birthplace = targeted.birthplace ?? birthplace;
             targetedBirthplaceLabel = targeted.labelSeen;
