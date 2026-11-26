@@ -38,14 +38,14 @@ export function toGray(rgba: ArrayLike<number>, width: number, height: number): 
 
 /** Find the code lines among first-pass OCR lines. `scale` and the offsets
  * map the OCR image back to frame pixels. */
-export function codeLineGeometry(lines: OcrLine[], scale = 1, offsetX = 0, offsetY = 0): CodeGeometry | null {
+export function codeLineGeometry(lines: OcrLine[], scale = 1, offsetX = 0, offsetY = 0, expectedLines?: 2 | 3): CodeGeometry | null {
   const candidates = lines.filter(l => {
     const t = l.text.toUpperCase().replace(/\s/g, '').replace(/[«‹]/g, '<').replace(MRZ_ONLY, '');
     return t.length >= 22 && l.bbox.x1 > l.bbox.x0 && l.bbox.y1 > l.bbox.y0;
   });
   if (candidates.length < 2) return null;
   // The code zone is the last block of 2–3 similar-width lines.
-  const last = candidates.slice(-3);
+  const last = candidates.slice(-(expectedLines ?? 3));
   const widest = Math.max(...last.map(l => l.bbox.x1 - l.bbox.x0));
   const block = last.filter(l => l.bbox.x1 - l.bbox.x0 >= widest * 0.7);
   if (block.length < 2) return null;
