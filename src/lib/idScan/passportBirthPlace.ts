@@ -17,7 +17,7 @@ function value(raw:string, composite=false): string | undefined {
   if (!s || s.includes('<') || placeLabel.test(fold(s)) || otherHeader.test(fold(s))) return undefined;
   if (!/^[\p{L}\p{M}][\p{L}\p{M}\s,.'’()\-–]{0,119}$/u.test(s)) return undefined;
   if (s.replace(/[^\p{L}]/gu,'').length < 2 || /^(?:M|F|X|NA|N\/A|NONE|UNKNOWN)$/i.test(s)) return undefined;
-  return s.toLowerCase().replace(/(^|[\s,('’\-–])\p{L}/gu,c=>c.toUpperCase());
+  return s.toLowerCase().replace(/(^|[\s,('’\-–])\p{L}/gu,c=>c.toUpperCase()).normalize('NFC');
 }
 
 export function passportBirthplaceCandidates(text:string): string[] {
