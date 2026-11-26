@@ -19,6 +19,7 @@ import { shouldAdvanceFront, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
 import { recoverPassportBirthplace, hasPassportBirthplaceLabel, numberedUkBirthplaceRegions, numberedGreekBirthplaceRegions, numberedBirthplaceLabel, passportBirthplaceKey, recoverNumberedBirthplace, type BirthplaceRowRead } from '@/lib/idScan/passportBirthPlace';
 import { sampleUkRegion, ukLegacyRegions, localPassportContrast, passportOtsu, verifiedLegacyBirthplace } from '@/lib/idScan/ukPassportVisual';
+import { hasPrintedLabel } from '@/lib/idScan/printedLabels';
 import { suggestPassportAbsences, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
 import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { harmonizeNameAccents } from '@/lib/idScan/nameAccents';
@@ -221,6 +222,11 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
   const photoTesting = profile?.organization_slug === 'channex' || profile?.role === 'admin';
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scanRunRef = useRef(0);
+  const printedBudgetRef = useRef<{run:number;deadline:number}|null>(null);
+  const remainingPrintedMs = (run:number, max:number) => {
+    const budget = printedBudgetRef.current;
+    return budget?.run === run ? Math.max(0, Math.min(max, budget.deadline-Date.now())) : max;
+  };
   const cameraSessionRef = useRef(0);
   const [phase, setPhase] = useState<Phase>('camera');
   const [side, setSide] = useState<DocumentSide>('front');
@@ -443,16 +449,16 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     const texts: string[] = [];
     let score: number | null = null;
     let positiveScore: number | null = null;
-    await session.warm();
+    // recognizeWithConfidence includes worker initialization in its timeout.
     if (scanRunRef.current !== run) return { texts, score, positiveScore };
     // Separate printed area from MRZ and try a contrast-enhanced second pass.
     // Keep independent OCR results for field-level merging, not a joined
     // string that could make neighboring labels or values cross boundaries.
     for (const enhanced of [false, true]) {
-      if (scanRunRef.current !== run) break;
+      if (scanRunRef.current !== run || remainingPrintedMs(run,12000)<=0) break;
       const canvas = printedCanvas(frame, idBack, enhanced);
       try {
-        const reading = await session.recognizeWithConfidence(canvas, 12000, '6');
+        const reading = await session.recognizeWithConfidence(canvas, remainingPrintedMs(run,12000), '6');
         if (scanRunRef.current !== run) break;
         if (reading.text.trim()) texts.push(reading.text);
         if (reading.confidence !== null) {
@@ -491,7 +497,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     const extra: string[] = [];
     const scan = async (canvas: HTMLCanvasElement, mode: '6' | '11') => {
       try {
-        const reading = await frontSession.recognizeWithConfidence(canvas, 10000, mode);
+        const reading = await frontSession.recognizeWithConfidence(canvas, remainingPrintedMs(run,10000), mode);
         if (scanRunRef.current === run && reading.text.trim()) extra.push(reading.text);
       } catch { /* retain earlier optical evidence */ }
       finally { wipe(canvas); }
@@ -535,14 +541,14 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       red={data,width:frame.width,height:frame.height};
     }
     const scan = async (region: typeof regions.row, source: Gray, mode: '6'|'7'|'11', enhanced: boolean, width: number): Promise<BirthplaceRowRead> => {
-      if (scanRunRef.current !== run) return {text:'',confidence:null};
+      if (scanRunRef.current !== run || remainingPrintedMs(run,6500)<=0) return {text:'',confidence:null};
       const crop = sampleStraight(source,geometry.cx,geometry.cy,geometry.angle,region.u0,region.v0,region.u1,region.v1,width);
       const normalized=enhanced?normalizeText(crop):crop;
       const padded=padWhite(normalized,30);
       crop.data.fill(0); normalized.data.fill(0);
       const canvas=grayCanvas(padded);
       try {
-        const reading=await frontSession.recognizeWithConfidence(canvas,6500,mode);
+        const reading=await frontSession.recognizeWithConfidence(canvas,remainingPrintedMs(run,6500),mode);
         return scanRunRef.current===run?reading:{text:'',confidence:null};
       } catch { return {text:'',confidence:null}; }
       finally { wipe(canvas); }
@@ -573,14 +579,14 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     rgba.data.fill(0);
     const source={data,width:frame.width,height:frame.height};
     const scan=async (region:typeof ukLegacyRegions[keyof typeof ukLegacyRegions],method:'contrast'|'otsu'):Promise<BirthplaceRowRead>=>{
-      if(scanRunRef.current!==run)return {text:'',confidence:null};
+      if(scanRunRef.current!==run||remainingPrintedMs(run,6500)<=0)return {text:'',confidence:null};
       const crop=sampleUkRegion(source,geometry,region);
       const processed=method==='contrast'?localPassportContrast(crop):passportOtsu(crop);
       const padded=padWhite(processed,24);
       crop.data.fill(0);processed.data.fill(0);
       const canvas=grayCanvas(padded);
       try {
-        const read=await frontSession.recognizeWithConfidence(canvas,6500,'7');
+        const read=await frontSession.recognizeWithConfidence(canvas,remainingPrintedMs(run,6500),'7');
         return scanRunRef.current===run?read:{text:'',confidence:null};
       } catch {return {text:'',confidence:null};}
       finally {wipe(canvas);}
@@ -603,11 +609,11 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       width:box.width*frame.width/320,height:box.height*frame.height/h};
     const rows: Array<{row: typeof HUNGARIAN_BACK_ROWS[number]; label:string; value:string; confidence:number|null}> = [];
     for (const row of HUNGARIAN_BACK_ROWS) {
-      if (scanRunRef.current !== run) break;
+      if (scanRunRef.current !== run || remainingPrintedMs(run,6000)<=0) break;
       let label = '';
       for (const pass of ['label', 'raw', 'enhanced'] as const) {
         const valueOnly = pass !== 'label';
-        if (scanRunRef.current !== run) break;
+        if (scanRunRef.current !== run || remainingPrintedMs(run,6000)<=0) break;
         if (valueOnly && !rowHasLabel(row,label)) break;
         const region=printedRowRect(card,row,valueOnly);
         const canvas=document.createElement('canvas');
@@ -629,7 +635,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
             for(let i=0;i<d.length;i+=4){const v=d[i]<threshold?0:255;d[i]=d[i+1]=d[i+2]=v;}
             ctx.putImageData(pixels,16,16);d.fill(0);
           }
-          const reading=await frontSession.recognizeWithConfidence(canvas,6000,valueOnly?'7':'6');
+          const reading=await frontSession.recognizeWithConfidence(canvas,remainingPrintedMs(run,6000),valueOnly?'7':'6');
           if (scanRunRef.current!==run) break;
           if (!valueOnly) label=reading.text;
           else rows.push({row,label,value:reading.text,confidence:reading.confidence});
@@ -651,9 +657,10 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     try {
       for (const width of [1500, 1900, 1200]) {
         if (scanRunRef.current !== run) return {};
+        if (remainingPrintedMs(run,12000)<=0) break;
         const canvas = grayCanvas(printedZone(gray, geometry, width));
         try {
-          const { text } = await session.recognizeWithConfidence(canvas, 12000, '6');
+          const { text } = await session.recognizeWithConfidence(canvas, remainingPrintedMs(run,12000), '6');
           reads.push(parsePrintedText(text, hungarian));
         } catch { /* a timed-out reading simply does not vote */ }
         finally { wipe(canvas); }
@@ -726,39 +733,41 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     if (frame) {
       let copy: HTMLCanvasElement | null = null;
       try {
+        printedBudgetRef.current = {run, deadline:Date.now()+15000};
         copy = snapshotFrame(frame, frame.width, frame.height);
         const hungarian = action === 'id_complete' && parsed.format === 'TD1' && (parsed.fields.issuingState === 'HUN' || parsed.fields.nationalityIso3 === 'HUN' || /HUNGARY|MAGYARORSZ[AÁ]G/i.test(frontText));
         const complete = (v: OpticalGuestFields) => !needsHungarianPrintedFallback(true, v);
         // Wait (at most 8 s) for the Hungarian reading of the front started
         // while the card was turned over; it only adds accents to names.
         const accentTexts = frontAccent
-          ? await Promise.race([frontAccent.promise, new Promise<string[]>(resolve => setTimeout(() => resolve([]), 8000))])
+          ? await Promise.race([frontAccent.promise, new Promise<string[]>(resolve => setTimeout(() => resolve([]), remainingPrintedMs(run, 4000)))])
           : [];
         if (frontAccentRef.current === frontAccent) frontAccentRef.current = null;
         const frontAll = [frontText, ...accentTexts].filter(t => t.trim()).join('\n--- OCR PASS ---\n');
         // ID back with located code lines: read the straightened printed
         // rows. The older whole-picture reading remains the fallback.
-        const located = action === 'id_complete' && parsed.format === 'TD1' && geometry
+        const located = action === 'id_complete' && (parsed.format === 'TD1' || parsed.format === 'TD2') && geometry
           ? await readPrintedZone(copy, geometry, hungarian, parsed.fields.mrzFirstName, run) : null;
         // Agreed readings of the located rows stand on their own: a single
         // whole-picture reading must not overwrite or complete them.
-        const { texts, score } = located ? { texts: ['located'], score: null } : await readPrinted(frontSession, copy, hungarian, run, action === 'passport_complete');
+        const { texts, score } = located ? { texts: ['located'], score: null } : await readPrinted(frontSession, copy, action === 'id_complete', run, action === 'passport_complete');
         let extracted = located
           ? { ...opticalGuestFields(parsed, frontAll, ''), ...located }
           : hungarian
             ? mergeHungarianFallback(opticalGuestFields(parsed, frontAll, ''),
               printedGuestFields(agreePrinted(texts.map(text => parsePrintedText(text, true))), parsed.fields.mrzFirstName))
             : opticalGuestFields(parsed, frontAll, texts.join('\n--- OCR PASS ---\n'));
-        if (needsHungarianPrintedFallback(hungarian, extracted) && scanRunRef.current === run) {
+        if (needsHungarianPrintedFallback(hungarian, extracted) && scanRunRef.current === run && remainingPrintedMs(run,6000)>0) {
           const targeted = await readHungarianRows(copy, run);
           extracted = mergeHungarianFallback(extracted, targeted.fields, targeted.confirmedMother);
         }
         // A partial located result (including {}) must not suppress the
         // wider printed-zone OCR. Keep agreed evidence from both passes.
-        if (located && needsHungarianPrintedFallback(hungarian, extracted) && scanRunRef.current === run) {
+        if (located && (!extracted.birth_place || !extracted.birth_last_name || !extracted.birth_first_name || !extracted.mother_name || needsHungarianPrintedFallback(hungarian, extracted)) && scanRunRef.current === run && remainingPrintedMs(run,12000)>0) {
           const wider = await readPrinted(frontSession, copy, true, run);
-          const agreed = printedGuestFields(agreePrinted(wider.texts.map(text => parsePrintedText(text, true))), parsed.fields.mrzFirstName);
-          extracted = mergeHungarianFallback(extracted, agreed);
+          const agreed = printedGuestFields(agreePrinted(wider.texts.map(text => parsePrintedText(text, hungarian))), parsed.fields.mrzFirstName);
+          const labeled = opticalGuestFields(parsed, frontAll, wider.texts.join('\n--- OCR PASS ---\n'));
+          extracted = mergeHungarianFallback(extracted, {...labeled,...agreed});
         }
         let birthplaceReads: string[] = [];
         let targetedBirthplaceLabel = false;
@@ -766,25 +775,21 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
           // Read each pass separately to avoid joining unrelated headers/values.
           const issuer = parsed.fields.issuingState;
           let birthplace = recoverPassportBirthplace(texts, issuer);
-          if (!birthplace || !extracted.birth_place) {
+          if ((!birthplace || !extracted.birth_place) && remainingPrintedMs(run,10000)>0) {
             birthplaceReads = await readPassportBirthplace(copy, geometry, run, texts, issuer);
             birthplace = recoverPassportBirthplace([...texts, ...birthplaceReads], issuer);
           }
-          if (!birthplace && scanRunRef.current === run) {
+          if (!birthplace && scanRunRef.current === run && remainingPrintedMs(run,6500)>0) {
             birthplace = await readVerifiedUkBirthplace(copy, geometry, parsed, run);
           }
-          if ((!birthplace || (issuer === 'GRC' && /^\p{Script=Greek}/u.test(birthplace))) && scanRunRef.current === run) {
+          if ((!birthplace || (issuer === 'GRC' && /^\p{Script=Greek}/u.test(birthplace))) && scanRunRef.current === run && remainingPrintedMs(run,6500)>0) {
             const targeted = await readNumberedPassportBirthplace(copy, geometry, issuer, run);
             birthplace = targeted.birthplace ?? birthplace;
             targetedBirthplaceLabel = targeted.labelSeen;
           }
-          const candidates = [...texts, ...birthplaceReads];
+          // The shared labeled resolver already rejects label text and unrelated fields.
+          // Preserve independently extracted proposals if targeted recovery is inconclusive.
           if (birthplace) extracted = {...extracted, birth_place: birthplace};
-          else if (issuer === 'GRC' || targetedBirthplaceLabel || candidates.some(hasPassportBirthplaceLabel)) {
-            // A detected but unresolved birthplace must not become a guessed value.
-            extracted = {...extracted};
-            delete extracted.birth_place;
-          }
         }
         // Current and birth names written twice get the same accents.
         extracted = harmonizeNameAccents(extracted, parsed.fields.nationalityIso3 === 'HUN' || parsed.fields.issuingState === 'HUN');
@@ -793,7 +798,11 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
           const suggestions = suggestPassportAbsences(parsed, extracted, texts, score);
           if (targetedBirthplaceLabel || birthplaceReads.some(hasPassportBirthplaceLabel) ||
               (parsed.fields.issuingState === 'GRC' && !extracted.birth_place)) delete suggestions.birth_place_absent;
-          setPassportAbsences(suggestions);
+          const additional = [...texts, ...birthplaceReads];
+          if (additional.some(t=>hasPrintedLabel(t,'mother_name'))) delete suggestions.mother_name_absent;
+          if (additional.some(t=>hasPrintedLabel(t,'birth_pair')||hasPrintedLabel(t,'birth_last_name')||hasPrintedLabel(t,'birth_first_name'))) delete suggestions.birth_name_absent;
+          // The scanner may suggest absence, but only staff can select it.
+          setPassportAbsences({});
           setPassportSuggestions(suggestions);
           setOpticalIssue(!texts.length || (hungarian && !complete(extracted)) || (action === 'passport_complete' && !extracted.birth_place && !suggestions.birth_place_absent));
           setReviewAcknowledged(false);
@@ -801,6 +810,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       } catch { if(scanRunRef.current===run) setOpticalIssue(true); }
       finally {
         if (copy) wipe(copy);
+        if (printedBudgetRef.current?.run === run) printedBudgetRef.current = null;
         if (scanRunRef.current === run) {
           setOpticalReading(false);
           clearRevealTimer();
