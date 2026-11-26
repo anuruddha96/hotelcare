@@ -403,6 +403,32 @@ describe('VIZA case 2.2 frontend follow-up', () => {
   });
 });
 
+describe('verified duplicate profile selection', () => {
+  it('requires an explicit choice and sends only the selected profile and optional updated contact', async () => {
+    const onSaved = vi.fn();
+    const onRegister = vi.fn()
+      .mockResolvedValueOnce({ status: 'match', guest_id: 'guest-a', candidates: [
+        { guest_id: 'guest-a', first_name: 'Test', last_name: 'Guest', date_of_birth: '1990-01-01', email: 'old@example.com', linked: false },
+        { guest_id: 'guest-b', first_name: 'Test', last_name: 'Guest', date_of_birth: '1990-01-01', email: 'other@example.com', linked: false },
+      ] })
+      .mockResolvedValueOnce({ status: 'registered', guest_id: 'guest-b' });
+    render(<GuestDetailsSection guestId={null} vizaReservationId="res-1" occurredAt="2026-11-24T10:00:00Z" draft={{ result: readResult('TEST123'), optical: manualBirth }} onRegister={onRegister} onSaved={onSaved} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'pms.express.verify' }));
+    fireEvent.click(screen.getByRole('button', { name: 'pms.express.confirmGuest' }));
+    await screen.findByText(/other@example.com/);
+    expect(screen.getByRole('button', { name: 'pms.express.confirmGuest' })).toBeDisabled();
+    expect(onRegister).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: /other@example.com/ }));
+    const email = screen.getByLabelText('pms.express.updateContactEmail');
+    fireEvent.change(email, { target: { value: 'bad email' } });
+    expect(screen.getByRole('button', { name: 'pms.express.confirmMatch' })).toBeDisabled();
+    fireEvent.change(email, { target: { value: 'new@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'pms.express.confirmMatch' }));
+    await waitFor(() => expect(onRegister).toHaveBeenLastCalledWith(expect.objectContaining({ confirmed_contact_email: 'new@example.com' }), 'guest-b'));
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 'guest-b' }));
+  });
+});
+
 describe('manual recovery save acknowledgement', () => {
   it('keeps the correction dirty if the server does not acknowledge the guest update', async () => {
     const query = mockGuest(guest);
