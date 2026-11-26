@@ -12,15 +12,19 @@ create table public.organizations(id uuid primary key, slug text unique not null
 create table public.hotel_configurations(hotel_id text primary key, hotel_name text not null, organization_id uuid, breakfast_enabled boolean, is_active boolean);
 create table public.housekeeping_automation_settings(organization_slug text, hotel_id text, primary key(organization_slug,hotel_id));
 create table public.rooms(id uuid primary key, organization_slug text, hotel text, room_number text, status text, is_dnd boolean, is_checkout_room boolean, pms_metadata jsonb, notes text);
-create table public.profiles(id uuid primary key, organization_slug text, role text, deleted_at timestamptz);
+create type public.user_role as enum ('housekeeping','housekeeping_manager','manager','supervisor','top_management','top_management_manager','admin','breakfast_staff','reception','front_office','reception_manager');
+create table public.profiles(id uuid primary key, organization_slug text, role public.user_role, deleted_at timestamptz);
 create table public.room_assignments(room_id uuid, organization_slug text, assigned_to uuid, assignment_date date, status text, assignment_type text, is_dnd boolean, pms_hold boolean not null default false, service_result text, notes text);
 create table public.breakfast_attendance(id uuid primary key, hotel_id text, organization_slug text, stay_date date, room_number text, served_count integer, location text, created_at timestamptz);
 create table public.daily_overview_snapshots(hotel_id text, organization_slug text, business_date date, room_number text, pax integer, source text, captured_at timestamptz);
 create table public.breakfast_roster(hotel_id text, organization_slug text, stay_date date, room_number text, pax integer, uploaded_at timestamptz);
 -- Existing access helper contracts represented by deterministic test doubles.
+-- Signature from generated src/integrations/supabase/types.ts; used in 20261007130000_optimize_hot_rls_paths.sql.
 create function public.get_user_organization_slug(user_id uuid) returns text language sql stable security definer set search_path = '' as $$ select p.organization_slug from public.profiles p where p.id=user_id $$;
-create function public.get_user_role(user_id uuid) returns text language sql stable security definer set search_path = '' as $$ select p.role from public.profiles p where p.id=user_id $$;
-create function public.user_can_access_hotel(_hotel_id text,_uid uuid) returns boolean language sql stable security definer set search_path = '' as $$ select exists(select 1 from public.hotel_configurations h join public.organizations o on o.id=h.organization_id join public.profiles p on p.organization_slug=o.slug where h.hotel_id=_hotel_id and p.id=_uid) $$;
+-- Signature from generated types.ts (user_role enum); used in 20261007130000_optimize_hot_rls_paths.sql.
+create function public.get_user_role(user_id uuid) returns public.user_role language sql stable security definer set search_path = '' as $$ select p.role from public.profiles p where p.id=user_id $$;
+-- Production positional signature, also used in 20261122083500_restaurant_reservation_staff_security.sql.
+create function public.user_can_access_hotel(_uid uuid,_hotel_id text) returns boolean language sql stable security definer set search_path = '' as $$ select exists(select 1 from public.hotel_configurations h join public.organizations o on o.id=h.organization_id join public.profiles p on p.organization_slug=o.slug where h.hotel_id=_hotel_id and p.id=_uid) $$;
 grant select on public.room_assignments to authenticated;
 alter table public.room_assignments enable row level security;
 create policy scratch_assignment_read on public.room_assignments for select to authenticated using (assigned_to=auth.uid());
