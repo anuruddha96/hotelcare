@@ -1101,7 +1101,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     setTyped('');
     setFailReason(null);
     // A failed second scan keeps the successfully captured first ID side.
-    if (side === 'front') { setResult(null); clearFront(); setCaptureKind(passportEvidenceRef.current ? 'passport' : 'unknown'); }
+    if (side === 'front') { setResult(null); clearFront(); setCaptureKind(passportEvidenceRef.current || previousDocumentType === 'passport' ? 'passport' : 'unknown'); }
     setFrontAssessment(null);
     setFrontConfidence(null);
     setReviewAcknowledged(false);
