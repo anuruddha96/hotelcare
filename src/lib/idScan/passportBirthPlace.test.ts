@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {hasPassportBirthplaceLabel,passportBirthplaceCandidates,recoverPassportBirthplace,numberedUkBirthplaceRegions,numberedBirthplaceLabel,recoverNumberedBirthplace} from './passportBirthPlace';
+import {hasPassportBirthplaceLabel,passportBirthplaceCandidates,recoverPassportBirthplace,numberedUkBirthplaceRegions,numberedGreekBirthplaceRegions,numberedBirthplaceLabel,recoverNumberedBirthplace} from './passportBirthPlace';
 import {guestScanPatch} from './opticalGuestFields';
 import type {MrzReadResult} from './mrz';
 
@@ -66,5 +66,52 @@ describe('numbered UK/Gibraltar passport visual layout',()=>{
     expect(recoverNumberedBirthplace('Place of birth',[read('GIBRALTAR'),read('LONDON')])).toBeUndefined();
     expect(recoverNumberedBirthplace('Place of birth',[read('GIBRALTAR'),read('GIBRALTAR',50)])).toBeUndefined();
     expect(recoverNumberedBirthplace('Place of birth',[read('Authority'),read('Authority')])).toBeUndefined();
+  });
+});
+
+
+describe('Greek bilingual passport birthplace',()=>{
+  it.each([
+    ['6. Τόπος γέννησης ΣΠΑΡΤΗ GRC\nPlace of birth SPARTI','Sparti'],
+    ['Τόπος γέννησης\nΣΠΑΡΤΗ\nPlace of birth\nSPARTI GRC','Sparti'],
+    ['Place of birth ΣΠΑΡΤΗ / SPARTI GRC','Sparti'],
+    ['Place of birth ATHINA GRC','Athina'],
+    ['Τόπος γέννησης ΠΑΤΡΑ','Πατρα'],
+  ])('reads labeled Greek or printed Latin values without country suffix: %s',(raw,expected)=>{
+    expect(recoverPassportBirthplace([raw],'GRC')).toBe(expected);
+  });
+  it('recognizes Greek labels without requiring Latin word boundaries',()=>{
+    expect(hasPassportBirthplaceLabel('6. Τόπος γέννησης')).toBe(true);
+    expect(hasPassportBirthplaceLabel('ΤΟΠΟΣ ΓΕΝΝΗΣΗΣ')).toBe(true);
+    expect(hasPassportBirthplaceLabel('Ημ. γέννησης')).toBe(false);
+  });
+  it('rejects missing values, authority, country alone and conflicting reads',()=>{
+    for(const raw of [
+      'Place of birth\nGRC',
+      'Τόπος γέννησης\nΗμ. έκδοσης\nATHINA',
+      'Place of birth\nAuthority\nATHINA',
+      'Nationality GRC\nSPARTI',
+    ]) expect(recoverPassportBirthplace([raw],'GRC')).toBeUndefined();
+    expect(recoverPassportBirthplace(['Place of birth SPARTI','Place of birth ATHINA'],'GRC')).toBeUndefined();
+  });
+  it('locates the legacy Greek Latin value independently of the country column',()=>{
+    const geometry={cx:478,cy:820,width:745,height:65,angle:0,lineHeight:24,lines:2,left:105,top:788};
+    const regions=numberedGreekBirthplaceRegions(geometry,'GRC')!;
+    expect(geometry.cx+regions.value.u0).toBeLessThan(600);
+    expect(geometry.cx+regions.value.u1).toBeGreaterThan(670);
+    expect(geometry.cx+regions.value.u1).toBeLessThan(809);
+    expect(geometry.cy+regions.value.v0).toBeLessThan(633);
+    expect(geometry.cy+regions.value.v1).toBeGreaterThan(646);
+    expect(numberedGreekBirthplaceRegions(geometry,'GBR')).toBeNull();
+    expect(numberedGreekBirthplaceRegions({...geometry,lines:3},'GRC')).toBeNull();
+  });
+  it('requires label evidence and two agreeing Latin crop readings',()=>{
+    const read=(text:string,confidence=90)=>({text,confidence});
+    expect(recoverNumberedBirthplace('Place of birth',[read('SPARTI'),read('SPARTI')],'GRC')).toBe('Sparti');
+    expect(recoverNumberedBirthplace('Τόπος γέννησης',[read('SPARTI'),read('SPARTI GRC')],'GRC')).toBe('Sparti');
+    expect(recoverNumberedBirthplace('6',[read('SPARTI'),read('SPARTI')],'GRC')).toBeUndefined();
+    expect(recoverNumberedBirthplace('Place of birth',[read('SPARTI'),read('ATHINA')],'GRC')).toBeUndefined();
+    expect(recoverNumberedBirthplace('Place of birth',[read('SPARTI'),read('SPARTI',40)],'GRC')).toBeUndefined();
+    expect(recoverNumberedBirthplace('Place of birth',[read('GRC'),read('GRC')],'GRC')).toBeUndefined();
   });
 });
