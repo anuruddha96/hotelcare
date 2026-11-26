@@ -20,7 +20,7 @@ export function sampleUkRegion(source:Gray,g:CodeGeometry,region:Region):Gray {
   const a=g.angle*Math.PI/180,c=Math.cos(a),s=Math.sin(a);
   for(let y=0;y<height;y++) for(let x=0;x<width;x++){
     const u=u0+(u1-u0)*x/Math.max(1,width-1),v=v0+(v1-v0)*y/Math.max(1,height-1);
-    const sx=g.cx+u*c-v*s,sy=g.cy+u*s+v*c,ix=Math.floor(sx),iy=Math.floor(sy);
+    const sx=Math.round((g.cx+u*c-v*s)*32)/32,sy=Math.round((g.cy+u*s+v*c)*32)/32,ix=Math.floor(sx),iy=Math.floor(sy);
     let sum=0,weights=0;
     for(let dy=-1;dy<=2;dy++) for(let dx=-1;dx<=2;dx++){
       const weight=cubic(sx-ix-dx)*cubic(sy-iy-dy);
@@ -35,12 +35,15 @@ export function sampleUkRegion(source:Gray,g:CodeGeometry,region:Region):Gray {
 /** CLAHE: clipped local histograms on 4x4 tiles, bilinearly interpolated.
  * This suppresses coloured security backgrounds while retaining dark letters. */
 export function localPassportContrast(image:Gray):Gray {
-  const {width,height,data}=image, nx=4,ny=4,tw=Math.ceil(width/nx),th=Math.ceil(height/ny);
+  const {width,height,data}=image, nx=4,ny=4;
+  const padded = width%nx!==0 || height%ny!==0;
+  const tw=padded?(width+nx-width%nx)/nx:width/nx,th=padded?(height+ny-height%ny)/ny:height/ny;
+  const reflect=(p:number,n:number)=>p<n?p:Math.max(0,2*n-p-2);
   const maps:Uint8Array[]=[];
   for(let ty=0;ty<ny;ty++) for(let tx=0;tx<nx;tx++){
     const hist=new Uint32Array(256),n=tw*th;
     for(let y=0;y<th;y++) for(let x=0;x<tw;x++){
-      const px=Math.min(width-1,tx*tw+x),py=Math.min(height-1,ty*th+y);
+      const px=reflect(tx*tw+x,width),py=reflect(ty*th+y,height);
       hist[data[py*width+px]]++;
     }
     const limit=Math.max(1,Math.floor(2.5*n/256));let excess=0;
