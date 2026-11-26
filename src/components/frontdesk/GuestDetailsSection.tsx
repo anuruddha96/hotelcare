@@ -13,6 +13,7 @@ import { CheckCircle2, ChevronDown, IdCard, Loader2, PencilLine, ScanLine, Trian
 import { IdScanDialog, type ScanApplyOutcome } from '@/components/frontdesk/IdScanDialog';
 import type { MrzReadResult } from '@/lib/idScan/mrz';
 import { toVizaDocumentScan, type VizaDocumentScan } from '@/lib/idScan/vizaScan';
+import { absenceGroupEmpty, passportAbsenceReview, type PassportAbsences, type PassportAbsenceKey } from '@/lib/idScan/passportAbsence';
 import { guestScanPatch, recognizedNationality, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { ENTRY_DETAILS_REASONS, isVizaPlaceholder, validEntryAbsence } from '../../../supabase/functions/_shared/viza/fieldRules';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -89,6 +90,7 @@ function expressErrorKey(error: unknown): string {
 export interface GuestRegistrationDraft {
   result: MrzReadResult | null;
   optical: OpticalGuestFields;
+  confirmedAbsences?: PassportAbsences;
 }
 export type GuestRegistrationResult = { status: 'match' | 'registered'; guest_id: string };
 
@@ -138,6 +140,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const [scan, setScan] = useState<VizaDocumentScan | null>(null);
   const [scanChanged, setScanChanged] = useState(false);
   const [optical, setOptical] = useState<OpticalGuestFields>({});
+  const [autoAbsences, setAutoAbsences] = useState<PassportAbsences>({});
   const [hasExtraColumns, setHasExtraColumns] = useState(false);
   const [hasReviewColumns, setHasReviewColumns] = useState(false);
   const [verified, setVerified] = useState(false);
@@ -147,6 +150,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
 
   useEffect(() => {
     setOptical({});
+    setAutoAbsences({});
     setSaveFailed(false);
     setSavedAt(null);
     setExpanded(false);
@@ -167,6 +171,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
         viza_review: { reservation_id: vizaReservationId, scan_reviewed: !!draft.result },
         document_scan: draft.result ? toVizaDocumentScan(draft.result) : null,
       };
+      if (draft.result && vizaReservationId) initial.viza_review = {...initial.viza_review, ...passportAbsenceReview(initial, draft.result, draft.confirmedAbsences)};
+      setAutoAbsences(draft.confirmedAbsences ?? {});
       setGuest(initial);
       setScan(draft.result ? toVizaDocumentScan(draft.result) : null);
       setOptical(draft.optical);
@@ -240,7 +246,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   // identity, so what it says replaces the booking's name and details; the
   // receptionist then corrects anything misread (sent to VIZA as a manual
   // correction next to the unchanged reading) and presses Save.
-  const applyScan = (result: MrzReadResult, opticalFields: OpticalGuestFields = {}, confirmNameChange = false): ScanApplyOutcome => {
+  const applyScan = (result: MrzReadResult, opticalFields: OpticalGuestFields = {}, confirmNameChange = false, confirmedAbsences: PassportAbsences = {}): ScanApplyOutcome => {
     if (!guest || loading || (vizaReservationId && !hasReviewColumns)) return 'unavailable';
     // A scan for a different occupant must not overwrite this saved profile.
     if (protectIdentity && !draft && guest) {
@@ -268,10 +274,10 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       const normalizeNumber = (value?: string | null) => value?.trim().toUpperCase() || '';
       const number = normalizeNumber(result.fields.documentNumber);
       const previous = [normalizeNumber(scan?.fields.okmanyAzonositoSzam), normalizeNumber(g.id_document_number)].filter(Boolean);
-      const changedDocument = !!number && previous.length > 0 && !previous.includes(number) && !previous.includes(normalizeNumber(patch.id_document_number));
+      const changedDocument = (!!number && previous.length > 0 && !previous.includes(number) && !previous.includes(normalizeNumber(patch.id_document_number))) || (!!g.id_document_type && g.id_document_type !== result.fields.documentType && previous.length > 0);
       const mother = proposals.mother_name?.trim().split(/\s+/);
       const currentReview = g.viza_review?.reservation_id === vizaReservationId ? g.viza_review : {};
-      return {
+      const updated: GuestVizaRow = {
         ...g,
         ...(changedDocument && vizaReservationId ? {
           birth_last_name: null, birth_first_name: null, birth_place: null,
@@ -285,7 +291,10 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
           viza_review: { ...(changedDocument ? {} : currentReview), reservation_id: vizaReservationId, scan_reviewed: true },
         } : {}),
       };
+      if (vizaReservationId) updated.viza_review = {...updated.viza_review, ...passportAbsenceReview(updated,result,confirmedAbsences)};
+      return updated;
     });
+    setAutoAbsences(confirmedAbsences);
     setShowAllFields(false);
     setOptical(opticalFields);
     setScan(toVizaDocumentScan(result));
@@ -299,8 +308,9 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const removeScan = () => {
     invalidateConfirmation();
     setOptical({});
+    setAutoAbsences({});
     setScan(null);
-    if (vizaReservationId) { setReview({ scan_reviewed: false }); setGuest(g=>g?{...g,document_scan:null}:g); }
+    if (vizaReservationId) { setReview({ scan_reviewed: false, ...Object.fromEntries(Object.keys(autoAbsences).map(key => [key,false])) }); setGuest(g=>g?{...g,document_scan:null}:g); }
     setScanChanged(true);
     markDirty();
   };
@@ -435,10 +445,17 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const entryOptional = !!knownNationality && (euEea.has(knownNationality) || knownNationality === 'CH') && !guest?.visa_number && !guest?.entry_date && !guest?.entry_place;
   const skipBirthName = !!guest && !guest.birth_last_name?.trim() && !guest.birth_first_name?.trim() && !review.birth_name_absent;
   const skipMotherName = !!guest && !guest.mother_name?.trim() && !guest.mother_family_name?.trim() && !guest.mother_given_name?.trim() && !review.mother_name_absent;
-  const absent = (key: 'birth_name_absent' | 'birth_place_absent' | 'mother_name_absent') => vizaReservationId && guest && !isHungarianId(guest) && (needsDocument || !!guest.id_document_number) ? (
-    <label className="col-span-2 flex min-h-11 items-center gap-2 text-xs">
-      <input type="checkbox" className="!w-6 !h-6" checked={review[key] === true} onChange={e => setReview({ [key]: e.target.checked })} />
-      {t('pms.guest.notOnDocument')}
+  const compactAbsent = (key: PassportAbsenceKey) => !!vizaReservationId && !!guest && guest.id_document_type === 'passport' && review[key] === true && absenceGroupEmpty(guest,key);
+  const absent = (key: PassportAbsenceKey) => vizaReservationId && guest && !isHungarianId(guest) && (needsDocument || !!guest.id_document_number) ? (
+    <label className={compactAbsent(key) ? "col-span-2 flex min-h-10 items-center gap-2 rounded-md border border-border bg-muted/25 px-2 py-1.5 text-xs" : "col-span-2 flex min-h-11 items-center gap-2 text-xs"}>
+      <input type="checkbox" className="!w-5 !h-5 shrink-0" checked={review[key] === true} onChange={e => {
+        setAutoAbsences(current => { const next = {...current}; delete next[key]; return next; });
+        setReview({ [key]: e.target.checked });
+      }} />
+      <span className="min-w-0">
+        {compactAbsent(key) && <span className="block font-medium">{t(({birth_name_absent:'pms.guest.birthNameGroup',mother_name_absent:'pms.guest.motherNameGroup',birth_place_absent:'pms.guest.birthPlace'})[key])}</span>}
+        <span className={compactAbsent(key) ? "text-muted-foreground" : undefined}>{t('pms.guest.notOnDocument')}{compactAbsent(key) && autoAbsences[key] ? ' · '+t('pms.guest.autoSelected') : ''}</span>
+      </span>
     </label>
   ) : null;
   const fieldLabel: Record<string, string> = {
@@ -577,12 +594,12 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             </div>}
             {hasExtraColumns && (
               <>
-                <div>
+                <div hidden={compactAbsent('birth_name_absent')}>
                   <Label className="text-xs">{t('pms.guest.birthFamilyName')}</Label>{fieldTag('birth_last_name')}
                   <Input data-viza-field="birth_last_name" aria-invalid={!!requirements && !requirements['birth_last_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.birth_last_name ?? ''} onChange={(e) => set('birth_last_name', e.target.value)} />
                   {mark('birth_last_name')}
                 </div>
-                <div>
+                <div hidden={compactAbsent('birth_name_absent')}>
                   <Label className="text-xs">{t('pms.guest.birthGivenName')}</Label>{fieldTag('birth_first_name')}
                   <Input data-viza-field="birth_first_name" aria-invalid={!!requirements && !requirements['birth_first_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.birth_first_name ?? ''} onChange={(e) => set('birth_first_name', e.target.value)} />
                   {mark('birth_first_name')}
@@ -592,22 +609,22 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             )}
             {vizaReservationId ? <>
               {guest.mother_name && !guest.mother_family_name && !guest.mother_given_name && <p className="col-span-2 text-xs text-muted-foreground">{t('pms.guest.motherName')}: {guest.mother_name}</p>}
-              <div><Label className="text-xs">{t('pms.guest.motherFamily')}</Label>{fieldTag('mother_family_name')}<Input data-viza-field="mother_family_name" aria-invalid={!!requirements && !requirements['mother_family_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_family_name ?? ''} onChange={e => set('mother_family_name', e.target.value)} /></div>
-              <div><Label className="text-xs">{t('pms.guest.motherGiven')}</Label>{fieldTag('mother_given_name')}<Input data-viza-field="mother_given_name" aria-invalid={!!requirements && !requirements['mother_given_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_given_name ?? ''} onChange={e => set('mother_given_name', e.target.value)} /></div>
+              <div hidden={compactAbsent('mother_name_absent')}><Label className="text-xs">{t('pms.guest.motherFamily')}</Label>{fieldTag('mother_family_name')}<Input data-viza-field="mother_family_name" aria-invalid={!!requirements && !requirements['mother_family_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_family_name ?? ''} onChange={e => set('mother_family_name', e.target.value)} /></div>
+              <div hidden={compactAbsent('mother_name_absent')}><Label className="text-xs">{t('pms.guest.motherGiven')}</Label>{fieldTag('mother_given_name')}<Input data-viza-field="mother_given_name" aria-invalid={!!requirements && !requirements['mother_given_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_given_name ?? ''} onChange={e => set('mother_given_name', e.target.value)} /></div>
               {absent('mother_name_absent')}
             </> : <div className="col-span-2">
               <Label className="text-xs">{t('pms.guest.motherName')}</Label>
               <Input className="h-11 bg-background/70 text-foreground" value={guest.mother_name ?? ''} onChange={(e) => set('mother_name', e.target.value)} />
                   {mark('mother_name')}
             </div>}
-            <div>
+            <div hidden={compactAbsent('birth_place_absent')}>
               <Label className="text-xs">{t('pms.guest.birthPlace')}</Label>{fieldTag('birth_place')}
               <Input data-viza-field="birth_place" aria-invalid={!!requirements && !requirements['birth_place']?.ok} className="h-11 bg-background/70 text-foreground" maxLength={200} value={guest.birth_place ?? ''} onChange={(e) => set('birth_place', e.target.value)} />
                   {mark('birth_place')}
                   {guest.id_document_type==='passport' && requirements && <p className="text-xs text-muted-foreground">{t('pms.guest.requirement.birthHint')}</p>}
-                  {absent('birth_place_absent')}
-                  {guest.id_document_type==='passport' && review.birth_place_absent && <p className="text-xs text-amber-700 dark:text-amber-300">{t('pms.guest.requirement.birthWarning')}</p>}
             </div>
+            {absent('birth_place_absent')}
+            {guest.id_document_type==='passport' && review.birth_place_absent && !autoAbsences.birth_place_absent && <p className="col-span-2 text-xs text-amber-700 dark:text-amber-300">{t('pms.guest.requirement.birthWarning')}</p>}
             {vizaReservationId && !needsDocument && !guest.id_document_number && <label className="col-span-2 flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" className="!w-6 !h-6" data-viza-field="parent_statement" checked={review.parent_statement === true} onChange={e => setReview({ parent_statement: e.target.checked })} />{t('pms.guest.parentStatement')}</label>}
             {vizaReservationId && (needsDocument || guest.id_document_number) && (!review.scan_reviewed || !scan) && <div className="col-span-2"><Label className="text-xs">{t('pms.guest.manualReason')}</Label>{fieldTag('manual_reason')}<Input data-viza-field="manual_reason" value={review.manual_reason ?? ''} onChange={e => setReview({ manual_reason: e.target.value })} /></div>}
             {!needsDocument && <p className="col-span-2 text-[11px] text-muted-foreground">{t('pms.guest.under14')}</p>}

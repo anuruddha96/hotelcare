@@ -260,7 +260,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
         </div>
       ))}
       {express && unmatchedHints.length > vacant && <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">{t('pms.express.unmatchedNames')}: {unmatchedHints.slice(vacant).map(h=>displayName(h.first_name,h.last_name)).join(', ')}</p>}
-      {express && <IdScanDialog open={scanNewOpen} onOpenChange={setScanNewOpen} onApply={(result,optical={})=>setDraft({result,optical})}/>}
+      {express && <IdScanDialog open={scanNewOpen} onOpenChange={setScanNewOpen} onApply={(result,optical={},_confirmNameChange,confirmedAbsences)=>setDraft({result,optical,confirmedAbsences})}/>}
       {adding && (
         <div className="space-y-2 border-t pt-2">
           <GuestSearchSelect value={guestIdToAdd} onChange={setGuestIdToAdd}

@@ -118,6 +118,45 @@ async function saveEditor() {
   fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
 }
 describe('document reader evidence and corrections', () => {
+  it('auto-selects only confirmed missing passport fields and saves them for this stay', async () => {
+    const query = mockGuest({...guest,birth_place:null,nationality:'DE'});
+    await openEditor('res-1');
+    const confirmed = {birth_name_absent:true,mother_name_absent:true,birth_place_absent:true};
+    act(() => mocks.apply(readResult('TEST123'),{},false,confirmed));
+    await waitFor(() => {
+      expect(screen.getAllByText('pms.guest.notOnDocument · pms.guest.autoSelected')).toHaveLength(3);
+      expect(document.querySelector('[data-viza-field="birth_place"]')).not.toBeVisible();
+    });
+    await saveEditor();
+    await waitFor(() => expect(query.update).toHaveBeenCalled());
+    expect(query.update.mock.calls[0][0].viza_review).toMatchObject({...confirmed,reservation_id:'res-1',scan_reviewed:true});
+    expect(query.update.mock.calls[0][0].birth_place).toBeNull();
+    const checkbox = screen.getByRole('checkbox',{name:/pms.guest.birthPlace.*pms.guest.notOnDocument/});
+    fireEvent.click(checkbox);
+    expect(document.querySelector('[data-viza-field="birth_place"]')).toBeVisible();
+  });
+  it('fills and saves a recovered passport birthplace instead of treating it as absent', async () => {
+    const query = mockGuest({...guest,birth_place:null,nationality:'DE'});
+    await openEditor('res-1');
+    act(() => mocks.apply(readResult('TEST123'),{birth_place:'München'},false,{birth_name_absent:true,mother_name_absent:true}));
+    await waitFor(() => expect(document.querySelector('[data-viza-field="birth_place"]')).toHaveValue('München'));
+    await saveEditor();
+    await waitFor(() => expect(query.update).toHaveBeenCalled());
+    expect(query.update.mock.calls[0][0]).toMatchObject({birth_place:'München',viza_review:{birth_place_absent:false}});
+  });
+  it('does not mark a missing place as absent when an MRZ-only scan is applied', async () => {
+    mockGuest({...guest,birth_place:null,nationality:'DE'});
+    await openEditor('res-1');
+    act(() => mocks.apply(readResult('TEST123'),{}));
+    expect(document.querySelector('[data-viza-field="birth_place"]')).toBeVisible();
+    expect(screen.queryByText('pms.guest.notOnDocument · pms.guest.autoSelected')).not.toBeInTheDocument();
+  });
+  it('prepopulates the same confirmed absence flags in the express draft', async () => {
+    const onRegister = vi.fn();
+    render(<GuestDetailsSection guestId={null} vizaReservationId="res-1" occurredAt="2026-11-24T10:00:00Z" draft={{result:readResult('TEST123'), optical:{}, confirmedAbsences:{birth_name_absent:true,mother_name_absent:true,birth_place_absent:true}}} onRegister={onRegister}/>);
+    await waitFor(() => expect(screen.getAllByText('pms.guest.notOnDocument · pms.guest.autoSelected')).toHaveLength(3));
+    expect(document.querySelector('[data-viza-field="birth_place"]')).not.toBeVisible();
+  });
   it('fills and saves all four printed Hungarian birth and mother name fields without typing', async () => {
     const query = mockGuest({...guest, nationality:'HU', id_document_type:'id_card'});
     await openEditor('res-1');
