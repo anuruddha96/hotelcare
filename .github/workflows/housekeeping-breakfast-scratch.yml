@@ -43,4 +43,4 @@ jobs:
       - name: Test breakfast dispatch and signed-in staff authorization
         run: deno test supabase/functions/breakfast-mark-served/notifications_test.ts
       - name: Type-check breakfast and push Edge Functions
-        run: deno check supabase/functions/breakfast-mark-served/index.ts supabase/functions/send-push-notification/index.ts
+        run: deno check --node-modules-dir=auto supabase/functions/breakfast-mark-served/index.ts supabase/functions/send-push-notification/index.ts
