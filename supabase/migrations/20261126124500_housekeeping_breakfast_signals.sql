@@ -31,7 +31,9 @@ create index housekeeping_breakfast_signals_org_date_idx
   on public.housekeeping_breakfast_signals (organization_slug, signal_date);
 alter table public.housekeeping_breakfast_signals enable row level security;
 revoke all on public.housekeeping_breakfast_signals from public, anon, authenticated;
-grant select on public.housekeeping_breakfast_signals to authenticated;
+grant select (id, organization_slug, hotel_id, room_id, room_number, signal_date, first_seen_at,
+  last_seen_at, window_ends_at, guests_seen, guests_expected, closed_at)
+  on public.housekeeping_breakfast_signals to authenticated;
 grant select, insert, update, delete on public.housekeeping_breakfast_signals to service_role;
 
 create policy breakfast_signals_assigned_read on public.housekeeping_breakfast_signals
@@ -147,6 +149,7 @@ begin
   -- DND, hold, retry or declined-service room. No changes to the assignment.
   if v_signal.closed_at is null and v_signal.window_ends_at > now()
      and not coalesce(v_room.is_dnd,false)
+     and coalesce(v_room.status,'') not in ('dnd','out_of_order','out_of_service','maintenance')
      and not coalesce(v_room.is_checkout_room,false)
      and coalesce(v_room.pms_metadata->>'scheduledDepartureToday','false') <> 'true'
      and coalesce(v_room.notes,'') not like '%[NO_SERVICE]%'
@@ -158,7 +161,7 @@ begin
       and a.assignment_date = v_today and a.status = 'assigned'
       and a.assignment_type = 'daily_cleaning'
       and not coalesce(a.is_dnd,false) and not a.pms_hold
-      and coalesce(a.service_result,'') <> 'guest_declined'
+      and coalesce(a.service_result,'') not in ('guest_declined','cleaned')
       and coalesce(a.notes,'') not like '%[NO_SERVICE]%'
       and coalesce(a.notes,'') not like '%[NO_BOARD_NO_CLEANING]%';
   end if;
