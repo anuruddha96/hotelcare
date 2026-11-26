@@ -85,8 +85,8 @@ function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, 
   const locale = useLocaleFormat();
   return <details open className="border-b border-border last:border-b-0 group">
     <summary className="list-none cursor-pointer select-none px-3 py-2 bg-muted/45 hover:bg-muted/70 flex items-center justify-between gap-2">
-      <span className="flex items-center gap-2 min-w-0 text-xs font-semibold uppercase tracking-wide"><Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" /><span className="truncate">{title}</span></span>
-      <Badge variant="secondary" className="h-5 min-w-5 justify-center px-1.5 text-[10px]">{items.length}</Badge>
+      <span className="flex items-center gap-2 min-w-0 text-xs font-semibold uppercase tracking-wide"><Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" /><span className="min-w-0 break-words leading-snug">{title}</span></span>
+      <Badge variant="secondary" className="h-5 min-w-5 shrink-0 justify-center px-1.5 text-[10px]">{items.length}</Badge>
     </summary>
     <div className="divide-y divide-border/70">
       {items.length === 0 ? <div className="px-3 py-3 text-xs text-muted-foreground">—</div> : items.slice(0, 12).map((row) =>
@@ -474,8 +474,8 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       </div>;
     })()}
 
-    {!loadError && <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
-      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned editable={nativeHotel} onChanged={fetchAll} pmsName={nativeHotel ? null : 'Previo'} onQuickAction={(row, action) => setActioned({ row, dialog: action })} onRoomStatusChange={changeRoomStatus} onRoomPeriodManage={(room) => setPeriodRoom(room)} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
+    {!loadError && <div className="grid min-w-0 grid-cols-1 gap-3 items-start xl:grid-cols-[minmax(0,1fr)_264px] 2xl:grid-cols-[minmax(0,1fr)_280px]"><div className="min-w-0">
+      {view === 'planner' ? <ReservationCalendar wideWorkspace rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned editable={nativeHotel} onChanged={fetchAll} pmsName={nativeHotel ? null : 'Previo'} onQuickAction={(row, action) => setActioned({ row, dialog: action })} onRoomStatusChange={changeRoomStatus} onRoomPeriodManage={(room) => setPeriodRoom(room)} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
         <thead className="sticky top-0 bg-card z-10 border-b border-border"><tr className="text-left text-xs text-muted-foreground">
           <th className="px-3 py-2 font-medium">{t('pms.reservations.guest')}</th><th className="px-3 py-2 font-medium">{t('pms.res.room')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.checkInDate')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.status')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.source')}</th>
         </tr></thead><tbody className="divide-y divide-border">{filtered.map((row) => <tr key={row.id} onClick={() => openReservation(row)} className={isSnapshotOnly(row) ? 'bg-muted/15' : 'cursor-pointer hover:bg-accent/30'}>
@@ -484,7 +484,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <td className="px-3 py-2 capitalize" title={isSnapshotOnly(row) ? t('pms.workspace.snapshotCaptured').replace('{date}', locale.formatDateTime(row.captured_at)) : undefined}>{isSnapshotOnly(row) ? t('pms.workspace.snapshot') : bookingSourceLabel(reservationChannel(row).label, t)}</td>
         </tr>)}</tbody></table></div></CardContent></Card>}
     </div>
-      <aside className="border border-border rounded-lg overflow-hidden bg-card 2xl:sticky 2xl:top-3">
+      <aside className="min-w-0 border border-border rounded-lg overflow-hidden bg-card xl:sticky xl:top-3 xl:max-h-[72vh] xl:overflow-y-auto xl:overscroll-contain">
         <SideSection signals={guestSignals} title={unassignedUrgent ? `${floatingTitle} · ${unassignedUrgent} ${t('pms.cal.floatingUrgent')}` : floatingTitle} icon={unassignedUrgent ? AlertTriangle : Waves} items={unassigned} onOpen={openReservation} />
         <SideSection signals={guestSignals} title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation}
           actionAnchor="fd-checkin-button" actionLabel={t('pms.checkIn')} onAction={(row) => setActioned({ row, dialog: 'checkin' })} />
