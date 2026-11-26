@@ -2,6 +2,10 @@
 -- No hotel enablement changes. Signals remain advisory, independent of delivery.
 alter table public.housekeeping_breakfast_signals
   add column notification_cycle integer not null default 0;
+-- Zero is valid only for a fully undone, closed signal; a later mark starts at one again.
+alter table public.housekeeping_breakfast_signals drop constraint housekeeping_breakfast_signals_guests_seen_check;
+alter table public.housekeeping_breakfast_signals add constraint housekeeping_breakfast_signals_guests_seen_check
+  check (guests_seen > 0 or (guests_seen = 0 and closed_reason = 'undone' and closed_at is not null));
 alter table public.housekeeping_automation_settings
   add column breakfast_push_enabled boolean not null default true;
 
@@ -65,6 +69,7 @@ begin
     new.notification_cycle := old.notification_cycle + 1;
     new.notified_user_id := null;
     new.notified_at := null;
+    if cardinality(old.attendance_ids)=0 then new.first_seen_at := new.last_seen_at; end if;
   end if;
   return new;
 end;
@@ -307,7 +312,7 @@ begin
     from public.breakfast_attendance a where a.id=any(v_signal.attendance_ids) and a.hotel_id=_hotel_id and a.organization_slug=_org;
     if coalesce(cardinality(v_ids),0)=0 or coalesce(v_count,0)<=0 then
       update public.housekeeping_breakfast_signals s set closed_at=now(),closed_by=_actor_id,closed_reason='undone',
-        attendance_ids='{}',locations='{}',updated_at=now() where s.id=v_signal.id;
+        attendance_ids='{}',locations='{}',guests_seen=0,updated_at=now() where s.id=v_signal.id;
     else
       update public.housekeeping_breakfast_signals s set attendance_ids=v_ids,locations=v_locations,
         guests_seen=v_count,first_seen_at=v_first,last_seen_at=v_last,
@@ -371,5 +376,9 @@ $migration$;
 -- drop trigger breakfast_notification_cycle on public.housekeeping_breakfast_signals;
 -- drop function public.breakfast_notification_cycle_trigger();
 -- drop table public.housekeeping_breakfast_push_outbox,public.housekeeping_breakfast_mark_receipts;
+-- Before rollback, verify there are no zero-count undone signals; otherwise keep the
+-- relaxed check or explicitly approve removal of those historical rows.
+-- alter table public.housekeeping_breakfast_signals drop constraint housekeeping_breakfast_signals_guests_seen_check;
+-- alter table public.housekeeping_breakfast_signals add constraint housekeeping_breakfast_signals_guests_seen_check check (guests_seen > 0);
 -- alter table public.housekeeping_breakfast_signals drop column notification_cycle;
 -- alter table public.housekeeping_automation_settings drop column breakfast_push_enabled;
