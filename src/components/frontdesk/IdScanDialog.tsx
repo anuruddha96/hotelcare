@@ -21,6 +21,7 @@ import { recoverPassportBirthplace, hasPassportBirthplaceLabel, numberedUkBirthp
 import { sampleUkRegion, ukLegacyRegions, localPassportContrast, passportOtsu, verifiedLegacyBirthplace } from '@/lib/idScan/ukPassportVisual';
 import { suggestPassportAbsences, PASSPORT_ABSENCE_KEYS, type PassportAbsences } from '@/lib/idScan/passportAbsence';
 import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
+import { harmonizeNameAccents } from '@/lib/idScan/nameAccents';
 import { assessReadiness, type Readiness } from '@/lib/idScan/autoCapture';
 import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
 import { firstSideAction, nextMrzScanAction, looksLikePassport, classifyFirstCapture, canAdvanceToIdBack, type FirstCaptureKind } from '@/lib/idScan/documentScanFlow';
@@ -227,6 +228,8 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
   const [captureKind, setCaptureKind] = useState<FirstCaptureKind>('unknown');
   const passportEvidenceRef = useRef(false);
   const frontRef = useRef({ captured: false, positive: false, text: '' });
+  // Extra reading of a Hungarian ID front with the Hungarian model (accents).
+  const frontAccentRef = useRef<{ promise: Promise<string[]> } | null>(null);
   const busyRef = useRef<number | null>(null);
   const backdropRef = useRef<HTMLCanvasElement | null>(null);
   const [backdrop, setBackdrop] = useState<HTMLCanvasElement | null>(null);
@@ -288,6 +291,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
     flipUntil.current = 0;
     frontSession.reset();
     hungarianSession.reset();
+    frontAccentRef.current = null;
     frontRef.current = { captured: false, positive: false, text: '' };
   }, [frontSession, hungarianSession]);
 
@@ -462,6 +466,24 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       finally { wipe(canvas); }
     }
     return { texts, score, positiveScore };
+  };
+
+  // Hungarian ID front: the mixed model reads the printed name without its
+  // accents. One extra reading with the Hungarian model runs in the
+  // background while the card is turned over; after the back is read its
+  // accents are matched to the code-line letters (nameAccents.ts).
+  const readFrontAccents = async (frame: HTMLCanvasElement, alive: () => boolean): Promise<string[]> => {
+    const texts: string[] = [];
+    for (const enhanced of [false, true]) {
+      if (!alive()) break;
+      const canvas = printedCanvas(frame, false, enhanced);
+      try {
+        const reading = await hungarianSession.recognizeWithConfidence(canvas, 12000, '6');
+        if (reading.text.trim()) texts.push(reading.text);
+      } catch { /* a failed reading adds no accents */ }
+      finally { wipe(canvas); }
+    }
+    return texts;
   };
 
   // A passport's MRZ does not carry birthplace. Re-read the visual zone
@@ -678,6 +700,7 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       setFrontAssessment(assessment.status === 'unreadable' ? { status: 'needs_review', matchedFields: [] } : assessment);
     }
     const frontText = action === 'id_complete' ? front.text : '';
+    const frontAccent = action === 'id_complete' ? frontAccentRef.current : null;
     setOpticalFields(opticalGuestFields(parsed, frontText, ''));
     setOpticalReading(!!frame);
     setOpticalIssue(false);
@@ -707,6 +730,13 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         copy = snapshotFrame(frame, frame.width, frame.height);
         const hungarian = action === 'id_complete' && parsed.format === 'TD1' && (parsed.fields.issuingState === 'HUN' || parsed.fields.nationalityIso3 === 'HUN' || /HUNGARY|MAGYARORSZ[AÁ]G/i.test(frontText));
         const complete = (v: OpticalGuestFields) => !needsHungarianPrintedFallback(true, v);
+        // Wait (at most 8 s) for the Hungarian reading of the front started
+        // while the card was turned over; it only adds accents to names.
+        const accentTexts = frontAccent
+          ? await Promise.race([frontAccent.promise, new Promise<string[]>(resolve => setTimeout(() => resolve([]), 8000))])
+          : [];
+        if (frontAccentRef.current === frontAccent) frontAccentRef.current = null;
+        const frontAll = [frontText, ...accentTexts].filter(t => t.trim()).join('\n--- OCR PASS ---\n');
         // ID back with located code lines: read the straightened printed
         // rows. The older whole-picture reading remains the fallback.
         const located = action === 'id_complete' && parsed.format === 'TD1' && geometry
@@ -715,11 +745,11 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
         // whole-picture reading must not overwrite or complete them.
         const { texts, score } = located ? { texts: ['located'], score: null } : await readPrinted(frontSession, copy, hungarian, run, action === 'passport_complete');
         let extracted = located
-          ? { ...opticalGuestFields(parsed, frontText, ''), ...located }
+          ? { ...opticalGuestFields(parsed, frontAll, ''), ...located }
           : hungarian
-            ? mergeHungarianFallback(opticalGuestFields(parsed, frontText, ''),
+            ? mergeHungarianFallback(opticalGuestFields(parsed, frontAll, ''),
               printedGuestFields(agreePrinted(texts.map(text => parsePrintedText(text, true))), parsed.fields.mrzFirstName))
-            : opticalGuestFields(parsed, frontText, texts.join('\n--- OCR PASS ---\n'));
+            : opticalGuestFields(parsed, frontAll, texts.join('\n--- OCR PASS ---\n'));
         if (needsHungarianPrintedFallback(hungarian, extracted) && scanRunRef.current === run) {
           const targeted = await readHungarianRows(copy, run);
           extracted = mergeHungarianFallback(extracted, targeted.fields, targeted.confirmedMother);
@@ -756,6 +786,8 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
             delete extracted.birth_place;
           }
         }
+        // Current and birth names written twice get the same accents.
+        extracted = harmonizeNameAccents(extracted, parsed.fields.nationalityIso3 === 'HUN' || parsed.fields.issuingState === 'HUN');
         if (scanRunRef.current === run) {
           setOpticalFields(extracted);
           const suggestions = suggestPassportAbsences(parsed, extracted, texts, score);
@@ -879,6 +911,14 @@ export function IdScanDialog({ open, onOpenChange, onApply, previousDocumentType
       clearBackdrop(); setFailReason('passport_retry'); setPhase('failed'); return;
     }
     frontRef.current.positive = kind === 'id_card';
+    if (kind === 'id_card' && /MAGYARORSZ|HUNGARY/i.test(frontRef.current.text)) {
+      const copy = snapshotFrame(frame, frame.width, frame.height);
+      const entry: { promise: Promise<string[]> } = { promise: Promise.resolve([]) };
+      frontAccentRef.current = entry;
+      entry.promise = readFrontAccents(copy, () => frontAccentRef.current === entry)
+        .catch(() => [] as string[])
+        .finally(() => wipe(copy));
+    }
     setFrontConfidence(score);
     if (shouldAdvanceFront(positiveScore, frontRef.current.positive)) advanceFront(kind);
     else { clearBackdrop(); setPhase('front_preview'); }
