@@ -722,5 +722,5 @@ Deno.test("UJRA_KULDENDO resends stop after MAX_AUTO_RESENDS automatic attempts 
     last = next.id;
   }
   assert.equal(db.rows("ntak_messages").length, MAX_AUTO_RESENDS + 1, "original + MAX_AUTO_RESENDS resends");
-  assert.match(String(db.rows("ntak_messages").find((m:any)=>m.id===last).last_error), /automatic resending stopped/);
+  assert.match(String(db.rows("ntak_messages").find((m:any)=>m.id===last)?.last_error), /automatic resending stopped/);
 });
