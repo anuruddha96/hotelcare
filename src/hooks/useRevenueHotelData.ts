@@ -178,6 +178,9 @@ export interface RevenueHotelData {
   publishedCurrency?: string | null;
   /** True while later dates of the requested horizon are still being fetched. */
   extending: boolean;
+  /** The complete, verified published dataset is loaded for this property. */
+  fullPublishedRangeReady?: boolean;
+  publishedHorizonEnd?: string;
   reload: () => Promise<void>;
   /** Refresh only Previo room-type rooms-for-sale without reloading rates/reservations. */
   refreshAvailability: () => Promise<void>;
@@ -191,6 +194,7 @@ export function useRevenueHotelData(
   organizationSlug: string | null,
   horizonDays = 30,
   pickupWindowDays = DEFAULT_PICKUP_WINDOW_DAYS,
+  fullPublishedRange = false,
 ): RevenueHotelData {
   const cacheKey = hotelId && organizationSlug ? `${organizationSlug}:${hotelId}` : null;
   const initialCache = cacheKey ? readAnyCache(cacheKey) : undefined;
@@ -200,6 +204,7 @@ export function useRevenueHotelData(
 
   const [loading, setLoading] = useState(!initialCache?.payload);
   const [extending, setExtending] = useState(false);
+  const [loadedFullRange, setLoadedFullRange] = useState<{ cacheKey: string; today: string; end: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const [roomMetadata, setRoomMetadata] = useState<RevenueRoomType[]>(
@@ -221,7 +226,9 @@ export function useRevenueHotelData(
 
   const effectiveHorizonDays = Math.max(1, Math.min(365, horizonDays));
   const today = budapestToday();
-  const horizonEnd = addDays(today, effectiveHorizonDays - 1);
+  const fullPublishedRangeReady = fullPublishedRange && loadedFullRange?.cacheKey === cacheKey && loadedFullRange?.today === today;
+  const publishedHorizonEnd = fullPublishedRangeReady ? loadedFullRange?.end : undefined;
+  const horizonEnd = publishedHorizonEnd ? (publishedHorizonEnd < today ? today : publishedHorizonEnd) : addDays(today, effectiveHorizonDays - 1);
 
   const refreshAvailability = useCallback(async () => {
     if (!hotelId) { setAvailability([]); return; }
@@ -273,21 +280,24 @@ export function useRevenueHotelData(
 
   const runLoad = useCallback(async () => {
     if (!hotelId || !organizationSlug || !cacheKey) { setLoading(false); return; }
-    const requestKey = `${cacheKey}|${today}|${effectiveHorizonDays}`;
+    const requestKey = `${cacheKey}|${today}|${fullPublishedRange ? "full-published" : effectiveHorizonDays}`;
     if (inFlightRef.current?.key === requestKey) return inFlightRef.current.promise;
     const requestVersion = ++requestVersionRef.current;
 
-    const fetchStage = async (windowDays: number) => {
+    const fetchStage = async (windowDays: number, complete = false) => {
       const { data } = await retryTransient(async () => {
-        const result = await (supabase as any).rpc("get_revenue_published_payload_window", {
-          _hotel_id: hotelId,
-          _horizon_days: Math.max(1, Math.min(365, Math.ceil(windowDays))),
-        });
+        const result = complete
+          ? await (supabase as any).rpc("get_revenue_published_payload", { _hotel_id: hotelId })
+          : await (supabase as any).rpc("get_revenue_published_payload_window", {
+              _hotel_id: hotelId,
+              _horizon_days: Math.max(1, Math.min(365, Math.ceil(windowDays))),
+            });
         if (result.error) throw result.error;
         return result;
       }, { attempts: 3, baseDelayMs: 500, maxDelayMs: 1800, timeoutMs: 30000 });
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.payload) throw new Error("No completed Revenue dataset is available yet");
+      if (complete && !/^\d{4}-\d{2}-\d{2}$/.test(row.horizon_to ?? "")) throw new Error("Published Revenue horizon is unavailable");
       return row;
     };
 
@@ -346,27 +356,29 @@ export function useRevenueHotelData(
       const hadData = !!payloadRef.current;
       if (!hadData) setLoading(true);
       setError(null);
-      const wantsWindow = !hadData && effectiveHorizonDays > FIRST_WINDOW_DAYS;
+      const wantsWindow = !hadData && (fullPublishedRange || effectiveHorizonDays > FIRST_WINDOW_DAYS);
 
       try {
         if (wantsWindow) {
           const first = await fetchStage(FIRST_WINDOW_DAYS);
           if (requestVersion !== requestVersionRef.current) return;
           const firstPayload = apply(first, true);
+          setLoadedFullRange(null);
           await refreshAvailability();
           setLoading(false);
           setExtending(true);
         }
 
-        if (!wantsWindow || effectiveHorizonDays > FIRST_WINDOW_DAYS) {
+        if (!wantsWindow || fullPublishedRange || effectiveHorizonDays > FIRST_WINDOW_DAYS) {
           if (hadData || wantsWindow) {
             setExtending(true);
             await waitForBrowserIdle();
             if (requestVersion !== requestVersionRef.current) return;
           }
-          const requested = await fetchStage(effectiveHorizonDays);
+          const requested = await fetchStage(effectiveHorizonDays, fullPublishedRange);
           if (requestVersion !== requestVersionRef.current) return;
-          const requestedPayload = apply(requested, !wantsWindow);
+          const requestedPayload = apply(requested, !wantsWindow && !fullPublishedRange);
+          setLoadedFullRange(fullPublishedRange ? { cacheKey, today, end: requested.horizon_to } : null);
           await refreshAvailability();
         }
       } catch (e) {
@@ -384,7 +396,7 @@ export function useRevenueHotelData(
     try { await request; } finally {
       if (inFlightRef.current?.promise === request) inFlightRef.current = null;
     }
-  }, [hotelId, organizationSlug, cacheKey, effectiveHorizonDays, today, refreshAvailability]);
+  }, [hotelId, organizationSlug, cacheKey, effectiveHorizonDays, fullPublishedRange, today, refreshAvailability]);
 
   /** A sync or successful price push requires a fresh read, even during a prior load. */
   const reload = useCallback(async () => {
@@ -422,6 +434,7 @@ export function useRevenueHotelData(
     setLastSyncAt(cached?.lastSyncAt ?? null);
     setLastSyncBy(cached?.lastSyncBy ?? null);
     setAvailability([]);
+    setLoadedFullRange(null);
     setLoading(!cached?.payload);
     setError(null);
   }, [cacheKey]);
@@ -597,5 +610,6 @@ export function useRevenueHotelData(
     excludedRoomTypeIds, inventoryMismatch, configuredRooms: sellableOverride,
     publishedCurrency: typeof settings.base_currency === "string" ? settings.base_currency : null,
     extending,
+    fullPublishedRangeReady, publishedHorizonEnd,
   };
 }
