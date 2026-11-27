@@ -6,6 +6,8 @@ type Row = readonly [string, string, string, string, string, string, string, str
 
 // en, hu, es, vi, mn, az, tl, uk, ru
 const rows: Record<string, Row> = {
+  'nav.googleAds': ['Google Ads', 'Google-hirdetések', 'Google Ads', 'Google Ads', 'Google Ads', 'Google Ads', 'Google Ads', 'Google Ads', 'Google Ads'],
+  'nav.googleAds.tip': ['Google Ads campaigns and analytics', 'Google-hirdetési kampányok és elemzések', 'Campañas y análisis de Google Ads', 'Chiến dịch và phân tích Google Ads', 'Google Ads кампанит ажил ба шинжилгээ', 'Google Ads kampaniyaları və analitika', 'Mga campaign at analytics ng Google Ads', 'Кампанії та аналітика Google Ads', 'Кампании и аналитика Google Ads'],
   "pms.scan.selectDocument": ["Which document are you scanning?","Milyen okmányt olvasol be?","¿Qué documento vas a escanear?","Bạn đang quét giấy tờ nào?","Ямар баримт уншуулах вэ?","Hansı sənədi skan edirsiniz?","Anong dokumento ang isi-scan?","Який документ скануєте?","Какой документ сканируете?"],
   "pms.scan.idBothSides": ["Front and back","Előlap és hátlap","Anverso y reverso","Mặt trước và mặt sau","Урд ба ар тал","Ön və arxa tərəf","Harap at likod","Лицьовий і зворотний бік","Лицевая и обратная стороны"],
   "pms.scan.idFrontOnly": ["ID card · scan the front","Személyi igazolvány · az előlap beolvasása","DNI · escanea el anverso","Thẻ căn cước · quét mặt trước","Үнэмлэх · нүүрийг уншуулах","Şəxsiyyət vəsiqəsi · ön tərəfi skan edin","ID card · i-scan ang harap","ID-картка · скануйте лицьовий бік","ID-карта · сканируйте лицевую сторону"],

@@ -56,6 +56,9 @@ verify_jwt = false
 [functions.notify-manager-ticket-closed]
 verify_jwt = true
 
+[functions.attendance-location-alert]
+verify_jwt = true
+
 [functions.create-housekeeper]
 verify_jwt = true
 
@@ -390,4 +393,9 @@ verify_jwt = false
 # NTAK PMS v9: the cron worker authenticates with the Vault worker secret; UI
 # actions validate the user's JWT and hotel access inside the function.
 [functions.ntak-pms]
+verify_jwt = false
+
+# User actions verify the JWT and organization administrator role in code;
+# scheduled calls require the separate private worker secret.
+[functions.google-ads-report]
 verify_jwt = false

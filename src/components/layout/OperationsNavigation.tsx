@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   CalendarDays, CarFront, ChevronLeft, ChevronRight, Clock, DoorOpen, Home, Radio, Receipt,
-  Settings, TabletSmartphone, Tags, Ticket, TrendingUp, Users, MessageSquareText, GraduationCap,
+  Settings, TabletSmartphone, Tags, Ticket, TrendingUp, Users, MessageSquareText, GraduationCap, Megaphone,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 type DashboardTab = 'people' | 'tickets' | 'rooms' | 'housekeeping' | 'attendance' | 'admin';
 type ModuleKey = DashboardTab | 'reception' | 'parking' | 'revenue' | 'rates-availability' | 'channel-manager'
-  | 'invoices' | 'staff-schedule' | 'insuite' | 'reputation' | 'price-list' | 'training';
+  | 'invoices' | 'staff-schedule' | 'insuite' | 'reputation' | 'price-list' | 'training' | 'google-ads';
 
 interface OperationsNavigationProps {
   /** Highlighted tab. When omitted, it is worked out from the current URL. */
@@ -31,6 +31,7 @@ function moduleFromLocation(pathname: string, search: string, basePath: string):
   const under = (segment: string) => pathname.startsWith(`${basePath}/${segment}`);
   if (under('reception') || under('reservations') || under('front-desk') || under('guests')) return 'reception';
   if (under('revenue')) return 'revenue';
+  if (under('google-ads')) return 'google-ads';
   if (under('price-list')) return 'price-list';
   if (under('rates-availability')) return 'revenue'; // merged into Revenue Management
   if (under('channel-manager')) return 'channel-manager';
@@ -116,6 +117,7 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     // module), so on native-PMS hotels managers open it too. On Previo hotels
     // revenue figures stay with top management; managers see the price list.
     ...(executive || (nativePms && role === 'manager' && caps.accessRole === 'manager') ? [{ key: 'revenue' as const, label: 'nav.revenue', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) }] : []),
+    ...(role === 'admin' && (!profile?.access_role || profile.access_role === 'admin') && profile?.organization_slug === organizationSlug ? [{ key: 'google-ads' as const, label: 'nav.googleAds', icon: Megaphone, click: () => navigate(`${basePath}/google-ads`) }] : []),
     ...(!executive && !nativePms && caps.priceList ? [{ key: 'price-list' as const, label: 'nav.priceList', icon: Tags, click: () => navigate(`${basePath}/price-list`) }] : []),
     ...(canAccessChannelManager(role, profile?.nickname, profile?.organization_slug) ? [{ key: 'channel-manager' as const, label: 'nav.channels', icon: Radio, click: () => navigate(`${basePath}/channel-manager`) }] : []),
     ...(caps.reviews && (executive || (role === 'manager' && organizationSlug === 'rdhotels')) ? [{ key: 'reputation' as const, label: 'nav.reputation', icon: MessageSquareText, click: () => navigate(`${basePath}/reputation`) }] : []),

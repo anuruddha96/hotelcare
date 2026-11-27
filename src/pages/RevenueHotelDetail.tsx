@@ -202,22 +202,24 @@ function PrevioRevenueHotelDetail() {
   // later month cards never leave their "loading" state and bookings taken
   // today for far-out stay dates are trimmed away from the counters.
   const [horizonDays, setHorizonDays] = useState(BASE_HORIZON_DAYS);
-  const growHorizon = useCallback((days: number) => {
+  const [fullPublishedRange, setFullPublishedRange] = useState(false);
+  const growHorizon = useCallback((days: number, complete = false) => {
     setHorizonDays(Math.max(BASE_HORIZON_DAYS, Math.min(365, Math.ceil(days))));
+    setFullPublishedRange(complete);
   }, []);
 
-  const live = useRevenueHotelData(hotelId ?? null, revenueOrgSlug, horizonDays, pickupWindow);
+  const live = useRevenueHotelData(hotelId ?? null, revenueOrgSlug, horizonDays, pickupWindow, fullPublishedRange);
 
   // Internal demand grade per date (booking pace, pickup, pressure, lead time).
   const demandByDate = useMemo(() => {
     const board = buildDemandBoard({
       nights: live.nights.map((n) => ({ stay_date: n.stay_date, created_at_pms: n.created_at_pms })),
       today: live.today,
-      days: horizonDays,
+      days: Math.max(horizonDays, Math.round((Date.parse(live.horizonEnd) - Date.parse(live.today)) / 86400000) + 1),
       roomsAvailable: live.roomsAvailable,
     });
     return new Map(board.map((d) => [d.date, { score: d.score, band: d.band, drivers: d.drivers }]));
-  }, [live.nights, live.today, live.roomsAvailable, horizonDays]);
+  }, [live.nights, live.today, live.horizonEnd, live.roomsAvailable, horizonDays]);
 
   // Approved demand events (manual + AI) shown on the calendar's demand row.
   const [demandEvents, setDemandEvents] = useState<
@@ -1280,6 +1282,8 @@ function PrevioRevenueHotelDetail() {
             onRatesUpdated={live.reload}
             onAvailabilityUpdated={live.refreshAvailability}
             onHorizonDaysChange={growHorizon}
+            fullPickupRangeReady={live.fullPublishedRangeReady}
+            publishedHorizonEnd={live.publishedHorizonEnd}
           />
 
           {/* The demand events calendar sits right under the rate & pickup

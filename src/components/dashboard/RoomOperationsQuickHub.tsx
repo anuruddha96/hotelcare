@@ -380,7 +380,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       const persisted: Partial<RoomSelection> = {
         ...readCommittedRoomServices(data),
         roomStatus: data.status ?? null,
-        pmsMetadata: (data.pms_metadata as Record<string, any> | null) || null,
+        pmsMetadata: (data.pms_metadata as RoomSelection["pmsMetadata"]) || null,
       };
       // Triggers can change the requested values. Render the committed values,
       // not the optimistic request, and never announce a false success.

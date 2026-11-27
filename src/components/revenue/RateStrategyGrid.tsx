@@ -43,7 +43,7 @@ import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECE
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import PriceDemandJourney from "@/components/revenue/PriceDemandJourney";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
-import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "@/lib/rateCalendarWindow";
+import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates, publishedPickupDates } from "@/lib/rateCalendarWindow";
 import { RATE_HISTORY_DAYS, canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
 import { shouldAllowRateCalendarEdgePan, shouldResetRateCalendarViewport } from "@/lib/rateCalendarScroll";
 import { shouldPinRateSummary } from "@/lib/rateCalendarStickyBoundary";
@@ -105,7 +105,10 @@ interface Props {
   /** Fast refresh of Previo rooms-for-sale after an inventory write. */
   onAvailabilityUpdated?: () => void | Promise<void>;
   /** Tell the page how far ahead the calendar needs data loaded. */
-  onHorizonDaysChange?: (days: number) => void;
+  onHorizonDaysChange?: (days: number, fullPublishedRange?: boolean) => void;
+  /** Whether the full published payload request completed for the current property. */
+  fullPickupRangeReady?: boolean;
+  publishedHorizonEnd?: string;
 }
 
 
@@ -354,7 +357,7 @@ interface PendingDraft {
 export default function RateStrategyGrid({
   loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [], cancellations = [], lastSyncAt,
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
-  demandByDate, eventsByDate, leftByTypeDate, soldOutPrices = [], onRatesUpdated, onAvailabilityUpdated, onHorizonDaysChange,
+  demandByDate, eventsByDate, leftByTypeDate, soldOutPrices = [], onRatesUpdated, onAvailabilityUpdated, onHorizonDaysChange, fullPickupRangeReady = false, publishedHorizonEnd,
 }: Props) {
   const { language } = useTranslation();
   const hu = language === 'hu';
@@ -425,6 +428,9 @@ export default function RateStrategyGrid({
    * month and squeezes its columns so all 28-31 days fit without scrolling.
    */
   const [monthFilter, setMonthFilter] = useState<string | null>(null);
+  const [pickupOnly, setPickupOnly] = useState(false);
+  const pickupDates = useMemo(() => publishedPickupDates(today, publishedHorizonEnd, metrics), [today, publishedHorizonEnd, metrics]);
+  const visiblePickupDates = useMemo(() => fullPickupRangeReady ? pickupDates : [], [fullPickupRangeReady, pickupDates]);
   const [fitAllDates, setFitAllDates] = useState(true);
   // Only the last three nights load by default; selecting a historical month
   // replaces those columns with one read-only archived month on explicit demand.
@@ -505,7 +511,7 @@ export default function RateStrategyGrid({
 
   /** Desktop fits exactly 30 upcoming nights or every day of the selected
    * calendar month. Keep mobile and deliberate zoom at a readable scroll width. */
-  const dateColumnsToFit = historyMonth
+  const dateColumnsToFit = pickupOnly ? Math.max(1, Math.min(33, visiblePickupDates.length)) : historyMonth
     ? historicalMonthDates(today, historyMonth).length
     : monthFilter ? calendarWindow(today, monthFilter).length : 30 + RATE_HISTORY_DAYS;
   const canFitDates = fitAllDates && !isMobile && viewportW >= 1024;
@@ -546,8 +552,8 @@ export default function RateStrategyGrid({
   // The date window is a view only. Pricing automation and bulk editor retain
   // their own horizons; no scroll handler expands this calendar.
   useEffect(() => {
-    onHorizonDaysChange?.(requiredCalendarHorizon(today, monthFilter));
-  }, [today, monthFilter, onHorizonDaysChange]);
+    onHorizonDaysChange?.(requiredCalendarHorizon(today, monthFilter), pickupOnly);
+  }, [today, monthFilter, pickupOnly, onHorizonDaysChange]);
 
   // Cell dots are on by default, so a purple cell dot and the dot on its date
   // header always appear together. The user can switch them off and we
@@ -794,7 +800,7 @@ export default function RateStrategyGrid({
   }, []);
 
 
-  const allDates = useMemo(() => historyMonth ? historicalMonthDates(today, historyMonth) : calendarWindow(today, monthFilter, historyRevealed), [today, historyMonth, monthFilter, historyRevealed]);
+  const allDates = useMemo(() => pickupOnly ? visiblePickupDates : historyMonth ? historicalMonthDates(today, historyMonth) : calendarWindow(today, monthFilter, historyRevealed), [pickupOnly, visiblePickupDates, today, historyMonth, monthFilter, historyRevealed]);
 
   /**
    * Header dots follow the SAME stretch of time as the pickup row above them.
@@ -872,7 +878,6 @@ export default function RateStrategyGrid({
 
   /** When on, the grid shows only the cells flagged by the safety net. */
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [pickupOnly, setPickupOnly] = useState(false);
 
   /* ---- Drag across the date header to price several days at once ---- */
   const selAnchor = useRef<string | null>(null);
@@ -2374,13 +2379,13 @@ export default function RateStrategyGrid({
     return map;
   }, [nights]);
   const dates = useMemo(() => allDates.filter((d) => {
+    if (pickupOnly) return true; // full-range results already filtered by the selected pickup window
     if (historyMonth) return d < today; // always show all recorded/calendar days in historical mode
     if (monthFilter && !d.startsWith(monthFilter) && !(historyRevealed && d < today)) return false;
     if (d < today) return historyRevealed;
     if (reviewOnly && flagged.dateKeys.size && !flagged.dateKeys.has(d)) return false;
-    if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
     return true;
-  }), [allDates, historyMonth, monthFilter, historyRevealed, today, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
+  }), [allDates, historyMonth, monthFilter, historyRevealed, today, reviewOnly, pickupOnly, flagged.dateKeys]);
 
   // Selection applies to entire date columns, not only the day header.
   // Share the same state with all grid rows and the fixed action bar.
@@ -2644,7 +2649,7 @@ export default function RateStrategyGrid({
   const lastViewportKeyRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     const grid = scrollRef.current;
-    const viewportKey = [hotelId ?? "", today, monthFilter ?? "", historyMonth ?? ""].join("|");
+    const viewportKey = [hotelId ?? "", today, monthFilter ?? "", historyMonth ?? "", pickupOnly ? "all-pickup" : ""].join("|");
     if (!grid || !shouldResetRateCalendarViewport(lastViewportKeyRef.current, viewportKey, hasGridRows)) return;
     lastViewportKeyRef.current = viewportKey;
     // Start at the first column: the rolling view includes three past dates
@@ -2652,7 +2657,7 @@ export default function RateStrategyGrid({
     grid.scrollLeft = 0;
     if (headerScrollRef.current) headerScrollRef.current.scrollLeft = 0;
     setVisibleMonth(formatMonth(dates[0] ?? today));
-  }, [hotelId, today, monthFilter, historyMonth, hasGridRows]);
+  }, [hotelId, today, monthFilter, historyMonth, pickupOnly, hasGridRows]);
 
   // Recompute button availability when fitting, resizing or filtering changes
   // the scrollable width, including when no scroll event fires.
@@ -3183,7 +3188,14 @@ export default function RateStrategyGrid({
               variant={pickupOnly ? "default" : "outline"}
               className="h-8 text-xs"
               aria-pressed={pickupOnly}
-              onClick={() => setPickupOnly((value) => !value)}
+              onClick={() => {
+                setPickupOnly(value => !value);
+                setReviewOnly(false);
+                setPickedDates(new Set());
+                setSelDates(new Set());
+                setRangeAnchor(null);
+                setRangeFocus(null);
+              }}
             >
               {hu ? "Csak változással" : "Dates with pickup"}
             </Button>
@@ -3333,7 +3345,7 @@ export default function RateStrategyGrid({
           {/* Current date stays visible in the toolbar even when offscreen in the grid. */}
           <div className="flex items-center justify-between gap-2 border-b px-2 py-1">
             <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-              {historyMonth ? "Saved month · read-only" : monthFilter ? "Full calendar month · past dates read-only" : "Next 30 days · previous 3 days shown (read-only)"}
+              {pickupOnly ? (fullPickupRangeReady ? `${dates.length} ${hu ? "dátum változással · teljes publikált időszak" : "dates with pickup · all published dates"}` : (hu ? "Teljes publikált időszak" : "All published dates")) : historyMonth ? "Saved month · read-only" : monthFilter ? "Full calendar month · past dates read-only" : "Next 30 days · previous 3 days shown (read-only)"}
             </span>
             <div data-rate-calendar-navigation-controls="true" className="flex shrink-0 items-center gap-1">
               <Button type="button" size="sm" variant="outline" className="h-7 w-7 p-0" disabled={!edges.left}
@@ -3358,7 +3370,7 @@ export default function RateStrategyGrid({
           <div className="flex items-center gap-1 overflow-x-auto border-b px-2 py-1.5" aria-label="Rate calendar date navigation">
             <Button
               size="sm"
-              variant={monthFilter || historyMonth ? "ghost" : "default"}
+              variant={pickupOnly || monthFilter || historyMonth ? "ghost" : "default"}
               className="h-7 shrink-0 px-2 text-[11px]"
               onClick={() => selectMonth(null)}
             >
@@ -3366,7 +3378,7 @@ export default function RateStrategyGrid({
             </Button>
             <Popover open={historyPickerOpen} onOpenChange={setHistoryPickerOpen}>
               <PopoverTrigger asChild>
-                <Button type="button" size="sm" variant={historyMonth ? "default" : "secondary"}
+                <Button type="button" size="sm" variant={!pickupOnly && historyMonth ? "default" : "secondary"}
                   className="h-7 shrink-0 gap-1 px-2 text-[11px]"
                   aria-label="Browse archived months, last two years"
                   title="Browse read-only historical prices and events; months load only when selected">
@@ -3406,14 +3418,14 @@ export default function RateStrategyGrid({
               <div key={m.value} className="contents">
                 <Button
                   size="sm"
-                  variant={monthFilter === m.value ? "default" : "ghost"}
+                  variant={!pickupOnly && monthFilter === m.value ? "default" : "ghost"}
                   className="h-7 shrink-0 px-2 text-[11px]"
                   title={`Show ${m.label} only`}
                   onClick={() => selectMonth(m.value)}
                 >
                   {m.label}
                 </Button>
-                {canEditRates && monthFilter === m.value && (
+                {canEditRates && !pickupOnly && monthFilter === m.value && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -3430,10 +3442,19 @@ export default function RateStrategyGrid({
           </div>
           {loading && (
             <div role="status" className="flex items-center gap-1.5 border-b px-3 py-1 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" /> Loading selected calendar dates…
+              <Loader2 className="h-3 w-3 animate-spin" /> {pickupOnly ? (hu ? "Teljes publikált időszak betöltése…" : "Loading all published dates…") : "Loading selected calendar dates…"}
             </div>
           )}
-          {(historyRevealed || historyMonth) && (historical.loading || historical.error || (historyMonth && !historical.hasRecords)) && (
+          {pickupOnly && !loading && !fullPickupRangeReady && (
+            <div role="status" className="flex items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
+              {hu ? "A teljes időszak még nem érhető el." : "The complete published range is not available yet."}
+              <Button size="sm" variant="outline" onClick={() => void Promise.resolve(onRatesUpdated?.()).catch(() => {})}>{hu ? "Újra" : "Retry"}</Button>
+            </div>
+          )}
+          {pickupOnly && fullPickupRangeReady && dates.length === 0 && !loading && (
+            <div role="status" className="border-b px-3 py-3 text-sm text-muted-foreground">{hu ? "Nincs foglalási változás a kiválasztott időszakban." : "No pickup across the published dates for the selected period."}</div>
+          )}
+          {!pickupOnly && (historyRevealed || historyMonth) && (historical.loading || historical.error || (historyMonth && !historical.hasRecords)) && (
             <div role="status" className="border-b px-3 py-1 text-xs text-muted-foreground">
               {historical.loading ? "Loading saved historical data…" : historical.error ? "Archived data could not be loaded. No values have been estimated." : "No saved data is available for this month."}
             </div>
