@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.53.0";
 
+import { canEditTarget, canAssignRole, canChangeStaffAccess } from "./policy.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -15,6 +17,10 @@ interface AdminUpdateUserPayload {
   nickname?: string;
   phone_number?: string | null;
   assigned_hotel?: string | null;
+  role?: string;
+  organization_slug?: string;
+  is_super_admin?: boolean;
+  acts_as_housekeeper?: boolean;
 }
 
 serve(async (req: Request) => {
@@ -24,7 +30,7 @@ serve(async (req: Request) => {
 
   try {
     const payload: AdminUpdateUserPayload = await req.json();
-    const { target_user_id, new_email, new_password, full_name, nickname, phone_number, assigned_hotel } = payload;
+    const { target_user_id, new_email, new_password, full_name, nickname, phone_number, assigned_hotel, role, organization_slug, is_super_admin, acts_as_housekeeper } = payload;
 
     if (!target_user_id) {
       return new Response(JSON.stringify({ error: "target_user_id is required" }), {
@@ -57,11 +63,11 @@ serve(async (req: Request) => {
     // Verify caller is admin, manager, or housekeeping_manager
     const { data: roleData, error: roleErr } = await supabase
       .from("profiles")
-      .select("role, organization_slug")
+      .select("role, organization_slug, is_super_admin, deleted_at")
       .eq("id", caller.id)
       .maybeSingle();
 
-    if (roleErr || !roleData || !['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager'].includes(roleData.role)) {
+    if (roleErr || !roleData || roleData.deleted_at || (!roleData.is_super_admin && !['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager'].includes(roleData.role))) {
       return new Response(JSON.stringify({ error: "Forbidden: staff-management role required" }), {
         status: 403,
         headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -71,52 +77,52 @@ serve(async (req: Request) => {
     // Service-role client for auth.admin operations
     const supabaseAdmin = createClient(supabaseUrl, serviceKey);
 
-    // Enforce tenant isolation: non-admins may only modify users in their own organization,
-    // and may never modify an admin account.
-    const { data: targetScope, error: targetScopeErr } = await supabaseAdmin
+    // Authorize against the current target and caller before any auth or profile write.
+    const fail = (error: string, status = 400) => new Response(JSON.stringify({ error }), {
+      status, headers: { "Content-Type": "application/json", ...corsHeaders },
+    });
+    const { data: targetProfile, error: targetScopeErr } = await supabaseAdmin
       .from('profiles')
-      .select('role, organization_slug')
+      .select('id, role, organization_slug, is_super_admin, deleted_at, email, full_name, nickname, phone_number, assigned_hotel, acts_as_housekeeper')
       .eq('id', target_user_id)
       .maybeSingle();
+    if (targetScopeErr || !targetProfile) return fail("Target user not found", 404);
+    if (!canEditTarget(roleData, targetProfile)) return fail("You cannot edit this account.", 403);
 
-    if (targetScopeErr || !targetScope) {
-      return new Response(JSON.stringify({ error: "Target user not found" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+    // Validate requested fields before touching credentials.
+    for (const value of [new_email, new_password, full_name, role, organization_slug]) {
+      if (value != null && typeof value !== 'string') return fail("Invalid user details.");
     }
-
-    if (!['admin', 'top_management', 'top_management_manager'].includes(roleData.role)) {
-      const sameOrg = !!roleData.organization_slug &&
-        roleData.organization_slug === targetScope.organization_slug;
-      if (!sameOrg || targetScope.role === 'admin') {
-        return new Response(JSON.stringify({ error: "Forbidden" }), {
-          status: 403,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
-        });
+    for (const value of [nickname, phone_number, assigned_hotel]) {
+      if (value != null && typeof value !== 'string') return fail("Invalid user details.");
+    }
+    if (full_name !== undefined && !full_name?.trim()) return fail("Full name is required.");
+    if (is_super_admin !== undefined && typeof is_super_admin !== 'boolean') return fail("Invalid administrator flag.");
+    if (acts_as_housekeeper !== undefined && typeof acts_as_housekeeper !== 'boolean') return fail("Invalid housekeeping flag.");
+    const roleChanged = role !== undefined && role !== targetProfile.role;
+    const orgChanged = organization_slug !== undefined && organization_slug !== targetProfile.organization_slug;
+    const superChanged = is_super_admin !== undefined && is_super_admin !== !!targetProfile.is_super_admin;
+    const hybridChanged = acts_as_housekeeper !== undefined && acts_as_housekeeper !== !!targetProfile.acts_as_housekeeper;
+    if (roleChanged && !canAssignRole(roleData, role!)) return fail("You cannot assign this role.", 403);
+    if ((orgChanged || superChanged) && !roleData.is_super_admin) return fail("Only Super Admins can change organization or Super Admin access.", 403);
+    if (hybridChanged && !canChangeStaffAccess(roleData)) return fail("You cannot change housekeeping access.", 403);
+    const effectiveOrg = organization_slug ?? targetProfile.organization_slug;
+    const hotelInput = assigned_hotel === undefined ? targetProfile.assigned_hotel : assigned_hotel?.trim() || null;
+    if (orgChanged || hotelInput !== targetProfile.assigned_hotel) {
+      if (!effectiveOrg) return fail("An organization is required.");
+      const { data: org, error: orgErr } = await supabaseAdmin.from('organizations')
+        .select('id').eq('slug', effectiveOrg).eq('is_active', true).maybeSingle();
+      if (orgErr || !org) return fail("Select an active organization.");
+      if (hotelInput) {
+        const { data: hotel, error: hotelErr } = await supabaseAdmin.from('hotel_configurations')
+          .select('hotel_id').eq('organization_id', org.id).eq('is_active', true).eq('hotel_name', hotelInput).limit(1).maybeSingle();
+        if (hotelErr || !hotel) return fail("Select a hotel in the user's organization.");
       }
     }
-
-
-    // Normalize inputs (treat empty strings as undefined)
-    const emailInput = new_email && new_email.trim().length > 0 ? new_email.trim() : undefined;
-    const passwordInput = new_password && new_password.trim().length > 0 ? new_password.trim() : undefined;
-    const fullNameInput = full_name && full_name.trim().length > 0 ? full_name.trim() : undefined;
-    const nicknameInput = nickname && nickname.trim().length > 0 ? nickname.trim() : undefined;
-
-    // Fetch target profile to use existing email if needed
-    const { data: targetProfile, error: targetProfileErr } = await supabase
-      .from('profiles')
-      .select('email, full_name, nickname')
-      .eq('id', target_user_id)
-      .maybeSingle();
-
-    if (targetProfileErr) {
-      return new Response(JSON.stringify({ error: targetProfileErr.message }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      });
-    }
+    const emailInput = new_email?.trim() && new_email.trim() !== targetProfile.email ? new_email.trim() : undefined;
+    const passwordInput = new_password?.trim() || undefined;
+    const fullNameInput = full_name?.trim() || undefined;
+    const nicknameInput = nickname?.trim() || undefined;
 
     const effectiveEmail = emailInput || targetProfile?.email;
 
@@ -130,7 +136,7 @@ serve(async (req: Request) => {
       if (getUserErr || !authUserRes.user) {
         // Create auth user when missing (requires password and an effective email)
         if (passwordInput && effectiveEmail) {
-          console.log('Creating new auth user with email:', effectiveEmail);
+          console.log('Creating missing auth user');
           const { data: createResult, error: createErr } = await supabaseAdmin.auth.admin.createUser({
             id: target_user_id,
             email: effectiveEmail,
@@ -182,7 +188,7 @@ serve(async (req: Request) => {
           }
           console.log('Auth user created successfully with profile email:', createResult?.user?.id);
         } else {
-          console.log('Cannot create auth user without password and email; skipping auth creation');
+          return fail('This account has no login credentials. Set a password before changing its email.');
         }
       } else {
         // Auth user exists, update it
@@ -234,18 +240,25 @@ serve(async (req: Request) => {
     if (phone_number !== undefined) updates.phone_number = phone_number?.trim() || null;
     if (assigned_hotel !== undefined) updates.assigned_hotel = assigned_hotel?.trim() || null;
 
-    console.log('Profile updates to apply:', updates);
+    if (roleChanged) updates.role = role;
+    if (orgChanged) updates.organization_slug = organization_slug;
+    if (superChanged) updates.is_super_admin = is_super_admin;
+    if (hybridChanged) updates.acts_as_housekeeper = acts_as_housekeeper;
+    if (orgChanged || assigned_hotel !== undefined) updates.assigned_hotel = hotelInput;
+
+    // Require an actual updated row rather than reporting success on a zero-row update.
     if (Object.keys(updates).length > 0) {
       // Use the already-authorized service-role client for the target write. Managers
       // are scope-checked above, so this avoids profile RLS silently blocking edits.
-      const { error: profileErr } = await supabaseAdmin
-        .from('profiles')
+      let query = supabaseAdmin.from('profiles')
         .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', target_user_id);
+        .eq('id', target_user_id).is('deleted_at', null);
+      if (!roleData.is_super_admin) query = query.eq('organization_slug', roleData.organization_slug).eq('role', targetProfile.role);
+      const { data: saved, error: profileErr } = await query.select('id').maybeSingle();
 
-      if (profileErr) {
+      if (profileErr || !saved) {
         console.error('Error updating profile:', profileErr);
-        return new Response(JSON.stringify({ error: profileErr.message }), {
+        return new Response(JSON.stringify({ error: emailInput || passwordInput ? 'Credentials may have changed, but profile details were not saved. Reload the account and try again.' : (profileErr?.message || 'Account changed or was removed. Reload and try again.') }), {
           status: 400,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
         });
