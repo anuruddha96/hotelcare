@@ -464,6 +464,8 @@ export interface PaceFacts {
   convertedAt: string | null;
   /** Unspent genuine bookings first seen inside this zone's quiet window. */
   freshPickup: number | null;
+  /** Ottofiori owner policy: each fresh active reservation earns €5–10. */
+  perBookingYield?: boolean;
   /** Minutes since local midnight at the property. */
   localMinutes: number;
   sellableRooms: number;
@@ -680,7 +682,7 @@ export function decidePaceRatchet(
   let softFloor = floorRef;
   let softFloorWhy: "price_floor" | "base_floor" | "converting_price_guard" | "seasonal_band" = "price_floor";
 
-  if (s.floor_lift >= 1 && lowestSellable < gridFloor) {
+  if (s.floor_lift >= 1 && lowestSellable < gridFloor && !(facts.perBookingYield && pickup > 0)) {
     // Opt-in. The floor is first of all a limit on the system's own cuts. A
     // bookable price under it was put there by a person, so the system leaves
     // it alone (and never cuts it further) unless the hotel has asked for such
@@ -695,7 +697,7 @@ export function decidePaceRatchet(
     // the sell-out objective, not whether the current offer is underpriced.
     const recentActivePickup = Math.max(0, input.observedPickup6h ?? input.pickup6h);
     const strongSellDownDemand = zone === "sell_down" && (occ >= 85 || recentActivePickup >= 2);
-    if (stillSelling && !strongSellDownDemand && !(zone === "arrival_day" && pickup >= 2)) {
+    if (!facts.perBookingYield && stillSelling && !strongSellDownDemand && !(zone === "arrival_day" && pickup >= 2)) {
       // The price just converted and rooms still have to go: that IS the
       // clearing price. Hold it; do not chase it up or cut under it.
       return hold(
@@ -703,10 +705,14 @@ export function decidePaceRatchet(
         `A booking just converted at €${current} with ${left} rooms still to sell (${need} above the ${s.unsold_ok_rooms}-room tolerance). Holding this price while it is working.`,
       );
     }
-    raw = paceRaiseStep({
-      current, tier, zone, bookings: pickup, daysOut: input.daysOut, paceGap: gap,
-      roomsLeft: left, supervisedFactor: sup, tierFromPace: facts.tierSource === "pace",
-    }, s);
+    // A batch earns one increment per distinct eligible reservation, not one
+    // multiplier for the whole batch. Never exceed the existing per-move limit.
+    raw = facts.perBookingYield
+      ? Math.min(pickup * (occ >= 85 ? 10 : 5), 80, Math.max(5, s.max_step_eur))
+      : paceRaiseStep({
+        current, tier, zone, bookings: pickup, daysOut: input.daysOut, paceGap: gap,
+        roomsLeft: left, supervisedFactor: sup, tierFromPace: facts.tierSource === "pace",
+      }, s);
     reason = "pickup_ratchet";
     const pct = Math.round((raw / current) * 1000) / 10;
     detail = `${pickup} new booking${pickup === 1 ? "" : "s"} at €${current}, ${left} room${left === 1 ? "" : "s"} left, ${paceText}: raising €${raw} (${pct}%) on a ${tier} date.`;
@@ -716,7 +722,7 @@ export function decidePaceRatchet(
     // successful raise) while the date is still converting. Protect repeated
     // active demand without using old/spent tokens to generate another raise.
     const recentActivePickup = Math.max(0, input.observedPickup6h ?? input.pickup6h);
-    if (zone === "sell_down" && recentActivePickup >= 2) {
+    if ((facts.perBookingYield || zone === "sell_down") && recentActivePickup >= 2) {
       return hold("recent_pickup_protection",
         `Held: ${recentActivePickup} active bookings in the last six hours; recent demand protects the offer from a markdown.`);
     }
@@ -881,10 +887,13 @@ export function decidePaceRatchet(
   const capDown = facts.respectWindowCaps
     ? Math.min(capDownPolicy, Math.max(0, Number(baseWin.max_daily_decrease) || 0))
     : capDownPolicy;
-  const capUp = Math.max(
+  const plannedCapUp = Math.max(
     raw > 0 ? raw : 0,
     whole(current * tierNumber(s, "raise_day_cap_pct", tier) / 100 * sup),
   );
+  const capUp = facts.perBookingYield && facts.respectWindowCaps
+    ? Math.min(plannedCapUp, Math.max(0, Number(baseWin.max_daily_increase) || 0))
+    : plannedCapUp;
   const markdownsZone = zoneMarkdownsPerDay(zone, s);
   const markdownLimit = facts.respectWindowCaps && (core.maxMarkdownsPerDay ?? 0) > 0
     ? Math.min(markdownsZone, core.maxMarkdownsPerDay ?? markdownsZone)
@@ -935,6 +944,14 @@ export function decidePaceRatchet(
   };
 
   const decision = coreDecision(effective, policyCore);
+  if (facts.perBookingYield && reason === "pickup_ratchet" && decision.direction === "increase") {
+    // At least €5 per rewarded booking. If a limit leaves less, hold instead
+    // of consuming a reservation for a token increase.
+    const rounded = Math.floor(decision.movement / 5) * 5;
+    if (rounded < 5) return hold("pickup_budget_headroom", "Held: less than €5 remains within the date's price limits or daily allowance.");
+    decision.movement = rounded;
+    decision.targetPrice = current + rounded;
+  }
   const label = `[Pace ratchet · ${tier} · ${ZONE_LABEL[zone]}]`;
   if (!decision.blocked) {
     // Published moves keep the director's reason names: the database trigger
