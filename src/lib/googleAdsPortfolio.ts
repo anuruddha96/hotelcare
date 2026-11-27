@@ -73,7 +73,7 @@ function checkRow(row: AdsRow, start: string, end: string) {
  * Separate currencies. Account-scoped campaign/budget IDs. The unmapped bucket
  * retains spend without guessing the venue. Fractional allocations are
  * estimates, not measured per-venue conversions or invoice amounts.
- * Current Google daily budgets are attributed only when every attached campaign
+ * Current Google daily budgets are attributed only when every reported enabled campaign
  * is fully assigned to the same venue; shared/ambiguous budgets stay separate.
  * Do not present partial coverage as complete or infer zero from absent data.
  */
@@ -164,7 +164,7 @@ export function aggregatePortfolio(
     usesEstimatedAllocation,
     currencies: [...currencyMetrics].map(([currency, rows]) => {
       const metrics = sumMetrics(rows);
-      return { currency, metrics, ratios: ratios(metrics), ...budgetSlices.get(currency)! };
+      return { metrics, ratios: ratios(metrics), ...budgetSlices.get(currency)! };
     }),
     venues: [...venueSlices.values()].map(slice => ({ ...slice, ratios: ratios(slice.metrics) })),
   };
