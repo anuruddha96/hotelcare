@@ -5,6 +5,10 @@ import {
   resolveApprovalInstructionContext,
 } from './approval-instruction-context';
 
+const today = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date());
+
 describe('approval instruction context', () => {
   it('prefers the frozen assignment snapshot over later room changes', () => {
     const context = resolveApprovalInstructionContext({
@@ -72,10 +76,12 @@ describe('approval instruction context', () => {
       assignment_type: 'daily_cleaning',
       priority: 1,
       notes: '[GREEN_BOARD] Legacy instruction',
+      assignment_date: today,
       rooms: {
         towel_change_required: true,
         linen_change_required: false,
         notes: '[ROOM_CLEANING] Manager note',
+        operational_note_date: today,
         floor_number: 3,
       },
     });
@@ -87,6 +93,35 @@ describe('approval instruction context', () => {
     expect(context.managerInstruction).toBe('Manager note');
     expect(context.assignmentInstruction).toBe('Legacy instruction');
     expect(context.floorNumber).toBe(3);
+  });
+
+  it('suppresses undated and expired room notes without losing service flags', () => {
+    for (const date of [null, '2020-01-01']) {
+      const context = resolveApprovalInstructionContext({
+        assignment_date: today,
+        manager_instruction_text: 'Task-specific instruction',
+        rooms: { notes: '[ROOM_CLEANING] Old guest request', operational_note_date: date },
+      });
+      expect(context.managerInstruction).toBe('Task-specific instruction');
+      expect(context.roomCleaningRequested).toBe(true);
+    }
+  });
+
+  it('retains the current planned note independently of an undated room note', () => {
+    const context = resolveApprovalInstructionContext({
+      assignment_date: today,
+      rooms: { notes: 'Old note\nScheduled delivery', operational_note_date: null,
+        hotelcare_planned_note_shadow: 'Scheduled delivery' },
+    });
+    expect(context.managerInstruction).toBe('Scheduled delivery');
+  });
+
+  it('never labels a later live room note as a historical task instruction', () => {
+    const context = resolveApprovalInstructionContext({
+      assignment_date: '2020-01-01',
+      rooms: { notes: 'New note', operational_note_date: today },
+    });
+    expect(context.managerInstruction).toBe('');
   });
 
   it('uses dedicated manager instructions together with housekeeping-only room notes', () => {
