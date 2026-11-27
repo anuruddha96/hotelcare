@@ -19,7 +19,7 @@ const b64 = (bytes:Uint8Array) => btoa(String.fromCharCode(...bytes));
 const unb64 = (s:string) => Uint8Array.from(atob(s),x=>x.charCodeAt(0));
 const random = () => b64(crypto.getRandomValues(new Uint8Array(32))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 const digest = async (s:string) => b64(new Uint8Array(await crypto.subtle.digest("SHA-256",text(s))));
-const enabled = () => Deno.env.get("LINKEDIN_PUBLISH_ENABLED")==="true";
+const enabled = () => Deno.env.get("LINKEDIN_PUBLISH_ENABLED")==="true" && !!Deno.env.get("LINKEDIN_WORKER_SECRET");
 const pilot = () => Deno.env.get("LINKEDIN_PILOT_USER_ID");
 const base = "https://api.linkedin.com/rest";
 const scopes = "w_organization_social rw_organization_admin";
@@ -95,6 +95,7 @@ async function cleanup(db:Db){
 async function worker(db:Db){
   if(!enabled())return {status:"publishing_disabled",processed:0};
   await cleanup(db);
+  checked(await db.from("linkedin_posts").update({status:"unknown",last_error:"WORKER_INTERRUPTED_RECONCILE_ON_LINKEDIN",updated_at:new Date().toISOString()}).eq("status","publishing").lt("updated_at",new Date(Date.now()-30*60000).toISOString()));
   const due=checked(await db.rpc("linkedin_claim_due",{p_limit:3}))??[];
   for(const job of due){
     let state="failed",error="PUBLISH_REJECTED",remote:string|null=null;
@@ -107,6 +108,8 @@ async function worker(db:Db){
       }
       const token=await unseal(c.token_ciphertext,c.organization_id+":"+c.organization_urn);
       if(!(await adminUrns(token)).includes(c.organization_urn))throw new HttpError(403,"LINKEDIN_PAGE_ACCESS_REVOKED");
+      const current=checked(await db.from("linkedin_page_connections").select("id,updated_at,status").eq("id",c.id).eq("organization_id",job.organization_id).eq("status","active").maybeSingle());
+      if(!current||current.updated_at!==c.updated_at||!enabled())throw new HttpError(409,"CONNECTION_CHANGED_OR_PUBLISHING_DISABLED");
       // Once the request may have reached LinkedIn, do not auto-retry an ambiguous result.
       state="unknown";error="PUBLISH_OUTCOME_UNKNOWN";
       const r=await fetch(base+"/posts",{method:"POST",headers:headers(token),signal:AbortSignal.timeout(20000),redirect:"error",body:JSON.stringify({
