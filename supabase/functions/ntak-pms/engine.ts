@@ -924,9 +924,10 @@ export async function resendSameContent(db: Db, s: Settings, messageId: string, 
   // and let a person decide (the message stays visible as "resend requested").
   let depth = 0;
   for (let cursor: string | null = messageId; cursor && depth <= MAX_AUTO_RESENDS; depth++) {
-    const { data: prev, error: prevError } = await db.from("ntak_messages").select("resend_of").eq("id", cursor).eq("hotel_id", s.hotel_id).maybeSingle();
-    if (prevError) throw new Error(prevError.message);
-    cursor = (prev?.resend_of as string | null) ?? null;
+    const found: { data: { resend_of?: string | null } | null; error: { message: string } | null } =
+      await db.from("ntak_messages").select("resend_of").eq("id", cursor).eq("hotel_id", s.hotel_id).maybeSingle();
+    if (found.error) throw new Error(found.error.message);
+    cursor = found.data?.resend_of ?? null;
   }
   if (depth > MAX_AUTO_RESENDS) {
     const { error: stopError } = await db.from("ntak_messages").update({ last_error: `NTAK asked for a resend ${depth} times in a row; automatic resending stopped, check with NTAK support`, updated_at: now() }).eq("id", messageId).eq("hotel_id", s.hotel_id);
