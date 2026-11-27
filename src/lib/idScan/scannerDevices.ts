@@ -16,25 +16,33 @@
  * Pure functions; the dialog does the I/O.
  */
 
-export type ScannerSource = 'camera' | 'wedge' | 'bridge';
+/** camera = built-in camera; scanner = a USB scanner that connects as a camera (see scannerDetect). */
+export type ScannerSource = 'camera' | 'scanner' | 'wedge' | 'bridge';
 
 export interface ScannerSettings {
   /** What the scan dialog opens with on this workstation. */
   preferred: ScannerSource;
   /** Loopback URL of the local reader service, e.g. http://localhost:8080/document */
   bridgeUrl: string;
+  /** Camera-type USB scanner found on this workstation (set automatically). */
+  scannerId: string;
+  scannerLabel: string;
 }
 
-export const DEFAULT_SCANNER_SETTINGS: ScannerSettings = { preferred: 'camera', bridgeUrl: '' };
+export const DEFAULT_SCANNER_SETTINGS: ScannerSettings = { preferred: 'camera', bridgeUrl: '', scannerId: '', scannerLabel: '' };
 const STORAGE_KEY = 'hotelcare.reception.idScanner.v1';
 
 export function parseScannerSettings(raw: string | null | undefined): ScannerSettings {
   try {
     const parsed = JSON.parse(raw ?? '') as Partial<ScannerSettings>;
-    const preferred = (['camera', 'wedge', 'bridge'] as const).includes(parsed.preferred as ScannerSource)
+    const preferred = (['camera', 'scanner', 'wedge', 'bridge'] as const).includes(parsed.preferred as ScannerSource)
       ? (parsed.preferred as ScannerSource) : 'camera';
     const bridgeUrl = typeof parsed.bridgeUrl === 'string' && isLoopbackUrl(parsed.bridgeUrl) ? parsed.bridgeUrl.trim() : '';
-    return { preferred: preferred === 'bridge' && !bridgeUrl ? 'camera' : preferred, bridgeUrl };
+    const text = (value: unknown) => (typeof value === 'string' && value.length <= 256 ? value : '');
+    const scannerId = text(parsed.scannerId);
+    const scannerLabel = text(parsed.scannerLabel);
+    const usable = (preferred === 'bridge' && !bridgeUrl) || (preferred === 'scanner' && !scannerId && !scannerLabel) ? 'camera' : preferred;
+    return { preferred: usable, bridgeUrl, scannerId, scannerLabel };
   } catch {
     return { ...DEFAULT_SCANNER_SETTINGS };
   }

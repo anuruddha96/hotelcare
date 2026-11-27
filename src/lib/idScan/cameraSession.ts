@@ -59,7 +59,11 @@ function updateCameraPrefs(patch: Partial<CameraPrefs>): void {
   saveCameraPrefs({ ...loadCameraPrefs(), ...patch });
 }
 
-export function cameraConstraints(cameraId: string): MediaStreamConstraints {
+export function cameraConstraints(cameraId: string, exact = false): MediaStreamConstraints {
+  // A USB scanner has no facing mode: ask for that very device.
+  if (cameraId && exact) {
+    return { audio: false, video: { deviceId: { exact: cameraId }, width: { ideal: 1920 }, height: { ideal: 1080 } } };
+  }
   return {
     audio: false,
     video: {
@@ -99,9 +103,11 @@ interface Session {
   /** The last acquisition needed a new answer from the browser. */
   asked: boolean;
   listening: boolean;
+  /** Device chosen as scanner: opened by exact id. */
+  exactId: string;
 }
 
-const session: Session = { stream: null, pending: null, stopTimer: null, wanted: false, torchOn: false, asked: false, listening: false };
+const session: Session = { stream: null, pending: null, stopTimer: null, wanted: false, torchOn: false, asked: false, listening: false, exactId: '' };
 
 function liveTrack(): MediaStreamTrack | null {
   return session.stream?.getVideoTracks().find((track) => track.readyState === 'live') ?? null;
@@ -123,10 +129,11 @@ async function openStream(): Promise<MediaStream> {
   const before = await cameraPermission();
   let stream: MediaStream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia(cameraConstraints(prefs.cameraId));
+    stream = await navigator.mediaDevices.getUserMedia(cameraConstraints(prefs.cameraId, !!prefs.cameraId && prefs.cameraId === session.exactId));
   } catch (error) {
     // A remembered camera that is gone: open the default rear camera instead.
-    if (!prefs.cameraId || (error as { name?: string })?.name !== 'OverconstrainedError') throw error;
+    const name = (error as { name?: string })?.name;
+    if (!prefs.cameraId || (name !== 'OverconstrainedError' && name !== 'NotFoundError')) throw error;
     stream = await navigator.mediaDevices.getUserMedia(cameraConstraints(''));
   }
   session.asked = before === 'prompt';
@@ -156,6 +163,18 @@ export function acquireCamera(): Promise<MediaStream> {
     return stream;
   }).finally(() => { session.pending = null; });
   return session.pending;
+}
+
+/**
+ * Open this camera (or camera-type scanner) from now on. A stream from another
+ * device is stopped so the next acquireCamera() opens the chosen one; access
+ * already granted to the site covers every camera, so no new prompt appears.
+ */
+export function chooseCameraDevice(deviceId: string, scanner = false): void {
+  session.exactId = scanner ? deviceId : '';
+  updateCameraPrefs({ cameraId: deviceId });
+  const current = liveTrack()?.getSettings?.().deviceId ?? '';
+  if (session.stream && current !== deviceId) stopCamera();
 }
 
 /** Whether the last acquisition needed a new answer from the browser. */
@@ -252,4 +271,5 @@ export function resetCameraSessionForTests(): void {
   session.wanted = false;
   session.torchOn = false;
   session.asked = false;
+  session.exactId = '';
 }
