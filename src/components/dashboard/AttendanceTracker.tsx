@@ -550,7 +550,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         {isLoading && !currentRecord && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
             <MapPin className="h-3 w-3 animate-pulse" />
-            <span>{t('attendance.gettingLocation')}</span>
+            <span>{t('attendance.location.requesting')}</span>
           </div>
         )}
         {!location && locationStatus === 'denied' && (
@@ -791,12 +791,12 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
             {locationFailure && (
               <div role="alert" className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-                <p className="font-medium">{locationFailure === 'timeout' ? 'Location request timed out' : 'Current location unavailable'}</p>
-                <p>Turn on device Location, move near a window or outside, and try again. Your browser may already allow location.</p>
+                <p className="font-medium">{t(locationFailure === 'timeout' ? 'attendance.location.timeout' : 'attendance.location.unavailable')}</p>
+                <p>{t('attendance.location.recoveryHint')}</p>
                 <Button type="button" className="w-full" disabled={isLoading} onClick={handleCheckIn}>
-                  {t('attendance.swipeToCheckInAction')} — Try again
+                  {t('attendance.location.retryCheckIn')}
                 </Button>
-                <p className="text-xs">If this continues, ask your supervisor to record your actual arrival time.</p>
+                <p className="text-xs">{t('attendance.location.supervisorHint')}</p>
               </div>
             )}
 
