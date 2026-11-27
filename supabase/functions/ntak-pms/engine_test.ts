@@ -13,7 +13,7 @@ import { verifyEnvelope } from "../_shared/ntak/wssec.ts";
 import { addDays } from "../_shared/ntak/ledger.ts";
 import { isInNtakScope, loadNtakScope } from "./scope.ts";
 import {
-  buildClosure, classificationFor, closureOverride, resendSameContent, refreshHeader, detectDrift, loadUnits, markAllFutureBookings, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
+  buildClosure, classificationFor, closureOverride, MAX_AUTO_RESENDS, resendSameContent, refreshHeader, detectDrift, loadUnits, markAllFutureBookings, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
 } from "./engine.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -707,4 +707,20 @@ Deno.test("Phase 9 resend preserves entire payload and original UJ, creates exac
   const refreshed = refreshHeader(xml,"new-id",new Date("2026-11-23T20:00:00Z"));
   assert.match(refreshed, /<v9:uzenetId>new-id</);
   assert.equal(refreshed.split("</v9:uzenetAdatok>")[1],xml.split("</v9:uzenetAdatok>")[1]);
+});
+
+Deno.test("UJRA_KULDENDO resends stop after MAX_AUTO_RESENDS automatic attempts (no endless loop)", async () => {
+  const db = new FakeDb(schemaColumns());
+  const s = { hotel_id:"h", organization_slug:"org", environment:"test" } as Settings;
+  const xml = '<v9:x><v9:uzenetAdatok></v9:uzenetAdatok>__UJRAKULDENDO_VALIDACIO__</v9:x>';
+  db.rows("ntak_messages").push({id:"m0",hotel_id:"h",environment:"test",kind:"event",request_xml:xml,resend_of:null});
+  let last = "m0";
+  for (let i = 0; i < MAX_AUTO_RESENDS + 2; i++) {
+    await resendSameContent(db,s,last,"event","ref");
+    const next = db.rows("ntak_messages").find((m:any)=>m.resend_of===last);
+    if (!next) break;
+    last = next.id;
+  }
+  assert.equal(db.rows("ntak_messages").length, MAX_AUTO_RESENDS + 1, "original + MAX_AUTO_RESENDS resends");
+  assert.match(String(db.rows("ntak_messages").find((m:any)=>m.id===last).last_error), /automatic resending stopped/);
 });
