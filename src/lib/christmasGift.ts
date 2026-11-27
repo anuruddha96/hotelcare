@@ -1,6 +1,6 @@
 // One-off Christmas 2026 campaign, in the same Budapest timezone as winterSeason.
 export const CHRISTMAS_DAY = "2026-12-25";
-export const REHEARSAL_START = "2026-11-28";
+export const REHEARSAL_START = "2026-11-27";
 export const REHEARSAL_NICKNAME = "anu_000";
 
 const dayFormat = new Intl.DateTimeFormat("en-GB", {
