@@ -108,7 +108,25 @@ export function resolveApprovalInstructionContext(assignment: any): ApprovalInst
   const parsedRoomNotes = parseRoomFlags(
     typeof room?.notes === 'string' ? room.notes : null,
   );
-  const roomManagerInstruction = managerVisibleRoomInstruction(parsedRoomNotes.cleanNotes);
+  // A mutable room row is not evidence of an earlier assignment's briefing.
+  // Keep the frozen historical snapshot, but only display date-matched room
+  // free text for legacy assignments. Today's planned shadow is independent.
+  const assignmentDate = assignment?.assignment_date;
+  const today = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+  const roomNoteMatchesAssignment = snapshotAvailable || (
+    typeof assignmentDate === 'string' &&
+    room?.operational_note_date === assignmentDate &&
+    assignmentDate === today
+  );
+  const roomManagerInstruction = managerVisibleRoomInstruction(
+    roomNoteMatchesAssignment
+      ? parsedRoomNotes.cleanNotes
+      : assignmentDate === today
+        ? room?.hotelcare_planned_note_shadow
+        : null,
+  );
   const directManagerInstruction = snapshotAvailable
     ? snapshot?.manager_instruction_text
     : assignment?.manager_instruction_text;
