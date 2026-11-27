@@ -111,7 +111,7 @@ BEGIN
  IF NEW.check_out_time IS NOT NULL AND OLD.check_out_time IS NULL THEN
    IF NEW.organization_slug='rdhotels' THEN
      NEW.total_hours:=greatest(0,round((extract(epoch from (NEW.check_out_time-NEW.check_in_time))/3600.0)-coalesce(NEW.break_duration,0)/60.0,2));
-     IF NEW.status NOT IN ('auto_signout','forgot_signout') OR current_user NOT IN ('postgres','service_role') THEN
+     IF coalesce(NEW.status,'') NOT IN ('auto_signout','forgot_signout') OR current_user NOT IN ('postgres','service_role') THEN
        NEW.status:='checked_out';
      END IF;
    ELSE
@@ -125,13 +125,13 @@ END $$;
 
 -- Internal locked closure. Never overwrites an existing actual checkout. Only
 -- closes an eligible shift at or after its cutoff, on the cutoff's local day.
-CREATE OR REPLACE FUNCTION attendance_internal.rd_close_due(_source text,_actor uuid DEFAULT NULL,_target uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION attendance_internal.rd_close_due(_source text,_actor uuid DEFAULT NULL,_target uuid DEFAULT NULL,_at timestamptz DEFAULT now())
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE a public.staff_attendance%ROWTYPE; cutoff timestamptz; break_mins integer; elapsed_mins integer; n integer:=0;
 BEGIN
  IF _source NOT IN ('scheduler','manual','forgotten') THEN RAISE EXCEPTION 'Invalid source'; END IF;
  FOR a IN SELECT sa.* FROM public.staff_attendance sa
-   WHERE sa.organization_slug='rdhotels' AND sa.work_date BETWEEN (now() AT TIME ZONE 'Europe/Budapest')::date-1 AND (now() AT TIME ZONE 'Europe/Budapest')::date
+   WHERE sa.organization_slug='rdhotels' AND sa.work_date BETWEEN (_at AT TIME ZONE 'Europe/Budapest')::date-1 AND (_at AT TIME ZONE 'Europe/Budapest')::date
    AND sa.check_out_time IS NULL AND sa.status IN ('checked_in','on_break')
    AND (_target IS NULL OR sa.id=_target)
    AND (_source<>'forgotten' OR sa.user_id=_actor)
@@ -139,9 +139,9 @@ BEGIN
    FOR UPDATE OF sa SKIP LOCKED
  LOOP
    cutoff:=attendance_internal.rd_cutoff(a.user_id,a.work_date,a.check_in_time);
-   IF cutoff IS NULL OR cutoff<=a.check_in_time OR cutoff>now()
-   OR (cutoff AT TIME ZONE 'Europe/Budapest')::date<>(now() AT TIME ZONE 'Europe/Budapest')::date
-   OR (_source<>'forgotten' AND now()>cutoff+interval '30 minutes') THEN CONTINUE; END IF;
+   IF cutoff IS NULL OR cutoff<=a.check_in_time OR cutoff>_at
+   OR (cutoff AT TIME ZONE 'Europe/Budapest')::date<>(_at AT TIME ZONE 'Europe/Budapest')::date
+   OR (_source<>'forgotten' AND _at>cutoff+interval '30 minutes') THEN CONTINUE; END IF;
    elapsed_mins:=floor(extract(epoch from (cutoff-a.check_in_time))/60)::integer;
    break_mins:=greatest(0,coalesce(a.break_duration,0),coalesce(a.break_duration_minutes,0));
    IF a.status='on_break' THEN
@@ -164,7 +164,7 @@ BEGIN
  END LOOP;
  RETURN n;
 END $$;
-REVOKE ALL ON FUNCTION attendance_internal.rd_close_due(text,uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION attendance_internal.rd_close_due(text,uuid,uuid,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE OR REPLACE FUNCTION public.run_rd_attendance_auto_signout()
 RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path='' AS $$
