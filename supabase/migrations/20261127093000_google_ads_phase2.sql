@@ -83,7 +83,7 @@ begin
  perform pg_advisory_xact_lock(62110927);
  select count(*),count(*) filter(where category=p_category) into total,n
  from public.google_ads_api_usage where at>clock_timestamp()-interval '24 hours';
- if total>=2304 or n>=case when p_category='sync' then 1728 else 576 end then return false; end if;
+ if total>=2304 or n>=(case when p_category='sync' then 1728 else 576 end) then return false; end if;
  insert into public.google_ads_api_usage(category) values(p_category);
  return true;
 end $$;
@@ -203,7 +203,7 @@ begin
 end $$;
 -- Daily account hierarchy refresh, claimed separately from report work.
 create function public.google_ads_claim_discovery() returns setof public.google_ads_connections
-language plpgsql security invoker set search_path = '' as $
+language plpgsql security invoker set search_path = '' as $discovery$
 begin
  return query with chosen as (
  select id from public.google_ads_connections
@@ -212,9 +212,22 @@ begin
  order by last_discovery_at nulls first,id limit 1 for update skip locked
  ) update public.google_ads_connections c set discovery_lease_until=now()+interval '15 minutes'
  from chosen where c.id=chosen.id returning c.*;
-end $;
+end $discovery$;
 
-do $
+-- Single database statement/snapshot for analytics while sync restates data.
+create function public.google_ads_read_report(p_org uuid,p_account uuid,p_start date,p_end date) returns jsonb
+language sql stable security invoker set search_path = '' as $report$
+ select case when (select count(*) from public.google_ads_campaign_daily d where d.account_id=a.id and d.day between p_start and p_end)>100000
+ then jsonb_build_object('error','REPORT_TOO_LARGE')
+ else jsonb_build_object(
+ 'rows',coalesce((select jsonb_agg(d.payload order by d.day,d.campaign_id) from public.google_ads_campaign_daily d where d.account_id=a.id and d.day between p_start and p_end),'[]'::jsonb),
+ 'budgets',coalesce((select jsonb_agg(b.payload order by b.campaign_id) from public.google_ads_budgets b where b.account_id=a.id),'[]'::jsonb),
+ 'coverage',coalesce((select jsonb_agg(jsonb_build_object('start_day',v.day,'end_day',v.day) order by v.day) from public.google_ads_coverage v where v.account_id=a.id and v.day between p_start and p_end),'[]'::jsonb),
+ 'fetchedAt',a.last_sync_at)
+ end
+ from public.google_ads_accounts a where a.id=p_account and a.organization_id=p_org and a.enabled
+$report$;
+do $$
 declare f regprocedure;
 begin
  for f in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace
