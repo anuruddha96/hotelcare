@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Download, Loader2, Users, Clock, CalendarDays, Moon, HeartPulse, Timer, BarChart3, CircleAlert, FileClock } from 'lucide-react';
 import { WorkforceManagementCharts } from './WorkforceManagementCharts';
-import { managementAnalytics } from '@/lib/workforce/managementAnalytics';
+import { managementAnalytics, PROPERTY_COLORS } from '@/lib/workforce/managementAnalytics';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { fetchAllRows, type WorkforceData } from '@/hooks/useWorkforce';
-import { formatHours, HOTELS, hotelShort, matchesStaffSearch, pad2, type WorkforceKind } from '@/lib/workforce/model';
+import { formatHours, hotelShort, matchesStaffSearch, pad2, type WorkforceKind } from '@/lib/workforce/model';
 import { employeeReport, monthsBetween, weekdayCoverage, type EmployeeReportRow, type ReportFlag } from '@/lib/workforce/report';
 import { WORKING_KINDS } from '@/lib/workforce/cellParser';
 import { isPublicHoliday } from '@/lib/workforce/holidays';
@@ -99,6 +99,7 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
     return ids;
   }, [data.staff, hotel, department]);
   const rows = useMemo(() => allRows.filter((r) => inScope.has(r.staff_id)), [allRows, inScope]);
+  const baseProperties=useMemo(()=>[...new Set(data.staff.map(s=>s.hotel_id??'company'))].map(key=>({key,name:hotelShort(key==='company'?null:key),color:PROPERTY_COLORS[key]??'#64748b'})).sort((a,b)=>a.name.localeCompare(b.name)),[data.staff]);
   const scopedStaff=useMemo(()=>data.staff.filter(s=>inScope.has(s.id)),[data.staff,inScope]);
   const scopedData=useMemo(()=>({...data,staff:scopedStaff}),[data,scopedStaff]);
   const report = useMemo(() => employeeReport(rows, data.staff.filter((s) => inScope.has(s.id)), monthsBetween(fromMonth, toMonth)), [rows, data.staff, inScope, fromMonth, toMonth]);
@@ -124,7 +125,6 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
   const { total, groups } = useMemo(() => {
     const total = emptyTotals('all', 'All');
     const groups = new Map<string, Totals>();
-    const months = new Map<string, Totals>();
     for (const r of rows) {
       const s = staffById.get(r.staff_id);
       let key: string, label: string;
@@ -139,11 +139,8 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
       if (!groups.has(key)) groups.set(key, emptyTotals(key, label));
       add(groups.get(key)!, r);
       add(total, r);
-      const m = r.work_date.slice(0, 7);
-      if (!months.has(m)) months.set(m, emptyTotals(m, m));
-      add(months.get(m)!, r);
     }
-    return { total, groups: [...groups.values()].sort((a, b) => b.minutes - a.minutes), months: [...months.values()].sort((a, b) => a.key.localeCompare(b.key)) };
+    return { total, groups: [...groups.values()].sort((a, b) => b.minutes - a.minutes) };
   }, [rows, groupBy, staffById, deptName, roleName]);
 
   const visibleGroups = groupBy === 'staff'
@@ -165,6 +162,8 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
     XLSX.utils.book_append_sheet(wb, sheet, 'Employees');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...body]), 'Summary');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Weekday', 'Average people working'], ...coverage.map((c) => [c.name, c.people])]), 'Coverage');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Date','Scheduled gross hours','People scheduled','Day shifts','Night shifts','Leave days','Sick days','Drafts'],...dashboard.daily.map(d=>[d.date,d.hours??'',d.people??'',d.day??'',d.night??'',d.leave??'',d.sick??'',d.drafts??''])]),'Daily plan');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Recorded work property','Scheduled hours','Unique working staff'],...dashboard.properties.map(p=>[p.name,p.hours,p.people])]),'Properties');
     const scope = [hotel === 'all' ? null : hotelShort(hotel === 'company' ? null : hotel), department === 'all' ? null : deptName.get(department)].filter(Boolean).join('_').replace(/[^\w-]+/g, '-');
     XLSX.writeFile(wb, `work-schedule-report_${fromMonth}_${toMonth}${scope ? `_${scope}` : ''}.xlsx`);
   };
@@ -180,7 +179,7 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
   const tile=(label:string,value:string,hint:string|undefined,tone:number,Icon:typeof Users)=>(
     <Card className={'shadow-sm '+metricStyles[tone]}><CardContent className="flex items-start justify-between gap-2 p-3 sm:p-4"><div className="min-w-0"><p className="text-xs font-medium opacity-85">{label}</p><p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>{hint&&<p className="mt-1 text-xs opacity-80">{hint}</p>}</div><Icon className="h-5 w-5 shrink-0 opacity-80" aria-hidden="true"/></CardContent></Card>
   );
-  const inspectRisk=(flag:ReportFlag)=>{setRisk(flag);setAttentionOnly(false);setPersonQuery('');document.getElementById('workforce-employee-report')?.scrollIntoView({behavior:'smooth',block:'start'});};
+  const inspectRisk=(flag:ReportFlag)=>{setRisk(flag);setAttentionOnly(false);setPersonQuery('');document.getElementById('workforce-employee-report')?.scrollIntoView?.({behavior:'smooth',block:'start'});};
   const ready=!!org&&!!profile?.id&&from<=to&&!loading&&!data.loading&&!data.error&&!loadError&&loaded?.key===loadKey;
 
   return (
@@ -197,8 +196,7 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All hotels</SelectItem>
-              {HOTELS.map((h) => <SelectItem key={h.id} value={h.id}>{h.short}</SelectItem>)}
-              <SelectItem value="company">Company / outlets</SelectItem>
+              {baseProperties.map(h=><SelectItem key={h.key} value={h.key}>{h.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </label>
@@ -238,7 +236,7 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
         {tile('To check',String(attention),'People with review flags',5,CircleAlert)}
         {tile('Not published',String(total.drafts),'Draft schedule entries',5,FileClock)}
       </div>
-      <WorkforceManagementCharts analytics={dashboard} coverage={coverage} onRisk={inspectRisk} onProperty={setHotel}/>
+      <WorkforceManagementCharts analytics={dashboard} coverage={coverage} onRisk={inspectRisk} onProperty={setHotel} baseProperties={baseProperties}/>
 
       <Card id="workforce-employee-report" className="scroll-mt-24 shadow-sm" data-training="wf-employee-report">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
