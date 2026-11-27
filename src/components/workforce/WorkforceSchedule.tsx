@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, BellRing, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, Eye, FileSpreadsheet, HelpCircle, History, Info, LayoutGrid, List, Loader2, Maximize2, Minimize2, MoreHorizontal, Rows3, Search, Send, Sparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowRight, BellRing, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, Eye, FileSpreadsheet, HelpCircle, History, Info, LayoutGrid, List, Loader2, Maximize2, Minimize2, MoreHorizontal, Rows3, Search, Send, SlidersHorizontal, Sparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useTranslation } from '@/hooks/useTranslation';
 import { loadGridPrefs, saveGridPrefs, stepZoom, type GridPrefs } from '@/lib/workforce/gridPrefs';
@@ -10,6 +10,7 @@ import { useAccessPolicy, useWorkforceScope } from '@/hooks/useAccessPolicy';
 import { entryKey, fetchAllRows, useWorkforce } from '@/hooks/useWorkforce';
 import { supabase } from '@/integrations/supabase/client';
 import { calendarDay, calendarDayName, swapsKnown, workingDays } from '@/lib/workforce/holidays';
+import { WORKING_KINDS } from '@/lib/workforce/cellParser';
 import { DEFAULT_SHIFT_CODES } from '@/lib/workforce/excelImport';
 import { cn } from '@/lib/utils';
 import { todayBudapest } from '@/lib/budapestTime';
@@ -146,12 +147,12 @@ export function WorkforceSchedule() {
   return (
     <Tabs value={tab} onValueChange={setTab} className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <TabsList className="h-auto flex-wrap justify-start">
-          <TabsTrigger value="schedule">{t('wf.tab.schedule')}</TabsTrigger>
-          <TabsTrigger value="staff">{t('wf.tab.staff')}</TabsTrigger>
-          <TabsTrigger value="analytics">{t('wf.tab.analytics')}</TabsTrigger>
-          {access === 'org' && <TabsTrigger value="settings">{t('wf.tab.settings')}</TabsTrigger>}
-          {canImport && <TabsTrigger value="import">{t('wf.tab.import')}</TabsTrigger>}
+        <TabsList className="h-auto w-full max-w-full justify-start overflow-x-auto sm:w-auto sm:flex-wrap">{/* Keep the active workspace and its siblings in a single scrollable mobile row. */}
+          <TabsTrigger className="shrink-0" value="schedule">{t('wf.tab.schedule')}</TabsTrigger>
+          <TabsTrigger className="shrink-0" value="staff">{t('wf.tab.staff')}</TabsTrigger>
+          <TabsTrigger className="shrink-0" value="analytics">{t('wf.tab.analytics')}</TabsTrigger>
+          {access === 'org' && <TabsTrigger className="shrink-0" value="settings">{t('wf.tab.settings')}</TabsTrigger>}
+          {canImport && <TabsTrigger className="shrink-0" value="import">{t('wf.tab.import')}</TabsTrigger>}
         </TabsList>
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           {access !== 'org' && viewAll && <Eye className="h-3.5 w-3.5" />}
@@ -227,6 +228,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
   const [copying, setCopying] = useState(false);
   const [selection, setSelection] = useState<Array<{ staff: WorkforceStaff; date: string }>>([]);
   const [day, setDay] = useState(today);
+  const [mobileFilters,setMobileFilters]=useState(false);
   const applyRef = useRef<((text: string) => void) | null>(null);
   const [prefs, setPrefs] = useState<GridPrefs>(loadGridPrefs);
   const [fullscreen, setFullscreen] = useState(false);
@@ -517,7 +519,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
     active ? 'border-primary bg-primary text-primary-foreground' : 'bg-background text-foreground hover:bg-muted');
 
   return (
-    <div className={cn('space-y-2', fullscreen && 'fixed inset-0 z-40 overflow-auto bg-background p-3')}>
+    <div className={cn('min-w-0 space-y-2 pb-20 md:pb-0', fullscreen && 'fixed inset-0 z-40 overflow-auto bg-background p-3')}>
       {/* What still waits for this planner to publish, and who else is planning right now */}
       {(others.length > 0 || pending.mine.length > 0) && (
         <div className="flex flex-wrap items-start gap-2">
@@ -575,8 +577,31 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
         </div>
       )}
 
-      {/* 1. Which month */}
-      <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b" role="tablist" aria-label={t('wf.my.month')}>
+      {/* Mobile controls: a single month selector and visible property/team choices. */}
+      <div className="space-y-2 rounded-xl border bg-card p-3 md:hidden">
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" aria-label={t('wf.mobile.prevMonth')} onClick={()=>setYm(({y,m})=>m===1?{y:y-1,m:12}:{y,m:m-1})}><ChevronLeft className="h-4 w-4"/></Button>
+          <div className="min-w-0 flex-1 text-center"><div className="text-sm font-bold">{monthLabel}</div><div className="text-xs text-muted-foreground">{workingDays(days)} {t('wf.m.workingDays')}</div></div>
+          <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" aria-label={t('wf.mobile.nextMonth')} onClick={()=>setYm(({y,m})=>m===12?{y:y+1,m:1}:{y,m:m+1})}><ChevronRight className="h-4 w-4"/></Button>
+          <Button variant="ghost" size="sm" className="h-10 shrink-0 px-2 text-xs" onClick={()=>{setYm({y:Number(today.slice(0,4)),m:Number(today.slice(5,7))});setDay(today);}}>{t('wf.mobile.today')}</Button>
+        </div>
+        <div className="grid min-w-0 grid-cols-2 gap-2">
+          {viewAll&&venues.length>1&&<label className="min-w-0 space-y-1 text-xs text-muted-foreground"><span>{t('wf.mobile.property')}</span><select className="block h-10 w-full min-w-0 rounded-md border bg-background px-2 text-sm text-foreground" value={venue} onChange={e=>setVenue(e.target.value)}><option value="all">{t('wf.m.allHotels')}</option>{venues.map(v=><option key={v.id} value={v.id}>{venueName(v.id)} · {v.count}</option>)}</select></label>}
+          <label className="min-w-0 space-y-1 text-xs text-muted-foreground"><span>{t('wf.mobile.department')}</span><select className="block h-10 w-full min-w-0 rounded-md border bg-background px-2 text-sm text-foreground" value={department} onChange={e=>setDepartment(e.target.value)}><option value="all">{t('wf.m.allDepartments')}</option>{teams.map(d=><option key={d.id} value={d.id}>{localName(d.name,t)} · {d.count}</option>)}</select></label>
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-2.5 top-3 h-4 w-4 text-muted-foreground"/><Input className="h-10 min-w-0 pl-8 text-base" aria-label={t('wf.m.search')} placeholder={t('wf.m.search')} value={query} onChange={e=>setQuery(e.target.value)}/></div>
+          <Button size="sm" variant="outline" className="h-10 shrink-0 gap-1.5" aria-expanded={mobileFilters} onClick={()=>setMobileFilters(v=>!v)}><SlidersHorizontal className="h-4 w-4"/>{t('wf.mobile.filters')}{status!=='all'&&<span className="h-2 w-2 rounded-full bg-primary"/>}</Button>
+        </div>
+        {mobileFilters&&<div className="grid gap-2 border-t pt-2">
+          <label className="text-xs text-muted-foreground">{t('wf.my.month')}<div className="mt-1 grid grid-cols-2 gap-2"><select className="h-10 min-w-0 rounded-md border bg-background px-2 text-sm text-foreground" aria-label={t('wf.my.month')} value={ym.m} onChange={e=>setYm(v=>({...v,m:Number(e.target.value)}))}>{monthNames.map((name,i)=><option key={i} value={i+1}>{name}</option>)}</select><input type="number" min={1900} max={2100} aria-label={t('wf.mobile.year')} className="h-10 w-full min-w-0 rounded-md border bg-background px-2 text-sm text-foreground" value={ym.y} onChange={e=>{const y=Number(e.target.value);if(y>=1900&&y<=2100)setYm(v=>({...v,y}));}}/></div></label>
+          <label className="text-xs text-muted-foreground">{t('wf.f.show')}<select className="mt-1 block h-10 w-full rounded-md border bg-background px-2 text-sm text-foreground" value={status} onChange={e=>setStatus(e.target.value as StatusFilter)}>{STATUS_FILTERS.map(f=><option key={f} value={f}>{t('wf.f.'+f)}</option>)}</select></label>
+          {monthCalendar.length>0&&<div className="text-xs text-muted-foreground">{monthCalendar.map(d=>Number(d.date.slice(8))+'. '+calendarDayName(d,t,language)).join(' · ')}</div>}
+          {filtered&&<Button variant="outline" size="sm" onClick={resetFilters}><X className="mr-1 h-4 w-4"/>{t('wf.m.resetFilters')}</Button>}
+        </div>}
+      </div>
+      {/* 1. Which month — desktop */}
+      <div className="hidden flex-wrap items-center gap-x-1 gap-y-1 border-b md:flex" role="tablist" aria-label={t('wf.my.month')}>
         <Button variant="ghost" size="sm" className="h-7 px-1.5" onClick={() => setYm(({ y, m }) => ({ y: y - 1, m }))} aria-label={t('wf.m.prevYear')}><ChevronLeft className="h-4 w-4" /></Button>
         <span className="px-1 text-sm font-semibold tabular-nums">{ym.y}</span>
         <Button variant="ghost" size="sm" className="h-7 px-1.5" onClick={() => setYm(({ y, m }) => ({ y: y + 1, m }))} aria-label={t('wf.m.nextYear')}><ChevronRight className="h-4 w-4" /></Button>
@@ -605,7 +630,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
 
       {/* 2. Which venue and team */}
       {viewAll && venues.length > 1 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" role="tablist" aria-label={t('wf.m.allHotels')} data-training="wf-venues">
+        <div className="hidden items-center gap-1.5 overflow-x-auto pb-0.5 md:flex" role="tablist" aria-label={t('wf.m.allHotels')} data-training="wf-venues">
           <button type="button" role="tab" aria-selected={venue === 'all'} className={chip(venue === 'all')} onClick={() => setVenue('all')}>
             {t('wf.m.allHotels')}<span className="tabular-nums opacity-70">{monthStaff.length}</span>
           </button>
@@ -618,7 +643,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
         </div>
       )}
       {teams.length > 1 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" aria-label={t('wf.m.allDepartments')} data-training="wf-teams">
+        <div className="hidden items-center gap-1.5 overflow-x-auto pb-0.5 md:flex" aria-label={t('wf.m.allDepartments')} data-training="wf-teams">
           <button type="button" aria-pressed={department === 'all'} className={chip(department === 'all')} onClick={() => setDepartment('all')}>
             {t('wf.m.allDepartments')}<span className="tabular-nums opacity-70">{venueStaff.length}</span>
           </button>
@@ -632,22 +657,23 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
 
       {/* 3. Who to show, how big, and what to do */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[180px] flex-1">
+        <div className="relative hidden min-w-[180px] flex-1 md:block">
           <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
           <Input className="h-8 pl-8 text-sm" placeholder={t('wf.m.search')} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         <Select value={status} onValueChange={(v) => setStatus(v as StatusFilter)}>
-          <SelectTrigger className="h-8 w-[210px]" aria-label={t('wf.f.show')}><span className="mr-1 text-muted-foreground">{t('wf.f.show')}:</span><SelectValue /></SelectTrigger>
+          <SelectTrigger className="hidden h-8 w-[210px] md:flex" aria-label={t('wf.f.show')}><span className="mr-1 text-muted-foreground">{t('wf.f.show')}:</span><SelectValue /></SelectTrigger>
           <SelectContent>
             {STATUS_FILTERS.map((f) => <SelectItem key={f} value={f}>{t(`wf.f.${f}`)}</SelectItem>)}
           </SelectContent>
         </Select>
-        {filtered && <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={resetFilters}><X className="mr-1 h-3.5 w-3.5" />{t('wf.m.resetFilters')}</Button>}
-        <ToggleGroup type="single" value={view === 'day' ? 'day' : layout} onValueChange={(v) => { if (!v) return; if (v === 'day') setView('day'); else { setView('grid'); setLayout(v as 'days' | 'staff'); } }} variant="outline" size="sm">
+        {filtered && <Button variant="ghost" size="sm" className="hidden h-8 px-2 text-xs md:inline-flex" onClick={resetFilters}><X className="mr-1 h-3.5 w-3.5" />{t('wf.m.resetFilters')}</Button>}
+        <ToggleGroup className="hidden md:flex" type="single" value={view === 'day' ? 'day' : layout} onValueChange={(v) => { if (!v) return; if (v === 'day') setView('day'); else { setView('grid'); setLayout(v as 'days' | 'staff'); } }} variant="outline" size="sm">
           <ToggleGroupItem value="days" className="h-8" aria-label={t('wf.m.viewDays')} title={t('wf.m.viewDays')}><LayoutGrid className="h-4 w-4" /></ToggleGroupItem>
           <ToggleGroupItem value="staff" className="h-8" aria-label={t('wf.m.viewStaff')} title={t('wf.m.viewStaff')}><Rows3 className="h-4 w-4" /></ToggleGroupItem>
           <ToggleGroupItem value="day" className="h-8" aria-label={t('wf.m.viewDay')} title={t('wf.m.viewDay')}><List className="h-4 w-4" /></ToggleGroupItem>
         </ToggleGroup>
+        <div className="flex min-w-0 flex-1 items-center gap-1 md:hidden"><select aria-label={t('wf.mobile.view')} className="h-10 w-full min-w-0 rounded-md border bg-background px-2 text-sm" value={view==='day'?'day':layout} onChange={e=>{const v=e.target.value;if(v==='day')setView('day');else{setView('grid');setLayout(v as 'days'|'staff');}}}><option value="day">{t('wf.m.viewDay')}</option><option value="days">{t('wf.mobile.monthGrid')}</option><option value="staff">{t('wf.m.viewStaff')}</option></select></div>
         {view === 'grid' && (
           <div className="flex items-center rounded-md border" role="group" data-training="wf-zoom">
             <Button variant="ghost" size="icon" className="h-8 w-8" disabled={prefs.zoom <= 0.5} onClick={() => zoomStep(-1)} aria-label={t('wf.m.zoomOut')} title={t('wf.m.zoomOut')}><ZoomOut className="h-4 w-4" /></Button>
@@ -658,10 +684,10 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
             </Button>
           </div>
         )}
-        <Button variant="outline" size="sm" className="h-8" onClick={() => setHistoryOpen(true)} data-training="wf-history"><History className="mr-1 h-4 w-4" />{t('wf.m.history')}</Button>
-        {canAskMira && <Button size="sm" className="h-8 border-0 bg-gradient-to-r from-violet-600 via-fuchsia-500 to-sky-500 text-white shadow-sm hover:opacity-90" onClick={() => askMira('wf.m.miraCheckPrompt')}><Sparkles className="mr-1 h-4 w-4" />{t('wf.m.askMira')}</Button>}
+        <Button variant="outline" size="sm" className="hidden h-8 md:inline-flex" onClick={() => setHistoryOpen(true)} data-training="wf-history"><History className="mr-1 h-4 w-4" />{t('wf.m.history')}</Button>
+        {canAskMira && <Button size="sm" className="hidden h-8 border-0 bg-gradient-to-r md:inline-flex from-violet-600 via-fuchsia-500 to-sky-500 text-white shadow-sm hover:opacity-90" onClick={() => askMira('wf.m.miraCheckPrompt')}><Sparkles className="mr-1 h-4 w-4" />{t('wf.m.askMira')}</Button>}
         <Popover>
-          <PopoverTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t('wf.m.shortcuts')} title={t('wf.m.shortcuts')}><HelpCircle className="h-4 w-4" /></Button></PopoverTrigger>
+          <PopoverTrigger asChild><Button variant="ghost" size="icon" className="hidden h-8 w-8 md:inline-flex" aria-label={t('wf.m.shortcuts')} title={t('wf.m.shortcuts')}><HelpCircle className="h-4 w-4" /></Button></PopoverTrigger>
           <PopoverContent align="end" className="w-80 space-y-1.5 text-xs">
             <p className="font-semibold">{t('wf.m.shortcuts')}</p>
             <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
@@ -670,8 +696,10 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
           </PopoverContent>
         </Popover>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="h-8"><MoreHorizontal className="mr-1 h-4 w-4" />{t('wf.m.more')}</Button></DropdownMenuTrigger>
+          <DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="h-10 md:h-8"><MoreHorizontal className="mr-1 h-4 w-4" />{t('wf.m.more')}</Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuItem className="md:hidden" onSelect={()=>setHistoryOpen(true)}><History className="mr-2 h-4 w-4"/>{t('wf.m.history')}</DropdownMenuItem>
+            {canAskMira&&<DropdownMenuItem className="md:hidden" onSelect={()=>askMira('wf.m.miraCheckPrompt')}><Sparkles className="mr-2 h-4 w-4"/>{t('wf.m.askMira')}</DropdownMenuItem>}
             <DropdownMenuCheckboxItem checked={prefs.pinTotals} onCheckedChange={(v) => updatePrefs({ pinTotals: !!v })}>{t('wf.m.pinTotals')}</DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem checked={showFormer} onCheckedChange={(v) => setShowFormer(!!v)}>{t('wf.m.formerStaff')}</DropdownMenuCheckboxItem>
             <DropdownMenuItem onSelect={() => setLegendOpen(true)}><Info className="mr-2 h-4 w-4" />{t('wf.m.legend')}</DropdownMenuItem>
@@ -681,7 +709,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
             {onImport && <DropdownMenuItem onSelect={onImport}><FileSpreadsheet className="mr-2 h-4 w-4" />{t('wf.m.import')}</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button size="sm" className="h-8" disabled={!draftPeople.length} title={t('wf.m.publishHint')} onClick={() => setConfirmPublish(true)} data-training="wf-publish">
+        <Button size="sm" className="h-10 md:h-8" disabled={!draftPeople.length} title={t('wf.m.publishHint')} onClick={() => setConfirmPublish(true)} data-training="wf-publish">
           <Send className="mr-1 h-4 w-4" />{draftPeople.length ? countText(t, locale, 'wf.m.publishCount', draftPeople.length) : t('wf.m.publish')}
         </Button>
       </div>
@@ -750,7 +778,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
       ) : (
         <DayList
           day={day} days={days} setDay={setDay} staff={visibleStaff} entries={data.entries} deptName={deptName} roleName={roleName}
-          cellLabels={cellLabels} onOpen={(staff) => setDetails({ staff, date: day })}
+          cellLabels={cellLabels} today={today} departmentColors={new Map(data.departments.map(d=>[d.id,d.color??'#64748b']))} onOpen={(staff) => setDetails({ staff, date: day })}
         />
       )}
 
