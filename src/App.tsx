@@ -40,6 +40,7 @@ const GuestDetail = lazy(() => import("./pages/GuestDetail"));
 const ChannelManager = lazy(() => import("./pages/ChannelManager"));
 const RatesAvailability = lazy(() => import("./pages/RatesAvailability"));
 const Revenue = lazy(() => import("./pages/Revenue"));
+const GoogleAds = lazy(() => import("./pages/GoogleAds"));
 const RevenueHotelDetail = lazy(() => import("./pages/RevenueHotelDetail"));
 const Reputation = lazy(() => import("./pages/Reputation"));
 const PriceList = lazy(() => import("./pages/PriceList"));
@@ -199,6 +200,7 @@ const TenantRouter = () => {
           <Route path="/booking-engine" element={<BookingEngineSettings />} />
           <Route path="/rates-availability" element={<RatesAvailability />} />
           <Route path="/revenue" element={<Revenue />} />
+          <Route path="/google-ads" element={user && profile?.role === "admin" && (!profile.access_role || profile.access_role === "admin") && profile.organization_slug === organizationSlug ? <GoogleAds /> : <Navigate to={legacyFallback} replace />} />
           <Route path="/revenue/:hotelId" element={<RevenueHotelDetail />} />
           <Route path="/reputation" element={<Reputation />} />
           <Route path="/price-list" element={<PriceList />} />
