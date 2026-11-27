@@ -527,6 +527,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     // for twice, however often the engine runs.
     const unspentLedger = (ledgerArr as any[]).filter((r) => !r.increase_spent_at);
     const unspentIdsByDate = new Map<string, string[]>();
+    const perBookingRewardIdsByDate = new Map<string, string[]>();
     for (const row of unspentLedger) {
       if (!row.id) continue;
       const list = unspentIdsByDate.get(row.stay_date) ?? [];
@@ -1117,9 +1118,19 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             daysOut,
           }, pace);
           const quietCutoff = now.getTime() - paceQuietHours(zone, pace) * 3_600_000;
-          const freshPolicy = new Set(unspentLedger
+          const freshRows = unspentLedger
             .filter((r: any) => r.stay_date === stayDate && Date.parse(r.first_seen_at) >= quietCutoff)
-            .map((r: any) => String(r.reservation_id))).size;
+            .sort((a: any, b: any) => Date.parse(a.first_seen_at) - Date.parse(b.first_seen_at));
+          const freshByReservation = new Map<string, string>();
+          for (const row of freshRows) {
+            const key = String(row.reservation_id);
+            if (row.id && !freshByReservation.has(key)) freshByReservation.set(key, String(row.id));
+          }
+          const freshPolicy = freshByReservation.size;
+          if (paceLive && rule.hotel_id === "ottofiori") {
+            const net = Math.max(0, input.pickup24h - input.cancellations24h);
+            perBookingRewardIdsByDate.set(stayDate, [...freshByReservation.values()].slice(0, net));
+          }
           const cellValues = cells.map((c) => whole(c.price)).filter((v) => Number.isFinite(v) && v > 0);
           // Prices of room types that still have a room to sell on this date.
           const sellableValues = cells
@@ -1136,6 +1147,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             convertingPrice: conversion?.price ?? null,
             convertedAt: conversion?.at ?? null,
             freshPickup: freshPolicy,
+            perBookingYield: rule.hotel_id === "ottofiori",
             localMinutes: paceLocalMinutes,
             sellableRooms,
             dateCeilingEur: tier.ceilingEur,
@@ -1305,14 +1317,16 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             wanted,
             minMove,
           );
-          const step = uniform.step;
+          const perBookingMove = paceLive && rule.hotel_id === "ottofiori" && dir > 0
+            && paceDecision?.trace.policyReason === "pickup_ratchet";
+          const step = perBookingMove ? Math.floor(uniform.step / 5) * 5 : uniform.step;
           const limitingCell = uniform.limitedBy;
           // In lockstep mode a child room type is never itself the limiting
           // rule. A cell can merely be the first one that would cross the
           // hotel's shared absolute boundary. Keep the audit field empty so it
           // cannot be mistaken for a room-type floor/ceiling hold.
           limitedBy = dateColumnLockstepEnabled ? null : limitingCell;
-          if (uniform.held) {
+          if (uniform.held || (perBookingMove && step < 5)) {
             decision.blocked = true;
             decision.direction = "hold";
             decision.movement = 0;
@@ -1564,7 +1578,16 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       // justified the rises this run so the next run cannot spend them again.
       const spentIds = decisions
         .filter((d) => queuedDates.has(d.stayDate) && d.direction === "increase")
-        .flatMap((d) => unspentIdsByDate.get(d.stayDate) ?? []);
+        .flatMap((d) => {
+          if (paceLive && rule.hotel_id === "ottofiori") {
+            // A cap can leave only part of the batch rewarded. Never spend
+            // an older booking or a fresh booking without at least €5 of the
+            // queued uplift. Other eligible tokens remain available until expiry.
+            return (perBookingRewardIdsByDate.get(d.stayDate) ?? [])
+              .slice(0, Math.floor(d.movement / 5));
+          }
+          return unspentIdsByDate.get(d.stayDate) ?? [];
+        });
       for (let i = 0; i < spentIds.length; i += 500) {
         await admin.from("revenue_pickup_ledger")
           .update({ increase_spent_at: new Date().toISOString() })
