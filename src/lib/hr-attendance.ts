@@ -89,7 +89,7 @@ export function newestAttendance<T extends {work_date:string;check_in_time:strin
  return [...rows].sort((a,b)=>b.work_date.localeCompare(a.work_date)||b.check_in_time.localeCompare(a.check_in_time)||a.id.localeCompare(b.id));
 }
 export function attendanceStatus(row:{work_date:string;check_out_time:string|null;status?:string},today:string):string {
- if(row.check_out_time) return row.status==='auto_signout'?'auto':'out';
+ if(row.check_out_time) return row.status==='auto_signout'?'auto':row.status==='forgot_signout'?'forgotten':'out';
  if(row.work_date<today) return 'missing';
  return row.status==='on_break'?'break':'working';
 }
