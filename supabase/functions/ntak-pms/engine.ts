@@ -319,7 +319,9 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
 }): Promise<ClosureBuild> {
   const cfg = ledgerConfig(s);
   const scope = await loadNtakScope(db, s);
-  const resCols = await phase3SchemaReady(db) ? RES_COLS : LEGACY_RES_COLS;
+  const phase3Ready = await phase3SchemaReady(db);
+  // Booking-level NTAK fields (segment, channel) must reach the closing too.
+  const resCols = (phase3Ready ? RES_COLS : LEGACY_RES_COLS) + (phase3Ready && await phase6SchemaReady(db) ? "," + PHASE6_COLS : "");
   const win = dayWindow(day);
 
   const [

@@ -317,8 +317,10 @@ export function buildDaySources(input: DayInputs, cfg: LedgerConfig): DaySources
     const dayUse = arrival === departure;
     const problems: string[] = [];
     const bookingNo = bookingNumber(r);
-    const segment = marketSegment(r, cfg, input.roomsInBooking(r), input.isCompany(r));
-    const channel = salesChannel(r, cfg);
+    // The booking's own NTAK fields (set at reception) win over the inferred defaults,
+    // so the closing reports the same segment and channel as the booking messages.
+    const segment = r.ntak_market_segment ?? marketSegment(r, cfg, input.roomsInBooking(r), input.isCompany(r));
+    const channel = r.ntak_sales_channel ?? salesChannel(r, cfg);
     const linesToday = input.lines.filter((l) => l.reservation_id === r.id && l.service_date === day);
     const paymentsOf = (pred: (d: string) => boolean) => input.payments.filter((p) => p.reservation_id === r.id && pred(localDate(p.received_at, cfg.timeZone)));
 
