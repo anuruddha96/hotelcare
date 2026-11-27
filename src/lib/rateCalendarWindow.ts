@@ -1,8 +1,28 @@
-import { addDays, dateRange } from "@/lib/revenueAnalytics";
+import { addDays, dateRange, type DayMetrics, type RoomTypeRate } from "@/lib/revenueAnalytics";
 import { RATE_HISTORY_DAYS } from "@/lib/rateCalendarPresentation";
 
 /** Rolling date view: today and 29 following dates (30 total). */
 export const RATE_CALENDAR_DAYS = 30;
+
+/** Maximum window supported by the published revenue payload RPC. The actual
+ * published end is derived from the returned rate data, not this request cap. */
+export const FULL_PUBLISHED_RATE_REQUEST_DAYS = 365;
+
+/** Search the complete published stay-date range, independently of navigation.
+ * Include negative and offsetting movements; an unknown pickup is not zero. */
+export function publishedPickupDates(
+  today: string,
+  rates: readonly Pick<RoomTypeRate, "stay_date">[],
+  metrics: readonly Pick<DayMetrics, "stay_date" | "netPickup" | "pickupGained" | "pickupLost" | "newBookings" | "cancelledBookings" | "roomsLost">[],
+): string[] {
+  const end = rates.reduce((latest, rate) => rate.stay_date >= today && rate.stay_date > latest ? rate.stay_date : latest, "");
+  if (!end) return [];
+  return [...new Set(metrics.filter(m => m.stay_date >= today && m.stay_date <= end && (
+    (m.netPickup != null && m.netPickup !== 0) || m.pickupGained > 0 || m.pickupLost > 0 ||
+    m.newBookings > 0 || m.cancelledBookings > 0 || m.roomsLost > 0
+  )).map(m => m.stay_date))].sort();
+}
+
 
 /** Navigation choices do not require downloading rate rows. */
 export function nextCalendarMonths(today: string, count = 12) {
