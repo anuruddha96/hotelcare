@@ -394,3 +394,8 @@ verify_jwt = false
 # actions validate the user's JWT and hotel access inside the function.
 [functions.ntak-pms]
 verify_jwt = false
+
+# User actions verify the JWT and organization administrator role in code;
+# scheduled calls require the separate private worker secret.
+[functions.google-ads-report]
+verify_jwt = false
