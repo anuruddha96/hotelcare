@@ -259,6 +259,13 @@ Deno.test('ledger attributes nights, payments and post-departure items', () => {
   assert.deepEqual(day.postStayPayments, [{ bookingNo: 'HC-3', date: '2026-11-18', payment: { amount: 10000, type: 'ATUTALAS' } }]);
   assert.ok(!day.stays.some((s) => s.reservationId === 'R4'));
 
+  // Reception-set NTAK fields win over the inferred segment/channel in the closing.
+  const overridden = buildDaySources({ ...base, day: '2026-11-17', reservations: reservations.map((r) => r.id === 'R1'
+    ? { ...r, ntak_sales_channel: 'DIREKT_HAGYOMANYOS' as const, ntak_market_segment: 'UZLETI_CSOPORTOS' as const } : r) }, DEFAULT_LEDGER_CONFIG);
+  const o1 = overridden.stays.find((s) => s.reservationId === 'R1')!;
+  assert.equal(o1.channel, 'DIREKT_HAGYOMANYOS');
+  assert.equal(o1.segment, 'UZLETI_CSOPORTOS');
+
   const withFx = buildDaySources({ ...base, day: '2026-11-18', reservations }, { ...DEFAULT_LEDGER_CONFIG, fxRates: { EUR: 390 } });
   assert.equal(withFx.stays.find((s) => s.reservationId === 'R5')!.accommodationFee, 46800);
 });
