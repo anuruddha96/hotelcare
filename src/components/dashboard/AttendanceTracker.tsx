@@ -29,8 +29,8 @@ interface AttendanceRecord {
   id: string;
   check_in_time: string;
   check_out_time: string | null;
-  check_in_location: any;
-  check_out_location: any;
+  check_in_location: {location_unavailable?:boolean;address?:string;latitude?:number;longitude?:number}|null;
+  check_out_location: unknown;
   work_date: string;
   total_hours: number | null;
   break_duration: number;
@@ -71,7 +71,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const [breakTypes, setBreakTypes] = useState<BreakType[]>([]);
   const [location, setLocation] = useState<{ latitude: number; longitude: number; address?: string } | null>(null);
   const [locationStatus, setLocationStatus] = useState<'loading' | 'ok' | 'needs-opt-in' | 'denied' | 'unsupported'>('needs-opt-in');
-  const [earlySignoutStatus, setEarlySignoutStatus] = useState<{type: 'pending' | 'approved' | 'rejected'; details?: any} | null>(null);
+  const [earlySignoutStatus, setEarlySignoutStatus] = useState<{type: 'pending' | 'approved' | 'rejected'; details?: {profiles?:{full_name?:string|null}|null;rejection_reason?:string|null}} | null>(null);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
   const [pendingRooms, setPendingRooms] = useState<PendingRoom[]>([]);
   const [lateSignoutDialogOpen, setLateSignoutDialogOpen] = useState(false);
@@ -182,7 +182,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       .maybeSingle();
 
     if (pendingRequest) {
-      setEarlySignoutStatus({ type: 'pending', details: pendingRequest });
+      setEarlySignoutStatus({ type: 'pending', details: pendingRequest as unknown as {profiles?:{full_name?:string|null}|null;rejection_reason?:string|null} });
       return;
     }
 
@@ -199,7 +199,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     if (processedRequest) {
       setEarlySignoutStatus({ 
         type: processedRequest.status as 'approved' | 'rejected', 
-        details: processedRequest 
+        details: processedRequest as unknown as {profiles?:{full_name?:string|null}|null;rejection_reason?:string|null} 
       });
     } else {
       setEarlySignoutStatus(null);
@@ -306,12 +306,12 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       return [];
     }
     
-    return (data || []).map((assignment: any) => ({
+    return (data || []).map((assignment) => ({
       id: assignment.id,
       room_number: assignment.rooms?.room_number || 'Unknown',
       hotel: assignment.rooms?.hotel || 'Unknown',
       status: assignment.status,
-      assignment_type: assignment.assignment_type,
+      assignment_type: assignment.assignment_type??'',
     }));
   };
 
@@ -489,7 +489,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     setIsLoading(true);
 
     const now = new Date().toISOString();
-    const updateData: any = {
+    const updateData: {status:string;break_type?:string;break_started_at?:string;break_ended_at?:string} = {
       status: isStartingBreak ? 'on_break' : 'checked_in'
     };
 
