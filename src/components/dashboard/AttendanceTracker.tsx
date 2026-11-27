@@ -20,7 +20,7 @@ import { PendingRoomsSignoutDialog } from './PendingRoomsSignoutDialog';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { UpcomingShiftCard } from './UpcomingShiftCard';
-import { requestAttendanceLocation } from '@/lib/locationPreference';
+import { requestAttendanceLocation, collectLocationDiagnostics, type AttendanceLocationFailure } from '@/lib/locationPreference';
 import { MyWorkforceSchedule } from '@/components/workforce/MyWorkforceSchedule';
 
 interface AttendanceRecord {
@@ -63,7 +63,9 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const [currentRecord, setCurrentRecord] = useState<AttendanceRecord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const checkInPending = useRef(false);
-  const [locationFailure, setLocationFailure] = useState<'timeout' | 'unavailable' | null>(null);
+  // When the phone can't give a position we never block work: the staff member
+  // gets one tap to start with temporary access and support is emailed.
+  const [locationIssue, setLocationIssue] = useState<{ reason: AttendanceLocationFailure; diagnostics: ReturnType<typeof collectLocationDiagnostics> } | null>(null);
   const [notes, setNotes] = useState('');
   const [selectedBreakType, setSelectedBreakType] = useState<string>('');
   const [breakTypes, setBreakTypes] = useState<BreakType[]>([]);
@@ -213,7 +215,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
     checkInPending.current = true;
     setIsLoading(true);
-    setLocationFailure(null);
+    setLocationIssue(null);
     setLocationStatus('loading');
     setLocation(null);
 
@@ -222,17 +224,9 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       // permission-query result. The actual geolocation response is authoritative.
       const result = await requestAttendanceLocation();
       if (result.ok === false) {
-        if (result.reason === 'denied' || result.reason === 'unsupported') {
-          setLocationStatus(result.reason);
-          openLocationHelp(result.reason);
-          toast({
-            title: t(result.reason === 'denied' ? 'attendance.location.denied' : 'attendance.location.unsupported'),
-            variant: 'destructive',
-          });
-        } else {
-          setLocationStatus('needs-opt-in');
-          setLocationFailure(result.reason);
-        }
+        // No blocking dialog: show one simple card with "Start work now".
+        setLocationStatus(result.reason === 'denied' || result.reason === 'unsupported' ? result.reason : 'needs-opt-in');
+        setLocationIssue({ reason: result.reason, diagnostics: collectLocationDiagnostics(result) });
         return;
       }
       const { latitude, longitude, address } = result.fix;
@@ -275,6 +269,54 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       checkInPending.current = false;
       setIsLoading(false);
       setLocationStatus(prev => prev === 'loading' ? 'needs-opt-in' : prev);
+    }
+  };
+
+  /** Location failed: let the staff member work anyway and tell support.
+   *  The record is marked as unverified so HR sees it was not location-checked. */
+  const handleTemporaryCheckIn = async () => {
+    if (!user || !locationIssue || checkInPending.current || currentRecord) return;
+    if (!profile?.organization_slug) {
+      toast({ title: "Access error", description: "Organization access could not be verified.", variant: "destructive" });
+      return;
+    }
+    checkInPending.current = true;
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('staff_attendance')
+        .insert({
+          user_id: user.id,
+          check_in_location: {
+            location_unavailable: true,
+            reason: locationIssue.reason,
+            address: 'Location unavailable – temporary access',
+            diagnostics: locationIssue.diagnostics,
+          },
+          notes: notes || null,
+          status: 'checked_in',
+          organization_slug: profile.organization_slug,
+        })
+        .select('id')
+        .single();
+      if (error || !data) {
+        console.error('Temporary check-in error:', error);
+        toast({ title: t('common.error'), description: t('attendance.location.tempFailed'), variant: 'destructive' });
+        return;
+      }
+      setLocationIssue(null);
+      toast({ title: t('workStatus.checkInSuccess'), description: t('attendance.location.tempDone') });
+      // Alerting support must never undo or delay the check-in.
+      void supabase.functions
+        .invoke('attendance-location-alert', { body: { attendance_id: data.id } })
+        .catch((alertError) => console.warn('Location alert could not be sent', alertError));
+      await fetchTodaysAttendance();
+    } catch (error) {
+      console.error('Temporary check-in exception:', error);
+      toast({ title: t('common.error'), description: t('attendance.location.tempFailed'), variant: 'destructive' });
+    } finally {
+      checkInPending.current = false;
+      setIsLoading(false);
     }
   };
 
@@ -341,7 +383,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   };
 
   const handleForgotSignout = async () => {
-    if (!currentRecord || !location) return;
+    if (!currentRecord) return;
     setLateSignoutDialogOpen(false);
     setIsLoading(true);
 
@@ -357,7 +399,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       .from('staff_attendance')
       .update({
         check_out_time: checkoutTime.toISOString(),
-        check_out_location: location,
+        check_out_location: location ?? null,
         status: 'forgot_signout',
         total_hours: parseFloat(totalHours.toFixed(2)),
         notes: notes || 'Forgot to sign out'
@@ -432,7 +474,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         .from('staff_attendance')
         .update({
           check_out_time: new Date().toISOString(),
-          check_out_location: location,
+          check_out_location: location ?? null,
           notes: notes || null
         })
         .eq('id', currentRecord.id);
@@ -553,7 +595,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             <span>{t('attendance.location.requesting')}</span>
           </div>
         )}
-        {!location && locationStatus === 'denied' && (
+        {!location && !locationIssue && locationStatus === 'denied' && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-2.5">
             <MapPin className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0 space-y-1.5">
@@ -571,7 +613,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             </div>
           </div>
         )}
-        {!location && locationStatus === 'unsupported' && (
+        {!location && !locationIssue && locationStatus === 'unsupported' && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-2.5">
             <MapPin className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
             <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
@@ -591,6 +633,11 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
                   <span>{t('attendance.checkOut')}: <strong>{formatTime(currentRecord.check_out_time)}</strong></span>
                 )}
               </div>
+              {currentRecord.check_in_location?.location_unavailable && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                  <MapPin className="h-2.5 w-2.5 inline mr-0.5" />{t('attendance.location.tempBadge')}
+                </p>
+              )}
               {location && (
                 <p className="text-[10px] text-muted-foreground truncate max-w-[250px] mx-auto">
                   <MapPin className="h-2.5 w-2.5 inline mr-0.5" />{location.address}
@@ -789,18 +836,31 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
               />
             </div>
 
-            {locationFailure && (
-              <div role="alert" className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-                <p className="font-medium">{t(locationFailure === 'timeout' ? 'attendance.location.timeout' : 'attendance.location.unavailable')}</p>
-                <p>{t('attendance.location.recoveryHint')}</p>
-                <Button type="button" className="w-full" disabled={isLoading} onClick={handleCheckIn}>
-                  {t('attendance.location.retryCheckIn')}
+            {locationIssue && (
+              <div role="alert" className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                <div className="flex items-start gap-2">
+                  <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold">{t('attendance.location.tempTitle')}</p>
+                    <p className="text-xs">{t('attendance.location.tempBody')}</p>
+                  </div>
+                </div>
+                <Button type="button" className="w-full h-11" disabled={isLoading} onClick={handleTemporaryCheckIn}>
+                  <LogIn className="h-4 w-4 mr-2" /> {t('attendance.location.tempStart')}
                 </Button>
-                <p className="text-xs">{t('attendance.location.supervisorHint')}</p>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" className="flex-1 text-xs" disabled={isLoading} onClick={handleCheckIn}>
+                    {t('attendance.location.retryCheckIn')}
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="flex-1 text-xs" disabled={isLoading}
+                    onClick={() => openLocationHelp(locationIssue.reason === 'unsupported' ? 'unsupported' : 'denied')}>
+                    {t('attendance.location.openHelp')}
+                  </Button>
+                </div>
               </div>
             )}
 
-            {!location && locationStatus === 'denied' && (
+            {!location && !locationIssue && locationStatus === 'denied' && (
               <div className="flex flex-col items-center gap-1.5 text-xs text-muted-foreground">
                 <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => openLocationHelp('denied')}>
                   <MapPin className="h-3 w-3 mr-1" /> {t('attendance.location.openHelp')}
