@@ -399,3 +399,7 @@ verify_jwt = false
 # scheduled calls require the separate private worker secret.
 [functions.google-ads-report]
 verify_jwt = false
+
+# User JWT verified in code; worker requires a private secret.
+[functions.linkedin-marketing]
+verify_jwt = false
