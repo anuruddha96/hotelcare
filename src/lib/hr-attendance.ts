@@ -75,13 +75,15 @@ export function attendanceShiftHours(rows:ActualAttendance[],shiftFor:(row:Actua
 }
 
 /** Reporting classification only; this does not change authorization. */
+const rolePermissions:Record<string,string[]>={
+ admin:['admin'],top_management:['top_management','top_management_manager'],controlling:['top_management','top_management_manager','control_finance','control_manager','finance_manager'],hr:['top_management','top_management_manager','hr'],manager:['manager','back_office_manager'],housekeeping_manager:['manager','housekeeping_manager'],housekeeping_supervisor:['manager','housekeeping_manager','supervisor'],reception:['manager','reception','front_office','reception_manager'],housekeeping:['housekeeping'],maintenance:['maintenance','maintenance_manager'],breakfast:['breakfast_staff']
+};
 export function attendanceRole(role?:string|null, accessRole?:string|null, job?:string|null):string {
- const effective=accessRole||role||'other';
- if (job?.trim().toLowerCase()==='front office manager') return 'front_office_manager';
- if (effective==='breakfast_staff') return 'breakfast';
- if (effective==='top_management_manager') return 'top_management';
- if (effective==='front_office') return 'reception';
- return ['housekeeping','maintenance','reception','housekeeping_manager','housekeeping_supervisor','breakfast','manager','top_management','hr','controlling','admin','front_office_manager'].includes(effective)?effective:'other';
+ const permission=role??'';
+ const fallback:Record<string,string>={admin:'admin',top_management:'top_management',top_management_manager:'top_management',control_finance:'controlling',control_manager:'controlling',finance_manager:'controlling',hr:'hr',manager:'manager',housekeeping_manager:'housekeeping_manager',supervisor:'housekeeping_supervisor',reception:'reception',front_office:'reception',reception_manager:'reception',housekeeping:'housekeeping',maintenance:'maintenance',maintenance_manager:'maintenance',breakfast_staff:'breakfast'};
+ const effective=accessRole&&(accessRole==='other'||rolePermissions[accessRole]?.includes(permission))?accessRole:fallback[permission]??'other';
+ if ((effective==='manager'||effective==='reception')&&job?.trim().toLowerCase()==='front office manager') return 'front_office_manager';
+ return effective;
 }
 export function newestAttendance<T extends {work_date:string;check_in_time:string;id:string}>(rows:readonly T[]):T[] {
  return [...rows].sort((a,b)=>b.work_date.localeCompare(a.work_date)||b.check_in_time.localeCompare(a.check_in_time)||a.id.localeCompare(b.id));
