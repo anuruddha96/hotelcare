@@ -69,8 +69,8 @@ describe('local reader service', () => {
 
 describe('scanner settings', () => {
   it('drops a non-local service URL and unknown sources', () => {
-    expect(parseScannerSettings('{"preferred":"bridge","bridgeUrl":"http://evil.example/x"}')).toEqual({ preferred: 'camera', bridgeUrl: '' });
-    expect(parseScannerSettings('{"preferred":"wedge","bridgeUrl":"http://localhost:8080/document"}')).toEqual({ preferred: 'wedge', bridgeUrl: 'http://localhost:8080/document' });
-    expect(parseScannerSettings('nope')).toEqual({ preferred: 'camera', bridgeUrl: '' });
+    expect(parseScannerSettings('{"preferred":"bridge","bridgeUrl":"http://evil.example/x"}')).toEqual({ preferred: 'camera', bridgeUrl: '', scannerId: '', scannerLabel: '' });
+    expect(parseScannerSettings('{"preferred":"wedge","bridgeUrl":"http://localhost:8080/document"}')).toEqual({ preferred: 'wedge', bridgeUrl: 'http://localhost:8080/document', scannerId: '', scannerLabel: '' });
+    expect(parseScannerSettings('nope')).toEqual({ preferred: 'camera', bridgeUrl: '', scannerId: '', scannerLabel: '' });
   });
 });

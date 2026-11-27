@@ -4,7 +4,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CheckCircle2, Flashlight, FlashlightOff, ImageUp, Keyboard, Loader2, PlugZap, RotateCw, ScanLine, TriangleAlert } from 'lucide-react';
+import { Camera, CheckCircle2, Flashlight, FlashlightOff, ImageUp, Keyboard, Loader2, PlugZap, RotateCw, ScanLine, TriangleAlert, Usb } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
@@ -34,17 +34,22 @@ import {
   type ScannerSettings, type ScannerSource,
 } from '@/lib/idScan/scannerDevices';
 import {
-  AUTO_TORCH_START, acquireCamera, autoTorchStep, cameraWasAsked, holdCamera, isAppleTouchDevice, loadCameraPrefs, nextTorchMode,
+  AUTO_TORCH_START, acquireCamera, autoTorchStep, cameraWasAsked, chooseCameraDevice, holdCamera, isAppleTouchDevice, loadCameraPrefs, nextTorchMode,
   releaseCamera, saveCameraPrefs, setTorch, torchAvailable, torchIsOn, type AutoTorch, type TorchMode,
 } from '@/lib/idScan/cameraSession';
+import {
+  BURST_GAP_MS, ReaderBurst, listVideoInputs, looksLikeBuiltInCamera, onDevicesChanged, pickCamera, pickScanner, type VideoDevice,
+} from '@/lib/idScan/scannerDetect';
 
 /**
  * Passport / ID-card scan at the front desk.
  *
- * Three sources, chosen per workstation and remembered:
- *   - Camera (or a photo on iPads/phones),
- *   - a document reader attached to the computer that types the code lines
- *     (keyboard output — ARH, Access-IS, Desko, 3M …),
+ * Camera or scanner, chosen per workstation and remembered:
+ *   - the device's camera,
+ *   - a USB scanner that connects as a camera (document camera, passport / ID
+ *     scanner): found by name and set up automatically when plugged in,
+ *   - a document reader that types the code lines (keyboard output — ARH,
+ *     Access-IS, Desko, 3M …): recognised automatically by its typing speed,
  *   - a reader service on this computer (http://localhost…, Plustek/Granus style).
  *
  * Camera → crop the code-line band → OCR in the browser (tesseract.js, loaded
@@ -295,6 +300,15 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [result, setResult] = useState<MrzReadResult | null>(null);
   const [settings, setSettings] = useState<ScannerSettings>(loadScannerSettings);
   const [source, setSource] = useState<ScannerSource>(() => loadScannerSettings().preferred);
+  const usesCamera = source === 'camera' || source === 'scanner';
+  // Connected cameras / camera-type scanners, and the scanner found among them.
+  const [videoDevices, setVideoDevices] = useState<VideoDevice[]>([]);
+  const [scannerDevice, setScannerDevice] = useState<VideoDevice | null>(null);
+  const [scannerNotice, setScannerNotice] = useState<'added' | 'missing' | 'reader' | null>(null);
+  // The receptionist picked a source by hand in this dialog: automatic detection then stays quiet.
+  const userChoseRef = useRef(false);
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
   const [typed, setTyped] = useState('');
   const [bridgeDraft, setBridgeDraft] = useState(() => loadScannerSettings().bridgeUrl);
   const [failReason, setFailReason] = useState<string | null>(null);
@@ -308,8 +322,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     frontRef.current = { captured: false, positive: false, text: '' };
   }, [frontSession, hungarianSession]);
 
-  const chooseSource = (next: ScannerSource) => {
+  const chooseSource = (next: ScannerSource, manual = true) => {
+    if (manual) userChoseRef.current = true;
     if (next === source) return;
+    // Camera and camera-type scanner share the camera pipeline: switch the device.
+    if (next === 'scanner' && scannerDevice) chooseCameraDevice(scannerDevice.deviceId, true);
+    if (next === 'camera' && source === 'scanner') chooseCameraDevice(pickCamera(videoDevices, scannerDevice?.deviceId)?.deviceId ?? '', false);
+    if (manual) setScannerNotice(null);
     scanRunRef.current++;
     busyRef.current = null;
     mrzSession.reset();
@@ -318,9 +337,56 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setSource(next);
     setTyped('');
     setFailReason(null);
-    const updated = { ...settings, preferred: next };
+    const updated = { ...loadScannerSettings(), preferred: next };
     setSettings(updated);
     saveScannerSettings(updated);
+  };
+  const chooseSourceRef = useRef(chooseSource);
+  chooseSourceRef.current = chooseSource;
+
+  // Scanner detection: when the dialog opens, when a device is plugged in or
+  // out, and once camera access gives the devices their names. A new scanner
+  // is set up and selected by itself and remembered on this workstation.
+  const refreshDevices = useCallback(async () => {
+    const devices = await listVideoInputs();
+    setVideoDevices(devices);
+    const saved = loadScannerSettings();
+    const found = pickScanner(devices, saved.scannerId, saved.scannerLabel);
+    setScannerDevice(found);
+    if (found) {
+      const isNew = found.deviceId !== saved.scannerId || found.label !== saved.scannerLabel;
+      if (isNew) {
+        const next: ScannerSettings = { ...saved, scannerId: found.deviceId, scannerLabel: found.label, preferred: 'scanner' };
+        saveScannerSettings(next);
+        setSettings(next);
+        setScannerNotice('added');
+      }
+      if ((isNew || saved.preferred === 'scanner') && !userChoseRef.current && sourceRef.current === 'camera') {
+        chooseCameraDevice(found.deviceId, true);
+        chooseSourceRef.current('scanner', false);
+      }
+    } else if (sourceRef.current === 'scanner' && devices.some((device) => device.label)) {
+      chooseSourceRef.current('camera', false);
+      setScannerNotice('missing');
+    }
+  }, []);
+
+  const adoptScanner = (device: VideoDevice) => {
+    const next: ScannerSettings = { ...loadScannerSettings(), scannerId: device.deviceId, scannerLabel: device.label, preferred: 'scanner' };
+    saveScannerSettings(next);
+    setSettings(next);
+    setScannerDevice(device);
+    chooseCameraDevice(device.deviceId, true);
+    userChoseRef.current = true;
+    setScannerNotice('added');
+    if (source !== 'scanner') {
+      scanRunRef.current++;
+      busyRef.current = null;
+      mrzSession.reset();
+      setAutoReading(false);
+      setFailReason(null);
+      setSource('scanner');
+    }
   };
 
   // One camera stream shared by every scan (see cameraSession): held between
@@ -407,7 +473,14 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setSide('front');
     setCaptureKind('unknown');
     passportEvidenceRef.current = false;
-    setSource('camera');
+    userChoseRef.current = false;
+    setScannerNotice(null);
+    {
+      const saved = loadScannerSettings();
+      const scannerFirst = saved.preferred === 'scanner' && !!saved.scannerId;
+      if (scannerFirst) chooseCameraDevice(saved.scannerId, true);
+      setSource(scannerFirst ? 'scanner' : 'camera');
+    }
     setResult(null);
     clearFront();
     setFrontAssessment(null);
@@ -430,21 +503,54 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   // Do not release the stream on every phase transition. Safari can prompt
   // again when getUserMedia is called after all tracks have been stopped.
   useEffect(() => {
-    if (!open || source !== 'camera') { stopCamera(); return; }
+    if (!open || !usesCamera) { stopCamera(); return; }
     if (phase === 'camera' && !document.hidden) void startCamera();
     else if (phase === 'select') stopCamera();
     else pauseCamera();
-  }, [open, source, phase, startCamera, stopCamera, pauseCamera]);
+  }, [open, source, usesCamera, phase, startCamera, stopCamera, pauseCamera]);
 
   useEffect(() => {
     if (!open) return;
     const onVisibility = () => {
       if (document.hidden) stopCamera();
-      else if (source === 'camera' && phase === 'camera') void startCamera();
+      else if (usesCamera && phase === 'camera') void startCamera();
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [open, source, phase, stopCamera, startCamera]);
+  }, [open, source, usesCamera, phase, stopCamera, startCamera]);
+
+  useEffect(() => {
+    if (!open) return;
+    void refreshDevices();
+    return onDevicesChanged(() => { void refreshDevices(); });
+  }, [open, refreshDevices]);
+
+  useEffect(() => {
+    if (open && cameraOk) void refreshDevices();
+  }, [open, cameraOk, refreshDevices]);
+
+  // A keyboard-output reader is recognised by its typing speed: the scan is
+  // read and the reader is remembered, without anyone choosing it first.
+  useEffect(() => {
+    if (!open || phase !== 'camera' || side !== 'mrz' || source === 'wedge') return;
+    const burst = new ReaderBurst();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      burst.push(event.key, performance.now());
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const text = burst.finished(performance.now());
+        if (!text) return;
+        chooseSourceRef.current('wedge', false);
+        setScannerNotice('reader');
+        setTyped(text);
+      }, BURST_GAP_MS * 4 + 20);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => { window.removeEventListener('keydown', onKey, true); if (timer) clearTimeout(timer); };
+  }, [open, phase, side, source]);
 
   useEffect(() => {
     if (!open || source !== 'wedge' || phase !== 'camera') return;
@@ -1145,7 +1251,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   };
 
   useEffect(() => {
-    if (!open || phase !== 'camera' || source !== 'camera' || cameraOk !== true) return;
+    if (!open || phase !== 'camera' || !usesCamera || cameraOk !== true) return;
     const session = cameraSessionRef.current;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1199,7 +1305,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     // Current side determines routing; side changes reset stability without
     // stopping the shared camera or the warmed MRZ worker.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, phase, source, cameraOk, side, mrzSession]);
+  }, [open, phase, source, usesCamera, cameraOk, side, mrzSession]);
 
   const readFile = (file: File | undefined) => {
     if (!file) return;
@@ -1310,16 +1416,45 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
             {side === 'front' ? <div className="rounded-md bg-primary/5 px-3 py-2 text-sm font-semibold">{t(selectedType === 'passport' ? 'pms.scan.passportPhotoOnly' : 'pms.scan.idFrontOnly')}</div> : <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 p-3 text-emerald-800 dark:text-emerald-200"><CheckCircle2 className="h-5 w-5 shrink-0"/><div><div className="text-xs">{t('pms.scan.frontCaptured')}</div><div className="text-sm font-bold">{t('pms.scan.flipCard')}</div></div><RotateCw className="ml-auto h-5 w-5 shrink-0 motion-safe:animate-pulse"/></div>}
           </div>
         )}
-        {phase === 'camera' && side === 'mrz' && (
-          <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1" role="tablist" aria-label={t('pms.scan.source')}>
+        {phase === 'camera' && (side === 'mrz' || scannerDevice) && (
+          <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1" role="tablist" aria-label={t('pms.scan.source')}>
             {([
-              ['camera', Camera, 'pms.scan.srcCamera'], ['wedge', Keyboard, 'pms.scan.srcReader'], ['bridge', PlugZap, 'pms.scan.srcService'],
-            ] as Array<[ScannerSource, typeof Camera, string]>).map(([key, Icon, labelKey]) => (
-              <button key={key} type="button" role="tab" aria-selected={source === key} onClick={() => chooseSource(key)}
-                className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${source === key ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
-                <Icon className="h-3.5 w-3.5" /> {t(labelKey)}
-              </button>
-            ))}
+              ['camera', Camera, 'pms.scan.srcCamera'], ['scanner', Usb, 'pms.scan.srcScanner'],
+            ] as Array<['camera' | 'scanner', typeof Camera, string]>).map(([key, Icon, labelKey]) => {
+              const selected = key === 'camera' ? source === 'camera' : source !== 'camera';
+              const target: ScannerSource = key === 'camera' ? 'camera' : scannerDevice ? 'scanner' : (side === 'mrz' ? 'wedge' : 'camera');
+              return (
+                <button key={key} type="button" role="tab" aria-selected={selected} onClick={() => chooseSource(target)}
+                  className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${selected ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                  <Icon className="h-3.5 w-3.5" /> {t(labelKey)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {phase === 'camera' && scannerNotice && (
+          <p className={`text-[11px] ${scannerNotice === 'missing' ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300'}`} role="status">
+            {scannerNotice === 'added' ? `${t('pms.scan.scannerAdded')}${scannerDevice?.label ? `: ${scannerDevice.label}` : ''}` : scannerNotice === 'missing' ? t('pms.scan.scannerMissing') : t('pms.scan.readerDetected')}
+          </p>
+        )}
+        {phase === 'camera' && source === 'scanner' && scannerDevice && scannerNotice !== 'added' && (
+          <p className="flex items-center gap-1 text-[11px] text-muted-foreground"><Usb className="h-3 w-3" /> {t('pms.scan.scannerInUse')}: {scannerDevice.label || t('pms.scan.srcScanner')}</p>
+        )}
+        {phase === 'camera' && side === 'mrz' && (source === 'wedge' || source === 'bridge') && (
+          <div className="space-y-1.5 text-[11px] text-muted-foreground">
+            {!scannerDevice && <p>{t('pms.scan.scannerNoneFound')}</p>}
+            {!scannerDevice && videoDevices.some((device) => device.label && !looksLikeBuiltInCamera(device.label)) && (
+              <div className="flex flex-wrap gap-1">
+                {videoDevices.filter((device) => device.label && !looksLikeBuiltInCamera(device.label)).map((device) => (
+                  <Button key={device.deviceId} type="button" size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={() => adoptScanner(device)}>
+                    <Usb className="h-3 w-3" /> {t('pms.scan.useAsScanner')}: {device.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <button type="button" className="inline-flex items-center gap-1 underline underline-offset-2" onClick={() => chooseSource(source === 'bridge' ? 'wedge' : 'bridge')}>
+              {source === 'bridge' ? <Keyboard className="h-3 w-3" /> : <PlugZap className="h-3 w-3" />} {t(source === 'bridge' ? 'pms.scan.useKeyboardReader' : 'pms.scan.useScannerService')}
+            </button>
           </div>
         )}
 
@@ -1353,7 +1488,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           </div>
         )}
 
-        {phase === 'camera' && source === 'camera' && (
+        {phase === 'camera' && usesCamera && (
           <div className="space-y-2">
             {side === 'mrz' && <p className="text-xs">{t('pms.scan.idBackHint')}</p>}
             {cameraOk !== false ? (
@@ -1459,7 +1594,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           {phase === 'camera' && side === 'mrz' && source === 'bridge' && (
             <Button type="button" className="gap-1.5" disabled={!settings.bridgeUrl} onClick={() => void readFromBridge()}><ScanLine className="h-4 w-4" /> {t('pms.scan.readDocument')}</Button>
           )}
-          {phase === 'camera' && source === 'camera' && (
+          {phase === 'camera' && usesCamera && (
             <>
               {cameraOk && <Button type="button" className="w-full gap-1.5" disabled={autoReading || flipPrompt} onClick={captureFrame}><ScanLine className="h-4 w-4" /> {autoReading ? t('pms.scan.reading') : side === 'front' ? t('pms.scan.captureFirst') : t('pms.scan.captureBack')}</Button>}
               {photoTesting && (
