@@ -1,0 +1,32 @@
+.hc-gift-overlay{position:fixed;inset:0;z-index:110;background:rgba(7,22,32,.64);backdrop-filter:blur(4px);animation:hc-gift-fade .35s ease both}
+.hc-gift-dialog{position:fixed;z-index:111;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100% - 24px));max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain;border-radius:26px;padding:20px;text-align:center;background:#fff9ec;color:#173b3d;box-shadow:0 24px 90px #06182070;border:1px solid #e8d3a6;animation:hc-gift-entrance .45s cubic-bezier(.2,.8,.2,1) both}
+.hc-gift-brand{font-size:10px;font-weight:800;letter-spacing:.22em;color:#79572c;margin:0 0 10px}
+.hc-gift-scene{display:block;width:100%;height:auto;max-height:240px;margin:0 auto 15px}
+.hc-gift-title{font-size:clamp(23px,5vw,30px);line-height:1.16;font-weight:800;margin:8px 0;color:#173b3d}
+.hc-gift-intro,.hc-gift-message{font-size:15px;line-height:1.65;color:#385453;margin:10px 0 14px}
+.hc-gift-message,.hc-gift-signature{animation:hc-gift-fade .5s ease both}
+.hc-gift-signature{font-size:13px;font-weight:650;color:#79572c;margin:10px 0 16px}
+.hc-gift-primary,.hc-gift-skip{width:100%;border-radius:14px;min-height:44px;font-size:15px;font-weight:700;cursor:pointer}
+.hc-gift-primary{border:1px solid #a12636;background:#b92b43;color:white;padding:12px 16px;box-shadow:0 5px 15px #b92b4333}
+.hc-gift-primary:hover{background:#a12636}
+.hc-gift-skip{background:transparent;color:#385453;padding:8px;margin-top:3px}
+.hc-gift-primary:focus-visible,.hc-gift-skip:focus-visible{outline:3px solid #8a611b;outline-offset:3px}
+.hc-santa-bob{animation:hc-santa-bob 3s ease-in-out infinite;transform-origin:center}
+.hc-gift-box{animation:hc-gift-bob 2.5s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+.hc-gift-glow{animation:hc-gift-glow 2.5s ease-in-out infinite}
+.hc-gift-flake{animation:hc-gift-fall 6s linear infinite}
+.hc-gift-lid-open{transform-box:fill-box;transform-origin:center;animation:hc-gift-lid .7s cubic-bezier(.2,.8,.2,1) forwards}
+.hc-gift-note-pop{animation:hc-gift-note .75s .2s ease-out both}
+.hc-gift-burst{animation:hc-gift-glow .8s ease-out both}
+.hc-gift-star{animation:hc-gift-star 1.4s ease both}
+@keyframes hc-gift-fade{from{opacity:0}to{opacity:1}}
+@keyframes hc-gift-entrance{from{opacity:0;transform:translate(-50%,-46%) scale(.96)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes hc-santa-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes hc-gift-bob{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(3deg)}}
+@keyframes hc-gift-glow{0%,100%{opacity:.35}50%{opacity:.95}}
+@keyframes hc-gift-fall{0%{opacity:0;transform:translateY(-12px)}15%,70%{opacity:.8}100%{opacity:0;transform:translateY(24px)}}
+@keyframes hc-gift-lid{to{transform:translate(20px,-43px) rotate(23deg);opacity:.85}}
+@keyframes hc-gift-note{from{opacity:0;transform:translateY(36px)}to{opacity:1;transform:translateY(0)}}
+@keyframes hc-gift-star{0%{opacity:0}35%{opacity:1}100%{opacity:.75}}
+@media(max-height:650px){.hc-gift-dialog{padding:14px}.hc-gift-scene{max-height:155px;margin-bottom:8px}.hc-gift-message{line-height:1.45;font-size:14px}}
+@media(prefers-reduced-motion:reduce){.hc-gift-dialog,.hc-gift-overlay,.hc-gift-dialog *{animation:none!important}.hc-gift-lid-open{transform:translate(20px,-43px) rotate(23deg)}}
