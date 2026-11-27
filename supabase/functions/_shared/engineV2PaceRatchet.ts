@@ -690,7 +690,12 @@ export function decidePaceRatchet(
     detail = `The cheapest bookable price of this date (€${lowestSellable}) banks less than the €${s.floor_net_eur} floor after OTA discounts; lifting the date by €${raw} to the €${gridFloor} list floor.`;
   } else if (pickup > 0) {
     const stillSelling = (zone === "arrival_day" || zone === "sell_down") && pressure > 0 && left > s.unsold_ok_rooms;
-    if (stillSelling && !(zone === "arrival_day" && pickup >= 2)) {
+    // In the final sell-down window, genuine fresh pickup must be allowed to
+    // yield when inventory is scarce or demand is sustained. Pressure measures
+    // the sell-out objective, not whether the current offer is underpriced.
+    const recentActivePickup = Math.max(0, input.observedPickup6h ?? input.pickup6h);
+    const strongSellDownDemand = zone === "sell_down" && (occ >= 85 || recentActivePickup >= 2);
+    if (stillSelling && !strongSellDownDemand && !(zone === "arrival_day" && pickup >= 2)) {
       // The price just converted and rooms still have to go: that IS the
       // clearing price. Hold it; do not chase it up or cut under it.
       return hold(
@@ -707,6 +712,14 @@ export function decidePaceRatchet(
     detail = `${pickup} new booking${pickup === 1 ? "" : "s"} at €${current}, ${left} room${left === 1 ? "" : "s"} left, ${paceText}: raising €${raw} (${pct}%) on a ${tier} date.`;
   } else {
     // --- No fresh booking: is a cut justified? -----------------------------------
+    // A booking may leave the short increase window (or be spent by a
+    // successful raise) while the date is still converting. Protect repeated
+    // active demand without using old/spent tokens to generate another raise.
+    const recentActivePickup = Math.max(0, input.observedPickup6h ?? input.pickup6h);
+    if (zone === "sell_down" && recentActivePickup >= 2) {
+      return hold("recent_pickup_protection",
+        `Held: ${recentActivePickup} active bookings in the last six hours; recent demand protects the offer from a markdown.`);
+    }
     if (left <= s.unsold_ok_rooms) {
       return hold("last_rooms_hold", `${left} room${left === 1 ? "" : "s"} left, within the ${s.unsold_ok_rooms}-room tolerance: the last rooms keep their price.`);
     }
