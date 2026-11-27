@@ -89,7 +89,8 @@ async function tokenRequest(params:Record<string,string>){
 }
 async function refresh(db:DBClient,connection:any){
  if(connection.status!=="active")throw new AdsError(409,"CONNECTION_INACTIVE");
- const c=checked(await db.from("google_ads_credentials").select("refresh_ciphertext").eq("connection_id",connection.id).single());
+ const c=checked(await db.from("google_ads_credentials").select("refresh_ciphertext").eq("connection_id",connection.id).maybeSingle());
+ if(!c)throw new AdsError(409,"REAUTHORIZATION_REQUIRED");
  try{
   return (await tokenRequest({grant_type:"refresh_token",refresh_token:await decrypt(c.refresh_ciphertext,connection.organization_id+":"+connection.google_subject)})).access_token as string;
  }catch(e){
@@ -183,7 +184,9 @@ Deno.serve(async(req)=>{
   const db=DB();
   const p=checked(await db.from("profiles").select("role,access_role,organization_slug").eq("id",user.id).maybeSingle());
   if(!p||p.role!=="admin"||(p.access_role&&p.access_role!=="admin")||!p.organization_slug||body.organizationSlug!==p.organization_slug)return json({error:"ACCESS_DENIED"},403);
-  const org=checked(await db.from("organizations").select("id").eq("slug",p.organization_slug).eq("is_active",true).single()).id;
+  const organization=checked(await db.from("organizations").select("id").eq("slug",p.organization_slug).eq("is_active",true).maybeSingle());
+  if(!organization)return json({error:"ACCESS_DENIED"},403);
+  const org=organization.id;
   if(body.action==="list"){
    const connections=checked(await db.from("google_ads_connections").select("id,email,status,last_error,updated_at").eq("organization_id",org).order("email"));
    const accounts=checked(await db.from("google_ads_accounts").select("id,connection_id,customer_id,name,currency,time_zone,account_status,enabled,available,last_sync_at,last_error,discovery_at").eq("organization_id",org).order("name"));
