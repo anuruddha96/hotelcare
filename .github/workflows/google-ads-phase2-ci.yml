@@ -49,3 +49,4 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check --node-modules-dir=auto --no-lock supabase/functions/google-ads-report/index.ts
+      - run: deno test --no-lock supabase/functions/google-ads-report/token-key.test.ts
