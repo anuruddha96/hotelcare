@@ -118,7 +118,7 @@ async function discover(db:DBClient,connection:any,token:string,category:Categor
  const rows=[...accounts.values()].map(a=>({...a,connection_id:connection.id,organization_id:connection.organization_id,available:true,discovery_at:at}));
  if(rows.length)checked(await db.from("google_ads_accounts").upsert(rows,{onConflict:"connection_id,customer_id"}));
  if(!failures.length)checked(await db.from("google_ads_accounts").update({available:false}).eq("connection_id",connection.id).lt("discovery_at",at));
- checked(await db.from("google_ads_connections").update({last_error:failures.length?"PARTIAL_DISCOVERY":null,updated_at:at}).eq("id",connection.id).eq("status","active"));
+ checked(await db.from("google_ads_connections").update({last_error:failures.length?"PARTIAL_DISCOVERY":null,updated_at:at,last_discovery_at:failures.length?null:at,discovery_lease_until:failures.length?new Date(Date.now()+3600000).toISOString():null}).eq("id",connection.id).eq("status","active"));
  return failures;
 }
 async function report(db:DBClient,category:Category,token:string,a:any,start:string,end:string){
@@ -147,7 +147,7 @@ async function syncOne(db:DBClient,org:string|null,accountId:string|null,categor
   else if(age(j.last_deep_at)>=168){start=dayOffset(today,-89);kind="deep";}
   else if(age(j.last_month_at)>=24){start=dayOffset(today,-30);kind="month";}
   else if(age(j.last_recent_at)>=6){start=dayOffset(today,-6);kind="recent";}
-  else if(j.history_next_end&&j.history_next_end>=oldest){end=j.history_next_end;start=[oldest,dayOffset(end,-29)].sort()[1];next=dayOffset(start,-1);if(next<oldest)next=null;kind="history";}
+  else if(age(j.last_today_at)<1&&j.history_next_end&&j.history_next_end>=oldest){end=j.history_next_end;start=[oldest,dayOffset(end,-29)].sort()[1];next=dayOffset(start,-1);if(next<oldest)next=null;kind="history";}
   const data=await report(db,category,token,a,start,end);
   if(!checked(await db.rpc("google_ads_commit_report",{p_account:a.id,p_lease:j.lease,p_start:start,p_end:end,p_rows:data.rows,p_budgets:data.budgets,p_today:today,p_kind:kind,p_history_next:next})))throw new AdsError(409,"SYNC_LEASE_LOST");
   return {status:"success",accountId:a.id,start,end,kind,rows:data.rows.length};
@@ -173,7 +173,11 @@ Deno.serve(async(req)=>{
    if(!expected||!supplied||!await constantEqual(expected,supplied))return json({error:"ACCESS_DENIED"},403);
    const db=DB();
    // One job per invocation; overlapping invocations cannot claim the same account.
-   return json(await syncOne(db,null,null,"sync"));
+   const result=await syncOne(db,null,null,"sync");
+   const candidates=checked(await db.rpc("google_ads_claim_discovery"))??[];
+   const c=candidates[0];
+   if(c){try{await discover(db,c,await refresh(db,c),"sync");}catch(e){const code=e instanceof AdsError?e.code:"DISCOVERY_FAILED";checked(await db.from("google_ads_connections").update({last_error:code,discovery_lease_until:new Date(Date.now()+3600000).toISOString()}).eq("id",c.id).eq("status","active"));}}
+   return json(result);
   }
   const auth=req.headers.get("Authorization");
   if(!auth)return json({error:"SIGN_IN_REQUIRED"},401);
@@ -238,7 +242,7 @@ Deno.serve(async(req)=>{
    if(!validDate(start)||!validDate(end)||start>end||Date.parse(end)-Date.parse(start)>731*86400000)throw new AdsError(400,"INVALID_REPORT_RANGE");
    const rows=await readAll((from,to)=>db.from("google_ads_campaign_daily").select("payload").eq("account_id",a.id).gte("day",start).lte("day",end).order("day").order("campaign_id").range(from,to));
    const budgets=await readAll((from,to)=>db.from("google_ads_budgets").select("payload").eq("account_id",a.id).order("campaign_id").range(from,to));
-   const logs=checked(await db.from("google_ads_sync_logs").select("start_day,end_day").eq("account_id",a.id).eq("outcome","success").not("start_day","is",null).order("started_at",{ascending:false}).limit(1000));
+   const logs=(await readAll((from,to)=>db.from("google_ads_coverage").select("day").eq("account_id",a.id).gte("day",start).lte("day",end).order("day").range(from,to))).map(r=>({start_day:r.day,end_day:r.day}));
    return json({rows:rows.map(r=>r.payload),budgets:budgets.map(r=>r.payload),fetchedAt:a.last_sync_at,coverage:logs});
   }
   return json({error:"UNKNOWN_ACTION"},400);
