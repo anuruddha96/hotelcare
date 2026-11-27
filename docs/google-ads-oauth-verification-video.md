@@ -5,7 +5,7 @@ Project: hotelcare-507413 (801466430391). This runbook is for an authorized RD H
 ## Prerequisites
 - In Google Auth Platform > Data access, add https://www.googleapis.com/auth/adwords. Retain the scopes genuinely needed for existing verified workflows. Current Ads OAuth asks for openid, email and adwords.
 - Confirm branding, privacy policy, authorized domains, consent audience and all OAuth clients. Keep new unverified scope requests confined to authorized pilot/staging workflows during review; do not enable broadly for external customers.
-- Confirm the exact registered redirect URI currently expected by the backend: https://hotelcare.app/rdhotels/google-ads. Start from that same origin with an authenticated RD Hotels admin session. If the deployed app is on a different origin, resolve callback and registered URI consistency before recording; do not expose authorization codes.
+- Confirm the exact registered redirect URI currently expected by the backend: https://my.hotelcare.app/rdhotels/google-ads. Start from that same origin with an authenticated RD Hotels admin session. If the deployed app is on a different origin, resolve callback and registered URI consistency before recording; do not expose authorization codes.
 - Authorize a Google identity permitted to use the chosen advertising account. Use an account with actual authorized reporting data; do not seed fabricated production metrics. Avoid recording passwords, passkeys, tokens, private keys or unrelated customer data.
 
 ## Recording storyboard (English)
