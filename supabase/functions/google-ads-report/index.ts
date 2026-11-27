@@ -21,7 +21,10 @@ function validCustomer(c:GoogleCustomer|undefined): c is GoogleCustomer & {curre
  return !!c && typeof c.currencyCode==="string" && /^[A-Z]{3}$/.test(c.currencyCode) && typeof c.timeZone==="string" && !!c.timeZone;
 }
 function checked<T>(r:{data:T;error:unknown}):T{if(r.error)throw new AdsError(500,"DATABASE_OPERATION_FAILED");return r.data;}
-const cors={"Access-Control-Allow-Origin":"https://hotelcare.app","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type, x-worker-secret","Access-Control-Allow-Methods":"POST, OPTIONS"};
+// Browser requests use explicit bearer tokens, never cookie credentials. Match
+// Supabase's browser CORS convention; authentication, tenant and worker checks
+// below remain mandatory. OAuth redirects are still restricted to hotelcare.app.
+const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type, x-worker-secret, x-region, x-supabase-api-version, x-retry-count, traceparent, tracestate, baggage, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version","Access-Control-Allow-Methods":"POST, OPTIONS"};
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {status,headers:{...cors,"Content-Type":"application/json","Cache-Control":"no-store"}});
 const idOk = (id: unknown): id is string => typeof id === "string" && /^\d{10}$/.test(id);
 function validDate(value: unknown): value is string {
