@@ -22,6 +22,8 @@ import { UI_HINTS } from '@/lib/ui-hints';
 import { UpcomingShiftCard } from './UpcomingShiftCard';
 import { requestAttendanceLocation } from '@/lib/locationPreference';
 import { MyWorkforceSchedule } from '@/components/workforce/MyWorkforceSchedule';
+import { todayBudapest } from '@/lib/budapestTime';
+import { budapestInput } from '@/lib/hr-attendance';
 
 interface AttendanceRecord {
   id: string;
@@ -82,7 +84,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       hydrateLocationFromCache();
       fetchBreakTypes();
     }
-  }, [user]);
+  }, [user, profile?.organization_slug]);
 
   // Listen for permission changes (granted/denied) emitted by locationPreference.
   useEffect(() => {
@@ -137,7 +139,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const fetchTodaysAttendance = async () => {
     if (!user) return;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = profile?.organization_slug === 'rdhotels' ? todayBudapest() : new Date().toISOString().split('T')[0];
     
     const { data, error } = await supabase
       .from('staff_attendance')
@@ -329,9 +331,12 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       }
     }
 
-    // Check if it's after 6 PM - ask if they forgot to sign out
-    const currentHour = new Date().getHours();
-    if (currentHour >= 18) {
+    // RD uses Budapest wall time; the server decides whether a backdated
+    // checkout is safe for the actual published shift.
+    const rd = profile?.organization_slug === 'rdhotels';
+    const currentHour = rd ? Number(budapestInput(new Date().toISOString()).slice(11,13)) : new Date().getHours();
+    const beforeCutoff = !rd || Number(budapestInput(currentRecord.check_in_time).slice(11,13)) < 17;
+    if (currentHour >= (rd ? 17 : 18) && beforeCutoff) {
       setLateSignoutDialogOpen(true);
       setIsLoading(false);
       return;
@@ -345,7 +350,23 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     setLateSignoutDialogOpen(false);
     setIsLoading(true);
 
-    // Sign out at 4:30 PM of the work date
+    if (profile?.organization_slug === 'rdhotels') {
+      try {
+        const client = supabase as unknown as {rpc:(name:'rd_attendance_forgot_checkout',args:{_id:string})=>PromiseLike<{data:number|null;error:unknown}>};
+        const {data,error} = await client.rpc('rd_attendance_forgot_checkout',{_id:currentRecord.id});
+        if(error || data!==1) {
+          toast({title:t('common.error'),description:t('hr.daily.unsafeCheckout'),variant:'destructive'});
+          await fetchTodaysAttendance();
+          return;
+        }
+        toast({title:t('workStatus.checkOutSuccess'),description:t('hr.daily.forgotten')});
+        await fetchTodaysAttendance();
+      } catch {
+        toast({title:t('common.error'),description:t('hr.daily.unsafeCheckout'),variant:'destructive'});
+      } finally {setIsLoading(false);}
+      return;
+    }
+    // Preserve legacy cutoff for other organizations.
     const workDate = currentRecord.work_date;
     const checkoutTime = new Date(`${workDate}T16:30:00`);
     const checkInTime = new Date(currentRecord.check_in_time);
@@ -842,7 +863,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             Late Sign Out
           </DialogTitle>
           <DialogDescription>
-            It's past 6 PM. Did you forget to sign out earlier, or did you work until now?
+            {profile?.organization_slug === 'rdhotels' ? 'Did you forget to sign out earlier, or did you work until now?' : "It's past 6 PM. Did you forget to sign out earlier, or did you work until now?"}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex flex-col sm:flex-row gap-2">
