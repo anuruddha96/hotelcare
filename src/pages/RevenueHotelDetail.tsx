@@ -1280,6 +1280,7 @@ function PrevioRevenueHotelDetail() {
             onRatesUpdated={live.reload}
             onAvailabilityUpdated={live.refreshAvailability}
             onHorizonDaysChange={growHorizon}
+            fullPickupRangeReady={live.loadedHorizonDays >= 365}
           />
 
           {/* The demand events calendar sits right under the rate & pickup
