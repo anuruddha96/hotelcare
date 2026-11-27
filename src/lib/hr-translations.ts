@@ -465,3 +465,6 @@ const propertyRows:Record<string,string[]>={
   ]
 };
 for(const [lang,values] of Object.entries(propertyRows))propertyKeys.forEach((key,i)=>{hrTranslations[lang]['hr.daily.'+key]=values[i];});
+
+const overnightLabels:Record<string,string>={"en":"Active overnight shifts","hu":"Aktív éjszakai műszakok","es":"Turnos nocturnos activos","vi":"Ca đêm đang hoạt động","mn":"Идэвхтэй шөнийн ээлж","az":"Aktiv gecə növbələri","tl":"Mga aktibong night shift","uk":"Активні нічні зміни","ru":"Активные ночные смены"};
+for(const [lang,value] of Object.entries(overnightLabels))hrTranslations[lang]['hr.daily.overnight']=value;
