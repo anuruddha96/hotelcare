@@ -24,6 +24,7 @@ import { hasManagerPowers } from '@/lib/roleAccess';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
+import { buildRoomServiceToggle, matchesCommittedRoomPatch, readCommittedRoomServices, type RoomServiceKey } from '@/lib/roomServiceToggle';
 import { cleanName } from '@/lib/staffNames';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
@@ -376,14 +377,9 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       const { data, error } = await query.select('id, notes, status, towel_change_required, linen_change_required, pms_metadata').maybeSingle();
       if (error) throw error;
       if (!data) throw new Error('The room changed or could not be updated. Refresh and try again.');
-      const flags = parseRoomFlags(data.notes);
       const persisted: Partial<RoomSelection> = {
-        roomNotes: data.notes ?? null,
+        ...readCommittedRoomServices(data),
         roomStatus: data.status ?? null,
-        towelChangeRequired: !!data.towel_change_required,
-        linenChangeRequired: !!data.linen_change_required,
-        roomCleaning: flags.roomCleaning,
-        collectExtraTowels: flags.collectExtraTowels,
         pmsMetadata: (data.pms_metadata as Record<string, any> | null) || null,
       };
       // Triggers can change the requested values. Render the committed values,
@@ -392,9 +388,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         setSelection((current) => current?.roomId === roomId ? { ...current, ...persisted } : current);
       }
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
-      const verified = (['roomStatus', 'towelChangeRequired', 'linenChangeRequired', 'roomCleaning', 'collectExtraTowels'] as const)
-        .every((key) => !(key in localPatch) || persisted[key] === localPatch[key]);
-      if (!verified) throw new Error('The requested change was not saved. Refresh the room and try again.');
+      if (!matchesCommittedRoomPatch(persisted, localPatch)) throw new Error('The requested change was not saved. Refresh the room and try again.');
       toast.success(success);
     } catch (error) {
       console.error(success, error);
@@ -915,29 +909,12 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     }
   };
 
-  const toggleRoomService = async (service: 'towel' | 'linen' | 'extra-towels') => {
+  const toggleRoomService = async (service: RoomServiceKey) => {
     if (!canManage || readOnlyForPast || !selection?.roomId || actionLoading || savingNotes || roomPatchInFlight.current) return;
-    if (service === 'extra-towels') {
-      const next = !selection.collectExtraTowels;
-      // Edit only the structured marker; never save an unfinished note draft
-      // or strip planned notes while toggling an independent service.
-      const base = (selection.roomNotes || '').replaceAll('[COLLECT_EXTRA_TOWELS]', '').trim();
-      const notes = [next ? '[COLLECT_EXTRA_TOWELS]' : '', base].filter(Boolean).join(' ');
-      await patchRoom({ notes: notes || null }, { collectExtraTowels: next },
-        `Extra towel collection ${next ? 'required' : 'cleared'} — room ${selection.roomNumber}`, service);
-      return;
-    }
-    const next = service === 'towel' ? !selection.towelChangeRequired : !(selection.linenChangeRequired || selection.roomCleaning);
-    // Change Room is the canonical full-clean/linen requirement. A historical
-    // ROOM_CLEANING note marker must not silently recreate it when cleared.
-    const patch: Record<string, any> = service === 'towel'
-      ? { towel_change_required: next }
-      : { linen_change_required: next };
-    if (service === 'linen' && selection.roomCleaning) {
-      patch.notes = (selection.roomNotes || '').replaceAll('[ROOM_CLEANING]', '').trim() || null;
-    }
-    await patchRoom(patch, service === 'towel' ? { towelChangeRequired: next } : { linenChangeRequired: next, roomCleaning: false },
-      `${service === 'towel' ? 'Towel change' : textileChangeLabel} ${next ? 'required' : 'cleared'} — room ${selection.roomNumber}`, service);
+    // Build the change from the persisted room, not an unsaved note draft.
+    const { patch, expected, next } = buildRoomServiceToggle(service, selection);
+    const label = service === 'towel' ? 'Towel change' : service === 'linen' ? textileChangeLabel : 'Extra towel collection';
+    await patchRoom(patch, expected, `${label} ${next ? 'required' : 'cleared'} — room ${selection.roomNumber}`, service);
   };
 
   const saveNotes = useCallback(async (silent = false) => {
