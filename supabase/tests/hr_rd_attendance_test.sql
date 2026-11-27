@@ -47,10 +47,10 @@ INSERT INTO public.hotel_configurations VALUES('ottofiori','Ottofiori','aaaaaaaa
 UPDATE public.profiles SET assigned_hotel='ottofiori' WHERE id='10000000-0000-0000-0000-000000000001';
 SET LOCAL ROLE authenticated;
 INSERT INTO public.staff_attendance(id,user_id,organization_slug,check_in_time,status,work_hotel_id) VALUES('30000000-0000-0000-0000-000000000009','10000000-0000-0000-0000-000000000001','rdhotels',now(),'checked_in','mika-downtown');
-DO $ BEGIN
+DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.staff_attendance WHERE id='30000000-0000-0000-0000-000000000009' AND work_hotel_id='ottofiori') THEN RAISE EXCEPTION 'New switched work property not captured'; END IF;
  IF NOT EXISTS(SELECT 1 FROM public.staff_attendance WHERE id='30000000-0000-0000-0000-000000000008' AND work_hotel_id='mika-downtown') THEN RAISE EXCEPTION 'Prior property changed'; END IF;
-END $;
+END $$;
 SELECT set_config('request.jwt.claim.sub','10000000-0000-0000-0000-000000000006',true);
 DO $$ BEGIN IF (SELECT count(*) FROM public.rd_attendance_auto_checkout_events)<>3 THEN RAISE EXCEPTION 'HR audit inaccessible'; END IF; END $$;
 SELECT set_config('request.jwt.claim.sub','10000000-0000-0000-0000-000000000005',true);
