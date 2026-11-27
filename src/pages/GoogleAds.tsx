@@ -55,7 +55,11 @@ export default function GoogleAds() {
       }
       throw new Error("Could not reach the Google Ads service. Check your connection and retry. If it persists, contact your HotelCare administrator.");
     }
-    if(data?.error) throw new Error(data.error === "GOOGLE_ADS_CONFIGURATION_REQUIRED" ? "Google Ads OAuth is not configured on the server. Ask your administrator to check the Google Ads Edge Function secrets." : String(data.error));
+    if(data?.error) {
+      if(data.error === "INVALID_GOOGLE_ADS_TOKEN_KEY") throw new Error("The GOOGLE_ADS_TOKEN_KEY Edge Function secret must encode exactly 32 random bytes (44-character Base64 or 64-character hexadecimal). Save a valid key in Supabase; do not change Vault or OAuth credentials. If accounts are already connected, contact your administrator before changing the key.");
+      if(data.error === "GOOGLE_ADS_CONFIGURATION_REQUIRED") throw new Error("Google Ads OAuth is not configured on the server. Ask your administrator to check the Google Ads Edge Function secrets.");
+      throw new Error(String(data.error));
+    }
     return data as T;
   }
   async function list(version:number){
