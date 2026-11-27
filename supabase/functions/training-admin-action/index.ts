@@ -1,5 +1,6 @@
 // Edge function: training-admin-action
 // Admin-only operations to reset, mark complete, or re-trigger training for users.
+import { trainingGuideAllowed, trainingTargetAllowed } from '../_shared/trainingScope.ts';
 import { effectiveAccessRole } from '../_shared/accessPolicy.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -86,7 +87,7 @@ Deno.serve(async (req) => {
             .select('user_id,tour_key,status,current_step,completed_at,updated_at')
             .in('user_id', ids).order('user_id').order('tour_key').range(offset,offset+499);
           if (error) throw error;
-          progress.push(...(rows || []));
+          progress.push(...(rows || []).filter(row=>trainingGuideAllowed(row.tour_key,profile.organization_slug)));
           if (!rows || rows.length < 500) break;
         }
         const { data: rows, error } = await admin.from('user_training_state')
@@ -94,7 +95,7 @@ Deno.serve(async (req) => {
         if (error) throw error;
         states.push(...(rows || []));
       }
-      return respond({ ok: true, employees, progress, states });
+      return respond({ ok: true, organization_slug: profile.organization_slug, employees, progress, states });
     }
     const userIds: string[] = Array.isArray(body.userIds) ? body.userIds : [];
     const curriculumSlugs: string[] = Array.isArray(body.curriculumSlugs)
@@ -108,17 +109,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    // HR may operate only on active, non-privileged staff in their own organization.
-    if (isHR) {
-      if (!profile.organization_slug || userIds.some(id => typeof id !== 'string' || id === callerId)) {
-        return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
-      const uniqueIds = [...new Set(userIds)];
-      const { data: targets, error: targetError } = await admin.from('profiles').select('id,role,access_role,organization_slug,is_super_admin,deleted_at').in('id', uniqueIds).eq('organization_slug', profile.organization_slug);
-      if (targetError || !targets || targets.length !== uniqueIds.length || targets.some(target => target.deleted_at || target.is_super_admin || ['admin','top_management','top_management_manager','hr','control_finance'].includes(String(target.role)) || ['admin','top_management','controlling','hr'].includes(effectiveAccessRole(target)))) {
-        return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
-    }
+    // Validate every target and curriculum before any service-role write.
+    // Tenant administrators are scoped too; only explicitly designated
+    // platform super-admins may administer other organizations.
+    const forbidden=()=>new Response(JSON.stringify({error:'Forbidden'}),{status:403,headers:{...corsHeaders,'Content-Type':'application/json'}});
+    if (userIds.some(id=>typeof id!=='string'||!id.trim()) ||
+        curriculumSlugs.some(slug=>typeof slug!=='string'||!slug.trim()) ||
+        (isHR&&(!profile.organization_slug||userIds.includes(callerId)))) return forbidden();
+    const uniqueIds=[...new Set(userIds)];
+    const {data:targets,error:targetError}=await admin.from('profiles')
+      .select('id,role,access_role,organization_slug,is_super_admin,deleted_at').in('id',uniqueIds);
+    if(targetError||!targets||targets.length!==uniqueIds.length||
+      targets.some(target=>target.deleted_at||!trainingTargetAllowed(profile,target,isHR)||
+        curriculumSlugs.some(slug=>!trainingGuideAllowed(slug,target.organization_slug))||
+        (isHR&&(target.is_super_admin||['admin','top_management','top_management_manager','hr','control_finance'].includes(String(target.role))||
+        ['admin','top_management','controlling','hr'].includes(effectiveAccessRole(target)))))) return forbidden();
     const nowIso = new Date().toISOString();
 
     if (action === 'reset') {
