@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,7 @@ import { PendingRoomsSignoutDialog } from './PendingRoomsSignoutDialog';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { UpcomingShiftCard } from './UpcomingShiftCard';
+import { requestAttendanceLocation } from '@/lib/locationPreference';
 import { MyWorkforceSchedule } from '@/components/workforce/MyWorkforceSchedule';
 
 interface AttendanceRecord {
@@ -61,6 +62,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const { t } = useTranslation();
   const [currentRecord, setCurrentRecord] = useState<AttendanceRecord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const checkInPending = useRef(false);
+  const [locationFailure, setLocationFailure] = useState<'timeout' | 'unavailable' | null>(null);
   const [notes, setNotes] = useState('');
   const [selectedBreakType, setSelectedBreakType] = useState<string>('');
   const [breakTypes, setBreakTypes] = useState<BreakType[]>([]);
@@ -92,12 +95,14 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const hydrateLocationFromCache = async () => {
     const m = await import('@/lib/locationPreference');
     const fix = await m.resolveLocationIfAllowed();
+    if (checkInPending.current) return;
     if (fix) {
       setLocation({ latitude: fix.latitude, longitude: fix.longitude, address: fix.address });
       setLocationStatus('ok');
       return;
     }
     const perm = await m.getBrowserPermissionState();
+    if (checkInPending.current) return;
     if (perm === 'denied') setLocationStatus('denied');
     else if (perm === 'unsupported') setLocationStatus('unsupported');
     else setLocationStatus('needs-opt-in');
@@ -200,48 +205,41 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   };
 
   const handleCheckIn = async () => {
-    if (!user) return;
+    if (!user || checkInPending.current || currentRecord) return;
     if (!profile?.organization_slug) {
       toast({ title: "Access error", description: "Organization access could not be verified.", variant: "destructive" });
       return;
     }
 
-    // Resolve location on-demand: only prompt the browser when the user actually
-    // tries to sign in. Other tasks never trigger the native permission prompt.
-    let fix = location;
-    if (!fix) {
-      const m = await import('@/lib/locationPreference');
-      const cached = await m.resolveLocationIfAllowed();
-      if (cached) {
-        fix = { latitude: cached.latitude, longitude: cached.longitude, address: cached.address };
-      } else {
-        const perm = await m.getBrowserPermissionState();
-        if (perm === 'denied') {
-          openLocationHelp('denied');
-          toast({ title: t('attendance.location.denied'), description: t('attendance.location.checkInRequires'), variant: 'destructive' });
-          return;
-        }
-        if (perm === 'unsupported') {
-          openLocationHelp('unsupported');
-          toast({ title: t('attendance.location.unsupported'), variant: 'destructive' });
-          return;
-        }
-        const got = await m.requestLocationOnce();
-        if (!got) {
-          // User denied or timeout — guide them to the recovery flow.
-          openLocationHelp('denied');
-          toast({ title: t('attendance.location.denied'), description: t('attendance.location.checkInRequires'), variant: 'destructive' });
-          return;
-        }
-        fix = { latitude: got.latitude, longitude: got.longitude, address: got.address };
-        setLocation(fix);
-        setLocationStatus('ok');
-      }
-    }
-
+    checkInPending.current = true;
     setIsLoading(true);
+    setLocationFailure(null);
+    setLocationStatus('loading');
+    setLocation(null);
 
     try {
+      // Start from the swipe/click itself, not a stale app-cached fix or a
+      // permission-query result. The actual geolocation response is authoritative.
+      const result = await requestAttendanceLocation();
+      if (result.ok === false) {
+        if (result.reason === 'denied' || result.reason === 'unsupported') {
+          setLocationStatus(result.reason);
+          openLocationHelp(result.reason);
+          toast({
+            title: t(result.reason === 'denied' ? 'attendance.location.denied' : 'attendance.location.unsupported'),
+            variant: 'destructive',
+          });
+        } else {
+          setLocationStatus('needs-opt-in');
+          setLocationFailure(result.reason);
+        }
+        return;
+      }
+      const { latitude, longitude, address } = result.fix;
+      const fix = { latitude, longitude, address };
+      setLocation(fix);
+      setLocationStatus('ok');
+
       const { error } = await supabase
         .from('staff_attendance')
         .insert({
@@ -274,7 +272,9 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         variant: "destructive"
       });
     } finally {
+      checkInPending.current = false;
       setIsLoading(false);
+      setLocationStatus(prev => prev === 'loading' ? 'needs-opt-in' : prev);
     }
   };
 
@@ -547,10 +547,10 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         </CardHeader>
 
       <CardContent className="space-y-3 p-3 sm:p-4">
-        {!location && locationStatus === 'loading' && (
+        {isLoading && !currentRecord && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
             <MapPin className="h-3 w-3 animate-pulse" />
-            <span>{t('attendance.gettingLocation')}</span>
+            <span>{t('attendance.location.requesting')}</span>
           </div>
         )}
         {!location && locationStatus === 'denied' && (
@@ -785,9 +785,20 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
               <SwipeAction
                 label={t('attendance.swipeToCheckInAction')}
                 onComplete={handleCheckIn}
-                disabled={isLoading || locationStatus === 'unsupported'}
+                disabled={isLoading}
               />
             </div>
+
+            {locationFailure && (
+              <div role="alert" className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                <p className="font-medium">{t(locationFailure === 'timeout' ? 'attendance.location.timeout' : 'attendance.location.unavailable')}</p>
+                <p>{t('attendance.location.recoveryHint')}</p>
+                <Button type="button" className="w-full" disabled={isLoading} onClick={handleCheckIn}>
+                  {t('attendance.location.retryCheckIn')}
+                </Button>
+                <p className="text-xs">{t('attendance.location.supervisorHint')}</p>
+              </div>
+            )}
 
             {!location && locationStatus === 'denied' && (
               <div className="flex flex-col items-center gap-1.5 text-xs text-muted-foreground">

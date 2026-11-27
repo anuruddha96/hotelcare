@@ -44,12 +44,13 @@ export function saveFix(fix: Omit<LocationFix, 'ts'>) {
 }
 
 export async function getBrowserPermissionState(): Promise<LocationPermissionState> {
-  if (typeof navigator === 'undefined' || !('permissions' in navigator)) return 'unsupported';
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return 'unsupported';
+  if (!navigator.permissions) return 'prompt';
   try {
     const status = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
     cachedPermState = status.state;
     return status.state;
-  } catch { return 'unsupported'; }
+  } catch { return 'prompt'; }
 }
 
 export function getPermissionStateCached(): LocationPermissionState | null {
@@ -139,6 +140,64 @@ export async function resolveLocationIfAllowed(): Promise<LocationFix | null> {
       { enableHighAccuracy: true, timeout: 10000, maximumAge: FIX_TTL_MS }
     );
   });
+}
+
+export type AttendanceLocationResult =
+  | { ok: true; fix: LocationFix }
+  | { ok: false; reason: 'denied' | 'unsupported' | 'timeout' | 'unavailable' };
+
+function acquireAttendancePosition(highAccuracy: boolean): Promise<AttendanceLocationResult> {
+  return new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve({ ok: false, reason: 'unsupported' });
+      return;
+    }
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+              Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+            resolve({ ok: false, reason: 'unavailable' });
+            return;
+          }
+          resolve({ ok: true, fix: {
+            latitude, longitude,
+            address: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+            ts: pos.timestamp || Date.now(),
+          } });
+        },
+        (err) => resolve({ ok: false, reason:
+          err.code === 1 ? 'denied' : err.code === 3 ? 'timeout' : 'unavailable' }),
+        { enableHighAccuracy: highAccuracy, timeout: highAccuracy ? 15000 : 10000, maximumAge: 0 }
+      );
+    } catch {
+      resolve({ ok: false, reason: 'unavailable' });
+    }
+  });
+}
+
+/** Explicit attendance action. Try a network-assisted fix first (useful indoors),
+ * then GPS for transient failures. Never reuse app-cached coordinates for sign-in. */
+export async function requestAttendanceLocation(): Promise<AttendanceLocationResult> {
+  let result = await acquireAttendancePosition(false);
+  if (result.ok === false && (result.reason === 'timeout' || result.reason === 'unavailable')) {
+    result = await acquireAttendancePosition(true);
+  }
+  if (result.ok === true) {
+    setOptIn(true);
+    saveFix(result.fix);
+    cachedPermState = 'granted';
+    emit('granted');
+  } else if (result.reason === 'denied') {
+    // Android may report code 1 even though site permission is granted (e.g.
+    // OS-level location disabled). Don't send staff into a site-settings loop.
+    const permission = await getBrowserPermissionState();
+    if (permission === 'granted') return { ok: false, reason: 'unavailable' };
+    cachedPermState = 'denied';
+    emit('denied');
+  }
+  return result;
 }
 
 /** Force a single geolocation request — call only from explicit user gestures

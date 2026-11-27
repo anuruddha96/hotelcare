@@ -5,6 +5,11 @@
 type Bundle = Record<string, string>;
 
 const en: Bundle = {
+  'attendance.location.timeout': "Location request timed out",
+  'attendance.location.unavailable': "Current location unavailable",
+  'attendance.location.recoveryHint': "Turn on Location on your device, move near a window or outside, and try again. Your browser may already allow location.",
+  'attendance.location.retryCheckIn': "Try check-in again",
+  'attendance.location.supervisorHint': "If this continues, ask your supervisor to record your actual arrival time.",
   'settings.location.title': 'Location access',
   'settings.location.description': "Saved once — used only for attendance Sign In. You won't be prompted on every page.",
   'settings.location.statusLabel': 'Status',
@@ -61,6 +66,11 @@ const en: Bundle = {
 };
 
 const hu: Bundle = {
+  'attendance.location.timeout': "A helymeghatározás túllépte az időkorlátot",
+  'attendance.location.unavailable': "A jelenlegi hely nem érhető el",
+  'attendance.location.recoveryHint': "Kapcsold be a helymeghatározást a készülékeden, menj ablak közelébe vagy a szabadba, és próbáld újra. Lehet, hogy a böngésződ már engedélyezi a helyhozzáférést.",
+  'attendance.location.retryCheckIn': "Próbálj újra bejelentkezni",
+  'attendance.location.supervisorHint': "Ha a probléma továbbra is fennáll, kérd meg a felettesedet, hogy rögzítse a tényleges érkezési idődet.",
   'settings.location.title': 'Helyhozzáférés',
   'settings.location.description': 'Egyszer mented — csak a bejelentkezéshez használjuk. Nem kérdezzük minden oldalon.',
   'settings.location.statusLabel': 'Állapot',
@@ -210,6 +220,11 @@ const az: Bundle = {
 };
 
 const tl: Bundle = {
+  'attendance.location.timeout': "Nag-time out ang pagkuha ng lokasyon",
+  'attendance.location.unavailable': "Hindi makuha ang kasalukuyang lokasyon",
+  'attendance.location.recoveryHint': "I-on ang Location sa device, lumapit sa bintana o lumabas, at subukang muli. Maaaring pinapayagan na ng browser ang lokasyon.",
+  'attendance.location.retryCheckIn': "Subukang mag-check in muli",
+  'attendance.location.supervisorHint': "Kung magpapatuloy ito, hilingin sa supervisor na itala ang aktuwal mong oras ng pagdating.",
   'settings.location.title': 'Pag-access sa lokasyon',
   'settings.location.description': 'I-save nang isang beses lang — ginagamit para sa Sign In. Hindi ka tatanungin sa bawat pahina.',
   'settings.location.statusLabel': 'Status',
