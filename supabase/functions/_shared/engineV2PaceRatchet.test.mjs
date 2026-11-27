@@ -425,6 +425,32 @@ test('the price that converts is held while rooms still have to sell; an on-trac
   assert.equal(raise.movement, 13); // 7% of €150 × scarce 1.25
 });
 
+test('Ottofiori incident: fresh pickup raises the last two rooms even with zero unsold tolerance', () => {
+  const s = settings({ mode: 'live', unsold_ok_rooms: 0, floor_net_eur: 56.25, net_rate_factor: 0.75, quiet_hours_selldown: 1 });
+  const f = { lowestCellPrice: 80, highestCellPrice: 201, lowestSellableCellPrice: 86, freshPickup: 1 };
+  const i = { daysOut: 2, currentPrice: 101, occupancyPct: 90.5, roomsSold: 19, roomsRemaining: 2, ...booked(1) };
+  const first = decide(i, f, s);
+  assert.equal(first.direction, 'increase');
+  assert.ok(first.movement > 0);
+  const next = decide({ ...i, occupancyPct: 95.2, roomsSold: 20, roomsRemaining: 1, observedPickup6h: 2 }, f, s);
+  assert.equal(next.direction, 'increase');
+  assert.ok(next.movement > 0);
+  assert.equal(decide({ ...i, occupancyPct: 100, roomsRemaining: 0 }, f, s).reason, 'sold_out');
+});
+
+test('sell-down: sustained demand protects rates without spending old bookings twice', () => {
+  const s = settings({ unsold_ok_rooms: 0, quiet_hours_selldown: 1, floor_net_eur: 56.25 });
+  const i = { daysOut: 2, currentPrice: 101, occupancyPct: 90.5, roomsRemaining: 2, ...booked(2), hoursSinceLastPickup: 1.5 };
+  const f = { lowestCellPrice: 80, highestCellPrice: 201, freshPickup: 0 };
+  const held = decide(i, f, s);
+  assert.equal(held.reason, 'recent_pickup_protection');
+  assert.equal(held.movement, 0);
+  const weak = decide({ ...i, occupancyPct: 66.7, roomsRemaining: 7, ...booked(1) }, { ...f, freshPickup: 1 }, s);
+  assert.equal(weak.reason, 'converting_price_lock');
+  const recovered = decide({ ...i, occupancyPct: 66.7, roomsRemaining: 7, ...booked(2) }, { ...f, freshPickup: 1 }, s);
+  assert.equal(recovered.direction, 'increase');
+});
+
 test('the sell-down day cap is 15% of the price, not a flat €20', () => {
   const d = decide({ daysOut: 3, currentPrice: 435, occupancyPct: 76.2, roomsRemaining: 5, hoursSinceLastPickup: 30, movedDownTodayEur: 60 },
     { lowestCellPrice: 420, highestCellPrice: 499 });
