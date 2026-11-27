@@ -96,6 +96,8 @@ interface PendingAssignment {
     guest_nights_stayed?: number;
     bed_configuration?: string | null;
       notes?: string | null;
+      operational_note_date?: string | null;
+      hotelcare_planned_note_shadow?: string | null;
       pms_metadata?: any;
     is_dnd?: boolean;
     dnd_marked_at?: string | null;
@@ -617,6 +619,8 @@ export function SupervisorApprovalView({
             guest_nights_stayed,
             bed_configuration,
             notes,
+            operational_note_date,
+            hotelcare_planned_note_shadow,
             pms_metadata,
             is_dnd,
             dnd_marked_at
