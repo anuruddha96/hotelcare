@@ -27,15 +27,38 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey)
 
 
+    if (!auth.organizationSlug) {
+      return new Response(JSON.stringify({error:'Organization access required'}),{status:403,headers:{...corsHeaders,'Content-Type':'application/json'}})
+    }
+    const caller = createClient(supabaseUrl,Deno.env.get('SUPABASE_ANON_KEY')!,{global:{headers:{Authorization:req.headers.get('Authorization')!}}})
+    if (auth.organizationSlug === 'rdhotels') {
+      // The database verifies the active HR/admin caller and organization,
+      // and uses exactly the same due-time and audit policy as the scheduler.
+      const {data,error} = await caller.rpc('rd_attendance_manual_auto_signout')
+      if(error) return new Response(JSON.stringify({error:'Unable to run safe automatic checkout'}),{status:error.code==='42501'?403:500,headers:{...corsHeaders,'Content-Type':'application/json'}})
+      return new Response(JSON.stringify({message:'Auto sign-out completed',count:data}),{headers:{...corsHeaders,'Content-Type':'application/json'}})
+    }
+    // Preserve legacy cutoff for other organizations, but never let a manual
+    // service-role run operate across organizations or a manager's hotel scope.
+    let allowedIds: string[] | null = null
+    if (auth.role === 'manager' || auth.role === 'housekeeping_manager') {
+      const {data,error}=await caller.rpc('get_employees_by_hotel')
+      if(error) return new Response(JSON.stringify({error:'Unable to verify employee access'}),{status:403,headers:{...corsHeaders,'Content-Type':'application/json'}})
+      allowedIds=(data??[]).map((employee:{id:string})=>employee.id)
+      if(!allowedIds.length)return new Response(JSON.stringify({count:0}),{headers:{...corsHeaders,'Content-Type':'application/json'}})
+    }
     const today = new Date().toISOString().split('T')[0]
 
     // Find all staff still checked in or on break today
-    const { data: records, error: fetchError } = await supabase
+    let query = supabase
       .from('staff_attendance')
       .select('*')
+      .eq('organization_slug',auth.organizationSlug)
       .eq('work_date', today)
       .in('status', ['checked_in', 'on_break'])
       .is('check_out_time', null)
+    if(allowedIds)query=query.in('user_id',allowedIds)
+    const {data:records,error:fetchError}=await query
 
     if (fetchError) {
       console.error('Error fetching records:', fetchError)
@@ -73,6 +96,8 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         })
         .eq('id', record.id)
+        .eq('organization_slug',auth.organizationSlug)
+        .is('check_out_time',null)
 
       if (updateError) {
         console.error(`Error updating record ${record.id}:`, updateError)

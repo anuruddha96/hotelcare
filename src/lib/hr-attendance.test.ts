@@ -31,3 +31,26 @@ it('classifies completed actual hours by shift and business date, ignoring open 
  const b={...a,work_date:'2026-12-26',check_out_time:null,total_hours:99};
  expect(attendanceShiftHours([a,b],()=>null)).toEqual({days:1,hours:11,night:11,weekend:0,holiday:11});
 });
+
+import {attendanceRole,newestAttendance,attendanceStatus,attendanceDayRange} from './hr-attendance';
+describe('daily attendance reporting',()=>{
+ it('distinguishes reception and housekeeping managers from legacy manager role',()=>{
+  expect(attendanceRole('manager','reception')).toBe('reception');
+  expect(attendanceRole('manager','housekeeping_manager')).toBe('housekeeping_manager');
+  expect(attendanceRole('manager',null,'Front office manager')).toBe('front_office_manager');
+  expect(attendanceRole('manager',null)).toBe('manager');
+ });
+ it('sorts latest work date first without mutating input',()=>{
+  const rows=[{id:'a',work_date:'2025-10-04',check_in_time:'2025-10-04T06:00:00Z'},{id:'b',work_date:'2026-11-27',check_in_time:'2026-11-27T07:00:00Z'},{id:'c',work_date:'2026-11-27',check_in_time:'2026-11-27T08:00:00Z'}];
+  expect(newestAttendance(rows).map(r=>r.id)).toEqual(['c','b','a']);
+  expect(rows[0].id).toBe('a');
+ });
+ it('does not label active employees as missing checkout',()=>{
+  const row={work_date:'2026-11-27',check_out_time:null,status:'checked_in'};
+  expect(attendanceStatus(row,'2026-11-27')).toBe('working');
+  expect(attendanceStatus({...row,status:'on_break'},'2026-11-27')).toBe('break');
+  expect(attendanceStatus(row,'2026-11-28')).toBe('missing');
+  expect(attendanceStatus({...row,status:'auto_signout',check_out_time:'2026-11-27T16:00:00Z'},'2026-11-27')).toBe('auto');
+ });
+ it('computes a seven-day range across months',()=>expect(attendanceDayRange('2026-11-03',7)).toBe('2026-10-28'));
+});

@@ -67,7 +67,7 @@ export interface WorkforceData {
   mergeDepartment: (fromId: string, intoId: string) => Promise<void>;
 }
 
-export function useWorkforce(year: number, month: number): WorkforceData {
+export function useWorkforce(year: number, month: number, range?: {from: string; to: string}): WorkforceData {
   const { profile } = useAuth();
   const org = profile?.organization_slug ?? null;
   const hotel = profile?.assigned_hotel ?? null;
@@ -83,8 +83,9 @@ export function useWorkforce(year: number, month: number): WorkforceData {
   const [notices, setNotices] = useState<ChangeNotice[]>([]);
   const request = useRef(0);
 
-  const from = `${year}-${pad2(month)}-01`;
-  const to = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  const monthStart = `${year}-${pad2(month)}-01`;
+  const from = range?.from ?? monthStart;
+  const to = range?.to ?? new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
 
   const loadNotices = useCallback(async () => {
     const { data, error: err } = await db.from('workforce_change_notices').select(NOTICE_COLUMNS)
@@ -121,7 +122,7 @@ export function useWorkforce(year: number, month: number): WorkforceData {
             return read();
           }
         })(),
-        db.from('workforce_staff_notes').select('staff_id,note').eq('month', from),
+        db.from('workforce_staff_notes').select('staff_id,note').eq('month', monthStart),
         fetchAllRows<{ staff_id: string; kind: string }>((a, b) => db.from('workforce_entries').select('staff_id,kind')
           .in('kind', ['leave', 'half_leave']).gte('work_date', `${year}-01-01`).lte('work_date', to).order('id').range(a, b)),
       ]);
@@ -143,7 +144,7 @@ export function useWorkforce(year: number, month: number): WorkforceData {
       if (id === request.current) setLoading(false);
     }
     // hotel: property managers see the hotel they are currently signed in to.
-  }, [org, from, to, year, hotel, loadNotices]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [org, from, to, year, hotel, loadNotices, monthStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void reload(); }, [reload]);
 

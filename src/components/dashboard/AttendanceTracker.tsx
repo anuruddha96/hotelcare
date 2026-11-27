@@ -22,13 +22,15 @@ import { UI_HINTS } from '@/lib/ui-hints';
 import { UpcomingShiftCard } from './UpcomingShiftCard';
 import { requestAttendanceLocation, collectLocationDiagnostics, type AttendanceLocationFailure } from '@/lib/locationPreference';
 import { MyWorkforceSchedule } from '@/components/workforce/MyWorkforceSchedule';
+import { todayBudapest } from '@/lib/budapestTime';
+import { budapestInput } from '@/lib/hr-attendance';
 
 interface AttendanceRecord {
   id: string;
   check_in_time: string;
   check_out_time: string | null;
-  check_in_location: any;
-  check_out_location: any;
+  check_in_location: {location_unavailable?:boolean;address?:string;latitude?:number;longitude?:number}|null;
+  check_out_location: unknown;
   work_date: string;
   total_hours: number | null;
   break_duration: number;
@@ -71,7 +73,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const [breakTypes, setBreakTypes] = useState<BreakType[]>([]);
   const [location, setLocation] = useState<{ latitude: number; longitude: number; address?: string } | null>(null);
   const [locationStatus, setLocationStatus] = useState<'loading' | 'ok' | 'needs-opt-in' | 'denied' | 'unsupported'>('needs-opt-in');
-  const [earlySignoutStatus, setEarlySignoutStatus] = useState<{type: 'pending' | 'approved' | 'rejected'; details?: any} | null>(null);
+  const [earlySignoutStatus, setEarlySignoutStatus] = useState<{type: 'pending' | 'approved' | 'rejected'; details?: {profiles?:{full_name?:string|null}|null;rejection_reason?:string|null}} | null>(null);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
   const [pendingRooms, setPendingRooms] = useState<PendingRoom[]>([]);
   const [lateSignoutDialogOpen, setLateSignoutDialogOpen] = useState(false);
@@ -84,7 +86,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       hydrateLocationFromCache();
       fetchBreakTypes();
     }
-  }, [user]);
+  }, [user, profile?.organization_slug]);
 
   // Listen for permission changes (granted/denied) emitted by locationPreference.
   useEffect(() => {
@@ -139,7 +141,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
   const fetchTodaysAttendance = async () => {
     if (!user) return;
 
-    const today = new Date().toISOString().split('T')[0];
+    const rd = profile?.organization_slug === 'rdhotels';
+    const today = rd ? todayBudapest() : new Date().toISOString().split('T')[0];
     
     const { data, error } = await supabase
       .from('staff_attendance')
@@ -155,7 +158,14 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     }
 
     // Get the latest record
-    const latestRecord = data && data.length > 0 ? data[0] : null;
+    let latestRecord = data && data.length > 0 ? data[0] : null;
+    // Keep an eligible, published overnight session visible across midnight.
+    // The RPC only returns the signed-in employee's own previous-day session.
+    if (rd && !latestRecord) {
+      const client = supabase as unknown as {rpc:(name:'rd_attendance_overnight_open')=>PromiseLike<{data:typeof data;error:unknown}>};
+      const {data:overnight,error:overnightError}=await client.rpc('rd_attendance_overnight_open');
+      if(!overnightError && overnight?.length) latestRecord=overnight[0];
+    }
 
     if (latestRecord) {
       setCurrentRecord(latestRecord as AttendanceRecord);
@@ -182,7 +192,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       .maybeSingle();
 
     if (pendingRequest) {
-      setEarlySignoutStatus({ type: 'pending', details: pendingRequest });
+      setEarlySignoutStatus({ type: 'pending', details: pendingRequest as unknown as {profiles?:{full_name?:string|null}|null;rejection_reason?:string|null} });
       return;
     }
 
@@ -199,7 +209,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     if (processedRequest) {
       setEarlySignoutStatus({ 
         type: processedRequest.status as 'approved' | 'rejected', 
-        details: processedRequest 
+        details: processedRequest as unknown as {profiles?:{full_name?:string|null}|null;rejection_reason?:string|null} 
       });
     } else {
       setEarlySignoutStatus(null);
@@ -346,12 +356,12 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       return [];
     }
     
-    return (data || []).map((assignment: any) => ({
+    return (data || []).map((assignment) => ({
       id: assignment.id,
       room_number: assignment.rooms?.room_number || 'Unknown',
       hotel: assignment.rooms?.hotel || 'Unknown',
       status: assignment.status,
-      assignment_type: assignment.assignment_type,
+      assignment_type: assignment.assignment_type??'',
     }));
   };
 
@@ -371,9 +381,10 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       }
     }
 
-    // Check if it's after 6 PM - ask if they forgot to sign out
-    const currentHour = new Date().getHours();
-    if (currentHour >= 18) {
+    const rd = profile?.organization_slug === 'rdhotels';
+    const currentHour = rd ? Number(budapestInput(new Date().toISOString()).slice(11,13)) : new Date().getHours();
+    const beforeCutoff = !rd || Number(budapestInput(currentRecord.check_in_time).slice(11,13)) < 17;
+    if (currentHour >= (rd ? 17 : 18) && beforeCutoff && (!rd || currentRecord.work_date===todayBudapest())) {
       setLateSignoutDialogOpen(true);
       setIsLoading(false);
       return;
@@ -387,7 +398,23 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     setLateSignoutDialogOpen(false);
     setIsLoading(true);
 
-    // Sign out at 4:30 PM of the work date
+    if (profile?.organization_slug === 'rdhotels') {
+      try {
+        const client = supabase as unknown as {rpc:(name:'rd_attendance_forgot_checkout',args:{_id:string})=>PromiseLike<{data:number|null;error:unknown}>};
+        const {data,error} = await client.rpc('rd_attendance_forgot_checkout',{_id:currentRecord.id});
+        if(error || data!==1) {
+          toast({title:t('common.error'),description:t('hr.daily.unsafeCheckout'),variant:'destructive'});
+          await fetchTodaysAttendance();
+          return;
+        }
+        toast({title:t('workStatus.checkOutSuccess'),description:t('hr.daily.forgotten')});
+        await fetchTodaysAttendance();
+      } catch {
+        toast({title:t('common.error'),description:t('hr.daily.unsafeCheckout'),variant:'destructive'});
+      } finally {setIsLoading(false);}
+      return;
+    }
+    // Preserve legacy cutoff for other organizations.
     const workDate = currentRecord.work_date;
     const checkoutTime = new Date(`${workDate}T16:30:00`);
     const checkInTime = new Date(currentRecord.check_in_time);
@@ -404,7 +431,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
         total_hours: parseFloat(totalHours.toFixed(2)),
         notes: notes || 'Forgot to sign out'
       })
-      .eq('id', currentRecord.id);
+      .eq('id', currentRecord.id)
+      .is('check_out_time',null);
 
     if (error) {
       toast({ title: "Error", description: "Failed to check out.", variant: "destructive" });
@@ -427,11 +455,14 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     // "Early sign-out" = signing out before the typical end-of-shift.
     // Only housekeeping staff need supervisor approval; managers and other roles sign out directly.
     const now = new Date();
-    const minutesOfDay = now.getHours() * 60 + now.getMinutes();
+    const rd = profile?.organization_slug === 'rdhotels';
+    const localHour = rd ? Number(budapestInput(now.toISOString()).slice(11,13)) : now.getHours();
+    const localMinute = rd ? Number(budapestInput(now.toISOString()).slice(14,16)) : now.getMinutes();
+    const minutesOfDay = localHour * 60 + localMinute;
     const isEarlySignout =
       profile?.role === 'housekeeping' &&
       minutesOfDay < 16 * 60 &&
-      now.getHours() >= 4;
+      localHour >= 4 && (!rd || currentRecord.work_date===todayBudapest());
 
     if (isEarlySignout) {
       if (!profile?.organization_slug) {
@@ -477,7 +508,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
           check_out_location: location ?? null,
           notes: notes || null
         })
-        .eq('id', currentRecord.id);
+        .eq('id', currentRecord.id)
+      .is('check_out_time',null);
 
       if (error) {
         toast({
@@ -510,7 +542,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     setIsLoading(true);
 
     const now = new Date().toISOString();
-    const updateData: any = {
+    const updateData: {status:string;break_type?:string;break_started_at?:string;break_ended_at?:string} = {
       status: isStartingBreak ? 'on_break' : 'checked_in'
     };
 
@@ -524,7 +556,8 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
     const { error } = await supabase
       .from('staff_attendance')
       .update(updateData)
-      .eq('id', currentRecord.id);
+      .eq('id', currentRecord.id)
+      .is('check_out_time',null);
 
     if (error) {
       toast({
@@ -902,7 +935,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
             Late Sign Out
           </DialogTitle>
           <DialogDescription>
-            It's past 6 PM. Did you forget to sign out earlier, or did you work until now?
+            {profile?.organization_slug === 'rdhotels' ? 'Did you forget to sign out earlier, or did you work until now?' : "It's past 6 PM. Did you forget to sign out earlier, or did you work until now?"}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex flex-col sm:flex-row gap-2">

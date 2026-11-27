@@ -45,9 +45,14 @@ jobs:
       - run: npm run build
       - name: Run full ESLint and enforce no new errors
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          # Compare against the actual first parent of the tested PR merge commit.
+          # The event base SHA can be stale if main advances while a run is queued.
+          test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
+          BASE_SHA="$(git rev-parse HEAD^1)"
+          echo "Lint baseline: $BASE_SHA; tested merge: $(git rev-parse HEAD)"
           baseline="$RUNNER_TEMP/hr-lint-base"
           git worktree add --detach "$baseline" "$BASE_SHA"
           trap 'git worktree remove --force "$baseline"' EXIT
