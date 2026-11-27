@@ -6,7 +6,7 @@ import {useAuth} from '@/hooks/useAuth';
 import {useTranslation} from '@/hooks/useTranslation';
 import {useWorkforce,entryKey,fetchAllRows} from '@/hooks/useWorkforce';
 import {todayBudapest} from '@/lib/budapestTime';
-import {budapestInput,budapestUtc,dayComparison,publishedShift,csvCell,attendanceMapUrl,personDaySummary,attendanceShiftHours,attendanceRole,newestAttendance,attendanceStatus} from '@/lib/hr-attendance';
+import {budapestInput,budapestUtc,dayComparison,publishedShift,csvCell,attendanceMapUrl,personDaySummary,attendanceShiftHours,attendanceRole,newestAttendance,attendanceStatus,attendanceDayRange} from '@/lib/hr-attendance';
 import {Input} from '@/components/ui/input';
 import {Button} from '@/components/ui/button';
 import {Dialog,DialogContent,DialogHeader,DialogTitle} from '@/components/ui/dialog';
@@ -48,10 +48,12 @@ export function HrAttendance(){
  const [employee,setEmployee]=useState('');const [rows,setRows]=useState<Row[]>([]);const [open,setOpen]=useState<Row[]>([]);const [tolerance,setTolerance]=useState(5);
  const [edit,setEdit]=useState<Edit|null>(null);const [busy,setBusy]=useState(false);const [failed,setFailed]=useState(false);const [loading,setLoading]=useState(true);const [refresh,setRefresh]=useState(0);
  const [problems,setProblems]=useState(false);const [hotel,setHotel]=useState('');const [department,setDepartment]=useState('');const [from,setFrom]=useState('');const [to,setTo]=useState('');const [employees,setEmployees]=useState<{id:string;full_name:string}[]>([]);
- const [year,m]=month.split('-').map(Number);const workforce=useWorkforce(year,m);
+ const [year,m]=month.split('-').map(Number);const monthStart=month+'-01';const monthEnd=new Date(Date.UTC(year,m,0)).toISOString().slice(0,10);
+ const rangeStart=from||monthStart;const rangeEnd=to||monthEnd;
+ const workforce=useWorkforce(year,m,{from:rangeStart,to:rangeEnd});
  useEffect(()=>{
  let cancelled=false;setLoading(true);setFailed(false);setRows([]);setOpen([]);setPeopleById({});
- const args={target_user_id:null,start_date:month+'-01',end_date:new Date(Date.UTC(year,m,0)).toISOString().slice(0,10)};
+ const args={target_user_id:null,start_date:rangeStart,end_date:rangeEnd};
  const load=async()=>{try{
  const [records,forgotten,people,settings,profiles,metadata]=await Promise.all([
  fetchAllRows<Row>((a,b)=>db.rpc('get_attendance_records_hotel_filtered',args).order('work_date').order('id').range(a,b)),
@@ -69,7 +71,7 @@ export function HrAttendance(){
  }catch{if(!cancelled){setFailed(true);setRows([]);setOpen([]);}}finally{if(!cancelled)setLoading(false);}};
  if(profile?.organization_slug)void load();else setLoading(false);
  return()=>{cancelled=true;};
- },[month,year,m,refresh,profile?.id,profile?.organization_slug]);
+ },[rangeStart,rangeEnd,refresh,profile?.id,profile?.organization_slug]);
  const begin=(row?:Row,planned=false)=>setEdit(row?{row,employee:row.user_id,date:row.work_date,start:budapestInput(row.check_in_time),end:budapestInput(planned?row.planned_end??null:row.check_out_time),breakMinutes:String(row.break_duration??0),reason:'',note:row.notes??''}:{employee:employee||'',date:todayBudapest(),start:'',end:'',breakMinutes:'0',reason:'',note:''});
  const save=async()=>{if(!edit||!edit.reason.trim()||busy)return;setBusy(true);try{
  const times={_check_in:budapestUtc(edit.start),_check_out:edit.end?budapestUtc(edit.end):null,_break_minutes:Number(edit.breakMinutes),_reason:edit.reason.trim()};
@@ -84,17 +86,19 @@ export function HrAttendance(){
  const propertyLabel=(key:string)=>key&&key!=='__unassigned'?hotelName(key):label('unassigned');
  const matchesPerson=(r:Row)=>{const staff=staffByLogin.get(r.user_id);return (!employee||r.user_id===employee)&&(!role||roleFor(r)===role)&&(!department||staff?.department_id===department)&&(!search||r.full_name.toLowerCase().includes(search.trim().toLowerCase()));};
  const inScope=(r:Row)=>matchesPerson(r)&&(!hotel||propertyFor(r)===hotel)&&(!from||r.work_date>=from)&&(!to||r.work_date<=to);
- const filtered=newestAttendance(rows.filter(inScope));
+ const scopedRows=newestAttendance(rows.filter(inScope));
  const correctionRows=newestAttendance(open.filter(inScope));
  const roles=['housekeeping','maintenance','reception','front_office_manager','housekeeping_manager','housekeeping_supervisor','breakfast','manager','top_management','hr','controlling','admin','other'];
  const propertyOptions=[...new Set([...workforce.staff.map(s=>hotelKey(s.hotel_id)),...Object.values(peopleById).map(p=>hotelKey(p.assigned_hotel)),...rows.map(propertyFor)].filter((h):h is string=>!!h))].sort((a,b)=>propertyLabel(a).localeCompare(propertyLabel(b)));
  const selectMonth=(value:string)=>{if(value){setMonth(value);setFrom('');setTo('');setVisibleDays(7);}};
  const selectDay=(date:string)=>{setMonth(date.slice(0,7));setFrom(date);setTo(date);setVisibleDays(7);setView('daily');};
  const selectView=(next:typeof view)=>{setView(next);setFrom('');setTo('');setVisibleDays(7);};
- const yesterday=new Date(Date.parse(today+'T12:00:00Z')-86400000).toISOString().slice(0,10);
+ const yesterday=attendanceDayRange(today,2);
+ const selectWeek=()=>{setMonth(today.slice(0,7));setFrom(attendanceDayRange(today,7));setTo(today);setView('daily');setVisibleDays(7);};
 
- const groups=new Map<string,Row[]>();for(const row of filtered){const k=row.user_id+'|'+row.work_date;const group=groups.get(k)??[];group.push(row);groups.set(k,group);}
+ const groups=new Map<string,Row[]>();for(const row of scopedRows){const k=row.user_id+'|'+row.work_date;const group=groups.get(k)??[];group.push(row);groups.set(k,group);}
  const comparison=(r:Row)=>dayComparison(r.work_date,schedule(r),groups.get(r.user_id+'|'+r.work_date)??[],todayBudapest(),tolerance);
+ const filtered=scopedRows.filter(r=>{const f=comparison(r);return !problems||(f.open&&r.work_date<today)||f.late||f.early||f.dayOff;});
  const comparisons=[...groups.values()].map(g=>comparison(g[0]));
  const summary=personDaySummary(filtered.map(r=>({...r,total_hours:r.total_hours??null})));
  const missing=workforce.staff.flatMap(s=>s.profile_id?[...workforce.entries.values()].filter(e=>e.staff_id===s.id).flatMap(e=>{
@@ -105,11 +109,11 @@ export function HrAttendance(){
  const detailRows=(view==='corrections'?correctionRows:filtered).map(r=>[r.full_name,label(roleFor(r)),propertyLabel(propertyFor(r)),label(r.work_hotel_id?'captured':'inferred'),label(attendanceStatus(r,today)),r.work_date,budapestInput(r.check_in_time),budapestInput(r.check_out_time),r.break_duration??0,r.total_hours??'',schedule(r)?.start_time??'',schedule(r)?.end_time??'']);
  const totalHeaders=[t('hr.employee'),t('hr.a.completedDays'),t('hr.hours'),t('hr.a.norm'),t('hr.a.overtime'),t('hr.a.nightHours'),t('hr.a.weekendHours'),t('hr.a.holidayHours'),t('hr.a.leaveDays'),t('hr.a.sickDays')];
  const scopedStaff=workforce.staff.filter(s=>s.profile_id&&(!employee||s.profile_id===employee)&&(!department||s.department_id===department)&&(!role||roleFor({user_id:s.profile_id})===role)&&(!search||s.full_name.toLowerCase().includes(search.trim().toLowerCase())));
- const fullPeriod=!hotel&&!from&&!to;
+ const fullPeriod=!hotel&&!from&&!to&&!problems;
  const publishedEntries=[...workforce.entries.values()].flatMap(e=>{
    const shift=publishedShift(e);return shift&&(!from||e.work_date>=from)&&(!to||e.work_date<=to)&&(!hotel||hotelKey(shift.hotel_id??workforce.staff.find(s=>s.id===e.staff_id)?.hotel_id)===hotel)?[{...e,...shift,status:'published',worked_minutes:shift.worked_minutes??0}]:[];
  });
- const scheduledReports=new Map(employeeReport(publishedEntries,scopedStaff,[month]).map(r=>[r.staffId,r]));
+ const scheduledReports=new Map(employeeReport(publishedEntries,scopedStaff,[...new Set([rangeStart.slice(0,7),rangeEnd.slice(0,7)])]).map(r=>[r.staffId,r]));
  const relevantIds=new Set([...filtered.map(r=>r.user_id),...scopedStaff.filter(s=>scheduledReports.has(s.id)).map(s=>s.profile_id!)]);
  const totals=[...relevantIds].map(id=>{const mine=filtered.filter(r=>r.user_id===id);const s=staffByLogin.get(id);const report=s?scheduledReports.get(s.id):null;
  const actual=attendanceShiftHours(mine,r=>schedule(r as Row));const norm=s&&fullPeriod?normMinutes(s,[month]):null;
@@ -133,7 +137,7 @@ export function HrAttendance(){
  <div className={'text-sm font-medium '+statusClass[status]}>{label(status)}</div>
  <div className="flex flex-wrap gap-2">{canEdit&&<Button variant="outline" size="sm" onClick={()=>begin(r)}>{t('hr.a.edit')}</Button>}{canEdit&&isOpen&&r.planned_end&&<Button variant="outline" size="sm" onClick={()=>begin(r,true)}>{t('hr.a.closePlan')}</Button>}</div>
  </div><details className="px-3 pb-2 text-xs text-muted-foreground"><summary className="cursor-pointer">{label('details')}</summary><div className="pt-2">{label(r.work_hotel_id?'captured':'inferred')} · {shift?.start_time?shift.start_time.slice(0,5)+' – '+shift.end_time?.slice(0,5):t('hr.a.noSchedule')} · {map?<a href={map} target="_blank" rel="noopener noreferrer" className="underline">{t('hr.a.unverified')}</a>:t('hr.a.unverified')}{flags.delta!=null&&' · '+(flags.delta/60).toFixed(2)+'h'}<span className="text-destructive"> {[flags.late&&t('hr.a.late'),flags.early&&t('hr.a.early'),flags.dayOff&&t('hr.a.dayOff')].filter(Boolean).join(' · ')}</span></div></details></div>;};
- const visible=filtered.filter(r=>{const f=comparison(r);return !problems||(f.open&&r.work_date<today)||f.late||f.early||f.dayOff;});
+ const visible=filtered;
  const dates=[...new Set([...visible.map(r=>r.work_date),...missing.map(r=>r.work_date),...(month===today.slice(0,7)&&(!from||from<=today)&&(!to||to>=today)?[today]:[])])].sort((a,b)=>b.localeCompare(a));
  const focusedDate=dates[0]??(to||from||today);
  const todayRows=filtered.filter(r=>r.work_date===focusedDate);
@@ -143,8 +147,8 @@ export function HrAttendance(){
  const header=<div className="hidden gap-2 px-3 py-2 text-xs font-medium text-muted-foreground md:grid md:grid-cols-[minmax(160px,1.5fr)_repeat(4,minmax(65px,0.65fr))_minmax(120px,1fr)_auto]"><span>{t('hr.employee')}</span><span>{t('hr.checkIn')}</span><span>{t('hr.checkOut')}</span><span>{t('hr.a.break')}</span><span>{t('hr.hours')}</span><span>{label('status')}</span><span /></div>;
  return <section className="space-y-4">
  <div className="flex flex-wrap gap-2">{(['daily','monthly','history','corrections'] as const).map(v=><Button key={v} size="sm" variant={view===v?'default':'outline'} onClick={()=>selectView(v)}>{label(v)}{v==='corrections'&&open.length>0?' ('+open.length+')':''}</Button>)}</div>
- <div className="flex flex-wrap items-end gap-2"><Button variant="outline" size="sm" onClick={()=>selectDay(today)}>{label('today')}</Button><Button variant="outline" size="sm" onClick={()=>selectDay(yesterday)}>{label('yesterday')}</Button><label className="text-sm">{t('hr.a.month')}<Input type="month" value={month} onChange={e=>selectMonth(e.target.value)}/></label>
- <label className="text-sm">{t('hr.a.from')}<Input type="date" min={month+'-01'} max={to||new Date(Date.UTC(year,m,0)).toISOString().slice(0,10)} value={from} onChange={e=>{setFrom(e.target.value);setVisibleDays(7);}}/></label><label className="text-sm">{t('hr.a.to')}<Input type="date" min={from||month+'-01'} max={new Date(Date.UTC(year,m,0)).toISOString().slice(0,10)} value={to} onChange={e=>{setTo(e.target.value);setVisibleDays(7);}}/></label>
+ <div className="flex flex-wrap items-end gap-2"><Button variant="outline" size="sm" onClick={()=>selectDay(today)}>{label('today')}</Button><Button variant="outline" size="sm" onClick={()=>selectDay(yesterday)}>{label('yesterday')}</Button><Button variant="outline" size="sm" onClick={selectWeek}>{label('seven')}</Button><label className="text-sm">{t('hr.a.month')}<Input type="month" value={month} onChange={e=>selectMonth(e.target.value)}/></label>
+ <label className="text-sm">{t('hr.a.from')}<Input type="date" min={rangeStart<monthStart?rangeStart:monthStart} max={to||monthEnd} value={from} onChange={e=>{setFrom(e.target.value);setVisibleDays(7);}}/></label><label className="text-sm">{t('hr.a.to')}<Input type="date" min={from||monthStart} max={monthEnd} value={to} onChange={e=>{setTo(e.target.value);setVisibleDays(7);}}/></label>
  <Button variant="outline" size="sm" onClick={()=>setRefresh(x=>x+1)}>{label('refresh')}</Button><Button onClick={()=>begin()}>{t('hr.a.manual')}</Button><Button variant="outline" disabled={loading||failed||workforce.loading||!!workforce.error} onClick={()=>void exportExcel()}>{t('hr.a.export')}</Button><Button variant="outline" disabled={loading||failed||workforce.loading||!!workforce.error} onClick={exportCsv}>{t('hr.exportCsv')}</Button></div>
  <div className="flex flex-wrap gap-2" aria-label={label('role')}>{['',...roles].map(v=><Button key={v} size="sm" variant={role===v?'default':'outline'} aria-pressed={role===v} onClick={()=>{setRole(v);setVisibleDays(7);}}>{label(v||'allStaff')}</Button>)}</div>
  <div className="flex flex-wrap items-end gap-3"><label className="text-sm">{label('search')}<Input value={search} onChange={e=>setSearch(e.target.value)}/></label><label className="text-sm">{t('hr.employee')}<select className="block rounded-md border bg-background p-2" value={employee} onChange={e=>setEmployee(e.target.value)}><option value="">{t('periods.allEmployees')}</option>{employees.map(e=><option key={e.id} value={e.id}>{e.full_name}</option>)}</select></label><label className="text-sm">{t('hr.a.hotel')}<select className="block rounded border bg-background p-2" value={hotel} onChange={e=>setHotel(e.target.value)}><option value="">{t('hr.a.all')}</option>{propertyOptions.map(h=><option key={h} value={h}>{propertyLabel(h)}</option>)}</select></label><label className="text-sm">{t('hr.a.department')}<select className="block rounded border bg-background p-2" value={department} onChange={e=>setDepartment(e.target.value)}><option value="">{t('hr.a.all')}</option>{workforce.departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label><label className="flex gap-2 text-sm"><input type="checkbox" checked={problems} onChange={e=>setProblems(e.target.checked)}/>{t('hr.a.problems')}</label></div>
