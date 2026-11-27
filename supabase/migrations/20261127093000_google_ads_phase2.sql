@@ -45,7 +45,7 @@ create table public.google_ads_budgets (
 );
 create table public.google_ads_budget_history (
  account_id uuid not null references public.google_ads_accounts(id) on delete cascade, day date not null, campaign_id text not null,
- payload jsonb not null, primary key(account_id,day,campaign_id)
+ captured_at timestamptz not null default now(), payload jsonb not null, primary key(account_id,captured_at,campaign_id)
 );
 create table public.google_ads_sync_jobs (
  account_id uuid primary key references public.google_ads_accounts(id) on delete cascade,
@@ -151,7 +151,7 @@ end $$;
 
 -- Replace a fully fetched date window atomically, including rows Google removed
 -- during attribution restatement. No partial result may advance the watermark.
-create function public.google_ads_commit_report(p_account uuid,p_lease uuid,p_start date,p_end date,p_rows jsonb,p_budgets jsonb,p_today date,p_kind text,p_history_next date) returns boolean
+create function public.google_ads_commit_report(p_account uuid,p_lease uuid,p_start date,p_end date,p_rows jsonb,p_budgets jsonb,p_campaigns jsonb,p_today date,p_kind text,p_history_next date) returns boolean
 language plpgsql security invoker set search_path = '' as $$
 begin
  if not exists(select 1 from public.google_ads_sync_jobs j join public.google_ads_accounts a on a.id=j.account_id
@@ -164,15 +164,20 @@ begin
  insert into public.google_ads_campaign_daily(account_id,campaign_id,day,payload)
  select p_account,r->>'campaignId',(r->>'date')::date,r from jsonb_array_elements(p_rows) r;
  insert into public.google_ads_campaigns(account_id,campaign_id,name,status,channel)
- select distinct on(r->>'campaignId') p_account,r->>'campaignId',r->>'name',r->>'status',r->>'channel'
- from jsonb_array_elements(p_rows) r order by r->>'campaignId',r->>'date' desc
+ select p_account,r->>'campaignId',r->>'name',r->>'status',r->>'channel'
+ from jsonb_array_elements(p_campaigns) r
  on conflict(account_id,campaign_id) do update set name=excluded.name,status=excluded.status,channel=excluded.channel;
+ -- Preserve changes intraday; shared budgets still deduplicate in reporting.
+ insert into public.google_ads_budget_history(account_id,day,campaign_id,payload)
+ select p_account,p_today,coalesce(b.value->>'campaignId',old.campaign_id),
+ coalesce(b.value,old.payload||'{"removed":true}'::jsonb)
+ from jsonb_array_elements(p_budgets) b(value)
+ full join (select campaign_id,payload from public.google_ads_budgets where account_id=p_account) old
+ on old.campaign_id=b.value->>'campaignId'
+ where b.value is distinct from old.payload;
  delete from public.google_ads_budgets where account_id=p_account;
  insert into public.google_ads_budgets(account_id,campaign_id,payload)
  select p_account,b->>'campaignId',b from jsonb_array_elements(p_budgets) b;
- delete from public.google_ads_budget_history where account_id=p_account and day=p_today;
- insert into public.google_ads_budget_history(account_id,day,campaign_id,payload)
- select p_account,p_today,b->>'campaignId',b from jsonb_array_elements(p_budgets) b;
  update public.google_ads_accounts set last_sync_at=now(),last_error=null where id=p_account;
  update public.google_ads_sync_jobs set
   due_at=now()+case when (case when p_kind='history' then p_history_next else history_next_end end) is not null then interval '5 minutes' else interval '1 hour' end,lease=null,lease_until=null,attempts=0,
@@ -180,7 +185,7 @@ begin
   last_recent_at=case when p_kind in ('recent','month','deep') then now() else last_recent_at end,
   last_month_at=case when p_kind in ('month','deep') then now() else last_month_at end,
   last_deep_at=case when p_kind='deep' then now() else last_deep_at end,
-  history_next_end=case when p_kind='history' then p_history_next else history_next_end end
+  history_next_end=case when p_kind='history' then p_history_next when history_next_end<p_today-730 then null else history_next_end end
  where account_id=p_account;
  insert into public.google_ads_sync_logs(account_id,outcome,detail,start_day,end_day) values(p_account,'success',p_kind,p_start,p_end);
  return true;
@@ -213,6 +218,34 @@ do $
 declare f regprocedure;
 begin
  for f in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace
- where n.nspname='public' and p.proname in ('google_ads_reserve_operation','google_ads_attach','google_ads_disconnect','google_ads_enable_account','google_ads_claim_job','google_ads_commit_report','google_ads_fail_job','google_ads_claim_discovery')
+ where n.nspname='public' and p.proname in ('google_ads_reserve_operation','google_ads_attach','google_ads_disconnect','google_ads_enable_account','google_ads_claim_job','google_ads_commit_report','google_ads_fail_job','google_ads_claim_discovery','google_ads_read_report')
  loop execute format('revoke all on function %s from public,anon,authenticated',f); execute format('grant execute on function %s to service_role',f); end loop;
 end $$;
+
+-- Scheduler provisioning is fail closed: without both Vault values no HTTP
+-- request is generated. Secrets are provisioned out-of-band, never in SQL.
+do $schedule$
+begin
+ if exists(select 1 from pg_extension where extname='pg_cron')
+ and exists(select 1 from pg_extension where extname='pg_net')
+ and to_regclass('vault.decrypted_secrets') is not null then
+  perform cron.schedule('hotelcare-google-ads-sync','* * * * *',$job$
+   select net.http_post(url := u.decrypted_secret,
+    headers := jsonb_build_object('Content-Type','application/json','x-worker-secret',s.decrypted_secret),
+    body := '{"action":"worker","jobType":"sync"}'::jsonb,timeout_milliseconds := 120000)
+   from vault.decrypted_secrets u cross join vault.decrypted_secrets s
+   where u.name='google_ads_worker_url' and s.name='google_ads_worker_secret'
+    and u.decrypted_secret like 'https://%/functions/v1/google-ads-report'
+    and length(s.decrypted_secret)>=32
+  $job$);
+  perform cron.schedule('hotelcare-google-ads-discovery','3-59/10 * * * *',$job$
+   select net.http_post(url := u.decrypted_secret,
+    headers := jsonb_build_object('Content-Type','application/json','x-worker-secret',s.decrypted_secret),
+    body := '{"action":"worker","jobType":"discovery"}'::jsonb,timeout_milliseconds := 120000)
+   from vault.decrypted_secrets u cross join vault.decrypted_secrets s
+   where u.name='google_ads_worker_url' and s.name='google_ads_worker_secret'
+    and u.decrypted_secret like 'https://%/functions/v1/google-ads-report'
+    and length(s.decrypted_secret)>=32
+  $job$);
+ end if;
+end $schedule$;
