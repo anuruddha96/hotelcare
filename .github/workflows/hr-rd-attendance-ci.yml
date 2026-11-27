@@ -1,0 +1,30 @@
+name: RD attendance cutoff and property CI
+on:
+  pull_request:
+    paths:
+      - 'docs/hr-attendance-rd-*.review.sql'
+      - 'supabase/tests/hr_rd_attendance_*.sql'
+      - '.github/workflows/hr-rd-attendance-ci.yml'
+permissions:
+  contents: read
+jobs:
+  rd-attendance-scratch:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hr_rd_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hr_rd_test
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/hr_rd_attendance_fixture.sql -f docs/hr-attendance-rd-backend.review.sql -f supabase/tests/hr_rd_attendance_test.sql
