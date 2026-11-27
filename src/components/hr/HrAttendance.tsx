@@ -23,6 +23,7 @@ type Times={_check_in:string;_check_out:string|null;_break_minutes:number;_reaso
 type HrDatabase=Omit<Database,'public'> & {public:Omit<PublicSchema,'Functions'|'Tables'> & {
  Functions:PublicSchema['Functions'] & {
   hr_attendance_open_records:{Args:never;Returns:Row[]};
+  rd_hr_active_overnight_ids:{Args:never;Returns:{id:string}[]};
   attendance_correct:{Args:Times & {_id:string;_status:string};Returns:undefined};
   attendance_delete:{Args:{_id:string;_reason:string};Returns:undefined};
   attendance_manual_add:{Args:Times & {_employee:string;_date:string;_note:string};Returns:string};
@@ -44,6 +45,7 @@ export function HrAttendance(){
  const [view,setView]=useState<'daily'|'monthly'|'history'|'corrections'>('daily');
  const [role,setRole]=useState('');const [search,setSearch]=useState('');const [visibleDays,setVisibleDays]=useState(7);
  const [peopleById,setPeopleById]=useState<Record<string,Person>>({});
+ const [overnightIds,setOvernightIds]=useState<Set<string>>(new Set());
  const label=(key:string)=>t('hr.daily.'+key);
  const [employee,setEmployee]=useState('');const [rows,setRows]=useState<Row[]>([]);const [open,setOpen]=useState<Row[]>([]);const [tolerance,setTolerance]=useState(5);
  const [edit,setEdit]=useState<Edit|null>(null);const [busy,setBusy]=useState(false);const [failed,setFailed]=useState(false);const [loading,setLoading]=useState(true);const [refresh,setRefresh]=useState(0);
@@ -52,21 +54,24 @@ export function HrAttendance(){
  const rangeStart=from||monthStart;const rangeEnd=to||monthEnd;
  const workforce=useWorkforce(year,m,{from:rangeStart,to:rangeEnd});
  useEffect(()=>{
- let cancelled=false;setLoading(true);setFailed(false);setRows([]);setOpen([]);setPeopleById({});
+ let cancelled=false;setLoading(true);setFailed(false);setRows([]);setOpen([]);setPeopleById({});setOvernightIds(new Set());
  const args={target_user_id:null,start_date:rangeStart,end_date:rangeEnd};
  const load=async()=>{try{
- const [records,forgotten,people,settings,profiles,metadata]=await Promise.all([
+ const [records,forgotten,people,settings,profiles,metadata,overnight]=await Promise.all([
  fetchAllRows<Row>((a,b)=>db.rpc('get_attendance_records_hotel_filtered',args).order('work_date').order('id').range(a,b)),
  fetchAllRows<Row>((a,b)=>db.rpc('hr_attendance_open_records').order('work_date').order('id').range(a,b)),
  db.rpc('get_employees_by_hotel'),
  db.from('workforce_settings').select('punctuality_tolerance_minutes').eq('organization_slug',profile?.organization_slug).maybeSingle(),
  fetchAllRows<Person>((a,b)=>db.from('profiles').select('id,full_name,role,access_role,assigned_hotel').eq('organization_slug',profile?.organization_slug??'').is('deleted_at',null).order('id').range(a,b) as unknown as PromiseLike<{data:Person[]|null;error:unknown}>),
- (async()=>{try{return await fetchAllRows<AttendanceMetadata>((a,b)=>db.from('staff_attendance').select('id,work_hotel_id,status').eq('organization_slug',profile?.organization_slug??'').or('and(work_date.gte.'+args.start_date+',work_date.lte.'+args.end_date+'),and(check_out_time.is.null,work_date.lt.'+todayBudapest()+')').order('id').range(a,b) as unknown as PromiseLike<{data:AttendanceMetadata[]|null;error:unknown}>);}catch(err){const e=err as {code?:string;message?:string};if((e.code==='42703'||e.code==='PGRST204')&&e.message?.includes('work_hotel_id'))return [];throw err;}})()
+ (async()=>{try{return await fetchAllRows<AttendanceMetadata>((a,b)=>db.from('staff_attendance').select('id,work_hotel_id,status').eq('organization_slug',profile?.organization_slug??'').or('and(work_date.gte.'+args.start_date+',work_date.lte.'+args.end_date+'),and(check_out_time.is.null,work_date.lt.'+todayBudapest()+')').order('id').range(a,b) as unknown as PromiseLike<{data:AttendanceMetadata[]|null;error:unknown}>);}catch(err){const e=err as {code?:string;message?:string};if((e.code==='42703'||e.code==='PGRST204')&&e.message?.includes('work_hotel_id'))return [];throw err;}})(),
+ profile?.organization_slug==='rdhotels'?db.rpc('rd_hr_active_overnight_ids') : Promise.resolve({data:[],error:null})
  ]);
  if(people.error||settings.error)throw new Error('Attendance request failed');
+ if(overnight.error && !['PGRST202','42883'].includes(overnight.error.code))throw overnight.error;
  if(cancelled)return;
  const metadataById=new Map(metadata.map(x=>[x.id,x]));
  const withMetadata=(row:Row):Row=>{const meta=metadataById.get(row.id);return meta?{...row,work_hotel_id:meta.work_hotel_id,status:meta.status??row.status}:row;};
+ setOvernightIds(new Set((overnight.data??[]).map(x=>x.id)));
  setRows(records.map(withMetadata));setOpen(forgotten.map(withMetadata));setPeopleById(Object.fromEntries(profiles.map(p=>[p.id,p])));setEmployees(people.data??[]);setTolerance(settings.data?.punctuality_tolerance_minutes??5);
  }catch{if(!cancelled){setFailed(true);setRows([]);setOpen([]);}}finally{if(!cancelled)setLoading(false);}};
  if(profile?.organization_slug)void load();else setLoading(false);
@@ -87,9 +92,11 @@ export function HrAttendance(){
  const matchesPerson=(r:Row)=>{const staff=staffByLogin.get(r.user_id);return (!employee||r.user_id===employee)&&(!role||roleFor(r)===role)&&(!department||staff?.department_id===department)&&(!search||r.full_name.toLowerCase().includes(search.trim().toLowerCase()));};
  const inScope=(r:Row)=>matchesPerson(r)&&(!hotel||propertyFor(r)===hotel)&&(!from||r.work_date>=from)&&(!to||r.work_date<=to);
  const scopedRows=newestAttendance(rows.filter(inScope));
- const correctionRows=newestAttendance(open.filter(inScope));
+ const correctionRows=newestAttendance(open.filter(r=>!overnightIds.has(r.id)&&inScope(r)));
+ const overnightRows=newestAttendance(open.filter(r=>overnightIds.has(r.id)&&matchesPerson(r)&&(!hotel||propertyFor(r)===hotel)));
+ const statusFor=(r:Row)=>attendanceStatus(r,overnightIds.has(r.id)?r.work_date:today);
  const roles=['housekeeping','maintenance','reception','front_office_manager','housekeeping_manager','housekeeping_supervisor','breakfast','manager','top_management','hr','controlling','admin','other'];
- const propertyOptions=[...new Set([...workforce.staff.map(s=>hotelKey(s.hotel_id)),...Object.values(peopleById).map(p=>hotelKey(p.assigned_hotel)),...rows.map(propertyFor)].filter((h):h is string=>!!h))].sort((a,b)=>propertyLabel(a).localeCompare(propertyLabel(b)));
+ const propertyOptions=[...new Set([...workforce.staff.map(s=>hotelKey(s.hotel_id)),...Object.values(peopleById).map(p=>hotelKey(p.assigned_hotel)),...rows.map(propertyFor),...open.map(propertyFor)].filter((h):h is string=>!!h))].sort((a,b)=>propertyLabel(a).localeCompare(propertyLabel(b)));
  const selectMonth=(value:string)=>{if(value){setMonth(value);setFrom('');setTo('');setVisibleDays(7);}};
  const selectDay=(date:string)=>{setMonth(date.slice(0,7));setFrom(date);setTo(date);setVisibleDays(7);setView('daily');};
  const selectView=(next:typeof view)=>{setView(next);setFrom('');setTo('');setVisibleDays(7);};
@@ -98,7 +105,7 @@ export function HrAttendance(){
 
  const groups=new Map<string,Row[]>();for(const row of scopedRows){const k=row.user_id+'|'+row.work_date;const group=groups.get(k)??[];group.push(row);groups.set(k,group);}
  const comparison=(r:Row)=>dayComparison(r.work_date,schedule(r),groups.get(r.user_id+'|'+r.work_date)??[],todayBudapest(),tolerance);
- const filtered=scopedRows.filter(r=>{const f=comparison(r);return !problems||(f.open&&r.work_date<today)||f.late||f.early||f.dayOff;});
+ const filtered=scopedRows.filter(r=>{const f=comparison(r);return !problems||(f.open&&r.work_date<today&&!overnightIds.has(r.id))||f.late||f.early||f.dayOff;});
  const comparisons=[...groups.values()].map(g=>comparison(g[0]));
  const summary=personDaySummary(filtered.map(r=>({...r,total_hours:r.total_hours??null})));
  const missing=workforce.staff.flatMap(s=>s.profile_id?[...workforce.entries.values()].filter(e=>e.staff_id===s.id).flatMap(e=>{
@@ -106,7 +113,7 @@ export function HrAttendance(){
  return inScope(r)&&!groups.has(r.user_id+'|'+r.work_date)&&comparison(r).missing?[r]:[];
  }):[]).filter(r=>r.user_id!==profile?.id);
  const detailHeaders=[t('hr.employee'),label('role'),t('hr.a.hotel'),label('propertySource'),label('status'),t('hr.date'),t('hr.checkIn'),t('hr.checkOut'),t('hr.a.break'),t('hr.hours'),t('hr.a.planned')+' '+t('hr.checkIn'),t('hr.a.planned')+' '+t('hr.checkOut')];
- const detailRows=(view==='corrections'?correctionRows:filtered).map(r=>[r.full_name,label(roleFor(r)),propertyLabel(propertyFor(r)),label(r.work_hotel_id?'captured':'inferred'),label(attendanceStatus(r,today)),r.work_date,budapestInput(r.check_in_time),budapestInput(r.check_out_time),r.break_duration??0,r.total_hours??'',schedule(r)?.start_time??'',schedule(r)?.end_time??'']);
+ const detailRows=(view==='corrections'?correctionRows:filtered).map(r=>[r.full_name,label(roleFor(r)),propertyLabel(propertyFor(r)),label(r.work_hotel_id?'captured':'inferred'),label(statusFor(r)),r.work_date,budapestInput(r.check_in_time),budapestInput(r.check_out_time),r.break_duration??0,r.total_hours??'',schedule(r)?.start_time??'',schedule(r)?.end_time??'']);
  const totalHeaders=[t('hr.employee'),t('hr.a.completedDays'),t('hr.hours'),t('hr.a.norm'),t('hr.a.overtime'),t('hr.a.nightHours'),t('hr.a.weekendHours'),t('hr.a.holidayHours'),t('hr.a.leaveDays'),t('hr.a.sickDays')];
  const scopedStaff=workforce.staff.filter(s=>s.profile_id&&(!employee||s.profile_id===employee)&&(!department||s.department_id===department)&&(!role||roleFor({user_id:s.profile_id})===role)&&(!search||s.full_name.toLowerCase().includes(search.trim().toLowerCase())));
  const fullPeriod=!hotel&&!from&&!to&&!problems;
@@ -114,8 +121,9 @@ export function HrAttendance(){
    const shift=publishedShift(e);return shift&&(!from||e.work_date>=from)&&(!to||e.work_date<=to)&&(!hotel||hotelKey(shift.hotel_id??workforce.staff.find(s=>s.id===e.staff_id)?.hotel_id)===hotel)?[{...e,...shift,status:'published',worked_minutes:shift.worked_minutes??0}]:[];
  });
  const scheduledReports=new Map(employeeReport(publishedEntries,scopedStaff,[...new Set([rangeStart.slice(0,7),rangeEnd.slice(0,7)])]).map(r=>[r.staffId,r]));
- const relevantIds=new Set([...filtered.map(r=>r.user_id),...scopedStaff.filter(s=>scheduledReports.has(s.id)).map(s=>s.profile_id!)]);
- const totals=[...relevantIds].map(id=>{const mine=filtered.filter(r=>r.user_id===id);const s=staffByLogin.get(id);const report=s?scheduledReports.get(s.id):null;
+ const scheduleIds=new Set(publishedEntries.map(e=>e.staff_id));
+ const relevantIds=new Set([...filtered.map(r=>r.user_id),...scopedStaff.filter(s=>!problems&&scheduleIds.has(s.id)).map(s=>s.profile_id!)]);
+ const totals=[...relevantIds].map(id=>{const mine=filtered.filter(r=>r.user_id===id);const s=staffByLogin.get(id);const report=s&&!problems?scheduledReports.get(s.id):null;
  const actual=attendanceShiftHours(mine,r=>schedule(r as Row));const norm=s&&fullPeriod?normMinutes(s,[month]):null;
  const leave=report?.leaveDays??0,sick=report?.sickDays??0;
  const overtime=norm!=null&&s?Math.max(0,actual.hours+(leave+sick)*s.daily_hours-norm/60):null;
@@ -127,7 +135,7 @@ export function HrAttendance(){
  if(view!=='corrections'){XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([totalHeaders,...totals]),'Totals');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([propertyHeaders,...propertyTotals]),'Properties');}XLSX.writeFile(wb,'attendance-'+month+'.xlsx');};
  const exportCsv=()=>{const body=[detailHeaders,...detailRows,...(view==='corrections'?[]:[[],totalHeaders,...totals,[],propertyHeaders,...propertyTotals])].map(row=>row.map(csvCell).join(',')).join('\r\n');const url=URL.createObjectURL(new Blob(['\ufeff'+body],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='attendance-'+month+'.csv';a.click();URL.revokeObjectURL(url);};
  const statusClass:Record<string,string>={working:'text-emerald-500',out:'text-sky-500',break:'text-amber-500',auto:'text-violet-500',forgotten:'text-amber-500',missing:'text-red-500'};
- const renderRow=(r:Row,isOpen=false)=>{const shift=schedule(r);const flags=isOpen?dayComparison(r.work_date,shift,[r],today,tolerance):comparison(r);const map=attendanceMapUrl(r.check_in_location);const canEdit=r.user_id!==profile?.id;const status=attendanceStatus(r,today);return <div key={r.id} className="border-b last:border-b-0">
+ const renderRow=(r:Row,isOpen=false)=>{const shift=schedule(r);const flags=isOpen?dayComparison(r.work_date,shift,[r],today,tolerance):comparison(r);const map=attendanceMapUrl(r.check_in_location);const canEdit=r.user_id!==profile?.id;const status=statusFor(r);return <div key={r.id} className="border-b last:border-b-0">
  <div className="grid grid-cols-2 gap-2 p-3 md:grid-cols-[minmax(160px,1.5fr)_repeat(4,minmax(65px,0.65fr))_minmax(120px,1fr)_auto] md:items-center">
  <div><div className="font-medium">{r.full_name}</div><div className="text-xs text-muted-foreground">{label(roleFor(r))}{isOpen?' · '+r.work_date:''}</div></div>
  <div><span className="md:hidden text-xs text-muted-foreground">{t('hr.checkIn')}: </span>{budapestInput(r.check_in_time).slice(11)}</div>
@@ -143,10 +151,11 @@ export function HrAttendance(){
  const todayRows=filtered.filter(r=>r.work_date===focusedDate);
  const latestByPerson=new Map<string,Row>();for(const r of todayRows)if(!latestByPerson.has(r.user_id))latestByPerson.set(r.user_id,r);
  const latest=[...latestByPerson.values()];
- const kpis=view==='daily'&&focusedDate===today?[[label('checkedIn'),latest.length],[label('working'),latest.filter(r=>!r.check_out_time).length],[label('out'),latest.filter(r=>!!r.check_out_time).length],[label('corrections'),correctionRows.length]]:[[t('hr.a.personDays'),summary.days],[t('hr.totalHours'),Number(summary.hours).toFixed(1)+'h'],[t('hr.avgHoursPerDay'),Number(summary.average).toFixed(1)+'h'],[t('hr.a.onTime').replace('{n}',String(comparisons.filter(c=>c.onTime).length)).replace('{m}',String(comparisons.filter(c=>c.scheduled).length)),t('hr.a.noSchedule')+': '+comparisons.filter(c=>!c.scheduled).length]];
+ const liveWorking=new Set([...latest.filter(r=>!r.check_out_time),...overnightRows].map(r=>r.user_id)).size;
+ const kpis=view==='daily'&&focusedDate===today?[[label('checkedIn'),latest.length],[label('working'),liveWorking],[label('out'),latest.filter(r=>!!r.check_out_time).length],[label('corrections'),correctionRows.length]]:[[t('hr.a.personDays'),summary.days],[t('hr.totalHours'),Number(summary.hours).toFixed(1)+'h'],[t('hr.avgHoursPerDay'),Number(summary.average).toFixed(1)+'h'],[t('hr.a.onTime').replace('{n}',String(comparisons.filter(c=>c.onTime).length)).replace('{m}',String(comparisons.filter(c=>c.scheduled).length)),t('hr.a.noSchedule')+': '+comparisons.filter(c=>!c.scheduled).length]];
  const header=<div className="hidden gap-2 px-3 py-2 text-xs font-medium text-muted-foreground md:grid md:grid-cols-[minmax(160px,1.5fr)_repeat(4,minmax(65px,0.65fr))_minmax(120px,1fr)_auto]"><span>{t('hr.employee')}</span><span>{t('hr.checkIn')}</span><span>{t('hr.checkOut')}</span><span>{t('hr.a.break')}</span><span>{t('hr.hours')}</span><span>{label('status')}</span><span /></div>;
  return <section className="space-y-4">
- <div className="flex flex-wrap gap-2">{(['daily','monthly','history','corrections'] as const).map(v=><Button key={v} size="sm" variant={view===v?'default':'outline'} onClick={()=>selectView(v)}>{label(v)}{v==='corrections'&&open.length>0?' ('+open.length+')':''}</Button>)}</div>
+ <div className="flex flex-wrap gap-2">{(['daily','monthly','history','corrections'] as const).map(v=><Button key={v} size="sm" variant={view===v?'default':'outline'} onClick={()=>selectView(v)}>{label(v)}{v==='corrections'&&correctionRows.length>0?' ('+correctionRows.length+')':''}</Button>)}</div>
  <div className="flex flex-wrap items-end gap-2"><Button variant="outline" size="sm" onClick={()=>selectDay(today)}>{label('today')}</Button><Button variant="outline" size="sm" onClick={()=>selectDay(yesterday)}>{label('yesterday')}</Button><Button variant="outline" size="sm" onClick={selectWeek}>{label('seven')}</Button><label className="text-sm">{t('hr.a.month')}<Input type="month" value={month} onChange={e=>selectMonth(e.target.value)}/></label>
  <label className="text-sm">{t('hr.a.from')}<Input type="date" min={rangeStart<monthStart?rangeStart:monthStart} max={to||monthEnd} value={from} onChange={e=>{setFrom(e.target.value);setVisibleDays(7);}}/></label><label className="text-sm">{t('hr.a.to')}<Input type="date" min={from||monthStart} max={monthEnd} value={to} onChange={e=>{setTo(e.target.value);setVisibleDays(7);}}/></label>
  <Button variant="outline" size="sm" onClick={()=>setRefresh(x=>x+1)}>{label('refresh')}</Button><Button onClick={()=>begin()}>{t('hr.a.manual')}</Button><Button variant="outline" disabled={loading||failed||workforce.loading||!!workforce.error} onClick={()=>void exportExcel()}>{t('hr.a.export')}</Button><Button variant="outline" disabled={loading||failed||workforce.loading||!!workforce.error} onClick={exportCsv}>{t('hr.exportCsv')}</Button></div>
@@ -155,6 +164,7 @@ export function HrAttendance(){
  <p className="text-xs text-muted-foreground">{t('hr.a.timezone')} · {label('propertySource')}: {label('captured')} / {label('inferred')}</p>
  {(failed||workforce.error)?<p role="alert">{t('hr.a.failed')}</p>:(loading||workforce.loading)?<p>{t('common.loading')}</p>:<>
  {view!=='corrections'&&<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{kpis.map(([name,value])=><Card key={name}><CardContent className="p-4"><div className="text-sm text-muted-foreground">{name}</div><div className="text-xl font-semibold">{value}</div></CardContent></Card>)}</div>}
+ {view==='daily'&&focusedDate===today&&!problems&&overnightRows.length>0&&<Card><CardHeader><CardTitle>{label('overnight')} ({overnightRows.length})</CardTitle></CardHeader><CardContent>{header}{overnightRows.map(r=>renderRow(r))}</CardContent></Card>}
  {view==='corrections'?<Card><CardHeader><CardTitle>{t('hr.a.fix')} ({correctionRows.length})</CardTitle></CardHeader><CardContent>{header}{correctionRows.map(r=>renderRow(r,true))}{!correctionRows.length&&<p>{t('hr.empty')}</p>}</CardContent></Card>:<>
  {view==='monthly'&&<Card><CardHeader><CardTitle>{label('monthly')}</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full text-sm"><thead><tr>{totalHeaders.map(h=><th key={h} className="p-2 text-left">{h}</th>)}</tr></thead><tbody>{totals.map((line,i)=><tr key={i} className="border-t">{line.map((value,j)=><td key={j} className="p-2">{value}</td>)}</tr>)}</tbody></table></CardContent></Card>}
  {view==='history'&&!employee?<p className="text-sm text-muted-foreground">{t('hr.training.employee')}</p>:dates.slice(0,visibleDays).map((date,index)=>{const day=visible.filter(r=>r.work_date===date);const absent=missing.filter(r=>r.work_date===date);const properties=[...new Set([...day,...absent].map(propertyFor))].sort((a,b)=>propertyLabel(a).localeCompare(propertyLabel(b)));return <Card key={date}><CardContent className="p-3"><details open={index===0}><summary className="cursor-pointer font-semibold p-2">{date===today?label('today')+' · ':date===yesterday?label('yesterday')+' · ':''}{date} · {new Set(day.map(r=>r.user_id)).size} {label('checkedIn')}</summary>{properties.map(h=>{const group=day.filter(r=>propertyFor(r)===h);const people=[...new Set(group.map(r=>r.user_id))];return <details key={h} open className="mt-2 rounded border"><summary className="cursor-pointer p-3 font-medium">{propertyLabel(h)} · {people.length} {label('checkedIn')}</summary>{header}{people.map(id=>{const sessions=group.filter(r=>r.user_id===id);return sessions.length===1?renderRow(sessions[0]):<details key={id} className="border-b"><summary className="p-3 cursor-pointer">{sessions[0].full_name} · {sessions.length} · {sessions.reduce((sum,r)=>sum+Number(r.total_hours??0),0).toFixed(2)}h</summary>{sessions.map(r=>renderRow(r))}</details>;})}{absent.filter(r=>propertyFor(r)===h).map(r=><div key={r.id} className="flex flex-wrap items-center justify-between gap-2 border-b p-3"><span>{r.full_name} · {t('hr.a.missing')}</span><Button size="sm" variant="outline" onClick={()=>setEdit({employee:r.user_id,date:r.work_date,start:'',end:'',breakMinutes:'0',reason:'',note:''})}>{t('hr.a.manual')}</Button></div>)}</details>;})}{!properties.length&&<p className="p-3 text-muted-foreground">{t('hr.empty')}</p>}</details></CardContent></Card>;})}
