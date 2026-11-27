@@ -1,0 +1,51 @@
+name: Google Ads Phase 2 CI
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/google-ads-report/**'
+      - 'supabase/migrations/20261127093000_google_ads_phase2.sql'
+      - 'supabase/tests/google_ads_phase2_*'
+      - '.github/workflows/google-ads-phase2-ci.yml'
+permissions:
+  contents: read
+jobs:
+  sql-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_ci
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/google_ads_phase2_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261127093000_google_ads_phase2.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/google_ads_phase2_integration.sql
+  edge-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check --no-lock supabase/functions/google-ads-report/index.ts
