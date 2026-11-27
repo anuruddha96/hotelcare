@@ -108,6 +108,10 @@ REVOKE ALL ON FUNCTION attendance_internal.rd_cutoff(uuid,date,timestamptz) FROM
 CREATE OR REPLACE FUNCTION public.calculate_work_hours()
 RETURNS trigger LANGUAGE plpgsql SET search_path='' AS $$
 BEGIN
+ IF OLD.organization_slug='rdhotels' AND OLD.check_out_time IS NOT NULL AND current_user='authenticated'
+ AND (NEW.check_out_time IS DISTINCT FROM OLD.check_out_time OR NEW.status IS DISTINCT FROM OLD.status OR NEW.break_duration IS DISTINCT FROM OLD.break_duration OR NEW.break_duration_minutes IS DISTINCT FROM OLD.break_duration_minutes OR NEW.total_hours IS DISTINCT FROM OLD.total_hours OR NEW.check_in_time IS DISTINCT FROM OLD.check_in_time) THEN
+   RAISE EXCEPTION 'Closed attendance requires an audited HR correction' USING ERRCODE='42501';
+ END IF;
  IF NEW.check_out_time IS NOT NULL AND OLD.check_out_time IS NULL THEN
    IF NEW.organization_slug='rdhotels' THEN
      NEW.total_hours:=greatest(0,round((extract(epoch from (NEW.check_out_time-NEW.check_in_time))/3600.0)-coalesce(NEW.break_duration,0)/60.0,2));
@@ -196,3 +200,38 @@ GRANT EXECUTE ON FUNCTION public.rd_attendance_forgot_checkout(uuid) TO authenti
 -- Production rollout must install the new one-minute cron job and exclude
 -- RD Hotels from the legacy 23:50 UTC job atomically. Keep the legacy SQL
 -- behavior for other organizations unchanged. See rollout checklist.
+
+-- Only a previous-day shift with an actual published overnight cutoff may
+-- stay active across midnight. A stale historical open row is not a live shift.
+CREATE OR REPLACE FUNCTION attendance_internal.rd_overnight_active(_employee uuid,_work_date date,_check_in timestamptz,_at timestamptz)
+RETURNS boolean LANGUAGE sql STABLE SET search_path='' AS $$
+ SELECT coalesce(_work_date=(_at AT TIME ZONE 'Europe/Budapest')::date-1
+ AND attendance_internal.rd_cutoff(_employee,_work_date,_check_in)>=_at
+ AND (attendance_internal.rd_cutoff(_employee,_work_date,_check_in) AT TIME ZONE 'Europe/Budapest')::date=(_at AT TIME ZONE 'Europe/Budapest')::date,false);
+$$;
+REVOKE ALL ON FUNCTION attendance_internal.rd_overnight_active(uuid,date,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.rd_attendance_overnight_open()
+RETURNS SETOF public.staff_attendance LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+ SELECT a.* FROM public.staff_attendance a
+ WHERE auth.uid() IS NOT NULL AND public.get_user_organization_slug(auth.uid())='rdhotels'
+ AND a.organization_slug='rdhotels' AND a.user_id=auth.uid()
+ AND a.work_date=(now() AT TIME ZONE 'Europe/Budapest')::date-1
+ AND a.check_out_time IS NULL AND a.status IN ('checked_in','on_break')
+ AND attendance_internal.rd_overnight_active(a.user_id,a.work_date,a.check_in_time,now())
+ ORDER BY a.check_in_time DESC,a.id LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION public.rd_attendance_overnight_open() FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.rd_attendance_overnight_open() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.rd_hr_active_overnight_ids()
+RETURNS TABLE(id uuid) LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+ SELECT a.id FROM public.staff_attendance a
+ WHERE auth.uid() IS NOT NULL AND public.get_user_organization_slug(auth.uid())='rdhotels'
+ AND public.is_hr_manager(auth.uid()) AND a.organization_slug='rdhotels'
+ AND a.work_date=(now() AT TIME ZONE 'Europe/Budapest')::date-1
+ AND a.check_out_time IS NULL AND a.status IN ('checked_in','on_break')
+ AND attendance_internal.rd_overnight_active(a.user_id,a.work_date,a.check_in_time,now());
+$$;
+REVOKE ALL ON FUNCTION public.rd_hr_active_overnight_ids() FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.rd_hr_active_overnight_ids() TO authenticated;
