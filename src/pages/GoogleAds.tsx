@@ -40,8 +40,22 @@ export default function GoogleAds() {
 
   async function request<T>(body: Record<string,unknown>): Promise<T> {
     const {data,error:invokeError} = await supabase.functions.invoke("google-ads-report",{body:{...body,organizationSlug}});
-    if(invokeError) throw new Error("Google Ads request failed. Check your HotelCare session.");
-    if(data?.error) throw new Error(String(data.error));
+    if(invokeError) {
+      // A transport/preflight failure is not proof of an expired session.
+      const response = (invokeError as {context?: unknown}).context;
+      if(response instanceof Response){
+        let code: string | undefined;
+        try {
+          const payload: unknown = await response.clone().json();
+          if(payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string" && /^[A-Z0-9_]+$/.test(payload.error)) code = payload.error;
+        }catch { /* Non-JSON gateway error. */ }
+        if(response.status === 401) throw new Error("Please sign in again to connect Google Ads.");
+        if(response.status === 403) throw new Error("Google Ads requires an administrator in this organization. Switch to your own organization and try again.");
+        throw new Error(code ?? `Google Ads server request failed (HTTP ${response.status}).`);
+      }
+      throw new Error("Could not reach the Google Ads service. Check your connection and retry. If it persists, contact your HotelCare administrator.");
+    }
+    if(data?.error) throw new Error(data.error === "GOOGLE_ADS_CONFIGURATION_REQUIRED" ? "Google Ads OAuth is not configured on the server. Ask your administrator to check the Google Ads Edge Function secrets." : String(data.error));
     return data as T;
   }
   async function list(version:number){
