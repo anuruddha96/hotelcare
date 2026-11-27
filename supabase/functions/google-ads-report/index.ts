@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.78.0";
+import { decodeTokenKey } from "./token-key.ts";
 
 
 const BASE = "https://googleads.googleapis.com/v26";
@@ -77,8 +78,9 @@ function config(){
   return {clientId,secret,key};
 }
 async function key(){
- const raw=from64(config().key);
- if(raw.length!==32)throw new AdsError(503,"INVALID_GOOGLE_ADS_TOKEN_KEY");
+ const configured=config().key;
+ let raw: Uint8Array;
+ try { raw=decodeTokenKey(configured); } catch { throw new AdsError(503,"INVALID_GOOGLE_ADS_TOKEN_KEY"); }
  return crypto.subtle.importKey("raw",raw as BufferSource,"AES-GCM",false,["encrypt","decrypt"]);
 }
 async function encrypt(value:string,binding:string){
