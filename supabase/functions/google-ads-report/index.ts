@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.78.0";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+
 
 const BASE = "https://googleads.googleapis.com/v26";
 const SCOPE="https://www.googleapis.com/auth/adwords";
@@ -7,7 +7,7 @@ const DB=()=>createClient(Deno.env.get("SUPABASE_URL")!,Deno.env.get("SUPABASE_S
 type DBClient=ReturnType<typeof DB>;
 type Category="sync"|"interactive";
 function checked<T>(r:{data:T;error:unknown}):T{if(r.error)throw new AdsError(500,"DATABASE_OPERATION_FAILED");return r.data;}
-const cors={...corsHeaders,"Access-Control-Allow-Headers":corsHeaders["Access-Control-Allow-Headers"]+", x-worker-secret"};
+const cors={"Access-Control-Allow-Origin":"https://hotelcare.app","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type, x-worker-secret","Access-Control-Allow-Methods":"POST, OPTIONS"};
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {status,headers:{...cors,"Content-Type":"application/json","Cache-Control":"no-store"}});
 const idOk = (id: unknown): id is string => typeof id === "string" && /^\d{10}$/.test(id);
 function validDate(value: unknown): value is string {
@@ -124,11 +124,12 @@ async function discover(db:DBClient,connection:any,token:string,category:Categor
 async function report(db:DBClient,category:Category,token:string,a:any,start:string,end:string){
  const fields="campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, segments.date, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value";
  const perf=await search(db,category,token,a.customer_id,"SELECT "+fields+" FROM campaign WHERE segments.date BETWEEN '"+start+"' AND '"+end+"'",a.login_customer_id||undefined);
- const budget=await search(db,category,token,a.customer_id,"SELECT campaign.id, campaign.name, campaign_budget.id, campaign_budget.name, campaign_budget.amount_micros, campaign_budget.total_amount_micros, campaign_budget.period FROM campaign WHERE campaign.status = ENABLED",a.login_customer_id||undefined);
+ const budget=await search(db,category,token,a.customer_id,"SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign_budget.id, campaign_budget.name, campaign_budget.amount_micros, campaign_budget.total_amount_micros, campaign_budget.period FROM campaign WHERE campaign.status != REMOVED",a.login_customer_id||undefined);
  const rows=perf.map(r=>({date:str(r.segments?.date),campaignId:String(r.campaign?.id),name:str(r.campaign?.name),status:str(r.campaign?.status),channel:str(r.campaign?.advertisingChannelType),costMicros:num(r.metrics?.costMicros),impressions:num(r.metrics?.impressions),clicks:num(r.metrics?.clicks),conversions:num(r.metrics?.conversions),conversionValue:num(r.metrics?.conversionsValue)}));
- const budgets=budget.map(r=>({id:String(r.campaignBudget?.id),name:str(r.campaignBudget?.name),amountMicros:num(r.campaignBudget?.period==="CUSTOM_PERIOD"?r.campaignBudget?.totalAmountMicros:r.campaignBudget?.amountMicros),period:str(r.campaignBudget?.period),campaignId:String(r.campaign?.id),campaignName:str(r.campaign?.name)}));
+ const campaigns=budget.map(r=>({campaignId:String(r.campaign?.id),name:str(r.campaign?.name),status:str(r.campaign?.status),channel:str(r.campaign?.advertisingChannelType)}));
+ const budgets=budget.filter(r=>r.campaign?.status==="ENABLED"&&r.campaignBudget?.id).map(r=>({id:String(r.campaignBudget?.id),name:str(r.campaignBudget?.name),amountMicros:num(r.campaignBudget?.period==="CUSTOM_PERIOD"?r.campaignBudget?.totalAmountMicros:r.campaignBudget?.amountMicros),period:str(r.campaignBudget?.period),campaignId:String(r.campaign?.id),campaignName:str(r.campaign?.name)}));
  if(rows.some(r=>!validDate(r.date)||r.date<start||r.date>end||!/^\d+$/.test(r.campaignId))||budgets.some(b=>!/^\d+$/.test(b.campaignId)||!/^\d+$/.test(b.id)))throw new AdsError(502,"INVALID_GOOGLE_REPORT");
- return {rows,budgets};
+ return {rows,budgets,campaigns};
 }
 function dayOffset(day:string,n:number){const d=new Date(day+"T00:00:00Z");d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
 function todayIn(tz:string){const parts=new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());return ["year","month","day"].map(type=>parts.find(p=>p.type===type)?.value).join("-");}
@@ -149,18 +150,13 @@ async function syncOne(db:DBClient,org:string|null,accountId:string|null,categor
   else if(age(j.last_recent_at)>=6){start=dayOffset(today,-6);kind="recent";}
   else if(age(j.last_today_at)<1&&j.history_next_end&&j.history_next_end>=oldest){end=j.history_next_end;start=[oldest,dayOffset(end,-29)].sort()[1];next=dayOffset(start,-1);if(next<oldest)next=null;kind="history";}
   const data=await report(db,category,token,a,start,end);
-  if(!checked(await db.rpc("google_ads_commit_report",{p_account:a.id,p_lease:j.lease,p_start:start,p_end:end,p_rows:data.rows,p_budgets:data.budgets,p_today:today,p_kind:kind,p_history_next:next})))throw new AdsError(409,"SYNC_LEASE_LOST");
+  if(!checked(await db.rpc("google_ads_commit_report",{p_account:a.id,p_lease:j.lease,p_start:start,p_end:end,p_rows:data.rows,p_budgets:data.budgets,p_campaigns:data.campaigns,p_today:today,p_kind:kind,p_history_next:next})))throw new AdsError(409,"SYNC_LEASE_LOST");
   return {status:"success",accountId:a.id,start,end,kind,rows:data.rows.length};
  }catch(e){
   const code=e instanceof AdsError?e.code:"SYNC_FAILED";
   checked(await db.rpc("google_ads_fail_job",{p_account:j.account_id,p_lease:j.lease,p_code:code}));
   return {status:"error",error:code};
  }
-}
-async function readAll(query:(from:number,to:number)=>PromiseLike<{data:any[]|null,error:unknown}>){
- const result:any[]=[];
- for(let i=0;i<100;i++){const rows=checked(await query(i*1000,(i+1)*1000-1))??[];result.push(...rows);if(rows.length<1000)return result;}
- throw new AdsError(413,"REPORT_TOO_LARGE");
 }
 async function constantEqual(a:string,b:string){const ah=await crypto.subtle.digest("SHA-256",bytes(a)),bh=await crypto.subtle.digest("SHA-256",bytes(b));let diff=0;const aa=new Uint8Array(ah),bb=new Uint8Array(bh);for(let i=0;i<aa.length;i++)diff|=aa[i]^bb[i];return diff===0;}
 Deno.serve(async(req)=>{
@@ -173,11 +169,11 @@ Deno.serve(async(req)=>{
    if(!expected||!supplied||!await constantEqual(expected,supplied))return json({error:"ACCESS_DENIED"},403);
    const db=DB();
    // One job per invocation; overlapping invocations cannot claim the same account.
-   const result=await syncOne(db,null,null,"sync");
+   if(body.jobType!=="discovery")return json(await syncOne(db,null,null,"sync"));
    const candidates=checked(await db.rpc("google_ads_claim_discovery"))??[];
    const c=candidates[0];
    if(c){try{await discover(db,c,await refresh(db,c),"sync");}catch(e){const code=e instanceof AdsError?e.code:"DISCOVERY_FAILED";checked(await db.from("google_ads_connections").update({last_error:code,discovery_lease_until:new Date(Date.now()+3600000).toISOString()}).eq("id",c.id).eq("status","active"));}}
-   return json(result);
+   return json({status:c?"discovery_processed":"no_due_job"});
   }
   const auth=req.headers.get("Authorization");
   if(!auth)return json({error:"SIGN_IN_REQUIRED"},401);
@@ -240,10 +236,9 @@ Deno.serve(async(req)=>{
   if(body.action==="report"){
    const {start,end}=body;
    if(!validDate(start)||!validDate(end)||start>end||Date.parse(end)-Date.parse(start)>731*86400000)throw new AdsError(400,"INVALID_REPORT_RANGE");
-   const rows=await readAll((from,to)=>db.from("google_ads_campaign_daily").select("payload").eq("account_id",a.id).gte("day",start).lte("day",end).order("day").order("campaign_id").range(from,to));
-   const budgets=await readAll((from,to)=>db.from("google_ads_budgets").select("payload").eq("account_id",a.id).order("campaign_id").range(from,to));
-   const logs=(await readAll((from,to)=>db.from("google_ads_coverage").select("day").eq("account_id",a.id).gte("day",start).lte("day",end).order("day").range(from,to))).map(r=>({start_day:r.day,end_day:r.day}));
-   return json({rows:rows.map(r=>r.payload),budgets:budgets.map(r=>r.payload),fetchedAt:a.last_sync_at,coverage:logs});
+   const result=checked(await db.rpc("google_ads_read_report",{p_org:org,p_account:a.id,p_start:start,p_end:end}));
+   if(!result)throw new AdsError(409,"ACCOUNT_NOT_ENABLED");
+   return json(result);
   }
   return json({error:"UNKNOWN_ACTION"},400);
  }catch(e){return json({error:e instanceof AdsError?e.code:"GOOGLE_ADS_REQUEST_FAILED"},200);}
