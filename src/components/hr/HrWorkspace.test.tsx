@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HrPeopleOverview } from './HrPeopleOverview';
 import { HrTrainingAnalytics } from './HrTrainingAnalytics';
 import { HrPersonnelDocuments } from './HrPersonnelDocuments';
-import { ALL_CURRICULA } from '@/components/training/v2/curricula';
+import { ALL_CURRICULA, curriculaForOrganization } from '@/components/training/v2/curricula';
 
 const state=vi.hoisted(()=>({
   profile:{id:'hr-1',organization_slug:'rdhotels'},hrWorkspace:true,language:'en',
@@ -83,15 +83,23 @@ describe('HR document controls',()=>{
 });
 describe('HR training reporting',()=>{
  it('shows applicable guide progress and filters employee drilldowns',async()=>{
-  const guide=ALL_CURRICULA.find(c=>c.category==='core'&&c.roles.includes('housekeeping'))!;
-  state.invoke.mockResolvedValue({data:{ok:true,employees:[{id:'a',full_name:'Fixture Alice',role:'housekeeping',access_role:null,assigned_hotel:'ottofiori'},{id:'b',full_name:'Fixture Bob',role:'housekeeping',access_role:null,assigned_hotel:'memories-budapest'}],progress:[{user_id:'a',tour_key:guide.slug,status:'completed',current_step:9999,completed_at:'2026-01-01'}],states:[]},error:null});
+  const guide=curriculaForOrganization('rdhotels').find(c=>c.category==='core'&&c.roles.includes('housekeeping'))!;
+  state.invoke.mockResolvedValue({data:{ok:true,organization_slug:'rdhotels',employees:[{id:'a',full_name:'Fixture Alice',role:'housekeeping',access_role:null,assigned_hotel:'ottofiori'},{id:'b',full_name:'Fixture Bob',role:'housekeeping',access_role:null,assigned_hotel:'memories-budapest'}],progress:[{user_id:'a',tour_key:guide.slug,status:'completed',current_step:9999,completed_at:'2026-01-01'}],states:[]},error:null});
   render(<HrTrainingAnalytics/>);
   await screen.findByText('Completion by guide');
   expect(state.invoke).toHaveBeenCalledWith('training-admin-action',{body:{action:'hr_analytics'}});
   expect(screen.getAllByText('Fixture Alice').length).toBeGreaterThan(0);
+  for(const foreign of ALL_CURRICULA.filter(c=>c.slug.startsWith('slnt_')))expect(screen.queryByText(foreign.name.en)).toBeNull();
   fireEvent.change(screen.getByLabelText('Property'),{target:{value:'ottofiori'}});
   expect(screen.queryByText('Fixture Bob')).toBeNull();
   expect(screen.getAllByText('Completed').length).toBeGreaterThan(0);
+ });
+ it('fails closed if the server response identifies a different organization',async()=>{
+  state.invoke.mockResolvedValue({data:{ok:true,organization_slug:'slnt',employees:[{id:'foreign',full_name:'Foreign fixture',role:'housekeeping',access_role:null,assigned_hotel:null}],progress:[],states:[]},error:null});
+  render(<HrTrainingAnalytics/>);
+  expect(await screen.findByRole('alert')).toHaveTextContent('No data was displayed');
+  expect(screen.queryByText('Foreign fixture')).toBeNull();
+  expect(screen.queryByText('Completion by guide')).toBeNull();
  });
  it('shows error instead of misleading zero metrics if analytics fails',async()=>{
   state.invoke.mockResolvedValue({data:null,error:{message:'Unavailable'}});

@@ -1,3 +1,4 @@
+import { trainingGuideAllowed } from '../../../../../supabase/functions/_shared/trainingScope';
 import { effectiveAccessRole, type AccessSubject } from '@/lib/accessPolicy';
 import type { TrainingCurriculum, RoleKey } from '../types';
 import { housekeeperCurriculum as baseHousekeeperCurriculum } from './housekeeper';
@@ -55,4 +56,9 @@ export function trainingRoleFor(profile: AccessSubject): string | null {
   if (access === 'hr') return 'hr';
   if (access === 'controlling') return 'control_finance';
   return role || null;
+}
+
+/** Organization-filtered catalogue for HR and other tenant-scoped training screens. */
+export function curriculaForOrganization(organization:string|null|undefined):TrainingCurriculum[] {
+  return ALL_CURRICULA.filter(c=>trainingGuideAllowed(c.slug,organization));
 }

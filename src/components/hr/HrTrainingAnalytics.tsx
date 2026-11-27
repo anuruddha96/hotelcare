@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
-import { ALL_CURRICULA, trainingRoleFor } from '@/components/training/v2/curricula';
+import { curriculaForOrganization, trainingRoleFor } from '@/components/training/v2/curricula';
 import { useTrainingV2, txt } from '@/components/training/v2/TrainingV2Provider';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -11,13 +11,16 @@ import { Progress } from '@/components/ui/progress';
 type Employee = {id:string;full_name:string|null;role:string;access_role:string|null;assigned_hotel:string|null};
 type ProgressRow = {user_id:string;tour_key:string;status:string;current_step:number;completed_at:string|null};
 type State = {user_id:string;dismissed_until:string|null;paused_at:string|null};
-type Report = {employees:Employee[];progress:ProgressRow[];states:State[]};
+type Report = {organization_slug:string;employees:Employee[];progress:ProgressRow[];states:State[]};
 export function HrTrainingAnalytics() {
   const {profile} = useAuth();
   const {language} = useTranslation();
   const {lang} = useTrainingV2();
   const tr=(en:string,hu:string)=>language==='hu'?hu:en;
-  const [report,setReport]=useState<Report|null>(null);
+  const [loaded,setReport]=useState<{owner:string;report:Report}|null>(null);
+  const organization=profile?.organization_slug;
+  const owner=profile?.id+'|'+organization;
+  const report=loaded?.owner===owner&&loaded.report.organization_slug===organization?loaded.report:null;
   const [error,setError]=useState(false);
   const [refresh,setRefresh]=useState(0);
   const [query,setQuery]=useState('');
@@ -28,24 +31,25 @@ export function HrTrainingAnalytics() {
     if (!profile?.organization_slug) return;
     void supabase.functions.invoke('training-admin-action',{body:{action:'hr_analytics'}}).then(({data,error})=>{
       if(!active)return;
-      if(error||!data?.ok||!Array.isArray(data.employees)||!Array.isArray(data.progress)||!Array.isArray(data.states)){setError(true);return;}
-      setReport(data as Report);
+      if(error||!data?.ok||data.organization_slug!==organization||!Array.isArray(data.employees)||!Array.isArray(data.progress)||!Array.isArray(data.states)){setError(true);return;}
+      setReport({owner,report:data as Report});
     }).catch(()=>{if(active)setError(true);});
     return()=>{active=false;};
-  },[profile?.id,profile?.organization_slug,refresh]);
+  },[profile?.id,organization,owner,refresh]);
   const result=useMemo(()=>{
     const people=(report?.employees??[]).filter(e=>(!hotel||e.assigned_hotel===hotel)&&(!role||trainingRoleFor(e)===role)&&(!query||(e.full_name??'').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
     const progress=new Map((report?.progress??[]).map(p=>[p.user_id+':'+p.tour_key,p]));
-    const records=people.flatMap(e=>ALL_CURRICULA.filter(c=>c.category==='core'&&c.roles.some(r=>r===trainingRoleFor(e))).map(c=>{
+    const catalogue=curriculaForOrganization(organization);
+    const records=people.flatMap(e=>catalogue.filter(c=>c.category==='core'&&c.roles.some(r=>r===trainingRoleFor(e))).map(c=>{
       const row=progress.get(e.id+':'+c.slug);
       const completed=row?.status==='completed'||(c.replaces??[]).some(s=>progress.get(e.id+':'+s)?.status==='completed');
       return {employee:e,guide:c,status:completed?'completed':row?'in_progress':'not_started',step:row?.current_step??null};
     }));
     const ids=new Set(people.map(p=>p.id));
     const states=(report?.states??[]).filter(s=>ids.has(s.user_id));
-    const byGuide=ALL_CURRICULA.map(guide=>({guide,rows:records.filter(r=>r.guide.slug===guide.slug)})).filter(g=>g.rows.length);
+    const byGuide=catalogue.map(guide=>({guide,rows:records.filter(r=>r.guide.slug===guide.slug)})).filter(g=>g.rows.length);
     return {people,records,byGuide,dismissed:states.filter(s=>s.dismissed_until&&new Date(s.dismissed_until).getTime()>Date.now()).length,paused:states.filter(s=>s.paused_at).length};
-  },[report,query,hotel,role]);
+  },[report,query,hotel,role,organization]);
   if(error)return <div role="alert" className="space-y-2"><p>{tr('Training analytics unavailable. No data was displayed.','A képzési elemzés nem elérhető.')}</p><Button onClick={()=>setRefresh(v=>v+1)}>{tr('Retry','Újra')}</Button></div>;
   if(!report)return <p role="status">{tr('Loading training data…','Képzések betöltése…')}</p>;
   const done=result.records.filter(r=>r.status==='completed').length;

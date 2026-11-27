@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { trainingGuideAllowed } from '../../../supabase/functions/_shared/trainingScope';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +20,7 @@ interface User {
   full_name: string | null;
   email: string | null;
   role: string | null;
+  organization_slug: string | null;
 }
 
 interface ProgressRow {
@@ -30,27 +33,49 @@ interface ProgressRow {
 type Action = 'reset' | 'retrigger' | 'mark_complete';
 
 export function TrainingAdminPanel() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [progress, setProgress] = useState<ProgressRow[]>([]);
+  const {profile}=useAuth();
+  const organization=profile?.organization_slug;
+  const globalAdmin=profile?.is_super_admin===true;
+  const owner=profile?.id+'|'+organization+'|'+globalAdmin;
+  const [loaded,setLoaded]=useState<{owner:string;users:User[];progress:ProgressRow[]}|null>(null);
+  const users=useMemo(()=>loaded?.owner===owner?loaded.users:[],[loaded,owner]);
+  const progress=loaded?.owner===owner?loaded.progress:[];
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedCurricula, setSelectedCurricula] = useState<Set<string>>(
-    new Set(ALL_CURRICULA.map((c) => c.slug)),
+    new Set(),
   );
   const [busy, setBusy] = useState(false);
 
-  const load = async () => {
-    const [u, p] = await Promise.all([
-      supabase.from('profiles').select('id, full_name, email, role').limit(500),
-      supabase.from('user_tour_progress').select('user_id, tour_key, status, current_step'),
-    ]);
-    setUsers(((u.data as any) || []) as User[]);
-    setProgress(((p.data as any) || []) as ProgressRow[]);
+  const load=async(active:()=>boolean=()=>true)=>{
+    if(!profile?.id||(!globalAdmin&&!organization))return;
+    let query=supabase.from('profiles').select('id, full_name, email, role, organization_slug').is('deleted_at',null).limit(500);
+    if(!globalAdmin)query=query.eq('organization_slug',organization);
+    const u=await query;
+    if(u.error){if(active())setLoaded(null);return;}
+    const people=(u.data??[]) as User[];
+    const ids=people.map(p=>p.id);
+    const result=ids.length?await supabase.from('user_tour_progress').select('user_id, tour_key, status, current_step').in('user_id',ids):{data:[],error:null};
+    if(!active())return;
+    if(result.error){setLoaded(null);return;}
+    const orgs=new Map(people.map(p=>[p.id,p.organization_slug]));
+    setLoaded({owner,users:people,progress:(result.data??[]).filter(p=>trainingGuideAllowed(p.tour_key,orgs.get(p.user_id)))});
   };
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(()=>{
+    let current=true;
+    setLoaded(null);setSelected(new Set());setSelectedCurricula(new Set());
+    void load(()=>current);
+    return()=>{current=false;};
+    // Scope changes invalidate the old account's report.
+  },[owner]);
+
+  const selectedUsers=users.filter(u=>selected.has(u.id));
+  const catalogue=ALL_CURRICULA.filter(c=>selectedUsers.length
+    ?selectedUsers.every(u=>trainingGuideAllowed(c.slug,u.organization_slug))
+    :trainingGuideAllowed(c.slug,organization));
+  const allowedSlugs=new Set(catalogue.map(c=>c.slug));
+  const selectedGuides=[...selectedCurricula].filter(slug=>allowedSlugs.has(slug));
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -84,7 +109,7 @@ export function TrainingAdminPanel() {
   };
 
   const runAction = async (action: Action) => {
-    if (selected.size === 0 || selectedCurricula.size === 0) {
+    if (selectedUsers.length === 0 || selectedGuides.length === 0) {
       toast.error('Pick at least one user and one curriculum.');
       return;
     }
@@ -93,16 +118,16 @@ export function TrainingAdminPanel() {
       const { error } = await supabase.functions.invoke('training-admin-action', {
         body: {
           action,
-          userIds: Array.from(selected),
-          curriculumSlugs: Array.from(selectedCurricula),
+          userIds: selectedUsers.map(u=>u.id),
+          curriculumSlugs: selectedGuides,
         },
       });
       if (error) throw error;
       toast.success('Done.');
       setSelected(new Set());
       await load();
-    } catch (e: any) {
-      toast.error(e?.message || 'Action failed');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Action failed');
     } finally {
       setBusy(false);
     }
@@ -125,7 +150,7 @@ export function TrainingAdminPanel() {
               onChange={(e) => setSearch(e.target.value)}
               className="max-w-xs"
             />
-            <Button variant="outline" size="sm" onClick={load}>
+            <Button variant="outline" size="sm" onClick={()=>void load()}>
               <RefreshCw className="h-4 w-4 mr-1" /> Refresh
             </Button>
             <div className="flex-1" />
@@ -145,7 +170,7 @@ export function TrainingAdminPanel() {
               Curricula to affect
             </div>
             <div className="flex flex-wrap gap-2">
-              {ALL_CURRICULA.map((c) => (
+              {catalogue.map((c) => (
                 <button
                   type="button"
                   key={c.slug}
