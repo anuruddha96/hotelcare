@@ -7,32 +7,31 @@ import { OperationsNavigation } from "@/components/layout/OperationsNavigation";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { canUseAssistant } from "@/lib/assistantAccess";
-import { accountToday, budgetSummary, campaignTotals, dateRange, ratios, sumMetrics, trendTotals, type AdsAccount, type AdsReport } from "@/lib/googleAdsAnalytics";
+import { accountToday, budgetSummary, campaignTotals, dateRange, ratios, sumMetrics, trendTotals, coversRange, type AdsReport } from "@/lib/googleAdsAnalytics";
 import { BarChart, Bar, CartesianGrid, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts";
 import { RefreshCw, Sparkles } from "lucide-react";
 
-type TokenResponse = { access_token?: string; error?: string; expires_in?: number };
-type GoogleIdentity = { accounts: { oauth2: { initTokenClient: (config: { client_id: string; scope: string; callback: (response: TokenResponse) => void; error_callback: () => void }) => { requestAccessToken: (options: { prompt: string }) => void } } } };
-const gis = () => (window as Window & { google?: GoogleIdentity }).google;
+type Connection = {id:string;email:string;status:string;last_error:string|null};
+type Account = {id:string;connection_id:string;customer_id:string;name:string;currency:string;time_zone:string;account_status:string;enabled:boolean;available:boolean;last_sync_at:string|null;last_error:string|null};
+type Listing = {connections:Connection[];accounts:Account[];quotaUsed:number;quotaLimit:number};
+type CachedReport = Omit<AdsReport,"fetchedAt"> & {fetchedAt:string|null;coverage:{start_day:string;end_day:string}[]};
 type Preset = "today" | "month" | "year" | "last30" | "custom";
 
 export default function GoogleAds() {
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { profile, user } = useAuth();
-  const token = useRef("");
   const generation = useRef(0);
-  const [clientId, setClientId] = useState("");
-  const [scriptReady, setScriptReady] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [accounts, setAccounts] = useState<AdsAccount[]>([]);
+  const [listing,setListing]=useState<Listing>({connections:[],accounts:[],quotaUsed:0,quotaLimit:2304});
+  const accounts=listing.accounts.filter(a=>a.enabled);
   const [accountId, setAccountId] = useState("");
   const [preset, setPreset] = useState<Preset>("last30");
   const [range, setRange] = useState({start:"",end:""});
-  const [report, setReport] = useState<AdsReport|null>(null);
+  const [report, setReport] = useState<CachedReport|null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const account = accounts.find(a=>a.id===accountId);
+  const complete=!!report&&coversRange(report.coverage,range.start,range.end);
   const totals = useMemo(()=>sumMetrics(report?.rows??[]),[report]);
   const campaigns = useMemo(()=>campaignTotals(report?.rows??[]),[report]);
   const budgets = useMemo(()=>budgetSummary(report?.budgets??[]),[report]);
@@ -41,69 +40,64 @@ export default function GoogleAds() {
 
   async function request<T>(body: Record<string,unknown>): Promise<T> {
     const {data,error:invokeError} = await supabase.functions.invoke("google-ads-report",{body:{...body,organizationSlug}});
-    if(invokeError) throw new Error("Google Ads request failed. Check your HotelCare session or reconnect Google.");
+    if(invokeError) throw new Error("Google Ads request failed. Check your HotelCare session.");
     if(data?.error) throw new Error(String(data.error));
     return data as T;
   }
+  async function list(version:number){
+    const data=await request<Listing>({action:"list"});
+    if(version!==generation.current)return;
+    setListing(data);
+    setAccountId(old=>data.accounts.some(a=>a.id===old&&a.enabled)?old:data.accounts.find(a=>a.enabled)?.id??"");
+  }
   useEffect(()=>{
-    let active=true;
-    token.current="";
-    generation.current++;
-    setConnected(false);setAccounts([]);setAccountId("");setReport(null);setBusy(false);setClientId("");setError("");setWarning("");
-    request<{clientId:string}>({action:"config"}).then(r=>{if(active)setClientId(r.clientId);}).catch(e=>{if(active)setError(e.message);});
-    return ()=>{active=false;token.current="";generation.current++;};
-    // Configuration is scoped to the current authenticated tenant.
+    const version=++generation.current;
+    setListing({connections:[],accounts:[],quotaUsed:0,quotaLimit:2304});setAccountId("");setReport(null);setBusy(true);setError("");setWarning("");
+    const url=new URL(window.location.href);
+    const code=url.searchParams.get("code"),state=url.searchParams.get("state"),oauthError=url.searchParams.get("error");
+    if(code||state||oauthError){
+      ["code","state","error","scope","authuser","prompt","hd","error_description"].forEach(k=>url.searchParams.delete(k));
+      window.history.replaceState(window.history.state,"",url.pathname+url.search+url.hash);
+    }
+    void (async()=>{
+      try{
+        if(oauthError)throw new Error("Google authorization was not completed.");
+        if(code&&state){
+          const result=await request<{failures:string[]}>({action:"finish_oauth",code,state});
+          if(version===generation.current&&result.failures.length)setWarning("Some accounts could not be discovered: "+result.failures.join(", "));
+        }
+      }catch(e){if(version===generation.current)setError(e instanceof Error?e.message:"Authorization failed.");}
+      try{await list(version);}catch(e){if(version===generation.current)setError(e instanceof Error?e.message:"Connection listing failed.");}
+      finally{if(version===generation.current)setBusy(false);}
+    })();
+    return ()=>{generation.current++;};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[organizationSlug,user?.id]);
-  useEffect(()=>{
-    if(!clientId)return;
-    if(gis()){setScriptReady(true);return;}
-    let active=true;
-    const script=document.createElement("script");
-    script.src="https://accounts.google.com/gsi/client";script.async=true;script.defer=true;
-    script.onload=()=>{if(active)setScriptReady(!!gis());};
-    script.onerror=()=>{if(active)setError("Google sign-in could not load.");};
-    document.head.appendChild(script);
-    return ()=>{active=false;script.remove();};
-  },[clientId]);
-  function disconnect() {
-    generation.current++;token.current="";setConnected(false);setAccounts([]);setAccountId("");setReport(null);setWarning("");setError("");setBusy(false);
-  }
-  async function discover(accessToken: string, version: number) {
-    try {
-      const result=await request<{accounts:AdsAccount[];failures:string[]}>({action:"accounts",googleAccessToken:accessToken});
+  async function action(body:Record<string,unknown>){
+    const version=++generation.current;setBusy(true);setError("");setWarning("");
+    try{
+      const data=await request<{url?:string;failures?:string[];status?:string;changed?:boolean;disconnected?:boolean}>(body);
       if(version!==generation.current)return;
-      setAccounts(result.accounts);
-      setAccountId(result.accounts[0]?.id??"");
-      if(result.failures.length)setWarning("Some accounts could not be discovered: "+result.failures.join(", "));
-      if(!result.accounts.length)setError("No accessible advertising accounts found. Verify Google Ads access and the Cloud project access level.");
-    }catch(e){if(version===generation.current)setError(e instanceof Error?e.message:"Account discovery failed.");}
+      if(data.url){window.location.assign(data.url);return;}
+      if(data.changed===false||data.disconnected===false)throw new Error("The requested change was not applied.");
+      if(data.failures?.length)setWarning("Some accounts could not be discovered: "+data.failures.join(", "));
+      if(data.status==="no_due_job")setWarning("No synchronization job is currently due, or one is already running.");
+      if(body.action!=="list")setReport(null);
+      await list(version);
+    }catch(e){if(version===generation.current)setError(e instanceof Error?e.message:"Request failed.");}
     finally{if(version===generation.current)setBusy(false);}
   }
-  function connect() {
-    const google=gis();
-    if(!google||!clientId)return;
-    disconnect();
-    const version=generation.current;
-    setBusy(true);
-    try {
-      google.accounts.oauth2.initTokenClient({client_id:clientId,scope:"https://www.googleapis.com/auth/adwords",callback:r=>{
-        if(version!==generation.current)return;
-        if(!r.access_token||r.error){setError("Google authorization was not completed.");setBusy(false);return;}
-        token.current=r.access_token;setConnected(true);void discover(r.access_token,version);
-      },error_callback:()=>{if(version===generation.current){setError("Google sign-in was closed or blocked.");setBusy(false);}}}).requestAccessToken({prompt:"select_account"});
-    }catch{setError("Google sign-in could not start.");setBusy(false);}
-  }
+  const timeZone=account?.time_zone;
   useEffect(()=>{
     setReport(null);
-    if(account&&preset!=="custom")setRange(dateRange(accountToday(account.timeZone),preset));
-  },[account,preset]);
+    if(timeZone&&preset!=="custom")setRange(dateRange(accountToday(timeZone),preset));
+  },[accountId,timeZone,preset]);
   async function loadReport() {
-    if(!account||!token.current)return;
+    if(!account)return;
     const version=++generation.current;
     setReport(null);setError("");setBusy(true);
     try{
-      const data=await request<AdsReport>({action:"report",googleAccessToken:token.current,customerId:account.id,loginCustomerId:account.loginCustomerId,...range});
+      const data=await request<CachedReport>({action:"report",accountId:account.id,...range});
       if(version===generation.current)setReport(data);
     }catch(e){if(version===generation.current)setError(e instanceof Error?e.message:"Report failed.");}
     finally{if(version===generation.current)setBusy(false);}
@@ -111,8 +105,8 @@ export default function GoogleAds() {
   const money=(n:number|null)=>n===null?"—":new Intl.NumberFormat(undefined,{style:"currency",currency:account?.currency||"HUF",maximumFractionDigits:2}).format(n);
   const number=(n:number|null,digits=0)=>n===null?"—":new Intl.NumberFormat(undefined,{maximumFractionDigits:digits}).format(n);
   const askMira=()=>{
-    if(!report||!account)return;
-    const data={accountId:account.id,currency:account.currency,start:range.start,end:range.end,fetchedAt:report.fetchedAt,totals,ratios:metrics,currentDailyBudgetMicros:budgets.dailyMicros,campaigns:campaigns.slice(0,12).map(c=>({id:c.campaignId,channel:c.channel,status:c.status,costMicros:c.costMicros,impressions:c.impressions,clicks:c.clicks,conversions:c.conversions,conversionValue:c.conversionValue})),campaignCount:campaigns.length};
+    if(!report||!account||!complete)return;
+    const data={accountId:account.customer_id,currency:account.currency,start:range.start,end:range.end,fetchedAt:report.fetchedAt,totals,ratios:metrics,currentDailyBudgetMicros:budgets.dailyMicros,campaigns:campaigns.slice(0,12).map(c=>({id:c.campaignId,channel:c.channel,status:c.status,costMicros:c.costMicros,impressions:c.impressions,clicks:c.clicks,conversions:c.conversions,conversionValue:c.conversionValue})),campaignCount:campaigns.length};
     window.dispatchEvent(new CustomEvent("hotelcare:ask-ai",{detail:{prompt:"Analyze this read-only Google Ads report snapshot from HotelCare. Identify spend efficiency, conversion tracking risks and prioritized recommendations. Do not execute changes. Values are Google Ads attributed conversions, not verified PMS revenue. Campaign list is limited to the top 12 by spend. JSON data: "+JSON.stringify(data)}}));
   };
   return <div className="min-h-screen bg-background">
@@ -120,20 +114,34 @@ export default function GoogleAds() {
     <main className="mx-auto max-w-screen-2xl p-4 pb-24 space-y-4">
       <OperationsNavigation current="google-ads"/>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h1 className="text-2xl font-semibold">Google Ads</h1><p className="text-sm text-muted-foreground">Account analytics · Read-only pilot</p></div>
+        <div><h1 className="text-2xl font-semibold">Google Ads</h1><p className="text-sm text-muted-foreground">Account analytics · Read-only synchronization</p></div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={connect} disabled={!scriptReady||busy}>{connected?"Reconnect Google":"Connect Google account"}</Button>
-          {connected&&<Button variant="outline" onClick={disconnect}>Disconnect session</Button>}
+          <Button onClick={()=>action({action:"start_oauth"})} disabled={busy}>Connect Google account</Button>
+          <Button variant="outline" onClick={()=>action({action:"list"})} disabled={busy}>Refresh connections</Button>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground">Google authorization is session-only. Access is limited to advertising accounts available to your Google identity. No credentials are stored or campaign changes made.</p>
+      <p className="text-sm text-muted-foreground">Google authorization is stored securely on the server. Select the advertising accounts that belong to this organization. Campaign changes are disabled.</p>
       {error&&<div role="alert" className="rounded-lg border border-destructive/50 bg-destructive/5 p-3 text-sm">{error}</div>}
       {warning&&<div role="status" className="rounded-lg border p-3 text-sm">{warning}</div>}
       {busy&&<p role="status" className="text-sm">Loading Google Ads…</p>}
+      <Card><CardHeader><CardTitle className="text-base">Google connections</CardTitle></CardHeader><CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">Project-wide rolling usage: {listing.quotaUsed} / {listing.quotaLimit} internally allocated operations (24h).</p>
+        {!listing.connections.length&&<p className="text-sm text-muted-foreground">No connected Google accounts.</p>}
+        {listing.connections.map(conn=><div key={conn.id} className="rounded-lg border p-3 space-y-3">
+          <div className="flex flex-wrap justify-between items-center gap-2"><div><p className="font-medium">{conn.email}</p><p className="text-xs text-muted-foreground">{conn.status}{conn.last_error?" · "+conn.last_error:""}</p></div><div className="flex gap-2">
+            {conn.status==="active"&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>action({action:"discover",connectionId:conn.id})}>Discover accounts</Button>}
+            {conn.status!=="disconnected"&&<Button size="sm" variant="outline" disabled={busy} onClick={()=>{if(window.confirm("Disconnect this Google account and stop all its synchronization?"))void action({action:"disconnect",connectionId:conn.id});}}>Disconnect</Button>}
+          </div></div>
+          {listing.accounts.filter(a=>a.connection_id===conn.id).map(a=><div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2" key={a.id}>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={a.enabled} disabled={busy||(!a.enabled&&(!a.available||conn.status!=="active"))} onChange={e=>void action({action:"enable",accountId:a.id,enabled:e.target.checked})}/><span>{a.name} · {a.customer_id} · {a.currency}</span></label>
+            <p className="text-xs text-muted-foreground">{a.account_status} · {!a.available?"Unavailable":a.last_sync_at?"Last sync "+new Date(a.last_sync_at).toLocaleString():"Not synchronized"}{a.last_error?" · "+a.last_error:""}</p>
+          </div>)}
+        </div>)}
+      </CardContent></Card>
       {accounts.length>0&&<Card><CardContent className="p-4 flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm flex-1 min-w-48">Advertising account
           <select className="rounded-md border bg-background p-2" value={accountId} disabled={busy} onChange={e=>{setAccountId(e.target.value);setPreset("last30");setReport(null);}}>
-            {accounts.map(a=><option key={a.id} value={a.id}>{a.name} · {a.id} · {a.currency}</option>)}
+            {accounts.map(a=><option key={a.id} value={a.id}>{a.name} · {a.customer_id} · {a.currency}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">Period
@@ -144,16 +152,18 @@ export default function GoogleAds() {
         <label className="flex flex-col gap-1 text-sm">From<input className="rounded-md border bg-background p-2" type="date" disabled={busy||preset!=="custom"} value={range.start} onChange={e=>{setRange(r=>({...r,start:e.target.value}));setReport(null);}}/></label>
         <label className="flex flex-col gap-1 text-sm">To<input className="rounded-md border bg-background p-2" type="date" disabled={busy||preset!=="custom"} value={range.end} onChange={e=>{setRange(r=>({...r,end:e.target.value}));setReport(null);}}/></label>
         <Button onClick={loadReport} disabled={busy||!range.start||!range.end||range.start>range.end}><RefreshCw className="mr-2 size-4"/>Load report</Button>
+        <Button variant="outline" disabled={busy||!account} onClick={()=>action({action:"sync",accountId})}>Sync now</Button>
       </CardContent></Card>}
       {report&&<>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground">As of {new Date(report.fetchedAt).toLocaleString()} · {account?.currency} · {account?.timeZone}</p>
-          {canUseAssistant(profile)&&<Button variant="outline" onClick={askMira}><Sparkles className="mr-2 size-4"/>Analyze with Mira</Button>}
+          <p className="text-xs text-muted-foreground">As of {report.fetchedAt?new Date(report.fetchedAt).toLocaleString():"Not synchronized"} · {account?.currency} · {account?.time_zone}</p>
+          {complete&&canUseAssistant(profile)&&<Button variant="outline" onClick={askMira}><Sparkles className="mr-2 size-4"/>Analyze with Mira</Button>}
         </div>
+        {!complete&&<p role="status" className="rounded-lg border p-3 text-sm">Selected period is not fully synchronized. Figures below are partial; missing days are not verified zero activity.</p>}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-5">
           {[
             ["Ad spend",money(metrics.spend)],["Impressions",number(totals.impressions)],["Clicks",number(totals.clicks)],["CTR",number(metrics.ctr,2)+(metrics.ctr===null?"":"%")],["Average CPC",money(metrics.cpc)],["Conversions",number(totals.conversions,2)],["Cost / conversion",money(metrics.cpa)],["Conversion value",money(totals.conversionValue)],["ROAS",number(metrics.roas,2)+(metrics.roas===null?"":"×")],["Current daily budget",money(budgets.dailyMicros/1e6)]
-          ].map(([label,value])=><Card key={label}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-semibold tabular-nums break-words">{value}</p></CardContent></Card>)}
+          ].map(([label,value])=><Card key={label}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-semibold tabular-nums break-words">{!report.fetchedAt?"—":value}</p></CardContent></Card>)}
         </div>
         <p className="text-xs text-muted-foreground">Conversion value is reported by Google Ads, not confirmed HotelCare revenue. Current daily budgets are deduplicated across enabled campaigns; {budgets.nonDaily} non-daily budget(s) excluded.</p>
         <Card><CardHeader><CardTitle className="text-base">Spend & conversion value · {preset==="year"?"monthly":"daily"}</CardTitle></CardHeader><CardContent>
