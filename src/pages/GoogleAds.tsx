@@ -139,6 +139,22 @@ export default function GoogleAds() {
         </div>
       </div>
       <p className="text-sm text-muted-foreground">Google authorization is stored securely on the server. Select the advertising accounts that belong to this organization. Campaign changes are disabled.</p>
+      <details className="rounded-lg border bg-card p-4 text-sm" open={new URLSearchParams(window.location.search).get("verification")==="1" ? true : undefined}>
+        <summary className="cursor-pointer font-medium">Google OAuth verification · recording guide</summary>
+        <div className="mt-3 space-y-3">
+          <p>For an authorized administrator preparing the Google review video. Use only a permitted pilot advertising account; this guide does not create example data or grant access.</p>
+          <ol className="list-decimal space-y-2 pl-5">
+            <li>Start recording the application address and HotelCare branding. Show the sign-in flow without recording passwords, passkeys, tokens or secrets.</li>
+            <li>Select the correct organization. Show this page and click Connect Google account.</li>
+            <li>Show the actual Google authorization warning if presented to the pilot account, then the full consent screen in English, with the application name, client ID and requested permissions. Review permissions before consenting.</li>
+            <li>Return to HotelCare, show the connected account and explicitly select only the advertiser authorized for this organization.</li>
+            <li>Choose that advertiser, click Sync now, then Refresh connections and Load report after synchronization. Show the real reporting period, last synchronization, spend, impressions, clicks, conversions, campaign performance and configured budgets.</li>
+            <li>Explain that Google Ads conversion value is advertising-attributed, not verified hotel revenue. This reporting integration does not change campaigns. Demonstrate Disconnect after recording the report only if you intend to stop synchronization.</li>
+          </ol>
+          <p className="text-muted-foreground">Do not submit a recording with an empty or failed report as evidence of successful data access. Cover every requested scope and applicable OAuth client workflow in the Google Cloud project. Use a test account or authorized pilot data and avoid recording unrelated customer or guest information.</p>
+          <p><a className="underline" href="https://support.google.com/cloud/answer/13804565" target="_blank" rel="noreferrer">Google's official demo video guidance</a></p>
+        </div>
+      </details>
       {error&&<div role="alert" className="rounded-lg border border-destructive/50 bg-destructive/5 p-3 text-sm">{error}</div>}
       {warning&&<div role="status" className="rounded-lg border p-3 text-sm">{warning}</div>}
       {busy&&<p role="status" className="text-sm">Loading Google Ads…</p>}
