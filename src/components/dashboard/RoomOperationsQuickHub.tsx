@@ -177,6 +177,8 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const [noteSaveState, setNoteSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const notesSavedDraftRef = useRef('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const roomPatchInFlight = useRef(false);
+  const [serviceActionError, setServiceActionError] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [plannedTodayNotes, setPlannedTodayNotes] = useState<string[]>([]);
 
@@ -231,6 +233,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     setNotesDraft('');
     setPlannedTodayNotes([]);
     setNoteSaveState('idle');
+    setServiceActionError(null);
 
     try {
       const resolvedKeys = await resolveHotelKeys(hotelName);
@@ -348,27 +351,58 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     await loadRoom({ roomNumber: selection.roomNumber, roomId: selection.roomId });
   };
 
-  const patchRoom = async (patch: Record<string, any>, localPatch: Partial<RoomSelection>, success: string) => {
-    if (!selection?.roomId) return;
-    setActionLoading(success);
+  const patchRoom = async (patch: Record<string, any>, localPatch: Partial<RoomSelection>, success: string, actionKey = success) => {
+    if (!selection?.roomId || roomPatchInFlight.current) return;
+    if (readOnlyForPast || !canManage) return;
+    const roomId = selection.roomId;
+    const requestId = requestRef.current;
+    roomPatchInFlight.current = true;
+    setActionLoading(actionKey);
+    setServiceActionError(null);
     try {
-      let query = supabase.from('rooms').update(patch as any).eq('id', selection.roomId);
-      // Service flag toggles must not overwrite instructions changed in another session.
+      let query = supabase.from('rooms').update(patch as any).eq('id', roomId);
+      // Do not overwrite another manager's note or service decision.
       if (Object.prototype.hasOwnProperty.call(patch, 'notes')) {
         query = selection.roomNotes == null
           ? query.is('notes', null)
           : query.eq('notes', selection.roomNotes);
       }
-      const { data, error } = await query.select('id, notes').maybeSingle();
+      if ('towel_change_required' in patch) {
+        query = query.eq('towel_change_required', selection.towelChangeRequired);
+      }
+      if ('linen_change_required' in patch) {
+        query = query.eq('linen_change_required', selection.linenChangeRequired);
+      }
+      const { data, error } = await query.select('id, notes, status, towel_change_required, linen_change_required, pms_metadata').maybeSingle();
       if (error) throw error;
-      if (!data) throw new Error('Room notes changed. Refresh and review the latest instructions.');
-      setSelection((current) => current ? { ...current, ...localPatch, roomNotes: data.notes ?? null } : current);
-      toast.success(success);
+      if (!data) throw new Error('The room changed or could not be updated. Refresh and try again.');
+      const flags = parseRoomFlags(data.notes);
+      const persisted: Partial<RoomSelection> = {
+        roomNotes: data.notes ?? null,
+        roomStatus: data.status ?? null,
+        towelChangeRequired: !!data.towel_change_required,
+        linenChangeRequired: !!data.linen_change_required,
+        roomCleaning: flags.roomCleaning,
+        collectExtraTowels: flags.collectExtraTowels,
+        pmsMetadata: (data.pms_metadata as Record<string, any> | null) || null,
+      };
+      // Triggers can change the requested values. Render the committed values,
+      // not the optimistic request, and never announce a false success.
+      if (requestRef.current === requestId) {
+        setSelection((current) => current?.roomId === roomId ? { ...current, ...persisted } : current);
+      }
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+      const verified = (['roomStatus', 'towelChangeRequired', 'linenChangeRequired', 'roomCleaning', 'collectExtraTowels'] as const)
+        .every((key) => !(key in localPatch) || persisted[key] === localPatch[key]);
+      if (!verified) throw new Error('The requested change was not saved. Refresh the room and try again.');
+      toast.success(success);
     } catch (error) {
       console.error(success, error);
-      toast.error('Could not update this room.');
+      const message = error instanceof Error ? error.message : 'Could not update this room. Please try again.';
+      if (requestRef.current === requestId) setServiceActionError(message);
+      toast.error(message);
     } finally {
+      roomPatchInFlight.current = false;
       setActionLoading(null);
     }
   };
@@ -881,23 +915,33 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     }
   };
 
-  const saveServiceFlags = async (next: { roomCleaning?: boolean; collectExtraTowels?: boolean }) => {
-    if (!canManage || !selection?.roomId) return;
-    const nextRoomCleaning = next.roomCleaning ?? selection.roomCleaning;
-    const nextExtraTowels = next.collectExtraTowels ?? selection.collectExtraTowels;
-    const nextNotes = buildRoomNotes(
-      { roomCleaning: nextRoomCleaning, collectExtraTowels: nextExtraTowels },
-      notesDraft,
-    );
-    await patchRoom(
-      { notes: nextNotes || null },
-      { roomNotes: nextNotes || null, roomCleaning: nextRoomCleaning, collectExtraTowels: nextExtraTowels },
-      `Room ${selection.roomNumber} instructions updated`,
-    );
+  const toggleRoomService = async (service: 'towel' | 'linen' | 'extra-towels') => {
+    if (!canManage || readOnlyForPast || !selection?.roomId || actionLoading || savingNotes || roomPatchInFlight.current) return;
+    if (service === 'extra-towels') {
+      const next = !selection.collectExtraTowels;
+      // Edit only the structured marker; never save an unfinished note draft
+      // or strip planned notes while toggling an independent service.
+      const base = (selection.roomNotes || '').replaceAll('[COLLECT_EXTRA_TOWELS]', '').trim();
+      const notes = [next ? '[COLLECT_EXTRA_TOWELS]' : '', base].filter(Boolean).join(' ');
+      await patchRoom({ notes: notes || null }, { collectExtraTowels: next },
+        `Extra towel collection ${next ? 'required' : 'cleared'} — room ${selection.roomNumber}`, service);
+      return;
+    }
+    const next = service === 'towel' ? !selection.towelChangeRequired : !(selection.linenChangeRequired || selection.roomCleaning);
+    // Change Room is the canonical full-clean/linen requirement. A historical
+    // ROOM_CLEANING note marker must not silently recreate it when cleared.
+    const patch: Record<string, any> = service === 'towel'
+      ? { towel_change_required: next }
+      : { linen_change_required: next };
+    if (service === 'linen' && selection.roomCleaning) {
+      patch.notes = (selection.roomNotes || '').replaceAll('[ROOM_CLEANING]', '').trim() || null;
+    }
+    await patchRoom(patch, service === 'towel' ? { towelChangeRequired: next } : { linenChangeRequired: next, roomCleaning: false },
+      `${service === 'towel' ? 'Towel change' : textileChangeLabel} ${next ? 'required' : 'cleared'} — room ${selection.roomNumber}`, service);
   };
 
   const saveNotes = useCallback(async (silent = false) => {
-    if (!selection?.roomId || !profile?.id || !canWriteNotes) return;
+    if (!selection?.roomId || !profile?.id || !canWriteNotes || roomPatchInFlight.current) return;
     setSavingNotes(true);
     setNoteSaveState('saving');
     try {
@@ -934,7 +978,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   }, [canWriteNotes, notesDraft, profile?.id, selection]);
 
   useEffect(() => {
-    if (!isSlntTenant || !open || panel !== 'main' || !selection?.roomId || selection.loading || !canWriteNotes || savingNotes) return;
+    if (!isSlntTenant || !open || panel !== 'main' || !selection?.roomId || selection.loading || !canWriteNotes || savingNotes || actionLoading) return;
     if (notesDraft === notesSavedDraftRef.current) return;
 
     setNoteSaveState('saving');
@@ -942,7 +986,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       void saveNotes(true);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [canWriteNotes, isSlntTenant, notesDraft, open, panel, saveNotes, savingNotes, selection?.loading, selection?.roomId]);
+  }, [actionLoading, canWriteNotes, isSlntTenant, notesDraft, open, panel, saveNotes, savingNotes, selection?.loading, selection?.roomId]);
 
   const assigneeName = selection?.assignedTo
     ? cleanName(staffMap[selection.assignedTo]) || staffMap[selection.assignedTo] || 'Assigned housekeeper'
@@ -1235,7 +1279,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         <div className="mb-3 flex items-center justify-between gap-2">
           <div>
             <p className="text-sm font-bold">Today’s essentials</p>
-            <p className="text-[11px] text-muted-foreground">The controls managers use most should stay visible.</p>
+            <p className="text-[11px] text-muted-foreground">Set today’s cleaning instructions.</p>
           </div>
           <Badge className={priorityMeta.className}>{priorityMeta.label} priority</Badge>
         </div>
@@ -1318,43 +1362,46 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <button
-            type="button"
-            disabled={!canManage || !!actionLoading}
-            onClick={() => void patchRoom({ towel_change_required: !selection.towelChangeRequired }, { towelChangeRequired: !selection.towelChangeRequired }, `Towel change ${selection.towelChangeRequired ? 'removed' : 'required'} — room ${selection.roomNumber}`)}
-            className={`rounded-xl border p-3 text-left transition-all ${selection.towelChangeRequired ? 'border-blue-500 bg-blue-700 text-white shadow-sm' : 'border-blue-200 bg-blue-50 text-blue-900 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-100 dark:hover:bg-blue-950/60'}`}
-          >
-            <div className="text-lg">🔄</div><p className="mt-1 text-xs font-bold">Towel Change</p><p className="text-[10px] opacity-80">{selection.towelChangeRequired ? 'Required' : 'Not required'}</p>
-          </button>
-
-          <button
-            type="button"
-            disabled={!canManage || !!actionLoading}
-            onClick={() => void patchRoom({ linen_change_required: !selection.linenChangeRequired }, { linenChangeRequired: !selection.linenChangeRequired }, `${textileChangeLabel} ${selection.linenChangeRequired ? 'removed' : 'required'} — room ${selection.roomNumber}`)}
-            className={`rounded-xl border p-3 text-left transition-all ${selection.linenChangeRequired ? 'border-violet-500 bg-violet-700 text-white shadow-sm' : 'border-violet-200 bg-violet-50 text-violet-900 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-100 dark:hover:bg-violet-950/60'}`}
-          >
-            <div className="text-lg">🛏️</div><p className="mt-1 text-xs font-bold">{textileChangeLabel}</p><p className="text-[10px] opacity-80">{selection.linenChangeRequired ? 'Required' : 'Not required'}</p>
-          </button>
-
-          <button
-            type="button"
-            disabled={!canManage || !!actionLoading}
-            onClick={() => void saveServiceFlags({ roomCleaning: !selection.roomCleaning })}
-            className={`rounded-xl border p-3 text-left transition-all ${selection.roomCleaning ? 'border-emerald-500 bg-emerald-500 text-emerald-950 shadow-sm' : 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-100 dark:hover:bg-emerald-950/60'}`}
-          >
-            <div className="text-lg">🧹</div><p className="mt-1 text-xs font-bold">Room Cleaning</p><p className="text-[10px] opacity-80">{selection.roomCleaning ? 'Required' : 'Normal service'}</p>
-          </button>
-
-          <button
-            type="button"
-            disabled={!canManage || !!actionLoading}
-            onClick={() => void saveServiceFlags({ collectExtraTowels: !selection.collectExtraTowels })}
-            className={`rounded-xl border p-3 text-left transition-all ${selection.collectExtraTowels ? 'border-orange-500 bg-orange-500 text-orange-950 shadow-sm' : 'border-orange-200 bg-orange-50 text-orange-900 hover:bg-orange-100 dark:border-orange-700 dark:bg-orange-950/30 dark:text-orange-100 dark:hover:bg-orange-950/60'}`}
-          >
-            <div className="text-lg">🧺</div><p className="mt-1 text-xs font-bold">Collect Extra Towels</p><p className="text-[10px] opacity-80">{selection.collectExtraTowels ? 'Outstanding' : 'None'}</p>
-          </button>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-xs font-bold">Service requirements</p>
+          <p className="text-[11px] text-muted-foreground">{canManage && !readOnlyForPast ? 'Tap to set or clear' : 'View only'}</p>
         </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {([
+            { key: 'towel', icon: '🔄', title: 'Towel Change', active: selection.towelChangeRequired, activeClass: 'border-blue-500 bg-blue-700 text-white shadow-sm', idleClass: 'border-blue-200 bg-blue-50 text-blue-900 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-100 dark:hover:bg-blue-950/60' },
+            { key: 'linen', icon: '🛏️', title: textileChangeLabel, active: selection.linenChangeRequired || selection.roomCleaning, activeClass: 'border-violet-500 bg-violet-700 text-white shadow-sm', idleClass: 'border-violet-200 bg-violet-50 text-violet-900 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-100 dark:hover:bg-violet-950/60' },
+            { key: 'extra-towels', icon: '🧺', title: 'Collect Extra Towels', active: selection.collectExtraTowels, activeClass: 'border-orange-500 bg-orange-500 text-orange-950 shadow-sm', idleClass: 'border-orange-200 bg-orange-50 text-orange-900 hover:bg-orange-100 dark:border-orange-700 dark:bg-orange-950/30 dark:text-orange-100 dark:hover:bg-orange-950/60' },
+          ] as const).map((item) => {
+            const busy = actionLoading === item.key;
+            const editable = canManage && !readOnlyForPast && !!selection.roomId;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                aria-pressed={item.active}
+                aria-label={`${item.title}: ${item.active ? 'required' : 'not required'}`}
+                aria-busy={busy}
+                disabled={!editable || !!actionLoading || savingNotes}
+                onClick={() => void toggleRoomService(item.key)}
+                className={`min-h-28 cursor-pointer touch-manipulation rounded-xl border p-3 text-left transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 ${item.active ? item.activeClass : item.idleClass}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-lg" aria-hidden="true">{item.icon}</span>
+                  <span aria-hidden="true" className={`relative h-6 w-11 shrink-0 rounded-full border border-current transition-colors ${item.active ? 'bg-white/35' : 'bg-black/10 dark:bg-white/10'}`}>
+                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-current transition-all ${item.active ? 'right-0.5' : 'left-0.5'}`} />
+                  </span>
+                </div>
+                <p className="mt-1 text-xs font-bold">{item.title}</p>
+                <p className="text-[11px] font-medium">{item.active ? 'Required' : 'Not required'}</p>
+                {editable && <p className="mt-2 flex items-center gap-1 border-t border-current/20 pt-1.5 text-[11px] font-semibold">
+                  {busy ? <><Loader2 className="h-3 w-3 animate-spin" /> Saving…</> : item.active ? 'Tap to clear' : 'Tap to require'}
+                </p>}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">Change Room is the full room cleaning / textile-change instruction. It replaces the former Room Cleaning toggle.</p>
+        {serviceActionError && <p role="alert" className="mt-2 rounded-lg border border-destructive/50 bg-destructive/10 p-2 text-xs font-medium text-destructive">{serviceActionError}</p>}
       </section>
 
       {isMemories && selection.roomId && (
@@ -1410,7 +1457,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
               : 'Visible to the operational team. Saved with user/time history.'}
           </p>
           {canWriteNotes && (
-            <Button size="sm" className="bg-indigo-600 text-white hover:bg-indigo-700" disabled={savingNotes} onClick={() => void saveNotes()}>
+            <Button size="sm" className="bg-indigo-600 text-white hover:bg-indigo-700" disabled={savingNotes || !!actionLoading} onClick={() => void saveNotes()}>
               {savingNotes ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1 h-3.5 w-3.5" />} Save note
             </Button>
           )}
