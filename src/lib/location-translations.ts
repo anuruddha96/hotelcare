@@ -5,10 +5,17 @@
 type Bundle = Record<string, string>;
 
 const en: Bundle = {
+  'attendance.location.tempTitle': "Your location isn't working right now",
+  'attendance.location.tempBody': "No problem — you can start work. We'll let the manager know so they can fix it.",
+  'attendance.location.tempStart': "Start work now",
+  'attendance.location.tempDone': "You're checked in. The manager was told about the location problem.",
+  'attendance.location.tempFailed': "Could not check in. Please try again or tell your supervisor.",
+  'attendance.location.tempBadge': "Checked in without location — manager notified",
+  'attendance.location.retryCheckIn': "Try location again",
+  'locationHelp.grantedIntro': "Your browser allows location, but the phone didn't send a position. Check that Location is on and that Chrome is allowed to use it (Android Settings → Apps → Chrome → Permissions → Location → Allow, Precise on).",
   'attendance.location.timeout': "Location request timed out",
   'attendance.location.unavailable': "Current location unavailable",
   'attendance.location.recoveryHint': "Turn on Location on your device, move near a window or outside, and try again. Your browser may already allow location.",
-  'attendance.location.retryCheckIn': "Try check-in again",
   'attendance.location.supervisorHint': "If this continues, ask your supervisor to record your actual arrival time.",
   'settings.location.title': 'Location access',
   'settings.location.description': "Saved once — used only for attendance Sign In. You won't be prompted on every page.",
@@ -66,10 +73,17 @@ const en: Bundle = {
 };
 
 const hu: Bundle = {
+  'attendance.location.tempTitle': "A helymeghatározás most nem működik",
+  'attendance.location.tempBody': "Semmi gond — elkezdheted a munkát. Szólunk a vezetőnek, hogy javítsa.",
+  'attendance.location.tempStart': "Munka kezdése most",
+  'attendance.location.tempDone': "Bejelentkeztél. A vezetőt értesítettük a helyproblémáról.",
+  'attendance.location.tempFailed': "Nem sikerült bejelentkezni. Próbáld újra, vagy szólj a felettesednek.",
+  'attendance.location.tempBadge': "Hely nélkül bejelentkezve — vezető értesítve",
+  'attendance.location.retryCheckIn': "Hely újrapróbálása",
+  'locationHelp.grantedIntro': "A böngésző engedélyezi a helyet, de a telefon nem küldött pozíciót. Ellenőrizd, hogy a Helymeghatározás be van-e kapcsolva, és a Chrome használhatja-e (Android Beállítások → Alkalmazások → Chrome → Engedélyek → Hely → Engedélyezés, Pontos hely be).",
   'attendance.location.timeout': "A helymeghatározás túllépte az időkorlátot",
   'attendance.location.unavailable': "A jelenlegi hely nem érhető el",
   'attendance.location.recoveryHint': "Kapcsold be a helymeghatározást a készülékeden, menj ablak közelébe vagy a szabadba, és próbáld újra. Lehet, hogy a böngésződ már engedélyezi a helyhozzáférést.",
-  'attendance.location.retryCheckIn': "Próbálj újra bejelentkezni",
   'attendance.location.supervisorHint': "Ha a probléma továbbra is fennáll, kérd meg a felettesedet, hogy rögzítse a tényleges érkezési idődet.",
   'settings.location.title': 'Helyhozzáférés',
   'settings.location.description': 'Egyszer mented — csak a bejelentkezéshez használjuk. Nem kérdezzük minden oldalon.',
@@ -108,6 +122,13 @@ const hu: Bundle = {
 };
 
 const es: Bundle = {
+  'attendance.location.tempTitle': "Tu ubicación no funciona ahora",
+  'attendance.location.tempBody': "No pasa nada: puedes empezar a trabajar. Avisaremos al responsable para que lo arregle.",
+  'attendance.location.tempStart': "Empezar a trabajar",
+  'attendance.location.tempDone': "Has fichado. Avisamos al responsable del problema de ubicación.",
+  'attendance.location.tempFailed': "No se pudo fichar. Inténtalo de nuevo o avisa a tu supervisor.",
+  'attendance.location.tempBadge': "Fichado sin ubicación — responsable avisado",
+  'attendance.location.retryCheckIn': "Reintentar ubicación",
   'settings.location.title': 'Acceso a la ubicación',
   'settings.location.description': 'Se guarda una vez — solo para fichar entrada. No se te volverá a preguntar en cada página.',
   'settings.location.statusLabel': 'Estado',
@@ -220,10 +241,17 @@ const az: Bundle = {
 };
 
 const tl: Bundle = {
+  'attendance.location.tempTitle': "Hindi gumagana ang location mo ngayon",
+  'attendance.location.tempBody': "Okay lang — puwede ka nang magsimula ng trabaho. Sasabihan namin ang manager para maayos ito.",
+  'attendance.location.tempStart': "Magsimula na ng trabaho",
+  'attendance.location.tempDone': "Naka-check in ka na. Nasabihan na ang manager tungkol sa location.",
+  'attendance.location.tempFailed': "Hindi naka-check in. Subukan ulit o sabihan ang supervisor mo.",
+  'attendance.location.tempBadge': "Naka-check in nang walang location — nasabihan ang manager",
+  'attendance.location.retryCheckIn': "Subukan ulit ang location",
+  'locationHelp.grantedIntro': "Pinapayagan ng browser ang location, pero walang naipadalang posisyon ang phone. Tingnan kung naka-on ang Location at pinapayagan ang Chrome (Android Settings → Apps → Chrome → Permissions → Location → Allow, naka-on ang Precise).",
   'attendance.location.timeout': "Nag-time out ang pagkuha ng lokasyon",
   'attendance.location.unavailable': "Hindi makuha ang kasalukuyang lokasyon",
   'attendance.location.recoveryHint': "I-on ang Location sa device, lumapit sa bintana o lumabas, at subukang muli. Maaaring pinapayagan na ng browser ang lokasyon.",
-  'attendance.location.retryCheckIn': "Subukang mag-check in muli",
   'attendance.location.supervisorHint': "Kung magpapatuloy ito, hilingin sa supervisor na itala ang aktuwal mong oras ng pagdating.",
   'settings.location.title': 'Pag-access sa lokasyon',
   'settings.location.description': 'I-save nang isang beses lang — ginagamit para sa Sign In. Hindi ka tatanungin sa bawat pahina.',

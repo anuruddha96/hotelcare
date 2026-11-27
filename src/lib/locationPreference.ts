@@ -142,14 +142,39 @@ export async function resolveLocationIfAllowed(): Promise<LocationFix | null> {
   });
 }
 
-export type AttendanceLocationResult =
-  | { ok: true; fix: LocationFix }
-  | { ok: false; reason: 'denied' | 'unsupported' | 'timeout' | 'unavailable' };
+export type AttendanceLocationFailure = 'denied' | 'unsupported' | 'timeout' | 'unavailable';
 
-function acquireAttendancePosition(highAccuracy: boolean): Promise<AttendanceLocationResult> {
+export type AttendanceLocationAttempt = {
+  highAccuracy: boolean;
+  outcome: 'ok' | AttendanceLocationFailure;
+  /** Native GeolocationPositionError code (1 denied, 2 unavailable, 3 timeout). */
+  code?: number;
+  ms: number;
+};
+
+export type AttendanceLocationResult =
+  | { ok: true; fix: LocationFix; attempts: AttendanceLocationAttempt[] }
+  | { ok: false; reason: AttendanceLocationFailure; attempts: AttendanceLocationAttempt[];
+      /** Site permission as reported by the browser when the failure happened. */
+      permission?: LocationPermissionState };
+
+type SingleAttempt =
+  | { ok: true; fix: LocationFix; attempt: AttendanceLocationAttempt }
+  | { ok: false; reason: AttendanceLocationFailure; attempt: AttendanceLocationAttempt };
+
+// A position the phone itself measured in the last few minutes is still the
+// staff member's real location (it comes from the OS, not from our app cache).
+// Accepting it is what makes indoor/basement check-ins reliable; forcing a
+// brand-new fix (maximumAge 0) made phones without a GPS view time out.
+const OS_FIX_MAX_AGE_MS = 5 * 60 * 1000;
+
+function acquireAttendancePosition(highAccuracy: boolean): Promise<SingleAttempt> {
+  const started = Date.now();
+  const attempt = (outcome: AttendanceLocationAttempt['outcome'], code?: number): AttendanceLocationAttempt =>
+    ({ highAccuracy, outcome, ...(code !== undefined ? { code } : {}), ms: Date.now() - started });
   return new Promise((resolve) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      resolve({ ok: false, reason: 'unsupported' });
+      resolve({ ok: false, reason: 'unsupported', attempt: attempt('unsupported') });
       return;
     }
     try {
@@ -158,46 +183,77 @@ function acquireAttendancePosition(highAccuracy: boolean): Promise<AttendanceLoc
           const { latitude, longitude } = pos.coords;
           if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
               Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
-            resolve({ ok: false, reason: 'unavailable' });
+            resolve({ ok: false, reason: 'unavailable', attempt: attempt('unavailable') });
             return;
           }
-          resolve({ ok: true, fix: {
+          resolve({ ok: true, attempt: attempt('ok'), fix: {
             latitude, longitude,
             address: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
             ts: pos.timestamp || Date.now(),
           } });
         },
-        (err) => resolve({ ok: false, reason:
-          err.code === 1 ? 'denied' : err.code === 3 ? 'timeout' : 'unavailable' }),
-        { enableHighAccuracy: highAccuracy, timeout: highAccuracy ? 15000 : 10000, maximumAge: 0 }
+        (err) => {
+          const reason: AttendanceLocationFailure =
+            err.code === 1 ? 'denied' : err.code === 3 ? 'timeout' : 'unavailable';
+          resolve({ ok: false, reason, attempt: attempt(reason, err.code) });
+        },
+        highAccuracy
+          ? { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+          : { enableHighAccuracy: false, timeout: 8000, maximumAge: OS_FIX_MAX_AGE_MS }
       );
     } catch {
-      resolve({ ok: false, reason: 'unavailable' });
+      resolve({ ok: false, reason: 'unavailable', attempt: attempt('unavailable') });
     }
   });
 }
 
 /** Explicit attendance action. Try a network-assisted fix first (useful indoors),
- * then GPS for transient failures. Never reuse app-cached coordinates for sign-in. */
+ * then GPS for transient failures. Never reuse app-cached coordinates for sign-in.
+ * Worst case the staff member waits about 20 seconds before being offered
+ * temporary access; the attempts are returned so support can see what failed. */
 export async function requestAttendanceLocation(): Promise<AttendanceLocationResult> {
-  let result = await acquireAttendancePosition(false);
-  if (result.ok === false && (result.reason === 'timeout' || result.reason === 'unavailable')) {
-    result = await acquireAttendancePosition(true);
+  const attempts: AttendanceLocationAttempt[] = [];
+  let single = await acquireAttendancePosition(false);
+  attempts.push(single.attempt);
+  if (single.ok === false && (single.reason === 'timeout' || single.reason === 'unavailable')) {
+    single = await acquireAttendancePosition(true);
+    attempts.push(single.attempt);
   }
-  if (result.ok === true) {
+  if (single.ok === true) {
     setOptIn(true);
-    saveFix(result.fix);
+    saveFix(single.fix);
     cachedPermState = 'granted';
     emit('granted');
-  } else if (result.reason === 'denied') {
+    return { ok: true, fix: single.fix, attempts };
+  }
+  const permission = await getBrowserPermissionState();
+  if (single.reason === 'denied') {
     // Android may report code 1 even though site permission is granted (e.g.
-    // OS-level location disabled). Don't send staff into a site-settings loop.
-    const permission = await getBrowserPermissionState();
-    if (permission === 'granted') return { ok: false, reason: 'unavailable' };
+    // the Chrome app lost its Android location permission, or "only this time"
+    // expired). Don't send staff into a site-settings loop.
+    if (permission === 'granted') return { ok: false, reason: 'unavailable', attempts, permission };
     cachedPermState = 'denied';
     emit('denied');
   }
-  return result;
+  return { ok: false, reason: single.reason, attempts, permission };
+}
+
+/** Plain facts about the device/browser sent with a location-failure alert so
+ *  support can see the cause without asking the staff member anything. */
+export function collectLocationDiagnostics(result: Extract<AttendanceLocationResult, { ok: false }>) {
+  const nav = typeof navigator !== 'undefined' ? navigator : undefined;
+  let standalone = false;
+  try { standalone = window.matchMedia?.('(display-mode: standalone)').matches ?? false; } catch { /* ignore */ }
+  return {
+    reason: result.reason,
+    site_permission: result.permission ?? null,
+    attempts: result.attempts,
+    user_agent: nav?.userAgent?.slice(0, 300) ?? null,
+    online: nav?.onLine ?? null,
+    installed_app: standalone,
+    secure_context: typeof window !== 'undefined' ? window.isSecureContext : null,
+    app_opt_in: getOptIn(),
+  };
 }
 
 /** Force a single geolocation request — call only from explicit user gestures

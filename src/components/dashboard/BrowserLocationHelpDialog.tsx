@@ -44,6 +44,16 @@ interface Props {
 export function BrowserLocationHelpDialog({ open, onOpenChange, reason = 'denied' }: Props) {
   const { t } = useTranslation();
   const [retrying, setRetrying] = useState(false);
+  // When the site permission is already granted, the browser lock steps are
+  // the wrong advice (that loop is what staff got stuck in). Point at the
+  // phone's own location / Chrome app permission instead.
+  const [siteGranted, setSiteGranted] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    void getBrowserPermissionState().then((state) => { if (alive) setSiteGranted(state === 'granted'); });
+    return () => { alive = false; };
+  }, [open]);
 
   const { id: browserId, settingsUrl } = useMemo(() => detectBrowser(), []);
   const stepKeys = [
@@ -95,11 +105,11 @@ export function BrowserLocationHelpDialog({ open, onOpenChange, reason = 'denied
             {t('locationHelp.title')}
           </DialogTitle>
           <DialogDescription>
-            {reason === 'unsupported' ? t('locationHelp.unsupportedIntro') : t('locationHelp.intro')}
+            {reason === 'unsupported' ? t('locationHelp.unsupportedIntro') : siteGranted ? t('locationHelp.grantedIntro') : t('locationHelp.intro')}
           </DialogDescription>
         </DialogHeader>
 
-        {reason !== 'unsupported' && (
+        {reason !== 'unsupported' && !siteGranted && (
           <ol className="space-y-3 list-decimal list-inside text-sm">
             {stepKeys.map((k, i) => (
               <li key={i} className="leading-relaxed">{t(k)}</li>
