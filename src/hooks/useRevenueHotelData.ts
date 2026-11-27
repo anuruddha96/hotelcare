@@ -178,6 +178,8 @@ export interface RevenueHotelData {
   publishedCurrency?: string | null;
   /** True while later dates of the requested horizon are still being fetched. */
   extending: boolean;
+  /** Verified fetched horizon for the current property and Budapest date. */
+  loadedHorizonDays: number;
   reload: () => Promise<void>;
   /** Refresh only Previo room-type rooms-for-sale without reloading rates/reservations. */
   refreshAvailability: () => Promise<void>;
@@ -200,6 +202,7 @@ export function useRevenueHotelData(
 
   const [loading, setLoading] = useState(!initialCache?.payload);
   const [extending, setExtending] = useState(false);
+  const [loadedWindow, setLoadedWindow] = useState<{ cacheKey: string; today: string; days: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const [roomMetadata, setRoomMetadata] = useState<RevenueRoomType[]>(
@@ -353,6 +356,7 @@ export function useRevenueHotelData(
           const first = await fetchStage(FIRST_WINDOW_DAYS);
           if (requestVersion !== requestVersionRef.current) return;
           const firstPayload = apply(first, true);
+          setLoadedWindow({ cacheKey, today, days: FIRST_WINDOW_DAYS });
           await refreshAvailability();
           setLoading(false);
           setExtending(true);
@@ -367,6 +371,7 @@ export function useRevenueHotelData(
           const requested = await fetchStage(effectiveHorizonDays);
           if (requestVersion !== requestVersionRef.current) return;
           const requestedPayload = apply(requested, !wantsWindow);
+          setLoadedWindow({ cacheKey, today, days: effectiveHorizonDays });
           await refreshAvailability();
         }
       } catch (e) {
@@ -422,6 +427,7 @@ export function useRevenueHotelData(
     setLastSyncAt(cached?.lastSyncAt ?? null);
     setLastSyncBy(cached?.lastSyncBy ?? null);
     setAvailability([]);
+    setLoadedWindow(null);
     setLoading(!cached?.payload);
     setError(null);
   }, [cacheKey]);
@@ -597,5 +603,6 @@ export function useRevenueHotelData(
     excludedRoomTypeIds, inventoryMismatch, configuredRooms: sellableOverride,
     publishedCurrency: typeof settings.base_currency === "string" ? settings.base_currency : null,
     extending,
+    loadedHorizonDays: loadedWindow?.cacheKey === cacheKey && loadedWindow?.today === today ? loadedWindow.days : 0,
   };
 }
