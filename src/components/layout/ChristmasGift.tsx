@@ -78,22 +78,25 @@ export function ChristmasGift({ userId, nickname, preferredLanguage }: { userId:
     return () => { window.clearInterval(timer); window.removeEventListener("focus", sync); document.removeEventListener("visibilitychange", sync); };
   }, [nickname]);
   const key = day && day === christmasGiftEligibility(nickname) ? christmasGiftStorageKey(userId, day) : null;
+  const rehearsal = nickname?.trim().toLowerCase() === "anu_000" && day !== "2026-12-25";
   useEffect(() => {
-    if (!key || alreadyDismissed(key)) return;
+    if (!key || (!rehearsal && alreadyDismissed(key))) return;
     const timer = window.setTimeout(() => {
-      if (!alreadyDismissed(key)) setVisibleKey(key);
+      if (rehearsal || !alreadyDismissed(key)) setVisibleKey(key);
     }, 1400);
-    const onStorage = (event: StorageEvent) => { if (event.key === key && event.newValue === "1") setDismissedKey(key); };
+    const onStorage = (event: StorageEvent) => { if (!rehearsal && event.key === key && event.newValue === "1") setDismissedKey(key); };
     window.addEventListener("storage", onStorage);
     return () => { window.clearTimeout(timer); window.removeEventListener("storage", onStorage); };
-  }, [key]);
+  }, [key, rehearsal]);
   const dismiss = () => {
     if (!key) return;
-    dismissedInMemory.add(key);
-    try { localStorage.setItem(key, "1"); } catch { /* private browsing */ }
+    if (!rehearsal) {
+      dismissedInMemory.add(key);
+      try { localStorage.setItem(key, "1"); } catch { /* private browsing */ }
+    }
     setDismissedKey(key);
   };
-  if (!key || key !== visibleKey || key === dismissedKey || alreadyDismissed(key)) return null;
+  if (!key || key !== visibleKey || key === dismissedKey || (!rehearsal && alreadyDismissed(key))) return null;
   const opened = openedKey === key;
   return (
     <Dialog.Root open onOpenChange={next => { if (!next) dismiss(); }}>
