@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Download, Loader2 } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { AlertTriangle, Download, Loader2, Users, Clock, CalendarDays, Moon, HeartPulse, Timer, BarChart3, CircleAlert, FileClock } from 'lucide-react';
+import { WorkforceManagementCharts } from './WorkforceManagementCharts';
+import { managementAnalytics, PROPERTY_COLORS } from '@/lib/workforce/managementAnalytics';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -9,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { fetchAllRows, type WorkforceData } from '@/hooks/useWorkforce';
-import { formatHours, HOTELS, hotelShort, matchesStaffSearch, pad2, type WorkforceKind } from '@/lib/workforce/model';
+import { formatHours, hotelShort, matchesStaffSearch, pad2, type WorkforceKind } from '@/lib/workforce/model';
 import { employeeReport, monthsBetween, weekdayCoverage, type EmployeeReportRow, type ReportFlag } from '@/lib/workforce/report';
 import { WORKING_KINDS } from '@/lib/workforce/cellParser';
 import { isPublicHoliday } from '@/lib/workforce/holidays';
@@ -47,7 +49,13 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
   const [fromMonth, setFromMonth] = useState(`${year}-${pad2(month)}`);
   const [toMonth, setToMonth] = useState(`${year}-${pad2(month)}`);
   const [groupBy, setGroupBy] = useState<GroupBy>('department');
-  const [allRows, setRows] = useState<Row[]>([]);
+  const {profile}=useAuth();
+  const org=profile?.organization_slug;
+  const scope=profile?.id+'|'+org+'|'+profile?.assigned_hotel;
+  const [loaded,setRows]=useState<{key:string;rows:Row[]}|null>(null);
+  const [loadError,setLoadError]=useState(false);
+  const [risk,setRisk]=useState<ReportFlag|null>(null);
+  const [refresh,setRefresh]=useState(0);
   const [hotel, setHotel] = useState('all');
   const [department, setDepartment] = useState('all');
   const [attentionOnly, setAttentionOnly] = useState(false);
@@ -61,17 +69,20 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
   const [ty, tm] = toMonth.split('-').map(Number);
   const to = new Date(Date.UTC(ty, tm, 0)).toISOString().slice(0, 10);
 
+  const loadKey=scope+'|'+from+'|'+to+'|'+refresh;
+  const allRows=loaded?.key===loadKey?loaded.rows:[];
   useEffect(() => {
-    if (from > to) return;
+    setRows(null);setLoadError(false);
+    if (!org || !profile?.id || from > to) {setLoading(false);return;}
     let cancelled = false;
     setLoading(true);
     fetchAllRows<Row>((a, b) => db.from('workforce_entries').select('staff_id,work_date,kind,worked_minutes,extra_minutes,hotel_id,status,start_time,end_time')
-      .gte('work_date', from).lte('work_date', to).order('work_date').order('staff_id').range(a, b))
-      .then((r) => { if (!cancelled) setRows(r); })
-      .catch((err) => toast.error(err?.message ?? 'Could not load analytics'))
+      .eq('organization_slug',org).gte('work_date', from).lte('work_date', to).order('work_date').order('staff_id').range(a, b))
+      .then((r) => { if (!cancelled) setRows({key:loadKey,rows:r}); })
+      .catch((err) => {if(!cancelled){setLoadError(true);toast.error(err?.message ?? 'Could not load analytics');}})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [from, to]);
+  }, [from, to, org, profile?.id, loadKey]);
 
   const staffById = useMemo(() => new Map(data.staff.map((s) => [s.id, s])), [data.staff]);
   const deptName = useMemo(() => new Map(data.departments.map((d) => [d.id, d.name])), [data.departments]);
@@ -87,15 +98,19 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
     }
     return ids;
   }, [data.staff, hotel, department]);
-  const rows = useMemo(() => (hotel === 'all' && department === 'all' ? allRows : allRows.filter((r) => inScope.has(r.staff_id))), [allRows, inScope, hotel, department]);
+  const rows = useMemo(() => allRows.filter((r) => inScope.has(r.staff_id)), [allRows, inScope]);
+  const baseProperties=useMemo(()=>[...new Set(data.staff.map(s=>s.hotel_id??'company'))].map(key=>({key,name:hotelShort(key==='company'?null:key),color:PROPERTY_COLORS[key]??'#64748b'})).sort((a,b)=>a.name.localeCompare(b.name)),[data.staff]);
+  const scopedStaff=useMemo(()=>data.staff.filter(s=>inScope.has(s.id)),[data.staff,inScope]);
+  const scopedData=useMemo(()=>({...data,staff:scopedStaff}),[data,scopedStaff]);
   const report = useMemo(() => employeeReport(rows, data.staff.filter((s) => inScope.has(s.id)), monthsBetween(fromMonth, toMonth)), [rows, data.staff, inScope, fromMonth, toMonth]);
+  const dashboard=useMemo(()=>managementAnalytics(rows,scopedStaff,report,fromMonth,toMonth,deptName),[rows,scopedStaff,report,fromMonth,toMonth,deptName]);
   const coverage = useMemo(() => weekdayCoverage(rows).map((c) => ({ name: WEEKDAYS[c.weekday], people: c.average })), [rows]);
   const overtime = report.reduce((n, r) => n + Math.max(0, r.balanceMinutes ?? 0), 0);
   const under = report.reduce((n, r) => n + Math.min(0, r.balanceMinutes ?? 0), 0);
   const attention = report.filter((r) => r.flags.some((f) => f !== 'drafts')).length;
   const leaveLeft = (id: string) => { const s = staffById.get(id); return s?.annual_leave_days == null ? null : s.annual_leave_days - (data.leaveUsed.get(id) ?? 0); };
   const reportRows = report
-    .filter((r) => !attentionOnly || r.flags.some((f) => f !== 'drafts'))
+    .filter((r) => risk ? r.flags.includes(risk) : !attentionOnly || r.flags.some((f) => f !== 'drafts'))
     .filter((r) => { const s = staffById.get(r.staffId); return matchesStaffSearch([s?.full_name, s?.nickname, deptName.get(s?.department_id ?? ''), roleName.get(s?.job_role_id ?? ''), hotelShort(s?.hotel_id)], personQuery); })
     .sort((a, b) => (deptName.get(staffById.get(a.staffId)?.department_id ?? '') ?? '').localeCompare(deptName.get(staffById.get(b.staffId)?.department_id ?? '') ?? '')
       || (staffById.get(a.staffId)?.full_name ?? '').localeCompare(staffById.get(b.staffId)?.full_name ?? ''));
@@ -107,10 +122,9 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
       r.leaveDays, r.sickDays, r.unpaidDays, r.absentDays, leaveLeft(r.staffId) ?? '', r.longestRun, r.drafts, r.flags.map((f) => FLAG_LABEL[f]).join(', ')];
   };
 
-  const { total, groups, months } = useMemo(() => {
+  const { total, groups } = useMemo(() => {
     const total = emptyTotals('all', 'All');
     const groups = new Map<string, Totals>();
-    const months = new Map<string, Totals>();
     for (const r of rows) {
       const s = staffById.get(r.staff_id);
       let key: string, label: string;
@@ -125,11 +139,8 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
       if (!groups.has(key)) groups.set(key, emptyTotals(key, label));
       add(groups.get(key)!, r);
       add(total, r);
-      const m = r.work_date.slice(0, 7);
-      if (!months.has(m)) months.set(m, emptyTotals(m, m));
-      add(months.get(m)!, r);
     }
-    return { total, groups: [...groups.values()].sort((a, b) => b.minutes - a.minutes), months: [...months.values()].sort((a, b) => a.key.localeCompare(b.key)) };
+    return { total, groups: [...groups.values()].sort((a, b) => b.minutes - a.minutes) };
   }, [rows, groupBy, staffById, deptName, roleName]);
 
   const visibleGroups = groupBy === 'staff'
@@ -151,18 +162,28 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
     XLSX.utils.book_append_sheet(wb, sheet, 'Employees');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...body]), 'Summary');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Weekday', 'Average people working'], ...coverage.map((c) => [c.name, c.people])]), 'Coverage');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Date','Scheduled gross hours','People scheduled','Day shifts','Night shifts','Leave days','Sick days','Drafts'],...dashboard.daily.map(d=>[d.date,d.hours??'',d.people??'',d.day??'',d.night??'',d.leave??'',d.sick??'',d.drafts??''])]),'Daily plan');
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Recorded work property','Scheduled hours','Unique working staff'],...dashboard.properties.map(p=>[p.name,p.hours,p.people])]),'Properties');
     const scope = [hotel === 'all' ? null : hotelShort(hotel === 'company' ? null : hotel), department === 'all' ? null : deptName.get(department)].filter(Boolean).join('_').replace(/[^\w-]+/g, '-');
     XLSX.writeFile(wb, `work-schedule-report_${fromMonth}_${toMonth}${scope ? `_${scope}` : ''}.xlsx`);
   };
 
-  const chartData = groups.slice(0, 12).map((g) => ({ name: g.label, hours: Math.round(g.minutes / 60) }));
-  const monthData = months.map((m) => ({ name: m.key, hours: Math.round(m.minutes / 60), sick: m.sick, leave: m.leave }));
-  const tile = (label: string, value: string, hint?: string) => (
-    <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="text-2xl font-semibold tabular-nums">{value}</p>{hint && <p className="text-xs text-muted-foreground">{hint}</p>}</CardContent></Card>
+  const metricStyles=[
+    'border-teal-200 bg-teal-50 text-teal-950 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-100',
+    'border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100',
+    'border-indigo-200 bg-indigo-50 text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100',
+    'border-violet-200 bg-violet-50 text-violet-950 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100',
+    'border-rose-200 bg-rose-50 text-rose-950 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-100',
+    'border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100',
+  ];
+  const tile=(label:string,value:string,hint:string|undefined,tone:number,Icon:typeof Users)=>(
+    <Card className={'shadow-sm '+metricStyles[tone]}><CardContent className="flex items-start justify-between gap-2 p-3 sm:p-4"><div className="min-w-0"><p className="text-xs font-medium opacity-85">{label}</p><p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>{hint&&<p className="mt-1 text-xs opacity-80">{hint}</p>}</div><Icon className="h-5 w-5 shrink-0 opacity-80" aria-hidden="true"/></CardContent></Card>
   );
+  const inspectRisk=(flag:ReportFlag)=>{setRisk(flag);setAttentionOnly(false);setPersonQuery('');document.getElementById('workforce-employee-report')?.scrollIntoView?.({behavior:'smooth',block:'start'});};
+  const ready=!!org&&!!profile?.id&&from<=to&&!loading&&!data.loading&&!data.error&&!loadError&&loaded?.key===loadKey;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-8"><div className="rounded-xl border bg-card p-3 shadow-sm sm:p-4"><div className="mb-3"><h2 className="text-lg font-bold">Staff management analytics</h2><p className="text-sm text-muted-foreground">Schedule-based planning · includes unpublished changes · not actual attendance or payroll.</p></div>
       <div className="flex flex-wrap items-end gap-2">
         <label className="space-y-1 text-xs">From<Input type="month" value={fromMonth} onChange={(e) => e.target.value && setFromMonth(e.target.value)} className="w-40" /></label>
         <label className="space-y-1 text-xs">To<Input type="month" value={toMonth} onChange={(e) => e.target.value && setToMonth(e.target.value)} className="w-40" /></label>
@@ -170,13 +191,12 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
           <Button variant="outline" size="sm" onClick={() => { setFromMonth(`${year}-01`); setToMonth(`${year}-${pad2(month)}`); }}>Year to date</Button>
           <Button variant="outline" size="sm" onClick={() => { const d = new Date(Date.UTC(year, month - 3, 1)); setFromMonth(`${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}`); setToMonth(`${year}-${pad2(month)}`); }}>Last 3 months</Button>
         </div>
-        <label className="space-y-1 text-xs">Hotel
+        <label className="space-y-1 text-xs">Base hotel
           <Select value={hotel} onValueChange={setHotel}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All hotels</SelectItem>
-              {HOTELS.map((h) => <SelectItem key={h.id} value={h.id}>{h.short}</SelectItem>)}
-              <SelectItem value="company">Company / outlets</SelectItem>
+              {baseProperties.map(h=><SelectItem key={h.key} value={h.key}>{h.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </label>
@@ -199,31 +219,34 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
             </SelectContent>
           </Select>
         </label>
-        <Button variant="outline" className="ml-auto" onClick={() => void exportXlsx()} disabled={!rows.length}><Download className="mr-1 h-4 w-4" />Export report (Excel)</Button>
+        <Button variant="outline" className="ml-auto" onClick={() => void exportXlsx()} disabled={!ready||!rows.length}><Download className="mr-1 h-4 w-4" />Export report (Excel)</Button>
         {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-      </div>
+      </div></div>
+      {!ready ? <Card><CardContent className="p-6 text-sm text-muted-foreground" role="status">{from>to?"Choose a valid date range.":loadError||data.error?<div className="flex flex-wrap items-center gap-3"><span>Analytics could not be loaded. No report is displayed.</span><Button variant="outline" size="sm" onClick={()=>{setRefresh(x=>x+1);void data.reload();}}>Retry</Button></div>:"Loading authorized schedule data…"}</CardContent></Card> : <>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        {tile('People scheduled', String(total.people.size))}
-        {tile('Hours', formatHours(total.minutes), 'gross, breaks not deducted')}
-        {tile('Avg hours / person', total.people.size ? formatHours(total.minutes / total.people.size) : '0')}
-        {tile('Leave days', String(total.leave))}
-        {tile('Sick days', String(total.sick), `${sickRate(total).toFixed(1)}% sick rate`)}
-        {tile('Night shifts', String(total.nights), total.holiday ? `${total.holiday} shifts on public holidays` : undefined)}
-        {tile('Overtime', `${formatHours(overtime)} h`, under ? `${formatHours(-under)} h under the norm elsewhere` : 'above the monthly norm')}
-        {tile('Absence rate', `${(total.shifts + total.leave + total.sick + total.unpaid + total.absent ? (100 * (total.leave + total.sick + total.unpaid + total.absent)) / (total.shifts + total.leave + total.sick + total.unpaid + total.absent) : 0).toFixed(1)}%`, 'leave, sick, unpaid and unexcused days')}
-        {tile('To check', String(attention), 'people with overtime, long runs or absences')}
-        {tile('Not published', String(total.drafts), 'draft days staff cannot see yet')}
+        {tile('People scheduled',String(total.people.size),'Unique staff with schedule entries',0,Users)}
+        {tile('Scheduled gross hours',formatHours(total.minutes),'Breaks not deducted',1,Clock)}
+        {tile('Avg hours / person',total.people.size?formatHours(total.minutes/total.people.size):'0',undefined,1,BarChart3)}
+        {tile('Leave days',String(total.leave),undefined,3,CalendarDays)}
+        {tile('Sick days',String(total.sick),sickRate(total).toFixed(1)+'% sick rate',4,HeartPulse)}
+        {tile('Night shifts',String(report.reduce((n,r)=>n+r.nights,0)),total.holiday?total.holiday+' shifts on public holidays':undefined,2,Moon)}
+        {tile('Above norm',formatHours(overtime)+' h',formatHours(-under)+' h below norm elsewhere',5,Timer)}
+        {tile('Absence rate',(total.shifts+total.leave+total.sick+total.unpaid+total.absent?100*(total.leave+total.sick+total.unpaid+total.absent)/(total.shifts+total.leave+total.sick+total.unpaid+total.absent):0).toFixed(1)+'%','Includes planned leave',4,HeartPulse)}
+        {tile('To check',String(attention),'People with review flags',5,CircleAlert)}
+        {tile('Not published',String(total.drafts),'Draft schedule entries',5,FileClock)}
       </div>
+      <WorkforceManagementCharts analytics={dashboard} coverage={coverage} onRisk={inspectRisk} onProperty={setHotel} baseProperties={baseProperties}/>
 
-      <Card data-training="wf-employee-report">
+      <Card id="workforce-employee-report" className="scroll-mt-24 shadow-sm" data-training="wf-employee-report">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
           <div>
             <CardTitle className="text-base">Employee report</CardTitle>
             <CardDescription>One line per person for the period: worked against the norm, nights, weekends, holidays, absences. This is the first sheet of the Excel export.</CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant={attentionOnly ? 'default' : 'outline'} onClick={() => setAttentionOnly((v) => !v)}><AlertTriangle className="mr-1 h-4 w-4" />To check only · {attention}</Button>
+            <Button size="sm" variant={attentionOnly ? 'default' : 'outline'} onClick={() => {setRisk(null);setAttentionOnly((v) => !v);}}><AlertTriangle className="mr-1 h-4 w-4" />To check only · {attention}</Button>
+            {risk&&<Button size="sm" variant="secondary" onClick={()=>setRisk(null)}>{FLAG_LABEL[risk]} · Clear</Button>}
             <Input className="h-9 w-56" placeholder="Search employee, job, hotel…" value={personQuery} onChange={(e) => setPersonQuery(e.target.value)} />
           </div>
         </CardHeader>
@@ -246,7 +269,7 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
                 const s = staffById.get(r.staffId);
                 const left = leaveLeft(r.staffId);
                 return (
-                  <TableRow key={r.staffId}>
+                  <TableRow key={r.staffId} className="odd:bg-muted/20">
                     <TableCell className="font-medium">{s?.full_name}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{roleName.get(s?.job_role_id ?? '') ?? deptName.get(s?.department_id ?? '') ?? ''} · {hotelShort(s?.hotel_id)}</TableCell>
                     <TableCell className="text-right tabular-nums">{r.daysWorked}</TableCell>
@@ -273,52 +296,7 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
         </CardContent>
       </Card>
 
-      <WorkforceStaffOverview data={data} rows={rows} />
-
-      <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">People working by weekday</CardTitle><CardDescription>Average per day in the period: shows thin days at a glance</CardDescription></CardHeader>
-          <CardContent className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={coverage} margin={{ left: 0, right: 8 }}>
-                <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <Tooltip formatter={(v: number) => [`${v} people`, 'Average']} cursor={{ fill: 'hsl(var(--muted))' }} />
-                <Bar dataKey="people" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={36} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Hours by {groupBy === 'staff' ? 'employee (top 12)' : groupBy === 'hotel' ? 'hotel' : groupBy}</CardTitle></CardHeader>
-          <CardContent className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 16 }}>
-                <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
-                <XAxis type="number" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <Tooltip formatter={(v: number) => [`${v} h`, 'Hours']} cursor={{ fill: 'hsl(var(--muted))' }} />
-                <Bar dataKey="hours" fill="#2563eb" radius={[0, 4, 4, 0]} barSize={14} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Hours per month</CardTitle><CardDescription>Selected period</CardDescription></CardHeader>
-          <CardContent className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthData} margin={{ left: 0, right: 8 }}>
-                <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                <Tooltip formatter={(v: number, k: string) => [k === 'hours' ? `${v} h` : `${v} days`, k === 'hours' ? 'Hours' : k]} cursor={{ fill: 'hsl(var(--muted))' }} />
-                <Bar dataKey="hours" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={28} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
+      <WorkforceStaffOverview data={scopedData} rows={rows} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
@@ -359,6 +337,7 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
           </Table>
         </CardContent>
       </Card>
+      </>}
     </div>
   );
 }
