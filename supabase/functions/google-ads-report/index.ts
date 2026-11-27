@@ -87,10 +87,10 @@ Deno.serve(async(req)=>{
       const fields="campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, segments.date, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value";
       const [performance,budgetRows]=await Promise.all([
         search(token,customerId,"SELECT "+fields+" FROM campaign WHERE segments.date BETWEEN '"+start+"' AND '"+end+"'",loginCustomerId),
-        search(token,customerId,"SELECT campaign.id, campaign.name, campaign_budget.id, campaign_budget.name, campaign_budget.amount_micros, campaign_budget.period FROM campaign WHERE campaign.status = ENABLED",loginCustomerId)
+        search(token,customerId,"SELECT campaign.id, campaign.name, campaign_budget.id, campaign_budget.name, campaign_budget.amount_micros, campaign_budget.total_amount_micros, campaign_budget.period FROM campaign WHERE campaign.status = ENABLED",loginCustomerId)
       ]);
       const rows=performance.map(r=>({date:str(r.segments?.date),campaignId:String(r.campaign?.id),name:str(r.campaign?.name),status:str(r.campaign?.status),channel:str(r.campaign?.advertisingChannelType),costMicros:num(r.metrics?.costMicros),impressions:num(r.metrics?.impressions),clicks:num(r.metrics?.clicks),conversions:num(r.metrics?.conversions),conversionValue:num(r.metrics?.conversionsValue)}));
-      const budgets=budgetRows.map(r=>({id:String(r.campaignBudget?.id),name:str(r.campaignBudget?.name),amountMicros:num(r.campaignBudget?.amountMicros),period:str(r.campaignBudget?.period),campaignId:String(r.campaign?.id),campaignName:str(r.campaign?.name)}));
+      const budgets=budgetRows.map(r=>({id:String(r.campaignBudget?.id),name:str(r.campaignBudget?.name),amountMicros:num(r.campaignBudget?.period === "CUSTOM_PERIOD" ? r.campaignBudget?.totalAmountMicros : r.campaignBudget?.amountMicros),period:str(r.campaignBudget?.period),campaignId:String(r.campaign?.id),campaignName:str(r.campaign?.name)}));
       return json({rows,budgets,fetchedAt:new Date().toISOString()});
     }
     return json({error:"UNKNOWN_ACTION"},400);
