@@ -9,6 +9,7 @@ import { Camera, Upload, X, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
+import { compressHousekeepingPhoto } from '@/lib/housekeepingPhotoCompression';
 import { toast } from 'sonner';
 
 interface DNDPhotoDialogProps {
@@ -167,11 +168,12 @@ export function DNDPhotoDialog({
 
     try {
       for (const photo of capturedPhotos) {
+        const optimized = await compressHousekeepingPhoto(photo.blob);
         const fileName = `${user.id}/${roomNumber}/dnd_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
         
         const { data, error } = await supabase.storage
           .from('dnd-photos')
-          .upload(fileName, photo.blob, {
+          .upload(fileName, optimized, {
             contentType: 'image/jpeg',
             cacheControl: '3600',
             upsert: false
