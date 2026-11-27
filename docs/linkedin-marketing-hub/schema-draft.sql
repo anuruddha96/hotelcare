@@ -26,6 +26,7 @@ create table public.linkedin_page_connections (
  token_expires_at timestamptz not null,
  status text not null default 'active' check (status in ('active','disconnected')),
  updated_at timestamptz not null default now(),
+ unique(organization_urn),
  unique(organization_id,organization_urn),
  unique(organization_id,id)
 );
