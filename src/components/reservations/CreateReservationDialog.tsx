@@ -83,7 +83,9 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
     style: 'currency', currency: form.currency, maximumFractionDigits: 2,
   }).format(amount);
   const nights = nightsBetween(form.check_in_date, form.check_out_date);
-  const datesValid = !!form.check_in_date && !!form.check_out_date && form.check_out_date > form.check_in_date;
+  const datesValid = !!form.check_in_date && !!form.check_out_date && form.check_out_date >= form.check_in_date;
+  // Same arrival and departure day = day use ("nappali használat"): one day is charged, no night.
+  const dayUse = datesValid && form.check_out_date === form.check_in_date;
 
   // Closing abandons the draft; a new booking always starts in EUR.
   // Reset all fields together so an old amount is never relabelled as EUR.
@@ -191,7 +193,7 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
               <Input id="new-res-check-in" className="block min-w-0 max-w-full [&::-webkit-date-and-time-value]:text-left" type="date" value={form.check_in_date} onChange={(e) => setForm({ ...form, check_in_date: e.target.value })} />
             </div>
             <div className="col-span-2 min-w-0 sm:col-span-1">
-              <FieldLabel id="new-res-check-out" label={t('pms.createReservation.checkOutDate')} help={tr('The departure date must be after check-in.', 'A távozás napjának az érkezés után kell lennie.')} />
+              <FieldLabel id="new-res-check-out" label={t('pms.createReservation.checkOutDate')} help={tr('The departure date must be on or after check-in. The same day means day use (no overnight stay).', 'A távozás napja nem lehet korábbi az érkezésnél. Azonos nap esetén nappali használat (éjszakázás nélkül).')} />
               <Input id="new-res-check-out" className="block min-w-0 max-w-full [&::-webkit-date-and-time-value]:text-left" type="date" value={form.check_out_date} onChange={(e) => setForm({ ...form, check_out_date: e.target.value })} />
             </div>
             <div className="min-w-0">
@@ -278,10 +280,11 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
           </div>
 
           {!numbersValid && <p role="alert" className="text-sm text-destructive">{tr('Enter at least one adult, whole guest counts, and a non-negative nightly rate (up to two decimal places).', 'Adjon meg legalább egy felnőttet, egész vendégszámokat és nem negatív éjszakánkénti árat (legfeljebb két tizedesjeggyel).')}</p>}
-          {nights > 0 && rateValid && form.rate_per_night !== '' && (
+          {dayUse && <p className="text-xs font-medium text-primary">{tr('Day use: arrival and departure on the same day, no overnight stay.', 'Nappali használat: érkezés és távozás ugyanazon a napon, éjszakázás nélkül.')}</p>}
+          {(nights > 0 || dayUse) && rateValid && form.rate_per_night !== '' && (
             <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-md border bg-muted/40 p-3 text-sm">
-              <span className="text-muted-foreground">{nights} × {money(Number(form.rate_per_night))}</span>
-              <strong>{tr('Room total', 'Szobaár összesen')}: {money(nights * Number(form.rate_per_night))}</strong>
+              <span className="text-muted-foreground">{Math.max(1, nights)} × {money(Number(form.rate_per_night))}</span>
+              <strong>{tr('Room total', 'Szobaár összesen')}: {money(Math.max(1, nights) * Number(form.rate_per_night))}</strong>
             </div>
           )}
 
