@@ -63,6 +63,7 @@ const PublicBookingApp = lazy(() => import("./pages/booking/PublicBookingApp"));
 
 // Lazy load non-critical global components
 const AssistantLauncher = lazy(() => import("@/components/assistant/AssistantLauncher"));
+const ChristmasGift = lazy(() => import("@/components/layout/ChristmasGift").then(m => ({ default: m.ChristmasGift })));
 const TrainingGuideProvider = lazy(() => import("@/contexts/TrainingGuideContext").then(m => ({ default: m.TrainingGuideProvider })));
 const GuidedTourProvider = lazy(() => import("@/components/training/GuidedTour").then(m => ({ default: m.GuidedTourProvider })));
 const TrainingV2Provider = lazy(() => import("@/components/training/v2/TrainingV2Provider").then(m => ({ default: m.TrainingV2Provider })));
@@ -185,6 +186,9 @@ const TenantRouter = () => {
   return (
     <TenantProvider organizationSlug={organizationSlug}>
       {user && profile && canSeeWinterSnow(profile) && !/\/(?:auth|reset-password)(?:\/|$)/.test(location.pathname) && <WinterSnow />}
+      {user && profile && profile.id === user.id && !/\/(?:auth|reset-password)(?:\/|$)/.test(location.pathname) && (
+        <Suspense fallback={null}><ChristmasGift key={user.id} userId={user.id} nickname={profile.nickname} preferredLanguage={profile.preferred_language} /></Suspense>
+      )}
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/" element={<Index />} />
