@@ -397,3 +397,71 @@ const dailyRows:Record<string,string[]>={
   ]
 };
 for(const [lang,values] of Object.entries(dailyRows))dailyKeys.forEach((key,i)=>{hrTranslations[lang]['hr.daily.'+key]=values[i];});
+
+const propertyKeys=['status','propertySource','captured','forgotten','unsafeCheckout'];
+const propertyRows:Record<string,string[]>={
+  "en": [
+    "Status",
+    "Property source",
+    "Recorded work property",
+    "Forgotten check-out",
+    "Checkout could not be estimated safely. Use the actual checkout time or contact HR."
+  ],
+  "hu": [
+    "Állapot",
+    "Szálloda forrása",
+    "Rögzített munkavégzési hely",
+    "Elfelejtett kijelentkezés",
+    "A kijelentkezési idő nem állapítható meg biztonságosan. Használja a tényleges időt vagy forduljon a HR-hez."
+  ],
+  "es": [
+    "Estado",
+    "Fuente del hotel",
+    "Lugar de trabajo registrado",
+    "Salida olvidada",
+    "No se puede estimar la salida de forma segura. Use la hora real o contacte con RR. HH."
+  ],
+  "vi": [
+    "Trạng thái",
+    "Nguồn khách sạn",
+    "Nơi làm việc đã ghi nhận",
+    "Quên ra ca",
+    "Không thể ước tính giờ ra an toàn. Dùng giờ thực tế hoặc liên hệ HR."
+  ],
+  "mn": [
+    "Төлөв",
+    "Буудлын эх сурвалж",
+    "Бүртгэсэн ажлын газар",
+    "Гарахаа мартсан",
+    "Гарах цагийг найдвартай тооцох боломжгүй. Бодит цагийг ашиглах эсвэл хүний нөөцтэй холбогдоно уу."
+  ],
+  "az": [
+    "Status",
+    "Otel mənbəyi",
+    "Qeydə alınmış iş yeri",
+    "Unudulmuş çıxış",
+    "Çıxış vaxtını təhlükəsiz hesablamaq mümkün deyil. Faktiki vaxtı istifadə edin və ya HR ilə əlaqə saxlayın."
+  ],
+  "tl": [
+    "Katayuan",
+    "Pinagmulan ng hotel",
+    "Naitalang lugar ng trabaho",
+    "Nakalimutang check-out",
+    "Hindi ligtas tantiyahin ang oras ng check-out. Gamitin ang aktuwal na oras o makipag-ugnayan sa HR."
+  ],
+  "uk": [
+    "Статус",
+    "Джерело готелю",
+    "Зафіксоване місце роботи",
+    "Забутий вихід",
+    "Неможливо безпечно оцінити час виходу. Використайте фактичний час або зверніться до HR."
+  ],
+  "ru": [
+    "Статус",
+    "Источник отеля",
+    "Зафиксированное место работы",
+    "Забытый выход",
+    "Нельзя безопасно оценить время выхода. Укажите фактическое время или обратитесь в HR."
+  ]
+};
+for(const [lang,values] of Object.entries(propertyRows))propertyKeys.forEach((key,i)=>{hrTranslations[lang]['hr.daily.'+key]=values[i];});
