@@ -24,7 +24,7 @@ function validCustomer(c:GoogleCustomer|undefined): c is GoogleCustomer & {curre
 function checked<T>(r:{data:T;error:unknown}):T{if(r.error)throw new AdsError(500,"DATABASE_OPERATION_FAILED");return r.data;}
 // Browser requests use explicit bearer tokens, never cookie credentials. Match
 // Supabase's browser CORS convention; authentication, tenant and worker checks
-// below remain mandatory. OAuth redirects are still restricted to hotelcare.app.
+// below remain mandatory. OAuth redirects are restricted to the canonical authenticated app, my.hotelcare.app.
 const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type, x-worker-secret, x-region, x-supabase-api-version, x-retry-count, traceparent, tracestate, baggage, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version","Access-Control-Allow-Methods":"POST, OPTIONS"};
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {status,headers:{...cors,"Content-Type":"application/json","Cache-Control":"no-store"}});
 const idOk = (id: unknown): id is string => typeof id === "string" && /^\d{10}$/.test(id);
@@ -96,7 +96,7 @@ async function decrypt(cipher:string,binding:string){
 const uuid=(x:unknown):x is string=>typeof x==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x);
 function redirectUri(slug:string){
  if(!/^[a-z0-9][a-z0-9-]*$/.test(slug))throw new AdsError(400,"INVALID_ORGANIZATION");
- return "https://hotelcare.app/"+slug+"/google-ads";
+ return "https://my.hotelcare.app/"+slug+"/google-ads";
 }
 async function tokenRequest(params:Record<string,string>){
  const c=config();
