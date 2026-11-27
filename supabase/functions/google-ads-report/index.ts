@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.78.0";
 import { decodeTokenKey } from "./token-key.ts";
+import { googleAdsRedirectUri } from "./redirect-uri.ts";
 
 
 const BASE = "https://googleads.googleapis.com/v26";
@@ -95,8 +96,9 @@ async function decrypt(cipher:string,binding:string){
 }
 const uuid=(x:unknown):x is string=>typeof x==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x);
 function redirectUri(slug:string){
- if(!/^[a-z0-9][a-z0-9-]*$/.test(slug))throw new AdsError(400,"INVALID_ORGANIZATION");
- return "https://my.hotelcare.app/"+slug+"/google-ads";
+ const uri=googleAdsRedirectUri(slug);
+ if(!uri)throw new AdsError(400,"INVALID_ORGANIZATION");
+ return uri;
 }
 async function tokenRequest(params:Record<string,string>){
  const c=config();
