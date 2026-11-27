@@ -71,6 +71,9 @@ const SUMMARY_ROWS: Array<{ key: string; label: string; hint?: string }> = [
   { key: 'leaveLeft', label: 'wf.t.leaveLeft' },
 ];
 const SUMMARY_ROW_H = 24;
+const DATE_COLUMN_WIDTH = 104;
+const STAFF_COLUMN_MIN_WIDTH = 92;
+const COVERAGE_COLUMN_WIDTH = 72;
 
 export function WorkforceGrid(props: WorkforceGridProps) {
   const { staff, days, today, departments, jobRoles, entries, notes, leaveUsed, codes, layout, canEdit, onApply, onOpenDetails, onEditNote, onSelectionChange, applyRef, zoom = 1, onZoomStep, pinTotals = false, tall = false, notices, groupByHotel = false, cellLabels, onEditStaff } = props;
@@ -426,6 +429,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
         unseen={unseen}
         fillTitle={t('wf.g.dragFill')}
         baseHotel={s.hotel_id}
+        compact={layout === 'staff'}
         selected={inRange(range, pos.r, pos.c)}
         focused={!!focus && focus.r === pos.r && focus.c === pos.c}
         locked={locked}
@@ -461,7 +465,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
   const staffHeader = (s: WorkforceStaff) => (
     <div className="flex flex-col gap-0.5 leading-tight">
       {onEditStaff
-        ? <button type="button" className="truncate text-left font-semibold underline-offset-2 hover:underline" title={tr('wf.g.editPerson').replace('{name}', s.full_name)} onClick={() => onEditStaff(s)}>{s.nickname || s.full_name}</button>
+        ? <button type="button" className="truncate text-left font-semibold underline-offset-2 hover:underline" title={`${s.full_name} · ${tr('wf.g.editPerson').replace('{name}', s.full_name)}`} onClick={() => onEditStaff(s)}>{s.nickname || s.full_name}</button>
         : <span className="truncate font-semibold" title={s.full_name}>{s.nickname || s.full_name}</span>}
       <span className="truncate text-[10px] font-normal text-muted-foreground" title={`${s.full_name} · ${s.job_role_id ? localName(roleName.get(s.job_role_id), t) : ''}`}>
         {s.job_role_id ? localName(roleName.get(s.job_role_id), t) : t('wf.g.noRole')} · {s.hotel_id ? hotelShort(s.hotel_id) : t('wf.m.company')}
@@ -511,7 +515,14 @@ export function WorkforceGrid(props: WorkforceGridProps) {
         {['SZB', 'fél SZB', 'B', 'X', 'FIX', 'FNSZ', 'éjsz 20:00-08:00', '08-17', '08-20', 'HO', 'PN'].map((v) => <option key={v} value={v} />)}
       </datalist>
       {layout === 'days' ? (
-        <table className="border-separate border-spacing-0" style={zoom !== 1 ? { zoom } : undefined}>
+        <table className="w-full table-fixed border-separate border-spacing-0" style={{ minWidth: DATE_COLUMN_WIDTH + staff.length * STAFF_COLUMN_MIN_WIDTH + COVERAGE_COLUMN_WIDTH, zoom }}>
+          {/* Fixed edge columns; the remaining width is shared equally by staff.
+              The table minimum preserves horizontal scrolling for large teams at any zoom. */}
+          <colgroup>
+            <col style={{ width: DATE_COLUMN_WIDTH }} />
+            {staff.map((s) => <col key={s.id} />)}
+            <col style={{ width: COVERAGE_COLUMN_WIDTH }} />
+          </colgroup>
           <thead className="sticky top-0 z-10 bg-background">
             <tr>
               <th className="sticky left-0 z-20 border-b border-r bg-background" />
@@ -524,12 +535,12 @@ export function WorkforceGrid(props: WorkforceGridProps) {
               <th className="sticky right-0 z-20 border-b border-l bg-muted" />
             </tr>
             <tr>
-              <th className="sticky left-0 z-20 w-[104px] min-w-[104px] max-w-[104px] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">{t('wf.m.day')}</th>
+              <th className="sticky left-0 z-20 border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">{t('wf.m.day')}</th>
               {staff.map((s) => (
-                <th key={s.id} className={cn('w-[92px] min-w-[92px] max-w-[92px] border-b border-r px-1.5 py-1 text-left font-normal', !s.is_active && 'opacity-60')}
+                <th key={s.id} className={cn('overflow-hidden border-b border-r px-1.5 py-1.5 text-left font-normal', !s.is_active && 'opacity-60')}
                   style={{ backgroundColor: `${hotelColor(s)}40`, boxShadow: `inset 0 -3px 0 ${hotelColor(s)}` }}>{staffHeader(s)}</th>
               ))}
-              <th className="sticky right-0 z-20 min-w-[58px] border-b border-l bg-muted px-1.5 text-right text-[10px] font-medium" title={t('wf.t.onDutyHint')}>{t('wf.t.onDuty')}</th>
+              <th className="sticky right-0 z-20 border-b border-l bg-muted px-1.5 text-right text-[11px] font-medium" title={t('wf.t.onDutyHint')}>{t('wf.t.onDuty')}</th>
             </tr>
           </thead>
           <tbody>
@@ -543,7 +554,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
             <tr>
               <th className="sticky left-0 z-[5] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground" >{t('wf.m.note')}</th>
               {staff.map((s) => (
-                <td key={s.id} className="h-7 max-w-[92px] cursor-pointer truncate border-b border-r px-1 text-[10px] text-muted-foreground hover:bg-muted" title={notes.get(s.id) ?? t('wf.g.addRemark')} onClick={() => onEditNote(s)}>
+                <td key={s.id} className="h-7 cursor-pointer truncate border-b border-r px-1 text-[10px] text-muted-foreground hover:bg-muted" title={notes.get(s.id) ?? t('wf.g.addRemark')} onClick={() => onEditNote(s)}>
                   {notes.get(s.id) ?? ''}
                 </td>
               ))}
@@ -553,7 +564,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
               const pin = pinTotals ? { position: 'sticky' as const, bottom: (SUMMARY_ROWS.length - 1 - i) * SUMMARY_ROW_H, zIndex: 6 } : undefined;
               return (
                 <tr key={row.key}>
-                  <th className="sticky left-0 whitespace-nowrap border-b border-r bg-muted px-2 text-left font-medium" style={{ height: SUMMARY_ROW_H, ...(pin ? { ...pin, zIndex: 8 } : { zIndex: 5 }) }} title={row.hint ? t(row.hint) : undefined}>{t(row.label)}</th>
+                  <th className="sticky left-0 truncate border-b border-r bg-muted px-2 text-left font-medium" style={{ height: SUMMARY_ROW_H, ...(pin ? { ...pin, zIndex: 8 } : { zIndex: 5 }) }} title={row.hint ? t(row.hint) : t(row.label)}>{t(row.label)}</th>
                   {staff.map((s) => {
                     const value = summaryValue(s, row.key);
                     return <td key={s.id} style={{ height: SUMMARY_ROW_H, ...pin }} className={cn('border-b border-r bg-muted px-1.5 text-right tabular-nums', row.key === 'balance' && value.startsWith('+') && 'font-semibold text-amber-700 dark:text-amber-400', row.key === 'balance' && value.startsWith('−') && 'text-sky-700 dark:text-sky-400', row.key === 'hours' && 'font-semibold')}>{value}</td>;
@@ -635,6 +646,7 @@ interface CellProps {
   unseen: boolean;
   fillTitle: string;
   baseHotel: string | null;
+  compact: boolean;
   selected: boolean;
   focused: boolean;
   locked: boolean;
@@ -649,7 +661,7 @@ interface CellProps {
   onDoubleClick: (pos: Pos) => void;
 }
 
-const ScheduleCell = memo(function ScheduleCell({ r, c, entry, label, title, pending, unseen, fillTitle, baseHotel, selected, focused, locked, weekend, isToday, dayKind, fillPreview, handle, editor, onMouseDown, onMouseEnter, onDoubleClick }: CellProps) {
+const ScheduleCell = memo(function ScheduleCell({ r, c, entry, label, title, pending, unseen, fillTitle, baseHotel, compact, selected, focused, locked, weekend, isToday, dayKind, fillPreview, handle, editor, onMouseDown, onMouseEnter, onDoubleClick }: CellProps) {
   const pos = { r, c };
   const style = entry ? cellStyle(entry, baseHotel) : null;
   return (
@@ -662,7 +674,8 @@ const ScheduleCell = memo(function ScheduleCell({ r, c, entry, label, title, pen
       onMouseEnter={() => onMouseEnter(pos)}
       onDoubleClick={() => onDoubleClick(pos)}
       className={cn(
-        'relative h-7 max-w-[92px] cursor-cell truncate border-b border-r px-1 leading-7',
+        'relative h-7 cursor-cell truncate border-b border-r px-1 leading-7',
+        compact && 'max-w-[92px]',
         !style && weekend && dayKind !== 'working_saturday' && 'bg-muted/50',
         !style && (dayKind === 'holiday' || dayKind === 'rest_day') && 'bg-red-50/70 dark:bg-red-950/30',
         !style && isToday && 'bg-primary/5',
