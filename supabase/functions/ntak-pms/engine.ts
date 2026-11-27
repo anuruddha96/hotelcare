@@ -905,6 +905,9 @@ export async function verifyDue(db: Db, s: Settings, force = false): Promise<{ c
   return { checked: parsed.results.length };
 }
 
+/** Automatic resends of one payload after UJRA_KULDENDO before a person must decide. */
+export const MAX_AUTO_RESENDS = 3;
+
 /** UJRA_KULDENDO: copy the immutable submitted XML, never rebuild the closure.
  * sendDue refreshes only the header and signs the next attempt. */
 export async function resendSameContent(db: Db, s: Settings, messageId: string, kind: string, ref: string) {
@@ -916,6 +919,20 @@ export async function resendSameContent(db: Db, s: Settings, messageId: string, 
     if (!current) throw new Error("Missing closure register");
     // A later manually queued correction takes precedence over an old result.
     if (current.message_id !== messageId) return;
+  }
+  // Never loop: after MAX_AUTO_RESENDS automatic resends of the same payload, stop
+  // and let a person decide (the message stays visible as "resend requested").
+  let depth = 0;
+  for (let cursor: string | null = messageId; cursor && depth <= MAX_AUTO_RESENDS; depth++) {
+    const found: { data: { resend_of?: string | null } | null; error: { message: string } | null } =
+      await db.from("ntak_messages").select("resend_of").eq("id", cursor).eq("hotel_id", s.hotel_id).maybeSingle();
+    if (found.error) throw new Error(found.error.message);
+    cursor = found.data?.resend_of ?? null;
+  }
+  if (depth > MAX_AUTO_RESENDS) {
+    const { error: stopError } = await db.from("ntak_messages").update({ last_error: `NTAK asked for a resend ${depth} times in a row; automatic resending stopped, check with NTAK support`, updated_at: now() }).eq("id", messageId).eq("hotel_id", s.hotel_id);
+    if (stopError) throw new Error(stopError.message);
+    return;
   }
   const { error: insertError } = await db.from("ntak_messages").upsert({
     hotel_id: s.hotel_id, organization_slug: s.organization_slug, environment: orig.environment, kind, ref,
