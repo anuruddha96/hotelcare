@@ -300,10 +300,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [result, setResult] = useState<MrzReadResult | null>(null);
   const [settings, setSettings] = useState<ScannerSettings>(loadScannerSettings);
   const [source, setSource] = useState<ScannerSource>(() => loadScannerSettings().preferred);
-  const usesCamera = source === 'camera' || source === 'scanner';
   // Connected cameras / camera-type scanners, and the scanner found among them.
   const [videoDevices, setVideoDevices] = useState<VideoDevice[]>([]);
   const [scannerDevice, setScannerDevice] = useState<VideoDevice | null>(null);
+  // "Scanner" chosen but none connected yet: wait for it instead of opening the camera.
+  const usesCamera = source === 'camera' || (source === 'scanner' && !!scannerDevice);
+  const scannerWaiting = source === 'scanner' && !scannerDevice;
+  const showSourceTabs = typeof navigator === 'undefined' || !isAppleTouchDevice();
   const [scannerNotice, setScannerNotice] = useState<'added' | 'missing' | 'reader' | null>(null);
   // The receptionist picked a source by hand in this dialog: automatic detection then stays quiet.
   const userChoseRef = useRef(false);
@@ -361,11 +364,12 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         setSettings(next);
         setScannerNotice('added');
       }
-      if ((isNew || saved.preferred === 'scanner') && !userChoseRef.current && sourceRef.current === 'camera') {
+      if (sourceRef.current === 'scanner') chooseCameraDevice(found.deviceId, true);
+      else if ((isNew || saved.preferred === 'scanner') && !userChoseRef.current && sourceRef.current === 'camera') {
         chooseCameraDevice(found.deviceId, true);
         chooseSourceRef.current('scanner', false);
       }
-    } else if (sourceRef.current === 'scanner' && devices.some((device) => device.label)) {
+    } else if (sourceRef.current === 'scanner' && !userChoseRef.current && devices.some((device) => device.label)) {
       chooseSourceRef.current('camera', false);
       setScannerNotice('missing');
     }
@@ -1416,13 +1420,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
             {side === 'front' ? <div className="rounded-md bg-primary/5 px-3 py-2 text-sm font-semibold">{t(selectedType === 'passport' ? 'pms.scan.passportPhotoOnly' : 'pms.scan.idFrontOnly')}</div> : <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 p-3 text-emerald-800 dark:text-emerald-200"><CheckCircle2 className="h-5 w-5 shrink-0"/><div><div className="text-xs">{t('pms.scan.frontCaptured')}</div><div className="text-sm font-bold">{t('pms.scan.flipCard')}</div></div><RotateCw className="ml-auto h-5 w-5 shrink-0 motion-safe:animate-pulse"/></div>}
           </div>
         )}
-        {phase === 'camera' && (side === 'mrz' || scannerDevice) && (
+        {phase === 'camera' && (side === 'mrz' || scannerDevice || showSourceTabs) && (
           <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1" role="tablist" aria-label={t('pms.scan.source')}>
             {([
               ['camera', Camera, 'pms.scan.srcCamera'], ['scanner', Usb, 'pms.scan.srcScanner'],
             ] as Array<['camera' | 'scanner', typeof Camera, string]>).map(([key, Icon, labelKey]) => {
               const selected = key === 'camera' ? source === 'camera' : source !== 'camera';
-              const target: ScannerSource = key === 'camera' ? 'camera' : scannerDevice ? 'scanner' : (side === 'mrz' ? 'wedge' : 'camera');
+              const target: ScannerSource = key === 'camera' ? 'camera' : 'scanner';
               return (
                 <button key={key} type="button" role="tab" aria-selected={selected} onClick={() => chooseSource(target)}
                   className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${selected ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
@@ -1440,9 +1444,10 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         {phase === 'camera' && source === 'scanner' && scannerDevice && scannerNotice !== 'added' && (
           <p className="flex items-center gap-1 text-[11px] text-muted-foreground"><Usb className="h-3 w-3" /> {t('pms.scan.scannerInUse')}: {scannerDevice.label || t('pms.scan.srcScanner')}</p>
         )}
-        {phase === 'camera' && side === 'mrz' && (source === 'wedge' || source === 'bridge') && (
+        {phase === 'camera' && (scannerWaiting || (side === 'mrz' && (source === 'wedge' || source === 'bridge'))) && (
           <div className="space-y-1.5 text-[11px] text-muted-foreground">
-            {!scannerDevice && <p>{t('pms.scan.scannerNoneFound')}</p>}
+            {!scannerDevice && <p className="flex items-start gap-1.5 rounded-md border border-dashed border-primary/40 bg-muted/30 p-2 text-xs text-foreground"><Usb className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {t('pms.scan.scannerPlugIn')}</p>}
+            {!scannerDevice && side === 'mrz' && <p>{t('pms.scan.scannerNoneFound')}</p>}
             {!scannerDevice && videoDevices.some((device) => device.label && !looksLikeBuiltInCamera(device.label)) && (
               <div className="flex flex-wrap gap-1">
                 {videoDevices.filter((device) => device.label && !looksLikeBuiltInCamera(device.label)).map((device) => (
@@ -1452,9 +1457,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
                 ))}
               </div>
             )}
-            <button type="button" className="inline-flex items-center gap-1 underline underline-offset-2" onClick={() => chooseSource(source === 'bridge' ? 'wedge' : 'bridge')}>
+            {side === 'mrz' && <button type="button" className="inline-flex items-center gap-1 underline underline-offset-2" onClick={() => chooseSource(source === 'bridge' ? 'wedge' : 'bridge')}>
               {source === 'bridge' ? <Keyboard className="h-3 w-3" /> : <PlugZap className="h-3 w-3" />} {t(source === 'bridge' ? 'pms.scan.useKeyboardReader' : 'pms.scan.useScannerService')}
-            </button>
+            </button>}
           </div>
         )}
 
