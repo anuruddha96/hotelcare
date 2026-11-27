@@ -15,7 +15,8 @@ import {useToast} from '@/hooks/use-toast';
 import {hotelName,hotelKey} from '@/lib/workforce/model';
 import {employeeReport,normMinutes} from '@/lib/workforce/report';
 type Person={id:string;full_name:string|null;role:string|null;access_role:string|null;assigned_hotel:string|null};
-type Row={role?:string;id:string;user_id:string;full_name:string;work_date:string;check_in_time:string;check_out_time:string|null;break_duration:number|null;total_hours?:number|null;planned_end?:string|null;status?:string;notes?:string|null;check_in_location?:unknown};
+type AttendanceMetadata={id:string;work_hotel_id:string|null;status:string|null};
+type Row={work_hotel_id?:string|null;role?:string;id:string;user_id:string;full_name:string;work_date:string;check_in_time:string;check_out_time:string|null;break_duration:number|null;total_hours?:number|null;planned_end?:string|null;status?:string;notes?:string|null;check_in_location?:unknown};
 // Extend the generated schema locally until the phase-2 migration is applied.
 type PublicSchema=Database['public'];
 type Times={_check_in:string;_check_out:string|null;_break_minutes:number;_reason:string};
@@ -52,16 +53,19 @@ export function HrAttendance(){
  let cancelled=false;setLoading(true);setFailed(false);setRows([]);setOpen([]);setPeopleById({});
  const args={target_user_id:null,start_date:month+'-01',end_date:new Date(Date.UTC(year,m,0)).toISOString().slice(0,10)};
  const load=async()=>{try{
- const [records,forgotten,people,settings,profiles]=await Promise.all([
+ const [records,forgotten,people,settings,profiles,metadata]=await Promise.all([
  fetchAllRows<Row>((a,b)=>db.rpc('get_attendance_records_hotel_filtered',args).order('work_date').order('id').range(a,b)),
  fetchAllRows<Row>((a,b)=>db.rpc('hr_attendance_open_records').order('work_date').order('id').range(a,b)),
  db.rpc('get_employees_by_hotel'),
  db.from('workforce_settings').select('punctuality_tolerance_minutes').eq('organization_slug',profile?.organization_slug).maybeSingle(),
- fetchAllRows<Person>((a,b)=>db.from('profiles').select('id,full_name,role,access_role,assigned_hotel').eq('organization_slug',profile?.organization_slug??'').is('deleted_at',null).order('id').range(a,b) as unknown as PromiseLike<{data:Person[]|null;error:unknown}>)
+ fetchAllRows<Person>((a,b)=>db.from('profiles').select('id,full_name,role,access_role,assigned_hotel').eq('organization_slug',profile?.organization_slug??'').is('deleted_at',null).order('id').range(a,b) as unknown as PromiseLike<{data:Person[]|null;error:unknown}>),
+ (async()=>{try{return await fetchAllRows<AttendanceMetadata>((a,b)=>db.from('staff_attendance').select('id,work_hotel_id,status').eq('organization_slug',profile?.organization_slug??'').or('and(work_date.gte.'+args.start_date+',work_date.lte.'+args.end_date+'),and(check_out_time.is.null,work_date.lt.'+todayBudapest()+')').order('id').range(a,b) as unknown as PromiseLike<{data:AttendanceMetadata[]|null;error:unknown}>);}catch(err){const e=err as {code?:string;message?:string};if((e.code==='42703'||e.code==='PGRST204')&&e.message?.includes('work_hotel_id'))return [];throw err;}})()
  ]);
  if(people.error||settings.error)throw new Error('Attendance request failed');
  if(cancelled)return;
- setRows(records);setOpen(forgotten);setPeopleById(Object.fromEntries(profiles.map(p=>[p.id,p])));setEmployees(people.data??[]);setTolerance(settings.data?.punctuality_tolerance_minutes??5);
+ const metadataById=new Map(metadata.map(x=>[x.id,x]));
+ const withMetadata=(row:Row):Row=>{const meta=metadataById.get(row.id);return meta?{...row,work_hotel_id:meta.work_hotel_id,status:meta.status??row.status}:row;};
+ setRows(records.map(withMetadata));setOpen(forgotten.map(withMetadata));setPeopleById(Object.fromEntries(profiles.map(p=>[p.id,p])));setEmployees(people.data??[]);setTolerance(settings.data?.punctuality_tolerance_minutes??5);
  }catch{if(!cancelled){setFailed(true);setRows([]);setOpen([]);}}finally{if(!cancelled)setLoading(false);}};
  if(profile?.organization_slug)void load();else setLoading(false);
  return()=>{cancelled=true;};
@@ -76,14 +80,14 @@ export function HrAttendance(){
  const staffByLogin=new Map(workforce.staff.filter(s=>s.profile_id).map(s=>[s.profile_id!,s]));
  const schedule=(r:Row)=>{const s=staffByLogin.get(r.user_id);const e=s&&workforce.entries.get(entryKey(s.id,r.work_date));return e?publishedShift(e):null;};
  const roleFor=(r:Pick<Row,'user_id'|'role'>)=>{const p=peopleById[r.user_id];const staff=staffByLogin.get(r.user_id);return attendanceRole(p?.role??r.role,p?.access_role,workforce.jobRoles.find(j=>j.id===staff?.job_role_id)?.name);};
- const propertyFor=(r:Row)=>hotelKey(schedule(r)?.hotel_id??staffByLogin.get(r.user_id)?.hotel_id??peopleById[r.user_id]?.assigned_hotel)??'';
- const propertyLabel=(key:string)=>key?hotelName(key):label('unassigned');
+ const propertyFor=(r:Row)=>hotelKey(r.work_hotel_id??schedule(r)?.hotel_id??staffByLogin.get(r.user_id)?.hotel_id??peopleById[r.user_id]?.assigned_hotel)??'__unassigned';
+ const propertyLabel=(key:string)=>key&&key!=='__unassigned'?hotelName(key):label('unassigned');
  const matchesPerson=(r:Row)=>{const staff=staffByLogin.get(r.user_id);return (!employee||r.user_id===employee)&&(!role||roleFor(r)===role)&&(!department||staff?.department_id===department)&&(!search||r.full_name.toLowerCase().includes(search.trim().toLowerCase()));};
  const inScope=(r:Row)=>matchesPerson(r)&&(!hotel||propertyFor(r)===hotel)&&(!from||r.work_date>=from)&&(!to||r.work_date<=to);
  const filtered=newestAttendance(rows.filter(inScope));
  const correctionRows=newestAttendance(open.filter(inScope));
  const roles=['housekeeping','maintenance','reception','front_office_manager','housekeeping_manager','housekeeping_supervisor','breakfast','manager','top_management','hr','controlling','admin','other'];
- const propertyOptions=[...new Set([...workforce.staff.map(s=>hotelKey(s.hotel_id)),...Object.values(peopleById).map(p=>hotelKey(p.assigned_hotel)),...rows.map(propertyFor)].filter((h):h is string=>!!h))].sort((a,b)=>hotelName(a).localeCompare(hotelName(b)));
+ const propertyOptions=[...new Set([...workforce.staff.map(s=>hotelKey(s.hotel_id)),...Object.values(peopleById).map(p=>hotelKey(p.assigned_hotel)),...rows.map(propertyFor)].filter((h):h is string=>!!h))].sort((a,b)=>propertyLabel(a).localeCompare(propertyLabel(b)));
  const selectMonth=(value:string)=>{if(value){setMonth(value);setFrom('');setTo('');setVisibleDays(7);}};
  const selectDay=(date:string)=>{setMonth(date.slice(0,7));setFrom(date);setTo(date);setVisibleDays(7);setView('daily');};
  const selectView=(next:typeof view)=>{setView(next);setFrom('');setTo('');setVisibleDays(7);};
@@ -97,8 +101,8 @@ export function HrAttendance(){
  const r:Row={id:'missing-'+s.id+'-'+e.work_date,user_id:s.profile_id!,full_name:s.full_name,work_date:e.work_date,check_in_time:'',check_out_time:null,break_duration:0};
  return inScope(r)&&!groups.has(r.user_id+'|'+r.work_date)&&comparison(r).missing?[r]:[];
  }):[]).filter(r=>r.user_id!==profile?.id);
- const detailHeaders=[t('hr.employee'),label('role'),t('hr.a.hotel')+' ('+label('inferred')+')',label('details'),t('hr.date'),t('hr.checkIn'),t('hr.checkOut'),t('hr.a.break'),t('hr.hours'),t('hr.a.planned')+' '+t('hr.checkIn'),t('hr.a.planned')+' '+t('hr.checkOut')];
- const detailRows=(view==='corrections'?correctionRows:filtered).map(r=>[r.full_name,label(roleFor(r)),propertyLabel(propertyFor(r)),label(attendanceStatus(r,today)),r.work_date,budapestInput(r.check_in_time),budapestInput(r.check_out_time),r.break_duration??0,r.total_hours??'',schedule(r)?.start_time??'',schedule(r)?.end_time??'']);
+ const detailHeaders=[t('hr.employee'),label('role'),t('hr.a.hotel'),label('propertySource'),label('status'),t('hr.date'),t('hr.checkIn'),t('hr.checkOut'),t('hr.a.break'),t('hr.hours'),t('hr.a.planned')+' '+t('hr.checkIn'),t('hr.a.planned')+' '+t('hr.checkOut')];
+ const detailRows=(view==='corrections'?correctionRows:filtered).map(r=>[r.full_name,label(roleFor(r)),propertyLabel(propertyFor(r)),label(r.work_hotel_id?'captured':'inferred'),label(attendanceStatus(r,today)),r.work_date,budapestInput(r.check_in_time),budapestInput(r.check_out_time),r.break_duration??0,r.total_hours??'',schedule(r)?.start_time??'',schedule(r)?.end_time??'']);
  const totalHeaders=[t('hr.employee'),t('hr.a.completedDays'),t('hr.hours'),t('hr.a.norm'),t('hr.a.overtime'),t('hr.a.nightHours'),t('hr.a.weekendHours'),t('hr.a.holidayHours'),t('hr.a.leaveDays'),t('hr.a.sickDays')];
  const scopedStaff=workforce.staff.filter(s=>s.profile_id&&(!employee||s.profile_id===employee)&&(!department||s.department_id===department)&&(!role||roleFor({user_id:s.profile_id})===role)&&(!search||s.full_name.toLowerCase().includes(search.trim().toLowerCase())));
  const fullPeriod=!hotel&&!from&&!to;
@@ -113,7 +117,7 @@ export function HrAttendance(){
  const overtime=norm!=null&&s?Math.max(0,actual.hours+(leave+sick)*s.daily_hours-norm/60):null;
  return[s?.full_name??mine[0]?.full_name??employees.find(e=>e.id===id)?.full_name??'',actual.days,actual.hours,norm==null?'':norm/60,overtime??'',actual.night,actual.weekend,actual.holiday,leave,sick];});
   const propertyTotals=[...new Set(filtered.map(propertyFor))].map(h=>{const group=filtered.filter(r=>propertyFor(r)===h);return [propertyLabel(h),new Set(group.map(r=>r.user_id)).size,personDaySummary(group.map(r=>({...r,total_hours:r.total_hours??null}))).hours,group.reduce((sum,r)=>sum+(r.break_duration??0),0),group.filter(r=>r.status==='auto_signout').length];});
- const propertyHeaders=[t('hr.a.hotel')+' ('+label('inferred')+')',label('allStaff'),t('hr.hours'),t('hr.a.break'),label('auto')];
+ const propertyHeaders=[t('hr.a.hotel'),label('allStaff'),t('hr.hours'),t('hr.a.break'),label('auto')];
  const exportExcel=async()=>{const XLSX=await import('xlsx');const wb=XLSX.utils.book_new();
  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([detailHeaders,...detailRows]),t('hr.nav.attendance').slice(0,31));
  if(view!=='corrections'){XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([totalHeaders,...totals]),'Totals');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([propertyHeaders,...propertyTotals]),'Properties');}XLSX.writeFile(wb,'attendance-'+month+'.xlsx');};
@@ -128,7 +132,7 @@ export function HrAttendance(){
  <div><span className="md:hidden text-xs text-muted-foreground">{t('hr.hours')}: </span>{r.total_hours==null?'—':Number(r.total_hours).toFixed(2)+'h'}</div>
  <div className={'text-sm font-medium '+statusClass[status]}>{label(status)}</div>
  <div className="flex flex-wrap gap-2">{canEdit&&<Button variant="outline" size="sm" onClick={()=>begin(r)}>{t('hr.a.edit')}</Button>}{canEdit&&isOpen&&r.planned_end&&<Button variant="outline" size="sm" onClick={()=>begin(r,true)}>{t('hr.a.closePlan')}</Button>}</div>
- </div><details className="px-3 pb-2 text-xs text-muted-foreground"><summary className="cursor-pointer">{label('details')}</summary><div className="pt-2">{shift?.start_time?shift.start_time.slice(0,5)+' – '+shift.end_time?.slice(0,5):t('hr.a.noSchedule')} · {map?<a href={map} target="_blank" rel="noopener noreferrer" className="underline">{t('hr.a.unverified')}</a>:t('hr.a.unverified')}{flags.delta!=null&&' · '+(flags.delta/60).toFixed(2)+'h'}<span className="text-destructive"> {[flags.late&&t('hr.a.late'),flags.early&&t('hr.a.early'),flags.dayOff&&t('hr.a.dayOff')].filter(Boolean).join(' · ')}</span></div></details></div>;};
+ </div><details className="px-3 pb-2 text-xs text-muted-foreground"><summary className="cursor-pointer">{label('details')}</summary><div className="pt-2">{label(r.work_hotel_id?'captured':'inferred')} · {shift?.start_time?shift.start_time.slice(0,5)+' – '+shift.end_time?.slice(0,5):t('hr.a.noSchedule')} · {map?<a href={map} target="_blank" rel="noopener noreferrer" className="underline">{t('hr.a.unverified')}</a>:t('hr.a.unverified')}{flags.delta!=null&&' · '+(flags.delta/60).toFixed(2)+'h'}<span className="text-destructive"> {[flags.late&&t('hr.a.late'),flags.early&&t('hr.a.early'),flags.dayOff&&t('hr.a.dayOff')].filter(Boolean).join(' · ')}</span></div></details></div>;};
  const visible=filtered.filter(r=>{const f=comparison(r);return !problems||(f.open&&r.work_date<today)||f.late||f.early||f.dayOff;});
  const dates=[...new Set([...visible.map(r=>r.work_date),...missing.map(r=>r.work_date),...(month===today.slice(0,7)&&(!from||from<=today)&&(!to||to>=today)?[today]:[])])].sort((a,b)=>b.localeCompare(a));
  const focusedDate=dates[0]??(to||from||today);
@@ -136,15 +140,15 @@ export function HrAttendance(){
  const latestByPerson=new Map<string,Row>();for(const r of todayRows)if(!latestByPerson.has(r.user_id))latestByPerson.set(r.user_id,r);
  const latest=[...latestByPerson.values()];
  const kpis=view==='daily'&&focusedDate===today?[[label('checkedIn'),latest.length],[label('working'),latest.filter(r=>!r.check_out_time).length],[label('out'),latest.filter(r=>!!r.check_out_time).length],[label('corrections'),correctionRows.length]]:[[t('hr.a.personDays'),summary.days],[t('hr.totalHours'),Number(summary.hours).toFixed(1)+'h'],[t('hr.avgHoursPerDay'),Number(summary.average).toFixed(1)+'h'],[t('hr.a.onTime').replace('{n}',String(comparisons.filter(c=>c.onTime).length)).replace('{m}',String(comparisons.filter(c=>c.scheduled).length)),t('hr.a.noSchedule')+': '+comparisons.filter(c=>!c.scheduled).length]];
- const header=<div className="hidden gap-2 px-3 py-2 text-xs font-medium text-muted-foreground md:grid md:grid-cols-[minmax(160px,1.5fr)_repeat(4,minmax(65px,0.65fr))_minmax(120px,1fr)_auto]"><span>{t('hr.employee')}</span><span>{t('hr.checkIn')}</span><span>{t('hr.checkOut')}</span><span>{t('hr.a.break')}</span><span>{t('hr.hours')}</span><span>{label('details')}</span><span /></div>;
+ const header=<div className="hidden gap-2 px-3 py-2 text-xs font-medium text-muted-foreground md:grid md:grid-cols-[minmax(160px,1.5fr)_repeat(4,minmax(65px,0.65fr))_minmax(120px,1fr)_auto]"><span>{t('hr.employee')}</span><span>{t('hr.checkIn')}</span><span>{t('hr.checkOut')}</span><span>{t('hr.a.break')}</span><span>{t('hr.hours')}</span><span>{label('status')}</span><span /></div>;
  return <section className="space-y-4">
  <div className="flex flex-wrap gap-2">{(['daily','monthly','history','corrections'] as const).map(v=><Button key={v} size="sm" variant={view===v?'default':'outline'} onClick={()=>selectView(v)}>{label(v)}{v==='corrections'&&open.length>0?' ('+open.length+')':''}</Button>)}</div>
  <div className="flex flex-wrap items-end gap-2"><Button variant="outline" size="sm" onClick={()=>selectDay(today)}>{label('today')}</Button><Button variant="outline" size="sm" onClick={()=>selectDay(yesterday)}>{label('yesterday')}</Button><label className="text-sm">{t('hr.a.month')}<Input type="month" value={month} onChange={e=>selectMonth(e.target.value)}/></label>
  <label className="text-sm">{t('hr.a.from')}<Input type="date" min={month+'-01'} max={to||new Date(Date.UTC(year,m,0)).toISOString().slice(0,10)} value={from} onChange={e=>{setFrom(e.target.value);setVisibleDays(7);}}/></label><label className="text-sm">{t('hr.a.to')}<Input type="date" min={from||month+'-01'} max={new Date(Date.UTC(year,m,0)).toISOString().slice(0,10)} value={to} onChange={e=>{setTo(e.target.value);setVisibleDays(7);}}/></label>
  <Button variant="outline" size="sm" onClick={()=>setRefresh(x=>x+1)}>{label('refresh')}</Button><Button onClick={()=>begin()}>{t('hr.a.manual')}</Button><Button variant="outline" disabled={loading||failed||workforce.loading||!!workforce.error} onClick={()=>void exportExcel()}>{t('hr.a.export')}</Button><Button variant="outline" disabled={loading||failed||workforce.loading||!!workforce.error} onClick={exportCsv}>{t('hr.exportCsv')}</Button></div>
  <div className="flex flex-wrap gap-2" aria-label={label('role')}>{['',...roles].map(v=><Button key={v} size="sm" variant={role===v?'default':'outline'} aria-pressed={role===v} onClick={()=>{setRole(v);setVisibleDays(7);}}>{label(v||'allStaff')}</Button>)}</div>
- <div className="flex flex-wrap items-end gap-3"><label className="text-sm">{label('search')}<Input value={search} onChange={e=>setSearch(e.target.value)}/></label><label className="text-sm">{t('hr.employee')}<select className="block rounded-md border bg-background p-2" value={employee} onChange={e=>setEmployee(e.target.value)}><option value="">{t('periods.allEmployees')}</option>{employees.map(e=><option key={e.id} value={e.id}>{e.full_name}</option>)}</select></label><label className="text-sm">{t('hr.a.hotel')}<select className="block rounded border bg-background p-2" value={hotel} onChange={e=>setHotel(e.target.value)}><option value="">{t('hr.a.all')}</option>{propertyOptions.map(h=><option key={h} value={h}>{hotelName(h)}</option>)}</select></label><label className="text-sm">{t('hr.a.department')}<select className="block rounded border bg-background p-2" value={department} onChange={e=>setDepartment(e.target.value)}><option value="">{t('hr.a.all')}</option>{workforce.departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label><label className="flex gap-2 text-sm"><input type="checkbox" checked={problems} onChange={e=>setProblems(e.target.checked)}/>{t('hr.a.problems')}</label></div>
- <p className="text-xs text-muted-foreground">{t('hr.a.timezone')} · {label('inferred')}</p>
+ <div className="flex flex-wrap items-end gap-3"><label className="text-sm">{label('search')}<Input value={search} onChange={e=>setSearch(e.target.value)}/></label><label className="text-sm">{t('hr.employee')}<select className="block rounded-md border bg-background p-2" value={employee} onChange={e=>setEmployee(e.target.value)}><option value="">{t('periods.allEmployees')}</option>{employees.map(e=><option key={e.id} value={e.id}>{e.full_name}</option>)}</select></label><label className="text-sm">{t('hr.a.hotel')}<select className="block rounded border bg-background p-2" value={hotel} onChange={e=>setHotel(e.target.value)}><option value="">{t('hr.a.all')}</option>{propertyOptions.map(h=><option key={h} value={h}>{propertyLabel(h)}</option>)}</select></label><label className="text-sm">{t('hr.a.department')}<select className="block rounded border bg-background p-2" value={department} onChange={e=>setDepartment(e.target.value)}><option value="">{t('hr.a.all')}</option>{workforce.departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label><label className="flex gap-2 text-sm"><input type="checkbox" checked={problems} onChange={e=>setProblems(e.target.checked)}/>{t('hr.a.problems')}</label></div>
+ <p className="text-xs text-muted-foreground">{t('hr.a.timezone')} · {label('propertySource')}: {label('captured')} / {label('inferred')}</p>
  {(failed||workforce.error)?<p role="alert">{t('hr.a.failed')}</p>:(loading||workforce.loading)?<p>{t('common.loading')}</p>:<>
  {view!=='corrections'&&<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{kpis.map(([name,value])=><Card key={name}><CardContent className="p-4"><div className="text-sm text-muted-foreground">{name}</div><div className="text-xl font-semibold">{value}</div></CardContent></Card>)}</div>}
  {view==='corrections'?<Card><CardHeader><CardTitle>{t('hr.a.fix')} ({correctionRows.length})</CardTitle></CardHeader><CardContent>{header}{correctionRows.map(r=>renderRow(r,true))}{!correctionRows.length&&<p>{t('hr.empty')}</p>}</CardContent></Card>:<>
