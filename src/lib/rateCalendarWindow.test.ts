@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "./rateCalendarWindow";
+import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates, publishedPickupDates, FULL_PUBLISHED_RATE_REQUEST_DAYS } from "./rateCalendarWindow";
 import { canEditCalendarDate } from "./rateCalendarPresentation";
 
 describe("bounded rate-calendar navigation", () => {
@@ -102,4 +102,40 @@ describe("bounded rate-calendar navigation", () => {
     expect(canEditCalendarDate(today, today, true)).toBe(true);
   });
 
+});
+
+
+describe("full published pickup range", () => {
+  const today = "2026-11-27";
+  const rates = [{ stay_date: today }, { stay_date: "2027-10-25" }];
+  const movement = (stay_date: string, netPickup: number | null, gained = 0, lost = 0) => ({
+    stay_date, netPickup, pickupGained: gained, pickupLost: lost,
+    newBookings: gained, cancelledBookings: lost, roomsLost: lost,
+  });
+  it("finds distant dates in chronological order across month boundaries", () => {
+    expect(publishedPickupDates(today, rates, [
+      movement("2027-10-25", 1, 1),
+      movement("2026-12-05", 2, 2),
+      movement("2027-05-01", 3, 3),
+      movement(today, 1, 1),
+      movement("2027-10-26", 1, 1),
+      movement("2026-11-26", 2, 2),
+    ])).toEqual([today, "2026-12-05", "2027-05-01", "2027-10-25"]);
+    expect(FULL_PUBLISHED_RATE_REQUEST_DAYS).toBe(365);
+  });
+  it("includes cancellation-only and offsetting activity, not zero or unknown", () => {
+    expect(publishedPickupDates(today, rates, [
+      movement("2027-02-01", -2, 0, 2),
+      movement("2027-03-01", 0, 2, 2),
+      movement("2027-04-01", 0),
+      movement("2027-05-01", null),
+      movement("2027-03-01", 0, 2, 2),
+    ])).toEqual(["2027-02-01", "2027-03-01"]);
+  });
+  it("never invents a future range when no rate dates are published", () => {
+    expect(publishedPickupDates(today, [], [movement(today, 3, 3)])).toEqual([]);
+    expect(publishedPickupDates(today, [{ stay_date: "2026-12-01" }], [
+      movement("2026-12-02", 1, 1),
+    ])).toEqual([]);
+  });
 });
