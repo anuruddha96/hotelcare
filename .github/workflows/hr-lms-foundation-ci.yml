@@ -1,0 +1,50 @@
+name: HR LMS foundation security CI
+on:
+  pull_request:
+    paths:
+      - 'docs/hr-lms-foundation.review.sql'
+      - 'supabase/tests/hr_lms_*.sql'
+      - 'supabase/migrations/*_hr_lms_foundation.sql'
+      - '.github/workflows/hr-lms-foundation-ci.yml'
+permissions:
+  contents: read
+jobs:
+  tenant-isolation:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lms_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: lms_test
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.75.0
+      - name: Generate or verify exact migration candidate
+        run: |
+          set -euo pipefail
+          supabase migration new --help
+          shopt -s nullglob
+          files=(supabase/migrations/*_hr_lms_foundation.sql)
+          if [ "${#files[@]}" -eq 0 ]; then
+            supabase migration new hr_lms_foundation
+            files=(supabase/migrations/*_hr_lms_foundation.sql)
+            test "${#files[@]}" -eq 1
+            cp docs/hr-lms-foundation.review.sql "${files[0]}"
+          else
+            test "${#files[@]}" -eq 1
+            cmp docs/hr-lms-foundation.review.sql "${files[0]}"
+          fi
+          echo "LMS_MIGRATION=${files[0]}" >> "$GITHUB_ENV"
+          echo "GENERATED_MIGRATION_PATH=${files[0]}"
+      - run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/hr_lms_fixture.sql -f "$LMS_MIGRATION" -f supabase/tests/hr_lms_security.sql
