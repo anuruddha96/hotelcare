@@ -8,6 +8,7 @@ on:
       - 'supabase/migrations/20260922110100_memories_upload_and_manual_service_guards.sql'
       - 'supabase/migrations/20260922110200_memories_upload_column_safety.sql'
       - 'supabase/tests/memories_service_cycle_*'
+      - 'supabase/migrations/20261127085000_fix_housekeeping_service_toggle_reversal.sql'
       - 'supabase/tests/memories_towel_due_persistence_integration.sql'
       - 'supabase/migrations/20261021145000_memories_towel_due_audit_and_pms_conflict.sql'
       - '.github/workflows/memories-service-cycle-sql-ci.yml'
@@ -54,3 +55,5 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261021145000_memories_towel_due_audit_and_pms_conflict.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/memories_towel_due_persistence_integration.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/memories_service_cycle_upload_integration.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261127085000_fix_housekeeping_service_toggle_reversal.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/memories_service_cycle_manual_toggle_integration.sql
