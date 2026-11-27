@@ -73,3 +73,24 @@ export function attendanceShiftHours(rows:ActualAttendance[],shiftFor:(row:Actua
  }
  return {days:days.size,hours,night,weekend,holiday};
 }
+
+/** Reporting classification only; this does not change authorization. */
+export function attendanceRole(role?:string|null, accessRole?:string|null, job?:string|null):string {
+ const effective=accessRole||role||'other';
+ if (job?.trim().toLowerCase()==='front office manager') return 'front_office_manager';
+ if (effective==='breakfast_staff') return 'breakfast';
+ if (effective==='top_management_manager') return 'top_management';
+ if (effective==='front_office') return 'reception';
+ return ['housekeeping','maintenance','reception','housekeeping_manager','housekeeping_supervisor','breakfast','manager','top_management','hr','controlling','admin','front_office_manager'].includes(effective)?effective:'other';
+}
+export function newestAttendance<T extends {work_date:string;check_in_time:string;id:string}>(rows:readonly T[]):T[] {
+ return [...rows].sort((a,b)=>b.work_date.localeCompare(a.work_date)||b.check_in_time.localeCompare(a.check_in_time)||a.id.localeCompare(b.id));
+}
+export function attendanceStatus(row:{work_date:string;check_out_time:string|null;status?:string},today:string):string {
+ if(row.check_out_time) return row.status==='auto_signout'?'auto':'out';
+ if(row.work_date<today) return 'missing';
+ return row.status==='on_break'?'break':'working';
+}
+export function attendanceDayRange(today:string,days:number):string {
+ return new Date(Date.parse(today+'T12:00:00Z')-(days-1)*86400000).toISOString().slice(0,10);
+}
