@@ -3,9 +3,9 @@ import { christmasGiftDay, christmasGiftEligibility, christmasGiftStorageKey, ge
 
 describe("Christmas 2026 gift", () => {
   const at = (iso: string) => new Date(iso);
-  it("starts the exact rehearsal account at Budapest midnight on November 28", () => {
-    expect(christmasGiftEligibility("anu_000", at("2026-11-27T22:59:59Z"))).toBeNull();
-    expect(christmasGiftEligibility("anu_000", at("2026-11-27T23:00:00Z"))).toBe("2026-11-28");
+  it("starts the exact rehearsal account at Budapest midnight on November 27", () => {
+    expect(christmasGiftEligibility("anu_000", at("2026-11-26T22:59:59Z"))).toBeNull();
+    expect(christmasGiftEligibility("anu_000", at("2026-11-26T23:00:00Z"))).toBe("2026-11-27");
     expect(christmasGiftEligibility("anuruddha_000", at("2026-11-28T07:00:00Z"))).toBeNull();
     expect(christmasGiftEligibility("other", at("2026-12-24T12:00:00Z"))).toBeNull();
   });
