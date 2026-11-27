@@ -1,0 +1,26 @@
+# Google Ads native module — read-only pilot
+
+Route: /:organizationSlug/google-ads. This is a draft first milestone, not a production-ready background integration. The Google Ads API is v26 and access is configured on the Google Cloud project (legacy developer-token headers are no longer required). See https://developers.google.com/google-ads/api and https://developers.google.com/google-ads/api/docs/api-policy/access-levels.
+
+## Pilot setup
+1. Enable Google Ads API and obtain Explorer access (or higher) in the HotelCare Google Cloud project. Test access cannot query live advertising accounts.
+2. In Google Auth Platform, add the Ads scope https://www.googleapis.com/auth/adwords and configure the OAuth consent screen/verification as appropriate. Use a web OAuth client from that same project. Add the exact HotelCare web origin (https://hotelcare.app) under Authorized JavaScript origins. Avoid changing existing login or mail scopes without review.
+3. Set GOOGLE_ADS_CLIENT_ID as a Supabase Edge Function secret to that public web client ID; if absent the function uses GOOGLE_CLIENT_ID. No client secret or developer token is required for this interactive token-model pilot.
+4. Deploy google-ads-report with JWT verification enabled; it also independently calls auth.getUser and checks the user's own organization and administrator role before processing requests. Do not deploy until security and CI review are complete.
+5. Sign into HotelCare as an administrator for the intended organization, connect an authorized Google account, select an advertising customer and load the report. The temporary Google access token is held only in the mounted page's memory, not persisted in storage, URL, database or Mira. Disconnect clears local state, not the underlying Google grant. The Ads scope itself is not read-only; the function exposes only fixed reporting queries and does not implement mutations.
+
+## Reporting semantics
+- List direct accessible accounts and discover client accounts of accessible managers. Use login-customer-id for manager-authorized child reports. One customer at a time; no mixed-currency totals.
+- Account-local inclusive date ranges, capped at 366 days. Campaign cost in micros; conversion value in account currency. Weighted metrics are computed from summed numerators/denominators; unavailable ratios are null. Current enabled campaign budgets are deduplicated by resource ID; daily budgets are not historical spend or a hard monthly cap. Removed/paused campaigns can have historical activity.
+- Mira receives a user-triggered, bounded numerical snapshot via existing Ask AI navigation. It does not receive credentials or independently query Ads, and the snapshot is not a permanent synchronization. Google Ads conversions are not guaranteed direct hotel bookings or realized revenue. No automatic changes are implemented.
+
+## Acceptance before live rollout
+- Confirm project access, web origin and consent, account discovery including nested manager accounts, empty accounts and denied access; verify the fixed GAQL queries against v26. Compare spend, impressions, clicks, conversions and budget against Google Ads UI for matching timezone and dates.
+- Verify JWT rejection, organization mismatch and non-admin rejection, token expiry, account switch/disconnect, report errors, pagination and quota limits, cancellation and no credential logging. Verify the desktop and mobile layouts, Hungarian translation and Mira handoff. Run npm test/build and review deployment.
+- No production database migrations required for this milestone.
+
+## Follow-on development (not implemented in pilot)
+- Server-side authorization-code OAuth with state/PKCE, encrypted refresh tokens, revocation, per-organization connections, account discovery and explicit venue/account/campaign mapping. Never infer a venue by account name; shared campaigns need explicit allocation rules. Marketing and management permissions with venue scoping and RLS.
+- Incremental persisted campaign/asset/keyword/geo/device/conversion-action reports with sync statuses, retry/backoff, rate limits, last-success watermark, restatement window and historical budget snapshots. Venue and organization portfolio filters; currency separation or approved FX normalization, custom report comparison and daily/monthly/yearly drill-down, export and Hungarian/English translations.
+- Native Mira server tools read synchronized data through the same tenant and venue access policies. Proposals should carry before/after values, evidence, budget deltas, target IDs and expiry; validate against current Google state and API capability. Approval-bound writes only at first, then optional constrained automation after audit: no budget increases or enabling paused campaigns outside approved limits; deduplicate requests, enforce caps and cooldown, record Google response and verify state. Never apply model-generated raw GAQL or unrestricted mutate payloads.
+- Connect attribution to HotelCare booking engine/PMS, including consent and conversion definitions; distinguish Google-attributed value from actual net business revenue. Add API-specific detail for Search, Performance Max and Hotel Ads, plus conversion tracking health.
