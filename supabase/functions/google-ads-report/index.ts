@@ -6,6 +6,20 @@ const SCOPE="https://www.googleapis.com/auth/adwords";
 const DB=()=>createClient(Deno.env.get("SUPABASE_URL")!,Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 type DBClient=ReturnType<typeof DB>;
 type Category="sync"|"interactive";
+type GoogleCustomer = { id?: string | number; descriptiveName?: string; currencyCode?: string; timeZone?: string; status?: string; manager?: boolean };
+type GoogleRow = {
+ customer?: GoogleCustomer; customerClient?: GoogleCustomer;
+ campaign?: {id?: string | number; name?: string; status?: string; advertisingChannelType?: string};
+ campaignBudget?: {id?: string | number; name?: string; amountMicros?: string | number; totalAmountMicros?: string | number; period?: string};
+ segments?: {date?: string};
+ metrics?: {costMicros?: string | number; impressions?: string | number; clicks?: string | number; conversions?: string | number; conversionsValue?: string | number};
+};
+type Connection = {id:string; organization_id:string; google_subject:string; status:string};
+type AccountTarget = {customer_id:string; login_customer_id:string|null};
+type DiscoveredAccount = AccountTarget & {name:string; currency:string; time_zone:string; account_status:string};
+function validCustomer(c:GoogleCustomer|undefined): c is GoogleCustomer & {currencyCode:string;timeZone:string}{
+ return !!c && typeof c.currencyCode==="string" && /^[A-Z]{3}$/.test(c.currencyCode) && typeof c.timeZone==="string" && !!c.timeZone;
+}
 function checked<T>(r:{data:T;error:unknown}):T{if(r.error)throw new AdsError(500,"DATABASE_OPERATION_FAILED");return r.data;}
 const cors={"Access-Control-Allow-Origin":"https://hotelcare.app","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type, x-worker-secret","Access-Control-Allow-Methods":"POST, OPTIONS"};
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {status,headers:{...cors,"Content-Type":"application/json","Cache-Control":"no-store"}});
@@ -34,7 +48,7 @@ async function api(db:DBClient,category:Category,token:string,path:string,query?
   return await res.json();
 }
 async function search(db:DBClient,category:Category,token:string,id:string,query:string,login?:string) {
-  const rows: Record<string,any>[]=[];
+  const rows: GoogleRow[]=[];
   let pageToken:string|undefined;
   for(let page=0;page<10;page++){
     const response=await api(db,category,token,"/customers/"+id+"/googleAds:search",query,login,pageToken);
@@ -87,7 +101,7 @@ async function tokenRequest(params:Record<string,string>){
  if(typeof body.access_token!=="string")throw new AdsError(502,"GOOGLE_TOKEN_MISSING");
  return body;
 }
-async function refresh(db:DBClient,connection:any){
+async function refresh(db:DBClient,connection:Connection){
  if(connection.status!=="active")throw new AdsError(409,"CONNECTION_INACTIVE");
  const c=checked(await db.from("google_ads_credentials").select("refresh_ciphertext").eq("connection_id",connection.id).maybeSingle());
  if(!c)throw new AdsError(409,"REAUTHORIZATION_REQUIRED");
@@ -98,20 +112,20 @@ async function refresh(db:DBClient,connection:any){
   throw e;
  }
 }
-async function discover(db:DBClient,connection:any,token:string,category:Category){
+async function discover(db:DBClient,connection:Connection,token:string,category:Category){
  const response=await api(db,category,token,"/customers:listAccessibleCustomers");
  const roots=[...new Set<string>((response.resourceNames??[]).map((s:string)=>s.split("/")[1]).filter(idOk))];
  if(roots.length>50)throw new AdsError(413,"TOO_MANY_DIRECT_ACCOUNTS");
- const accounts=new Map<string,any>(),failures:string[]=[];
+ const accounts=new Map<string,DiscoveredAccount>(),failures:string[]=[];
  for(const root of roots){
   try{
    const c=(await search(db,category,token,root,"SELECT "+accountFields+" FROM customer LIMIT 1"))[0]?.customer;
-   if(!c)throw new AdsError(404,"CUSTOMER_NOT_FOUND");
+   if(!validCustomer(c))throw new AdsError(404,"CUSTOMER_NOT_FOUND");
    if(!c.manager){accounts.set(root,{customer_id:root,name:c.descriptiveName||root,currency:c.currencyCode,time_zone:c.timeZone,account_status:c.status||"UNKNOWN",login_customer_id:null});continue;}
    const children=await search(db,category,token,root,"SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.time_zone, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.manager = FALSE",root);
    for(const row of children){
     const a=row.customerClient,id=String(a?.id??"");
-    if(idOk(id)&&!accounts.has(id))accounts.set(id,{customer_id:id,name:a.descriptiveName||id,currency:a.currencyCode,time_zone:a.timeZone,account_status:a.status||"UNKNOWN",login_customer_id:root});
+    if(idOk(id)&&validCustomer(a)&&!accounts.has(id))accounts.set(id,{customer_id:id,name:a.descriptiveName||id,currency:a.currencyCode,time_zone:a.timeZone,account_status:a.status||"UNKNOWN",login_customer_id:root});
    }
   }catch(e){if(e instanceof AdsError&&e.code==="LOCAL_QUOTA_LIMIT")throw e;failures.push(root+": "+(e instanceof AdsError?e.code:"DISCOVERY_FAILED"));}
  }
@@ -122,7 +136,7 @@ async function discover(db:DBClient,connection:any,token:string,category:Categor
  checked(await db.from("google_ads_connections").update({last_error:failures.length?"PARTIAL_DISCOVERY":null,updated_at:at,last_discovery_at:failures.length?null:at,discovery_lease_until:failures.length?new Date(Date.now()+3600000).toISOString():null}).eq("id",connection.id).eq("status","active"));
  return failures;
 }
-async function report(db:DBClient,category:Category,token:string,a:any,start:string,end:string){
+async function report(db:DBClient,category:Category,token:string,a:AccountTarget,start:string,end:string){
  const fields="campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, segments.date, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value";
  const perf=await search(db,category,token,a.customer_id,"SELECT "+fields+" FROM campaign WHERE segments.date BETWEEN '"+start+"' AND '"+end+"'",a.login_customer_id||undefined);
  const budget=await search(db,category,token,a.customer_id,"SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, campaign_budget.id, campaign_budget.name, campaign_budget.amount_micros, campaign_budget.total_amount_micros, campaign_budget.period FROM campaign WHERE campaign.status != REMOVED",a.login_customer_id||undefined);
