@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { budgetSummary, campaignTotals, dateRange, ratios, sumMetrics, trendTotals, accountToday } from "./googleAdsAnalytics";
+import { coversRange, budgetSummary, campaignTotals, dateRange, ratios, sumMetrics, trendTotals, accountToday } from "./googleAdsAnalytics";
 const row = { date:"2026-11-01",campaignId:"1",name:"Search",status:"ENABLED",channel:"SEARCH",costMicros:10000000,impressions:100,clicks:10,conversions:2,conversionValue:50 };
 describe("Google Ads reporting",()=>{
   it("uses sums rather than averaging campaign rates",()=>{
@@ -21,4 +21,14 @@ describe("Google Ads reporting",()=>{
     expect(dateRange("2026-01-01","last30")).toEqual({start:"2025-12-03",end:"2026-01-01"});
     expect(dateRange("2026-11-27","year")).toEqual({start:"2026-01-01",end:"2026-11-27"});
   });
+});
+
+describe("Synchronized range coverage",()=>{
+ it("does not mistake missing reports or gaps for verified zero activity",()=>{
+  expect(coversRange([],"2026-11-01","2026-11-03")).toBe(false);
+  expect(coversRange([{start_day:"2026-11-01",end_day:"2026-11-01"},{start_day:"2026-11-03",end_day:"2026-11-03"}],"2026-11-01","2026-11-03")).toBe(false);
+ });
+ it("joins adjacent and overlapping windows even if they contain no campaign rows",()=>{
+  expect(coversRange([{start_day:"2026-11-03",end_day:"2026-11-04"},{start_day:"2026-11-01",end_day:"2026-11-02"},{start_day:"2026-10-25",end_day:"2026-11-01"}],"2026-11-01","2026-11-04")).toBe(true);
+ });
 });
