@@ -43,7 +43,7 @@ import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECE
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import PriceDemandJourney from "@/components/revenue/PriceDemandJourney";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
-import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates, FULL_PUBLISHED_RATE_REQUEST_DAYS, publishedPickupDates } from "@/lib/rateCalendarWindow";
+import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates, publishedPickupDates } from "@/lib/rateCalendarWindow";
 import { RATE_HISTORY_DAYS, canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
 import { shouldAllowRateCalendarEdgePan, shouldResetRateCalendarViewport } from "@/lib/rateCalendarScroll";
 import { shouldPinRateSummary } from "@/lib/rateCalendarStickyBoundary";
@@ -105,9 +105,10 @@ interface Props {
   /** Fast refresh of Previo rooms-for-sale after an inventory write. */
   onAvailabilityUpdated?: () => void | Promise<void>;
   /** Tell the page how far ahead the calendar needs data loaded. */
-  onHorizonDaysChange?: (days: number) => void;
+  onHorizonDaysChange?: (days: number, fullPublishedRange?: boolean) => void;
   /** Whether the full published payload request completed for the current property. */
   fullPickupRangeReady?: boolean;
+  publishedHorizonEnd?: string;
 }
 
 
@@ -356,7 +357,7 @@ interface PendingDraft {
 export default function RateStrategyGrid({
   loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [], cancellations = [], lastSyncAt,
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
-  demandByDate, eventsByDate, leftByTypeDate, soldOutPrices = [], onRatesUpdated, onAvailabilityUpdated, onHorizonDaysChange, fullPickupRangeReady = false,
+  demandByDate, eventsByDate, leftByTypeDate, soldOutPrices = [], onRatesUpdated, onAvailabilityUpdated, onHorizonDaysChange, fullPickupRangeReady = false, publishedHorizonEnd,
 }: Props) {
   const { language } = useTranslation();
   const hu = language === 'hu';
@@ -428,7 +429,7 @@ export default function RateStrategyGrid({
    */
   const [monthFilter, setMonthFilter] = useState<string | null>(null);
   const [pickupOnly, setPickupOnly] = useState(false);
-  const pickupDates = useMemo(() => publishedPickupDates(today, rates, metrics), [today, rates, metrics]);
+  const pickupDates = useMemo(() => publishedPickupDates(today, publishedHorizonEnd, metrics), [today, publishedHorizonEnd, metrics]);
   const visiblePickupDates = useMemo(() => fullPickupRangeReady ? pickupDates : [], [fullPickupRangeReady, pickupDates]);
   const [fitAllDates, setFitAllDates] = useState(true);
   // Only the last three nights load by default; selecting a historical month
@@ -551,7 +552,7 @@ export default function RateStrategyGrid({
   // The date window is a view only. Pricing automation and bulk editor retain
   // their own horizons; no scroll handler expands this calendar.
   useEffect(() => {
-    onHorizonDaysChange?.(pickupOnly ? FULL_PUBLISHED_RATE_REQUEST_DAYS : requiredCalendarHorizon(today, monthFilter));
+    onHorizonDaysChange?.(requiredCalendarHorizon(today, monthFilter), pickupOnly);
   }, [today, monthFilter, pickupOnly, onHorizonDaysChange]);
 
   // Cell dots are on by default, so a purple cell dot and the dot on its date
@@ -3447,7 +3448,7 @@ export default function RateStrategyGrid({
           {pickupOnly && !loading && !fullPickupRangeReady && (
             <div role="status" className="flex items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
               {hu ? "A teljes időszak még nem érhető el." : "The complete published range is not available yet."}
-              <Button size="sm" variant="outline" onClick={() => void onRatesUpdated?.()}>{hu ? "Újra" : "Retry"}</Button>
+              <Button size="sm" variant="outline" onClick={() => void Promise.resolve(onRatesUpdated?.()).catch(() => {})}>{hu ? "Újra" : "Retry"}</Button>
             </div>
           )}
           {pickupOnly && fullPickupRangeReady && dates.length === 0 && !loading && (
