@@ -38,3 +38,16 @@ export function dateRange(today: string, preset: "today" | "month" | "year" | "l
   date.setUTCDate(date.getUTCDate()-29);
   return { start: preset === "today" ? today : preset === "month" ? today.slice(0,7)+"-01" : preset === "year" ? today.slice(0,4)+"-01-01" : date.toISOString().slice(0,10), end: today };
 }
+
+/** A successful empty report covers a day; a missing sync never does. */
+export function coversRange(windows:{start_day:string;end_day:string}[],start:string,end:string):boolean{
+ if(!start||!end||start>end)return false;
+ const sorted=windows.filter(w=>w.start_day&&w.end_day&&w.end_day>=start&&w.start_day<=end).sort((a,b)=>a.start_day.localeCompare(b.start_day));
+ let cursor=start;
+ for(const w of sorted){
+   if(w.start_day>cursor)return false;
+   if(w.end_day>=end)return true;
+   if(w.end_day>=cursor){const d=new Date(w.end_day+"T00:00:00Z");d.setUTCDate(d.getUTCDate()+1);cursor=d.toISOString().slice(0,10);}
+ }
+ return false;
+}
