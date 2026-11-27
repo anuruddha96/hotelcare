@@ -120,7 +120,7 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     // revenue figures stay with top management; managers see the price list.
     ...(executive || (nativePms && role === 'manager' && caps.accessRole === 'manager') ? [{ key: 'revenue' as const, label: 'nav.revenue', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) }] : []),
     ...(role === 'admin' && (!profile?.access_role || profile.access_role === 'admin') && profile?.organization_slug === organizationSlug ? [{ key: 'google-ads' as const, label: 'nav.googleAds', icon: Megaphone, click: () => navigate(`${basePath}/google-ads`) }] : []),
-    ...(canAccessLinkedIn(profile, organizationSlug || profile?.organization_slug) ? [{ key: 'linkedin-marketing' as const, label: 'LinkedIn Marketing', icon: Megaphone, click: () => navigate(`${basePath}/linkedin-marketing`) }] : []),
+    ...(canAccessLinkedIn(profile, organizationSlug || profile?.organization_slug) ? [{ key: 'linkedin-marketing' as const, label: 'nav.linkedinMarketing', icon: Megaphone, click: () => navigate(`${basePath}/linkedin-marketing`) }] : []),
     ...(!executive && !nativePms && caps.priceList ? [{ key: 'price-list' as const, label: 'nav.priceList', icon: Tags, click: () => navigate(`${basePath}/price-list`) }] : []),
     ...(canAccessChannelManager(role, profile?.nickname, profile?.organization_slug) ? [{ key: 'channel-manager' as const, label: 'nav.channels', icon: Radio, click: () => navigate(`${basePath}/channel-manager`) }] : []),
     ...(caps.reviews && (executive || (role === 'manager' && organizationSlug === 'rdhotels')) ? [{ key: 'reputation' as const, label: 'nav.reputation', icon: MessageSquareText, click: () => navigate(`${basePath}/reputation`) }] : []),
@@ -226,10 +226,10 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
                       )}
                     >
                       <Icon className="h-3 w-3 sm:h-4 sm:w-4 shrink-0" />
-                      <span>{item.key === 'linkedin-marketing' ? 'LinkedIn Marketing' : t(item.label)}</span>
+                      <span>{t(item.label)}</span>
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-[240px] text-xs">{item.key === 'linkedin-marketing' ? 'Connect and schedule LinkedIn company page posts' : t(`${item.label}.tip`)}</TooltipContent>
+                  <TooltipContent side="bottom" className="max-w-[240px] text-xs">{t(`${item.label}.tip`)}</TooltipContent>
                 </Tooltip>
               );
             })}
