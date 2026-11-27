@@ -5,7 +5,7 @@ create table public.google_ads_connections (
  organization_id uuid not null references public.organizations(id) on delete cascade,
  google_subject text not null, email text not null, connected_by uuid not null,
  status text not null default 'active' check(status in ('active','expired','disconnected')),
- last_error text, updated_at timestamptz not null default now(),
+ last_error text, updated_at timestamptz not null default now(), last_discovery_at timestamptz, discovery_lease_until timestamptz,
  unique(organization_id,google_subject), unique(id,organization_id)
 );
 create table public.google_ads_credentials (
@@ -35,6 +35,10 @@ create table public.google_ads_campaign_daily (
  account_id uuid not null references public.google_ads_accounts(id) on delete cascade,
  campaign_id text not null, day date not null, payload jsonb not null, primary key(account_id,day,campaign_id)
 );
+create table public.google_ads_coverage (
+ account_id uuid not null references public.google_ads_accounts(id) on delete cascade, day date not null, synced_at timestamptz not null default now(),
+ primary key(account_id,day)
+);
 create table public.google_ads_budgets (
  account_id uuid not null references public.google_ads_accounts(id) on delete cascade, campaign_id text not null, payload jsonb not null,
  primary key(account_id,campaign_id)
@@ -45,7 +49,7 @@ create table public.google_ads_budget_history (
 );
 create table public.google_ads_sync_jobs (
  account_id uuid primary key references public.google_ads_accounts(id) on delete cascade,
- due_at timestamptz not null default now(), history_next_end date, last_recent_at timestamptz, last_month_at timestamptz,
+ due_at timestamptz not null default now(), history_next_end date, last_today_at timestamptz, last_recent_at timestamptz, last_month_at timestamptz,
  last_deep_at timestamptz, lease uuid, lease_until timestamptz, attempts integer not null default 0
 );
 create index google_ads_due_jobs on public.google_ads_sync_jobs(due_at);
@@ -61,7 +65,7 @@ create index google_ads_usage_at on public.google_ads_api_usage(at);
 do $$
 declare t text;
 begin
- foreach t in array array['connections','credentials','oauth_states','accounts','campaigns','campaign_daily','budgets','budget_history','sync_jobs','sync_logs','api_usage'] loop
+ foreach t in array array['connections','credentials','oauth_states','accounts','campaigns','campaign_daily','coverage','budgets','budget_history','sync_jobs','sync_logs','api_usage'] loop
   execute format('alter table public.google_ads_%I enable row level security',t);
   execute format('revoke all on table public.google_ads_%I from public, anon, authenticated',t);
   execute format('grant select,insert,update,delete on table public.google_ads_%I to service_role',t);
@@ -138,7 +142,7 @@ begin
   where a.enabled and a.available and c.status='active'
    and (p_org is null or a.organization_id=p_org) and (p_account is null or a.id=p_account)
    and (j.lease_until is null or j.lease_until<now())
-   and (j.due_at<=now() or (p_account is not null and j.attempts=0))
+   and j.due_at<=now()
   order by j.due_at,j.account_id limit 1 for update of j skip locked
  )
  update public.google_ads_sync_jobs j set lease=gen_random_uuid(),lease_until=now()+interval '10 minutes'
@@ -153,6 +157,9 @@ begin
  if not exists(select 1 from public.google_ads_sync_jobs j join public.google_ads_accounts a on a.id=j.account_id
  join public.google_ads_connections c on c.id=a.connection_id where j.account_id=p_account and j.lease=p_lease and j.lease_until>now()
  and a.enabled and a.available and c.status='active' for update of j) then return false; end if;
+ insert into public.google_ads_coverage(account_id,day)
+ select p_account,d::date from generate_series(p_start::timestamp,p_end::timestamp,interval '1 day') d
+ on conflict(account_id,day) do update set synced_at=now();
  delete from public.google_ads_campaign_daily where account_id=p_account and day between p_start and p_end;
  insert into public.google_ads_campaign_daily(account_id,campaign_id,day,payload)
  select p_account,r->>'campaignId',(r->>'date')::date,r from jsonb_array_elements(p_rows) r;
@@ -168,7 +175,8 @@ begin
  select p_account,p_today,b->>'campaignId',b from jsonb_array_elements(p_budgets) b;
  update public.google_ads_accounts set last_sync_at=now(),last_error=null where id=p_account;
  update public.google_ads_sync_jobs set
-  due_at=now()+interval '1 hour',lease=null,lease_until=null,attempts=0,
+  due_at=now()+case when (case when p_kind='history' then p_history_next else history_next_end end) is not null then interval '5 minutes' else interval '1 hour' end,lease=null,lease_until=null,attempts=0,
+  last_today_at=case when p_kind<>'history' then now() else last_today_at end,
   last_recent_at=case when p_kind in ('recent','month','deep') then now() else last_recent_at end,
   last_month_at=case when p_kind in ('month','deep') then now() else last_month_at end,
   last_deep_at=case when p_kind='deep' then now() else last_deep_at end,
@@ -188,10 +196,23 @@ begin
  insert into public.google_ads_sync_logs(account_id,outcome,detail) values(p_account,'error',p_code);
  return true;
 end $$;
-do $$
+-- Daily account hierarchy refresh, claimed separately from report work.
+create function public.google_ads_claim_discovery() returns setof public.google_ads_connections
+language plpgsql security invoker set search_path = '' as $
+begin
+ return query with chosen as (
+ select id from public.google_ads_connections
+ where status='active' and (last_discovery_at is null or last_discovery_at<now()-interval '24 hours')
+ and (discovery_lease_until is null or discovery_lease_until<now())
+ order by last_discovery_at nulls first,id limit 1 for update skip locked
+ ) update public.google_ads_connections c set discovery_lease_until=now()+interval '15 minutes'
+ from chosen where c.id=chosen.id returning c.*;
+end $;
+
+do $
 declare f regprocedure;
 begin
  for f in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace
- where n.nspname='public' and p.proname in ('google_ads_reserve_operation','google_ads_attach','google_ads_disconnect','google_ads_enable_account','google_ads_claim_job','google_ads_commit_report','google_ads_fail_job')
+ where n.nspname='public' and p.proname in ('google_ads_reserve_operation','google_ads_attach','google_ads_disconnect','google_ads_enable_account','google_ads_claim_job','google_ads_commit_report','google_ads_fail_job','google_ads_claim_discovery')
  loop execute format('revoke all on function %s from public,anon,authenticated',f); execute format('grant execute on function %s to service_role',f); end loop;
 end $$;
