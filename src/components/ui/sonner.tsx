@@ -35,9 +35,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
       // Dialogs use z-50 and lock outside pointer events. Keep toasts below
       // their overlay instead of showing an apparently unclickable close icon.
       style={{ zIndex: 40, ...PLACEMENT_VARS }}
-      // Auto-dismiss after 6s, always dismissible (close
+      // Auto-dismiss after 4s, always dismissible (close
       // button + swipe), never more than one notification on screen.
-      duration={6000}
+      duration={4000}
       closeButton
       visibleToasts={1}
       toastOptions={{

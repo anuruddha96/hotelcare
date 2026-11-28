@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { hasBlockingDialog } from '../notificationPresentation';
+import { createNotificationEventGate, createNotificationSoundGate, hasBlockingDialog, shouldSendSystemNotification } from '../notificationPresentation';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -32,5 +34,35 @@ describe('notification display outside active dialogs', () => {
     container.innerHTML = '<div role="dialog" data-state="open"></div>';
     expect(hasBlockingDialog(container)).toBe(true);
     expect(hasBlockingDialog()).toBe(false);
+  });
+});
+
+describe('quiet background notification delivery', () => {
+  it('uses the in-app alert instead of a duplicate OS alert in the foreground', () => {
+    expect(shouldSendSystemNotification('visible')).toBe(false);
+    expect(shouldSendSystemNotification('hidden')).toBe(true);
+  });
+  it('allows one sound per 15 seconds without suppressing distinct events', () => {
+    const allow = createNotificationSoundGate();
+    expect(allow(0)).toBe(true);
+    expect(allow(1)).toBe(false);
+    expect(allow(14_999)).toBe(false);
+    expect(allow(15_000)).toBe(true);
+  });
+  it('deduplicates identified event replays, not different rooms or recipients', () => {
+    const allow = createNotificationEventGate();
+    expect(allow('user:assignment:1', 0)).toBe(true);
+    expect(allow('user:assignment:1', 1)).toBe(false);
+    expect(allow('user:assignment:2', 1)).toBe(true);
+    expect(allow('other:assignment:1', 1)).toBe(true);
+    expect(allow('user:assignment:1', 60_000)).toBe(true);
+  });
+  it('keeps revenue activity in the bell without mounting a catch-up toast', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/components/revenue/RevenueAutomationNotifications.tsx'), 'utf8');
+    expect(source).not.toContain('toast.message');
+    expect(source).not.toContain('CATCH_UP_DELAY_MS');
+    expect(source).toContain('unreadCount > 0');
+    expect(source).toContain('markAllRead()');
+    expect(source).toContain('openDetail(item)');
   });
 });

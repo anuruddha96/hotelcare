@@ -17,3 +17,35 @@ export function hasBlockingDialog(root: ParentNode = document): boolean {
     (element) => !element.closest('[data-radix-popper-content-wrapper]'),
   );
 }
+
+/** A foreground toast already delivers the event; avoid an additional OS alert.
+ * Hidden pages still receive system notifications, including their deep links.
+ */
+export function shouldSendSystemNotification(visibility: DocumentVisibilityState): boolean {
+  return visibility !== 'visible';
+}
+
+/** Shared across hook instances; only suppress sound, never distinct alerts. */
+export function createNotificationSoundGate(cooldownMs = 15_000) {
+  let lastPlayed = -Infinity;
+  return (now = Date.now()) => {
+    if (now >= lastPlayed && now - lastPlayed < cooldownMs) return false;
+    lastPlayed = now;
+    return true;
+  };
+}
+
+/** Suppress replay of the same identified database event across hook instances.
+ * Never deduplicate by message text: different rooms can have identical labels.
+ */
+export function createNotificationEventGate(ttlMs = 60_000) {
+  const seen = new Map<string, number>();
+  return (key: string, now = Date.now()) => {
+    for (const [id, timestamp] of seen) {
+      if (now < timestamp || now - timestamp >= ttlMs) seen.delete(id);
+    }
+    if (seen.has(key)) return false;
+    seen.set(key, now);
+    return true;
+  };
+}

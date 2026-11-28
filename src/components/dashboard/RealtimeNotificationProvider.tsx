@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTranslation } from '@/hooks/useTranslation';
 import { serviceWorkerManager } from '@/lib/serviceWorkerManager';
+import { shouldSendSystemNotification } from '@/lib/notificationPresentation';
 
 type HighlightedRoomMessage = {
   element: HTMLElement;
@@ -261,7 +262,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
 
       // Background events cannot ask for permission: opt-in belongs to a tap
       // on Enable notifications in the banner or Settings.
-      if (notificationPermission !== 'granted') return;
+      if (notificationPermission !== 'granted' || !shouldSendSystemNotification(document.visibilityState)) return;
 
       const targetUrl = new URL(window.location.href);
       targetUrl.searchParams.set('tab', 'housekeeping');
@@ -459,7 +460,8 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
               showNotification(
                 t('notifications.maintenanceReview'),
                 'info',
-                t('notifications.maintenanceApproval')
+                t('notifications.maintenanceApproval'),
+                row.id ? `maintenance:${row.id}:approval:${payload.commit_timestamp}` : undefined,
               );
             }
           )
@@ -478,11 +480,12 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
             table: 'tickets',
             filter: `assigned_to=eq.${user.id}`
           },
-          () => {
+          (payload) => {
             showNotification(
               t('notifications.newTicketAssigned'),
               'info',
-              t('notifications.newTicketLabel')
+              t('notifications.newTicketLabel'),
+              payload.new?.id ? `ticket:${payload.new.id}:insert` : undefined,
             );
           }
         )
@@ -503,7 +506,8 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
               showNotification(
                 t('notifications.ticketStatusChanged').replace('{status}', nextStatus),
                 'info',
-                t('notifications.ticketUpdateLabel')
+                t('notifications.ticketUpdateLabel'),
+                `ticket:${payload.new.id}:${nextStatus}:${payload.commit_timestamp}`,
               );
             }
           }
