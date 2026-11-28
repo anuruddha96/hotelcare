@@ -729,3 +729,12 @@ Deno.test('EU_02B uses technical correction code, and UJ omits reason and record
   for (const r of CLOSURE_CORRECTION_REASONS) { src.reason=r.code; assert.ok(!assembleClosure(src,fixed).checklist.some(c=>c.code==='correction')); }
   for (const reason of ['free text','EGYEB ','egyeb','',null]) { src.reason=reason; assert.ok(assembleClosure(src,fixed).checklist.some(c=>c.code==='correction' && c.level==='error')); }
 });
+Deno.test('NZ_01 closed day leaves out IFA data (NemKuldendoElem)', async () => {
+  const fixed: ClosureSettings = {...settings, ifa:{type:'TETELES',rate:400}, ifaVat:0};
+  const open = assembleClosure(closureSource(), fixed).closure;
+  assert.ok(buildNapiZarasRequest(common(), open).includes('<v9:ifaAdatok>'));
+  const closedXml = buildNapiZarasRequest(common(), {...open, closed: true, nights: [], outOfService: []});
+  assert.ok(closedXml.includes('<v9:szallashelyNemUzemel>true</v9:szallashelyNemUzemel>'));
+  assert.ok(!closedXml.includes('ifaAdatok'));
+  await assertValid(closedXml);
+});
