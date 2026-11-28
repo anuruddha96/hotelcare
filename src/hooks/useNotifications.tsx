@@ -7,6 +7,7 @@ import { serviceWorkerManager } from '@/lib/serviceWorkerManager';
 import { ensurePushSubscription } from '@/lib/pushSubscriptionManager';
 import { getNotificationEnvironment } from '@/lib/notificationPlatform';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { createNotificationEventGate, createNotificationSoundGate, shouldSendSystemNotification } from '@/lib/notificationPresentation';
 import {
   canReceiveHousekeepingOperationalNotifications,
   isExecutiveRole,
@@ -28,6 +29,8 @@ if (typeof document !== 'undefined' && !document.getElementById('notification-fl
 
 let sharedAudioContext: (AudioContext & { close?: () => Promise<void> }) | null = null;
 let serviceWorkerRegistered = false;
+const allowNotificationSound = createNotificationSoundGate();
+const allowNotificationEvent = createNotificationEventGate();
 
 export function useNotifications() {
   const { user, profile } = useAuth();
@@ -265,9 +268,13 @@ export function useNotifications() {
   const showNotification = useCallback(async (
     message: string,
     type: 'success' | 'info' | 'warning' = 'info',
-    title?: string
+    title?: string,
+    eventKey?: string,
   ) => {
-    playNotificationSound();
+    if (eventKey && user?.id && !allowNotificationEvent(`${user.id}:${eventKey}`)) return;
+    const background = shouldSendSystemNotification(document.visibilityState);
+    // Success confirmations are passive; other alerts share one sound budget.
+    if (!background && type !== 'success' && allowNotificationSound()) playNotificationSound();
 
     toast[type](message, {
       duration: 4000,
@@ -283,10 +290,10 @@ export function useNotifications() {
     });
 
     const brandedTitle = title ? `Hotel Care · ${title}` : 'Hotel Care';
-    if (title && notificationPermission === 'granted') {
+    if (background && title && notificationPermission === 'granted') {
       await showBrowserNotification(brandedTitle, message);
     }
-  }, [playNotificationSound, showBrowserNotification, notificationPermission]);
+  }, [playNotificationSound, showBrowserNotification, notificationPermission, user?.id]);
 
   // Personal room assignments still reach housekeepers/staff, but executive
   // roles are explicitly excluded even if a room is accidentally assigned to
@@ -344,7 +351,8 @@ export function useNotifications() {
             showNotification(
               t('notifications.newAssignment'),
               'info',
-              t('notifications.newAssignmentTitle')
+              t('notifications.newAssignmentTitle'),
+              newRecord.id ? `assignment:${newRecord.id}:insert` : undefined,
             );
           }
         )
@@ -380,7 +388,8 @@ export function useNotifications() {
               showNotification(
                 t('notifications.newPendingApproval'),
                 'warning',
-                t('notifications.newPendingApprovalTitle')
+                t('notifications.newPendingApprovalTitle'),
+                newRecord.id ? `assignment:${newRecord.id}:completed:${newRecord.completed_at || payload.commit_timestamp}` : undefined,
               );
             }
           }
@@ -400,7 +409,8 @@ export function useNotifications() {
             showNotification(
               t('notifications.newBreakRequest'),
               'info',
-              t('notifications.newBreakRequestTitle')
+              t('notifications.newBreakRequestTitle'),
+              newRecord.id ? `break:${newRecord.id}:insert` : undefined,
             );
           }
         )
@@ -414,17 +424,21 @@ export function useNotifications() {
           },
           (payload) => {
             const newRecord = payload.new as any;
+            if (payload.old && 'status' in payload.old && payload.old.status === newRecord.status) return;
+            const eventKey = newRecord.id ? `break:${newRecord.id}:${newRecord.status}:${payload.commit_timestamp}` : undefined;
             if (newRecord.status === 'approved') {
               showNotification(
                 t('notifications.breakRequestApproved'),
                 'success',
-                t('notifications.breakRequestTitle')
+                t('notifications.breakRequestTitle'),
+                eventKey,
               );
             } else if (newRecord.status === 'rejected') {
               showNotification(
                 t('notifications.breakRequestRejected'),
                 'warning',
-                t('notifications.breakRequestTitle')
+                t('notifications.breakRequestTitle'),
+                eventKey,
               );
             }
           }

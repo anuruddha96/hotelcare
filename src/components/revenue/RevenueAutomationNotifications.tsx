@@ -2,10 +2,9 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { reportingStateLabel } from '@/lib/i18n/receptionLabels';
 import { formatDistanceToNow } from 'date-fns';
-import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight, Loader2, Search, FilterX, Sparkles, Settings2 } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -36,12 +35,9 @@ import {
 } from '@/lib/revenue/automationSummary';
 import { ReasonSettingEditor } from '@/components/revenue/ReasonSettingEditor';
 import { reasonInfo } from '@/lib/revenue/reasonSettings';
-import { hasBlockingDialog } from '@/lib/notificationPresentation';
 
 
 const SOURCE_LABEL = { all: 'revenue.notif.all', ai: 'revenue.notif.ai', automation: 'revenue.notif.automation', manual: 'revenue.notif.manual' } as const;
-
-const CATCH_UP_DELAY_MS = 12_000;
 
 type DirectionFilter = 'all' | 'increase' | 'decrease' | 'hold';
 
@@ -65,9 +61,6 @@ export function RevenueAutomationNotifications() {
   const relativeTime = (value: string) => formatDistanceToNow(new Date(value), { locale: locale.dateFnsLocale, addSuffix: true });
   const canSee = useCanSeeAutomationNotifications();
   const navigate = useNavigate();
-  const { pathname } = useLocation();
-  const isReception = /(?:^|\/)reception(?:\/|$)/.test(pathname);
-  const catchUpToast = useRef<string | number | null>(null);
   const { items, unreadCount, markRead, markAllRead, loadDecisions, reload } = useRevenueAutomationNotifications(canSee);
 
   const [open, setOpen] = useState(false);
@@ -79,79 +72,8 @@ export function RevenueAutomationNotifications() {
   const [reasonFilter, setReasonFilter] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<keyof typeof SOURCE_LABEL>('all');
-  const welcomed = useRef(false);
-  // Realtime refreshes can replace the items array frequently. Keep the toast
-  // delay stable while still reading the latest unread items when it fires.
-  const latestItemsRef = useRef(items);
-  latestItemsRef.current = items;
-  const hasUnread = unreadCount > 0;
-
-  // One non-urgent catch-up per mount. A Radix modal traps outside interaction,
-  // so defer the toast until the manager has finished with the open dialog.
-  // Closing a toast never marks the underlying revenue activity as read.
-  useEffect(() => {
-    // Reception must remain unobstructed during guest registration. The bell
-    // still retains all unread revenue activity; only the non-urgent toast
-    // is suppressed on this route.
-    if (isReception) {
-      if (catchUpToast.current !== null) toast.dismiss(catchUpToast.current);
-      catchUpToast.current = null;
-      return;
-    }
-    if (!canSee || welcomed.current || !hasUnread) return;
-
-    let settleTimer: number | undefined;
-    let observer: MutationObserver | undefined;
-
-    const showCatchUp = () => {
-      if (welcomed.current || hasBlockingDialog()) return;
-      const unread = latestItemsRef.current.filter((notification) => !notification.read);
-      if (!unread.length) return;
-
-      welcomed.current = true;
-      observer?.disconnect();
-      const changes = unread.reduce((sum, notification) =>
-        sum + (notification.actions_count || notification.changes.length), 0);
-      catchUpToast.current = toast.message(t('revenue.notif.activity'), {
-        description: t(changes === 1 ? 'revenue.notif.updateSince' : 'revenue.notif.updatesSince').replace('{count}', String(changes)),
-        action: { label: t('revenue.notif.viewUpdates'), onClick: () => setOpen(true) },
-        duration: 8_000,
-      });
-    };
-
-    const watchForModalClose = () => {
-      if (!hasBlockingDialog() && settleTimer === undefined) {
-        // Allow closing animations and focus restoration to complete.
-        settleTimer = window.setTimeout(() => {
-          settleTimer = undefined;
-          showCatchUp();
-        }, 350);
-      } else if (hasBlockingDialog() && settleTimer !== undefined) {
-        window.clearTimeout(settleTimer);
-        settleTimer = undefined;
-      }
-    };
-
-    const timer = window.setTimeout(() => {
-      if (!hasBlockingDialog()) {
-        showCatchUp();
-        return;
-      }
-      observer = new MutationObserver(watchForModalClose);
-      observer.observe(document.body, {
-        subtree: true,
-        childList: true,
-        attributes: true,
-        attributeFilter: ['data-state', 'aria-modal'],
-      });
-    }, CATCH_UP_DELAY_MS);
-
-    return () => {
-      window.clearTimeout(timer);
-      if (settleTimer !== undefined) window.clearTimeout(settleTimer);
-      observer?.disconnect();
-    };
-  }, [canSee, hasUnread, isReception]);
+  // Revenue activity is a passive inbox, not an unsolicited catch-up toast.
+  // Keep the unread badge and full activity details on every route.
 
   // Keep an open detail dialog in sync with freshly loaded push outcomes.
   useEffect(() => {
