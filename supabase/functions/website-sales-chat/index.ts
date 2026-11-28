@@ -462,6 +462,44 @@ async function worker(req: Request): Promise<Response> {
   return json({ ok: true, ...result });
 }
 
+// Optional, explicitly requested read-aloud. A separate fail-closed quota bounds
+// the cost even for local FAQ responses that do not have a server chat session.
+async function actionSpeech(req: Request, body: Json, cors: Record<string, string>) {
+  const key = Deno.env.get("GEMINI_API_KEY");
+  if (!key || Deno.env.get("GEMINI_DISABLED") === "true" || Deno.env.get("WEBSITE_CHAT_VOICE_DISABLED") === "true") return json({ error: "VOICE_UNAVAILABLE" }, 503, cors);
+  if (typeof body.text !== "string" || body.text.length > 1800) return json({ error: "VOICE_TEXT" }, 400, cors);
+  const text = redactContacts(body.text).text.replace(/https?:\/\/\S+/gi, "").trim();
+  if (!text || text.length > 1800) return json({ error: "VOICE_TEXT" }, 400, cors);
+  const hash = await ipHash(req);
+  // Do not use the message rate limiter's fail-open behavior for paid audio.
+  for (const [bucket, seconds, limit] of [[`voice:${hash}`, 600, 8], ["voice:global", 86400, 100]] as const) {
+    const { data, error } = await db().rpc("website_chat_hit", { p_bucket: bucket, p_window_seconds: seconds, p_limit: limit });
+    if (error || data !== true) return json({ error: "VOICE_LIMIT" }, 429, cors);
+  }
+  if (await overBudget()) return json({ error: "VOICE_LIMIT" }, 429, cors);
+  const model = "gemini-3.8-flash-tts";
+  try {
+    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+      method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      signal: AbortSignal.timeout(25000),
+      body: JSON.stringify({ model, store: false, input: [{type: "user_input", content: [{type: "text", text, annotations: [{type: "speech_metadata", style: "Warm, relaxed and professional hospitality consultant. Speak naturally with gentle emphasis, clear pronunciation, a comfortable conversational pace and brief pauses between ideas. Read the transcript exactly, in its original language."}]}]}], response_format: {type: "audio"}, generation_config: {speech_config: [{voice: "Sulafat"}]} }),
+    });
+    if (!res.ok) throw new Error("voice provider status " + res.status);
+    const result = await res.json();
+    const parts = (Array.isArray(result.steps) ? result.steps : []).filter((step: Json) => step.type === "model_output").flatMap((step: Json) => Array.isArray(step.content) ? step.content : []);
+    const audio = parts.filter((part: Json) => part.type === "audio").at(-1);
+    if (typeof audio?.data !== "string" || audio.data.length > 12_000_000) throw new Error("invalid audio response");
+    const bytes = Uint8Array.from(atob(audio.data), c => c.charCodeAt(0));
+    if (bytes.length < 44 || new TextDecoder().decode(bytes.slice(0,4)) !== "RIFF" || new TextDecoder().decode(bytes.slice(8,12)) !== "WAVE") throw new Error("invalid wave response");
+    // Reserve conservatively in the existing budget log; independent request cap above.
+    await logAiUsage(db(), { functionName: FUNCTION, model, costUsd: 0.20 });
+    return new Response(bytes, { headers: {...cors, "Content-Type": "audio/wav", "Cache-Control": "no-store"} });
+  } catch (e) {
+    console.warn(FUNCTION + " voice unavailable", e instanceof Error ? e.message : "unknown");
+    return json({ error: "VOICE_UNAVAILABLE" }, 503, cors);
+  }
+}
+
 // ------------------------------------------------------------------ entry
 
 Deno.serve(async (req) => {
@@ -479,6 +517,7 @@ Deno.serve(async (req) => {
     if (body.action === "worker") return await worker(req);
     if (!cors) return json({ error: "ORIGIN" }, 403);
     switch (body.action) {
+      case "speech": return await actionSpeech(req, body, cors);
       case "message": return await actionMessage(req, body, cors);
       case "consent": return await actionConsent(req, body, cors);
       case "complete": return await actionComplete(body, cors);
