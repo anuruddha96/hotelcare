@@ -53,7 +53,12 @@ let res = await call({ action: "message", text: "hi" }, { "Content-Type": "appli
 check("chat without an allowed Origin is refused", res.status === 403, res);
 
 // 2. First message: session created, contact data redacted, AI answers, e-mail form offered
-res = await call({ action: "message", text: "Hi, we run Hotel Duna with 40 rooms, write me at anna@duna.hu or +36 30 123 4567", lang: "en", tz: "America/New_York", page: "/", attribution: { utm_source: "google", referrer: "https://www.google.com/search?q=x" } });
+// Choose a real fixed-offset time zone where it is currently noon, so both
+// the due-now worker and the three-hour reminder run inside business hours
+// regardless of the CI runner clock. Quiet-hours behavior has separate unit tests.
+const offset = ((12 - new Date().getUTCHours() + 36) % 24) - 12;
+const testTimeZone = offset === 0 ? "Etc/UTC" : `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+res = await call({ action: "message", text: "Hi, we run Hotel Duna with 40 rooms, write me at anna@duna.hu or +36 30 123 4567", lang: "en", tz: testTimeZone, page: "/", attribution: { utm_source: "google", referrer: "https://www.google.com/search?q=x" } });
 const sid = res.body.sessionId, secret = res.body.sessionSecret;
 check("first message answered with a new session", res.status === 200 && !!sid && !!secret && res.body.reply.startsWith("Great, 40 rooms"), res);
 check("e-mail form offered and pre-filled with the typed address", res.body.askEmail === true && res.body.prefill.email === "anna@duna.hu" && res.body.offerDemo === true, res.body);
