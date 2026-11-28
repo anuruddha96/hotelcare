@@ -5,6 +5,7 @@
 const realFetch = globalThis.fetch.bind(globalThis);
 const mails: any[] = [];
 const aiCalls: string[] = [];
+const speechCalls: any[] = [];
 const gem = (obj: unknown) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }], usageMetadata: { promptTokenCount: 1200, candidatesTokenCount: 80 } }), { status: 200 });
 globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input instanceof Request ? input.url : input);
@@ -13,6 +14,12 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     return realFetch(url.replace("http://supabase.local/rest/v1", "http://127.0.0.1:3001"), { ...init, headers });
   }
   if (url === "https://api.resend.com/emails") { mails.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ id: "re_" + mails.length }), { status: 200 }); }
+  if (url === "https://generativelanguage.googleapis.com/v1beta/interactions") {
+    speechCalls.push(JSON.parse(String(init?.body)));
+    const wav = new Uint8Array(46);
+    wav.set(new TextEncoder().encode("RIFF"),0);wav.set(new TextEncoder().encode("WAVE"),8);
+    return new Response(JSON.stringify({steps:[{type:"model_output",content:[{type:"audio",data:btoa(String.fromCharCode(...wav))}]}]}),{status:200});
+  }
   if (url.includes("generativelanguage.googleapis.com")) {
     const body = JSON.parse(String(init?.body)); const sys = body.systemInstruction.parts[0].text as string; const prompt = body.contents[0].parts[0].text as string;
     aiCalls.push("gemini:" + url.split("/models/")[1].split(":")[0]);
@@ -51,6 +58,15 @@ r = await realFetch(BASE, { method: "OPTIONS", headers: { Origin: "https://hotel
 check("preflight from hotelcare.app is allowed", r.status === 204 && r.headers.get("access-control-allow-origin") === "https://hotelcare.app");
 let res = await call({ action: "message", text: "hi" }, { "Content-Type": "application/json" });
 check("chat without an allowed Origin is refused", res.status === 403, res);
+
+// Speech is opt-in and shares no visitor transcript or provider key with the browser.
+const speech = await realFetch(BASE,{method:"POST",headers:ORIGIN,body:JSON.stringify({action:"speech",text:"Welcome to HotelCare. Contact anna@duna.hu.",lang:"en"})});
+check("natural speech returns WAV audio",speech.status===200 && speech.headers.get("content-type")==="audio/wav" && (await speech.arrayBuffer()).byteLength===46);
+check("speech uses fixed warm voice, stateless mode and contact redaction",speechCalls.length===1 && speechCalls[0].store===false && speechCalls[0].generation_config.speech_config[0].voice==="Sulafat" && !JSON.stringify(speechCalls[0]).includes("anna@duna.hu"));
+check("speech rejects oversized text", (await call({action:"speech",text:"x".repeat(1801)})).status===400);
+check("speech refuses foreign origin", (await call({action:"speech",text:"Hello"},{...ORIGIN,Origin:"https://evil.example"})).status===403);
+for(let i=0;i<7;i++) await call({action:"speech",text:"Hello"});
+check("speech quota enforced before another provider request",(await call({action:"speech",text:"Hello"})).status===429 && speechCalls.length===8);
 
 // 2. First message: session created, contact data redacted, AI answers, e-mail form offered
 // Choose a real fixed-offset time zone where it is currently noon, so both
