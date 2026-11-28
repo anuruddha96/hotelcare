@@ -209,7 +209,8 @@ export function buildNapiZarasRequest(c: NtakCommon, z: NtakDailyClosure): strin
     + bool('szallashelyNemUzemel', z.closed)
     + el('szobaAdatok', counts(['osszesSzoba', 'oooSzobak', 'oosSzobak', 'kiadottSzobak', 'kiadhatoSzobak'], z.rooms))
     + el('ferohelyAdatok', counts(['osszesFerohelyKapacitas', 'oooFerohelyKapacitas', 'oosFerohelyKapacitas', 'kiadottFerohelyKapacitas', 'kiadhatoFerohelyKapacitas'], z.capacity))
-    + (z.ifa ? el('ifaAdatok', txt('ifaTipusa', z.ifa.type) + el('ifaMertek', formatAmount(z.ifa.rate))) : '')
+    // NTAK refuses <ifaAdatok> on a closed day (szallashelyNemUzemel=true) with NemKuldendoElem, 28 Nov 2026.
+    + (z.ifa && !z.closed ? el('ifaAdatok', txt('ifaTipusa', z.ifa.type) + el('ifaMertek', formatAmount(z.ifa.rate))) : '')
     + (z.nights.length ? el('lakoegysegEjszakak', nights) : '')
     + (z.outOfService.length ? el('uzemenKivuliSzobak', z.outOfService.map((u) => unitXml('lakoegyseg', u)).join('')) : '')
     + z.checkoutSales.map((s) => el('kijelentkezesNapiErtekesitesek', soldUnitXml(s))).join('')
