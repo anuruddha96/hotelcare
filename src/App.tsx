@@ -17,6 +17,7 @@ import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncement
 import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
 import { getSessionSuspension, observeSessionSuspension } from "@/lib/clientSessionGuard";
 import { canAccessChannelManager, canAccessLegacyModules } from "@/lib/roleAccess";
+import { canAccessLinkedIn } from "../supabase/functions/_shared/linkedinAccess";
 import { usePurchaseInvoiceAccess } from "@/hooks/usePurchaseInvoiceAccess";
 import { effectiveAccessRole } from "@/lib/accessPolicy";
 import { useReceptionEntryRedirect } from "@/hooks/useReceptionEntryRedirect";
@@ -41,6 +42,7 @@ const ChannelManager = lazy(() => import("./pages/ChannelManager"));
 const RatesAvailability = lazy(() => import("./pages/RatesAvailability"));
 const Revenue = lazy(() => import("./pages/Revenue"));
 const GoogleAds = lazy(() => import("./pages/GoogleAds"));
+const LinkedInMarketing = lazy(() => import("./pages/LinkedInMarketing"));
 const RevenueHotelDetail = lazy(() => import("./pages/RevenueHotelDetail"));
 const Reputation = lazy(() => import("./pages/Reputation"));
 const PriceList = lazy(() => import("./pages/PriceList"));
@@ -204,6 +206,7 @@ const TenantRouter = () => {
           <Route path="/booking-engine" element={<BookingEngineSettings />} />
           <Route path="/rates-availability" element={<RatesAvailability />} />
           <Route path="/revenue" element={<Revenue />} />
+          <Route path="/linkedin-marketing" element={user && profile?.id === user.id && canAccessLinkedIn(profile, organizationSlug) ? <LinkedInMarketing key={`${organizationSlug}:${user.id}`} /> : <Navigate to={legacyFallback} replace />} />
           <Route path="/google-ads" element={user && profile?.role === "admin" && (!profile.access_role || profile.access_role === "admin") && profile.organization_slug === organizationSlug ? <GoogleAds /> : <Navigate to={legacyFallback} replace />} />
           <Route path="/revenue/:hotelId" element={<RevenueHotelDetail />} />
           <Route path="/reputation" element={<Reputation />} />

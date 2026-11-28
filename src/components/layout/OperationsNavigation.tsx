@@ -7,6 +7,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { canAccessChannelManager, canAccessLegacyModules } from '@/lib/roleAccess';
+import { canAccessLinkedIn } from '../../../supabase/functions/_shared/linkedinAccess';
 import { usePurchaseInvoiceAccess } from '@/hooks/usePurchaseInvoiceAccess';
 import { hrNavigationFor } from '@/lib/accessPolicy';
 import { useAccessPolicy } from '@/hooks/useAccessPolicy';
@@ -16,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 type DashboardTab = 'people' | 'tickets' | 'rooms' | 'housekeeping' | 'attendance' | 'admin';
 type ModuleKey = DashboardTab | 'reception' | 'parking' | 'revenue' | 'rates-availability' | 'channel-manager'
-  | 'invoices' | 'staff-schedule' | 'insuite' | 'reputation' | 'price-list' | 'training' | 'google-ads';
+  | 'invoices' | 'staff-schedule' | 'insuite' | 'reputation' | 'price-list' | 'training' | 'google-ads' | 'linkedin-marketing';
 
 interface OperationsNavigationProps {
   /** Highlighted tab. When omitted, it is worked out from the current URL. */
@@ -31,6 +32,7 @@ function moduleFromLocation(pathname: string, search: string, basePath: string):
   const under = (segment: string) => pathname.startsWith(`${basePath}/${segment}`);
   if (under('reception') || under('reservations') || under('front-desk') || under('guests')) return 'reception';
   if (under('revenue')) return 'revenue';
+  if (under('linkedin-marketing')) return 'linkedin-marketing';
   if (under('google-ads')) return 'google-ads';
   if (under('price-list')) return 'price-list';
   if (under('rates-availability')) return 'revenue'; // merged into Revenue Management
@@ -118,6 +120,7 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     // revenue figures stay with top management; managers see the price list.
     ...(executive || (nativePms && role === 'manager' && caps.accessRole === 'manager') ? [{ key: 'revenue' as const, label: 'nav.revenue', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) }] : []),
     ...(role === 'admin' && (!profile?.access_role || profile.access_role === 'admin') && profile?.organization_slug === organizationSlug ? [{ key: 'google-ads' as const, label: 'nav.googleAds', icon: Megaphone, click: () => navigate(`${basePath}/google-ads`) }] : []),
+    ...(canAccessLinkedIn(profile, organizationSlug || profile?.organization_slug) ? [{ key: 'linkedin-marketing' as const, label: 'nav.linkedinMarketing', icon: Megaphone, click: () => navigate(`${basePath}/linkedin-marketing`) }] : []),
     ...(!executive && !nativePms && caps.priceList ? [{ key: 'price-list' as const, label: 'nav.priceList', icon: Tags, click: () => navigate(`${basePath}/price-list`) }] : []),
     ...(canAccessChannelManager(role, profile?.nickname, profile?.organization_slug) ? [{ key: 'channel-manager' as const, label: 'nav.channels', icon: Radio, click: () => navigate(`${basePath}/channel-manager`) }] : []),
     ...(caps.reviews && (executive || (role === 'manager' && organizationSlug === 'rdhotels')) ? [{ key: 'reputation' as const, label: 'nav.reputation', icon: MessageSquareText, click: () => navigate(`${basePath}/reputation`) }] : []),
