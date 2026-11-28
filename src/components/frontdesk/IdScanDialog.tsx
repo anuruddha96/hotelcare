@@ -375,6 +375,16 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     }
   }, []);
 
+  // Browsers name the connected cameras only after camera access was allowed
+  // once on this computer. Ask once, release at once, then look again.
+  const findScanners = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      stream.getTracks().forEach((track) => track.stop());
+    } catch { /* refused or no camera at all: the list below stays empty */ }
+    await refreshDevices();
+  };
+
   const adoptScanner = (device: VideoDevice) => {
     const next: ScannerSettings = { ...loadScannerSettings(), scannerId: device.deviceId, scannerLabel: device.label, preferred: 'scanner' };
     saveScannerSettings(next);
@@ -1447,6 +1457,14 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         {phase === 'camera' && (scannerWaiting || (side === 'mrz' && (source === 'wedge' || source === 'bridge'))) && (
           <div className="space-y-1.5 text-[11px] text-muted-foreground">
             {!scannerDevice && <p className="flex items-start gap-1.5 rounded-md border border-dashed border-primary/40 bg-muted/30 p-2 text-xs text-foreground"><Usb className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {t('pms.scan.scannerPlugIn')}</p>}
+            {!scannerDevice && !videoDevices.some((device) => device.label) && (
+              <Button type="button" size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={() => void findScanners()}>
+                <Usb className="h-3.5 w-3.5" /> {t('pms.scan.scannerSearch')}
+              </Button>
+            )}
+            {!scannerDevice && videoDevices.some((device) => device.label) && (
+              <p>{t('pms.scan.devicesSeen')}: {videoDevices.map((device) => device.label).filter(Boolean).join(', ')}</p>
+            )}
             {!scannerDevice && side === 'mrz' && <p>{t('pms.scan.scannerNoneFound')}</p>}
             {!scannerDevice && videoDevices.some((device) => device.label && !looksLikeBuiltInCamera(device.label)) && (
               <div className="flex flex-wrap gap-1">
